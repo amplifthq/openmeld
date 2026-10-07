@@ -51,13 +51,35 @@ export const demoSpaces = spaceNames.map((name, index) => ({
 }));
 export function useDemoConversations() {
 	const fixture = useConversationSidebarFixture();
+	const [pinned, setPinned] = useState(new Set(["release"]));
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	return {
 		...fixture,
+		owner: (item: { spaceId: string }) =>
+			pinned.has(item.spaceId) ? "pinned" : "spaces",
+		move: async (section: string, id: string) =>
+			setPinned((current) => {
+				const next = new Set(current);
+				if (section === "pinned") {
+					next.add(id);
+				} else {
+					next.delete(id);
+				}
+				return next;
+			}),
+		unpin: async (item: { spaceId: string }) =>
+			setPinned((current) => {
+				const next = new Set(current);
+				next.delete(item.spaceId);
+				return next;
+			}),
 		selected: pathname.split("/").at(-1),
 		conversations: demoSpaces.map((item) => ({
 			kind: "space" as const,
-			item,
+			item: {
+				...item,
+				pinnedAt: pinned.has(item.spaceId) ? "2026-10-01" : null,
+			},
 			spaceId: item.spaceId,
 			title: item.spaceName,
 			activity: 100,

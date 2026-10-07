@@ -1,5 +1,11 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
+import {
+	createSpaceMemberAgentSnapshot,
+	createSpaceMemberHumanSnapshot,
+	createSpaceMembersSnapshot,
+} from "@openmeld/schemas/testing";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
+import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -21,6 +27,10 @@ import {
 import { AppSurfaceLayout } from "../../src/components/app/app-surface-layout";
 import type { DirectoryHumanProfileRow } from "../../src/components/directory/directory-human-profile-model";
 import { PeopleSidebar } from "../../src/components/directory/people-sidebar";
+import {
+	TeamSidebarHeader,
+	TeamSidebarHeaderActionsProvider,
+} from "../../src/components/directory/team-sidebar-header";
 import { ConversationsSidebar } from "../../src/components/spaces/conversations-sidebar";
 import { Bubble } from "../../src/components/spaces/primitives/bubble";
 import {
@@ -32,12 +42,24 @@ import { SpaceAttachmentFileCard } from "../../src/components/spaces/space-attac
 import { SpaceComposer } from "../../src/components/spaces/space-composer";
 import type { SpaceComposerEditorHandle } from "../../src/components/spaces/space-composer-editor";
 import { SpaceWindowHeader } from "../../src/components/spaces/space-header";
+import {
+	SpaceMembersDrawer,
+	SpaceMembersSidePanel,
+	SpaceMembersToggleButton,
+} from "../../src/components/spaces/space-members-drawer";
 import { resolveSpaceMessageBubblePresentationClass } from "../../src/components/spaces/space-message-bubble-style";
 import { SpaceMessageProfileAvatar } from "../../src/components/spaces/space-message-profile-avatar";
 import { SpaceMessageSurface } from "../../src/components/spaces/space-message-surface";
 import { SpaceMessageTime } from "../../src/components/spaces/space-message-time";
+import type { SpaceView } from "../../src/components/spaces/space-view";
+import { SpaceViewTabs } from "../../src/components/spaces/space-view-tabs";
 import { demoDirectory, demoSpaces } from "./demo-data";
-import { DocumentDialog, SpaceDirectory, TeamScene } from "./demo-scenes";
+import {
+	DemoFiles,
+	DocumentDialog,
+	SpaceDirectory,
+	TeamScene,
+} from "./demo-scenes";
 import "./preview.css";
 
 const initialScene =
@@ -138,7 +160,7 @@ const sampleMessages = {
 	],
 } as const;
 const resultFiles = {
-	release: "Release notes.md",
+	release: "Launch brief.md",
 	research: "Customer interviews.md",
 	website: "Launch brief.md",
 };
@@ -201,10 +223,84 @@ function Preview() {
 	}
 	const [file, setFile] = useState<string | null>(null);
 	const [person, setPerson] = useState<string | null>(null);
+	const [membersOpen, setMembersOpen] = useState(false);
+	const [memberWidth, setMemberWidth] = useState("300px");
+	const [view, setView] = useState<SpaceView>("messages");
+	const wide = useMediaQuery("(min-width: 1024px)");
+	const membersProps = {
+		currentOwnerUserId: "preview",
+		currentProfileId: "11111111-1111-4111-8111-111111111111",
+		orgSlug: "test",
+		spaceId,
+		centerAgentProfileId: "agt_33333333-3333-4333-8333-333333333333",
+		isLoading: false,
+		membersError: null,
+		agentRecoveryPlansByProfileId: new Map(),
+		autoRefreshExhaustedProfileIds: new Set<string>(),
+		activeWakeWaitingTargetProfileIds: new Set<string>(),
+		isAgentRecoveryPending: () => false,
+		onAgentRecoveryAction: async () => undefined,
+		onRefresh: async () => undefined,
+		snapshot: createSpaceMembersSnapshot({
+			spaceId,
+			humans: [
+				createSpaceMemberHumanSnapshot({
+					profileId: "11111111-1111-4111-8111-111111111111",
+					profileName: "Maya Chen",
+					ownerUserId: "preview",
+					liveNow: true,
+				}),
+				createSpaceMemberHumanSnapshot({
+					profileId: "22222222-2222-4222-8222-222222222222",
+					profileName: "James Lee",
+					ownerUserId: "james",
+					liveNow: true,
+				}),
+			],
+			agents: [
+				createSpaceMemberAgentSnapshot({
+					profileId: "agt_33333333-3333-4333-8333-333333333333",
+					profileName: "Center Agent",
+					ownerName: "Atlas",
+					ownerUserId: null,
+					agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+					avatarStyle: "star",
+					addedByDisplayName: "Maya Chen",
+				}),
+				createSpaceMemberAgentSnapshot({
+					profileId: "agt_44444444-4444-4444-8444-444444444444",
+					profileName: "Claude Code",
+					ownerName: "Maya Chen",
+					ownerUserId: "preview",
+					agentControllerRef: "builtin:claude-code",
+					addedByDisplayName: "Maya Chen",
+				}),
+			],
+		}),
+		open: membersOpen,
+		onOpenChange: setMembersOpen,
+	};
 	let title =
 		demoSpaces.find((s) => s.spaceId === spaceId)?.spaceName ?? "Launch room";
 	let content = (
-		<Conversation key={spaceId} onOpen={setFile} spaceId={spaceId} />
+		<div className="flex min-h-0 flex-1">
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+				{view === "files" ? (
+					<DemoFiles />
+				) : (
+					<Conversation key={spaceId} onOpen={setFile} spaceId={spaceId} />
+				)}
+			</div>
+			{wide ? (
+				<SpaceMembersSidePanel
+					{...membersProps}
+					onPanelWidthChange={setMemberWidth}
+					panelWidth={memberWidth}
+				/>
+			) : (
+				<SpaceMembersDrawer {...membersProps} />
+			)}
+		</div>
 	);
 	if (scene === "Spaces") {
 		title = "Spaces";
@@ -212,7 +308,7 @@ function Preview() {
 	}
 	if (isTeam) {
 		title = "Team";
-		content = <TeamScene initial={scene} />;
+		content = <TeamScene initial={scene} people={people} />;
 	}
 	return (
 		<QueryClientProvider client={client}>
@@ -223,21 +319,24 @@ function Preview() {
 						initialModuleSidebarState={{ tier: "expanded", width: "248px" }}
 						moduleNavigation={
 							isTeam ? (
-								<PeopleSidebar
-									activityNowMs={1_791_334_800_000}
-									chatPending={false}
-									computerGroups={[]}
-									error={null}
-									loading={false}
-									members={people}
-									onChat={async () =>
-										setFile(
-											"This demo keeps conversations in the shared Spaces."
-										)
-									}
-									onSelect={setPerson}
-									selectedProfileId={person}
-								/>
+								<TeamSidebarHeaderActionsProvider>
+									<TeamSidebarHeader />
+									<PeopleSidebar
+										activityNowMs={1_791_334_800_000}
+										chatPending={false}
+										computerGroups={[]}
+										error={null}
+										loading={false}
+										members={people}
+										onChat={async () =>
+											setFile(
+												"This demo keeps conversations in the shared Spaces."
+											)
+										}
+										onSelect={setPerson}
+										selectedProfileId={person}
+									/>
+								</TeamSidebarHeaderActionsProvider>
 							) : (
 								<ConversationsSidebar />
 							)
@@ -279,19 +378,40 @@ function Preview() {
 						}
 					>
 						<section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-							<SpaceWindowHeader
-								subtitleItems={
-									scene === "Conversation"
-										? [
-												{
-													key: "members",
-													node: "Maya Chen, James Lee, Center Agent",
-												},
-											]
-										: []
-								}
-								title={title}
-							/>
+							{!isTeam && (
+								<SpaceWindowHeader
+									actions={
+										scene === "Conversation" ? (
+											<SpaceMembersToggleButton
+												controlsId={
+													wide ? "space-members-panel" : "space-members-drawer"
+												}
+												memberCount={4}
+												onOpenChange={setMembersOpen}
+												open={membersOpen}
+											/>
+										) : undefined
+									}
+									navigation={
+										scene === "Conversation" ? (
+											<SpaceViewTabs
+												activeView={view}
+												idPrefix="demo-space"
+												onViewChange={setView}
+												tasksEnabled={false}
+											/>
+										) : undefined
+									}
+									title={title}
+									titleAdornment={
+										scene === "Conversation" ? (
+											<span className="text-muted-foreground text-xs">
+												Invite only
+											</span>
+										) : undefined
+									}
+								/>
+							)}
 							{content}
 						</section>
 					</AppSurfaceLayout>
@@ -340,16 +460,18 @@ function Conversation({
 							text={message}
 						/>
 					))}
-					<div className="ml-3">
-						<SpaceAttachmentFileCard
-							fileName={isReport ? "Weekly review.md" : resultFiles[id]}
-							mimeType="text/markdown"
-							onOpen={() =>
-								onOpen(isReport ? "Weekly review.md" : resultFiles[id])
-							}
-							sizeBytes={1800}
-						/>
-					</div>
+					{(isReport || id !== "release") && (
+						<div className="ml-3">
+							<SpaceAttachmentFileCard
+								fileName={isReport ? "Weekly review.md" : resultFiles[id]}
+								mimeType="text/markdown"
+								onOpen={() =>
+									onOpen(isReport ? "Weekly review.md" : resultFiles[id])
+								}
+								sizeBytes={1800}
+							/>
+						</div>
+					)}
 					{sent.map((message) => (
 						<TranscriptMessage
 							index={message.id + 3}
@@ -425,7 +547,6 @@ const router = createRouter({
 		}),
 	]),
 });
-document.documentElement.classList.add("dark");
 document.documentElement.dataset.sidebarDisplay = "icons-only";
 const root = document.getElementById("root");
 if (root) {

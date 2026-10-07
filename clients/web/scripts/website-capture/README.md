@@ -32,8 +32,10 @@ files together to restore a prior version.
 - Team: `FileSystem`, `OrganizationSkillDocument`, and `RoutinesPage`.
 - Interaction primitives: existing `@openmeld/ui` Fluid and Base UI components.
 
-The demo supplies the title/tab composition and fictional content. Unsupported
-Team tabs are disabled. Account-changing and creation controls are omitted.
+The demo supplies fictional content through real header slots. The Space member
+button opens the product's resizable member panel or mobile drawer. Sidebar
+pinning changes memory-only state. Team uses the shared header and the real
+People overview. Unsupported Team tabs are disabled. Account-changing and creation controls are omitted.
 The product's organization initial is used for the fictional team's rail icon.
 
 ## Data boundary
@@ -49,7 +51,10 @@ origin; this is trusted authored code, not a security boundary for untrusted
 content. Do not add account/session providers or storage reads. Recheck imports
 and inspect browser network/console output after updating product components.
 
-The hero loads eagerly; lower scenes use native lazy iframes. The real editor
+The hero loads eagerly; lower scenes use native lazy iframes. Each scene
+starts on a dark HTML canvas before scripts or styles load. The shell reserves
+only its normal 8px bottom inset, with no bottom toolbar.
+The real editor
 and component bundle is larger than a screenshot. Do not claim production
 performance from a localhost smoke; measure the deployed asset delivery before
 promoting this draft.

@@ -6,10 +6,14 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
+import { UsersThreeIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useState } from "react";
 import { MessageResponse } from "../../src/components/ai/message-response";
+import type { DirectoryHumanProfileRow } from "../../src/components/directory/directory-human-profile-model";
+import { TeamHome } from "../../src/components/directory/team-home";
 import type { FileSystemItem } from "../../src/components/extend/file-system";
 import { SpaceDirectory as ProductSpaceDirectory } from "../../src/components/spaces/space-directory";
+import { SpaceWindowHeader } from "../../src/components/spaces/space-header";
 import { demoSkill, demoSpaces } from "./demo-data";
 
 const FileSystem = lazy(() =>
@@ -30,8 +34,6 @@ const SkillDocument = lazy(() =>
 const documents: Record<string, string> = {
 	"Launch brief.md":
 		"# A calmer start to every project\n\n## Who it is for\nSmall product teams that work with coding agents.\n\n## What ships Friday\nA shared launch checklist, a shorter setup flow, and clear handoffs between teammates.\n\n## Decisions\nKeep the first release focused. Publish the setup guide before the announcement. Maya owns the final review.",
-	"Release notes.md":
-		"# This week in Atlas\n\n## Start a project together\nInvite your team, add a brief, and bring your agents into the conversation.\n\n## Pick up where you left off\nYour files and decisions stay with the project.\n\n## Before you share\nCheck the setup link and confirm the Friday release window.",
 	"Customer interviews.md":
 		"# What we heard\n\nSix teams described the same handoff problem: useful agent work stays in one person’s terminal.\n\n## Requests\n- Let another teammate continue the conversation.\n- Keep the source files next to the result.\n- Make it clear which agent did the work.\n\n## Next step\nTest the shared launch workflow with three teams.",
 	"Weekly review.md":
@@ -50,12 +52,6 @@ const files: FileSystemItem[] = [
 		path: "Team Knowledge/Customer interviews.md",
 		contentType: "text/markdown",
 		size: 4600,
-	},
-	{
-		kind: "file",
-		path: "Release notes.md",
-		contentType: "text/markdown",
-		size: 1800,
 	},
 	{
 		kind: "file",
@@ -129,13 +125,10 @@ export function SpaceDirectory() {
 		</div>
 	);
 }
-export function TeamScene({ initial = "Files" }: { initial?: string }) {
-	const [tab, setTab] = useState(initial);
+export function DemoFiles() {
 	const [file, setFile] = useState<string | null>(null);
-	const [bundle, setBundle] = useState(demoSkill.bundle);
-	let content = <RoutinesPage />;
-	if (tab === "Files") {
-		content = (
+	return (
+		<Suspense fallback={null}>
 			<FileSystem
 				defaultView="icons"
 				embedded
@@ -145,7 +138,35 @@ export function TeamScene({ initial = "Files" }: { initial?: string }) {
 				}
 				title="Team files"
 			/>
+			<DocumentDialog name={file} onClose={() => setFile(null)} />
+		</Suspense>
+	);
+}
+export function TeamScene({
+	initial = "Files",
+	people,
+}: {
+	initial?: string;
+	people: DirectoryHumanProfileRow[];
+}) {
+	const [tab, setTab] = useState(initial);
+	const [file, setFile] = useState<string | null>(null);
+	const [bundle, setBundle] = useState(demoSkill.bundle);
+	let content = <RoutinesPage />;
+	if (tab === "People") {
+		content = (
+			<TeamHome
+				activityNowMs={1_791_334_800_000}
+				computerGroups={[]}
+				members={people}
+				onSelect={(id) =>
+					setFile(people.find((p) => p.id === id)?.name ?? null)
+				}
+			/>
 		);
+	}
+	if (tab === "Files") {
+		content = <DemoFiles />;
 	}
 	if (tab === "Skills") {
 		content = (
@@ -163,25 +184,31 @@ export function TeamScene({ initial = "Files" }: { initial?: string }) {
 	const tabs = ["People", "Agents", "Plugins", "Skills", "Files", "Routines"];
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="overflow-x-auto border-border border-b px-6 pb-2">
-				<TabsSubtle
-					aria-label="Team view"
-					className="gap-5"
-					onSelect={(index) => setTab(tabs[index])}
-					selectedIndex={tabs.indexOf(tab)}
-					variant="underline"
-				>
-					{tabs.map((name, index) => (
-						<TabsSubtleItem
-							disabled={index < 3}
-							index={index}
-							key={name}
-							label={name}
-							labelClassName="text-sm"
-						/>
-					))}
-				</TabsSubtle>
-			</div>
+			<SpaceWindowHeader
+				leadingControl={
+					<UsersThreeIcon className="size-4 text-muted-foreground" />
+				}
+				navigation={
+					<TabsSubtle
+						aria-label="Team view"
+						className="h-full shrink-0 gap-5"
+						onSelect={(index) => setTab(tabs[index])}
+						selectedIndex={tabs.indexOf(tab)}
+						variant="underline"
+					>
+						{tabs.map((name, index) => (
+							<TabsSubtleItem
+								disabled={index === 1 || index === 2}
+								index={index}
+								key={name}
+								label={name}
+								labelClassName="text-sm"
+							/>
+						))}
+					</TabsSubtle>
+				}
+				title="Team"
+			/>
 			<div className="min-h-0 flex-1 overflow-auto p-6">
 				<Suspense
 					fallback={

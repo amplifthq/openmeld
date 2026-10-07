@@ -7,13 +7,18 @@ html {
 body {
 	margin: 0;
 }
+[data-slot="app-surface-layout"] {
+	--app-toolbar-height: 0.5rem;
+}
+/* The homepage frame is capped at 1200px; retain the real panel within it. */
+@media (min-width: 1024px) {
+	[data-slot="sidebar-wrapper"]:has(#space-members-panel) {
+		display: flex;
+	}
+}
 /* Creation and account-changing actions are outside this bounded demo. */
 [aria-label="New conversation"],
-[aria-label^="Pin "],
-[aria-label^="Unpin "],
-[aria-label^="Actions for Launch"],
-[aria-label^="Actions for Customer"],
-[aria-label^="Actions for Website"],
+[aria-label="Add to Team"],
 [aria-label="Create routine"] {
 	display: none;
 }
