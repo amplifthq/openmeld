@@ -27,11 +27,15 @@ describe("api-client Agent Activity API", () => {
       })
     );
 
-    await api.readSessions({ computerId: "computer-1", cursor: "page+/=" });
+    await api.readSessions({
+      computerId: "computer-1",
+      cursor: "page+/=",
+      limit: 25,
+    });
 
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/organizations/current/agent-activity/sessions?computerId=computer-1&cursor=page%2B%2F%3D",
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/agent-activity/sessions?computerId=computer-1&cursor=page%2B%2F%3D&limit=25",
       })
     );
   });

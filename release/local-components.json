@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T12:56:48.396Z",
+  "updatedAt": "2026-10-07T13:00:22.799Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.248",
       "updatePolicy": "available",
-      "reason": "Fix Codex discovery and preserve refreshed routes for queued Wakes without changing execution authority."
+      "reason": "Computer filtering is optional and rolls out after Gateway and Core; existing setup, Wake, and history requests remain compatible."
     },
     "service": {
-      "bundleHash": "b0aebc4526d2f2a10112500f150b6e030237b64bfe2c16d434a84bca71d0e9d8",
-      "portableBundleHash": "9b420e3cb237e71a9be0adcc15b2a206bf710d9d5c48c493388f90c5c25fd4dd",
-      "bundleVersion": "0.3.247",
+      "bundleHash": "9adfd8b33b639f11a1c282e49f4cdcf45801a22f40fdd49aa0071f6742b3ccf9",
+      "portableBundleHash": "aec9291102400a8f15051177e8cdda1ba324ec27058c7aaa62fabff3c9c90940",
+      "bundleVersion": "0.3.248",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Fix Codex discovery and preserve refreshed routes for queued Wakes without changing execution authority."
+      "reason": "Codex metadata mapping and in-place route refresh preserve transport payloads, identity checks, and execution authority."
     },
     "skills": {
       "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",
