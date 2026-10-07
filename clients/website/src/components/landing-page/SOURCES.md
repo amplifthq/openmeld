@@ -1,8 +1,13 @@
 # Landing page sources
 
-The product images come from the production-component capture preview in
-`clients/web/scripts/website-capture`. They use fictional sample content, not
-customer data or recorded execution results. No product UI is redrawn here.
+Interactive product scenes are built from real Web components in
+`clients/web/scripts/website-capture`. The checked-in `public/product-demo`
+artifact is refreshed explicitly; normal Website builds do not build or import
+Web. It contains fictional Atlas sample data, not customer data or live agent
+results. See the capture directory README for provenance, boundaries, and the
+refresh command. Product shell assembly and selected headers are composed in
+the harness; the directory, editor, messages, files, Skills, and Routine controls
+use product components.
 
 Navigation and agent-directory hover use the shared Fluid Hover hook and
 highlight from `@openmeld/ui`. Links retain native focus and activation;

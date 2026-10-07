@@ -1,0 +1,19 @@
+@import "../../src/styles.css";
+@source "../../src";
+@source ".";
+html {
+	color-scheme: dark;
+}
+body {
+	margin: 0;
+}
+/* Creation and account-changing actions are outside this bounded demo. */
+[aria-label="New conversation"],
+[aria-label^="Pin "],
+[aria-label^="Unpin "],
+[aria-label^="Actions for Launch"],
+[aria-label^="Actions for Customer"],
+[aria-label^="Actions for Website"],
+[aria-label="Create routine"] {
+	display: none;
+}

@@ -1,0 +1,1 @@
+import{j as t,c as s}from"./index-BUzX8993.js";function l({className:e,...a}){return t.jsx("label",{className:s("flex select-none items-center gap-2 text-xs leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50 group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50",e),"data-slot":"label",...a})}export{l as L};

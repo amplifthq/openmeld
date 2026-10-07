@@ -23,49 +23,67 @@ import {
 } from "@phosphor-icons/react";
 import { MotionConfig } from "motion/react";
 import { type ReactNode, useRef } from "react";
-import workspaceImage from "#/assets/product/shared-space.jpg";
-import workspaceMobileImage from "#/assets/product/shared-space-mobile.jpg";
 import { appUrl } from "#/lib/app-url";
 import "./landing-page.css";
 
 const REPOSITORY_URL = "https://github.com/amplifthq/openmeld";
-const navigation = [
-	{ label: "Product", href: "#product" },
-	{ label: "Connect your agents", href: "#agents" },
-	{ label: "Changelog", href: "/changelog" },
-] as const;
 const questions = [
 	{
-		question: "What can I do first?",
+		question: "What can I try first?",
 		answer:
-			"Open the app and ask your Center Agent for help. It runs in the cloud, so you can start in your browser. Create a shared Space when you want teammates and other agents to join the work.",
+			"Open the app and ask your Center Agent to research a topic or work on a file. It runs in the cloud. When you want teammates and other agents involved, create a shared Space.",
 	},
 	{
-		question: "Can I use the agents I already pay for?",
+		question: "Can I keep my existing agent subscriptions?",
 		answer:
-			"Yes. Connect a supported agent installed on your computer, such as Codex or Claude Code. Keep its existing sign-in and subscription. Your provider’s usage limits and charges still apply.",
+			"Yes. Connect a supported agent installed on your computer, such as Codex or Claude Code. It keeps its existing sign-in and subscription. Your provider’s usage limits and charges still apply.",
 	},
 	{
 		question: "Does my computer need to stay on?",
 		answer:
-			"For a local agent to work, its computer must be online with OpenMeld connected. The hosted Center Agent runs in the cloud and does not depend on your computer.",
+			"Your computer must be online and connected for its local agents to work. The hosted Center Agent runs in the cloud and does not depend on your computer.",
 	},
 	{
-		question: "Can my team use it from Slack?",
+		question: "What happens to our files and conversations?",
 		answer:
-			"Yes. An admin can connect the organization’s Center Agent to Slack, Lark, or Feishu. Internal members can then ask it for help there. Connect an OpenMeld account for personal tools, local agents, and account-specific permissions.",
+			"Shared conversations, context, and published results are stored in OpenMeld’s cloud workspace. Local agents run on your computer. Connected AI providers and tools process the data needed for their work. Local execution does not mean all data stays on your computer.",
 	},
 	{
-		question: "Where does our data go?",
+		question: "Is the workspace on this page live?",
 		answer:
-			"Conversations, shared context, and published results are stored in OpenMeld’s cloud workspace. Local agents run on your computer. Connected AI providers and tools process the data needed for their work. Local execution does not mean all data stays on your computer.",
+			"It uses OpenMeld’s product components with fictional data. You can explore, open files, and try the message editor. The demo does not contact an agent, connect an account, or save your changes. Reload it to start over.",
 	},
-	{
-		question: "Is OpenMeld ready for production?",
-		answer:
-			"OpenMeld is experimental and actively developed. Start with a small task and review the result before using it for important work. You can inspect the source on GitHub and follow updates in the changelog.",
-	},
-] as const;
+];
+
+function ProductDemo({
+	scene,
+	title,
+	hero = false,
+}: {
+	scene: string;
+	title: string;
+	hero?: boolean;
+}) {
+	return (
+		<div className={`meld-demo ${hero ? "meld-demo-hero" : ""}`}>
+			<iframe
+				loading={hero ? "eager" : "lazy"}
+				referrerPolicy="no-referrer"
+				sandbox="allow-scripts allow-same-origin"
+				src={`/product-demo/index.html?scene=${scene}`}
+				title={title}
+			/>
+			<a
+				className="meld-demo-expand"
+				href={`/product-demo/index.html?scene=${scene}`}
+				rel="noreferrer"
+				target="_blank"
+			>
+				Open demo <ArrowUpRightIcon aria-hidden size={14} />
+			</a>
+		</div>
+	);
+}
 
 export function LandingPage() {
 	return (
@@ -79,217 +97,269 @@ export function LandingPage() {
 						<a aria-label="OpenMeld homepage" className="meld-brand" href="/">
 							<OpenMeldWordmark />
 						</a>
-						<nav aria-label="Main navigation" className="meld-nav">
+						<nav aria-label="Main navigation">
 							<LandingLinks
 								axis="x"
 								className="meld-nav-items"
-								links={navigation.map((item) => ({
-									href: item.href,
-									content: item.label,
-								}))}
+								links={[
+									{ href: "#product", content: "Product" },
+									{ href: "#agents", content: "Agents" },
+									{ href: "https://docs.openmeld.ai", content: "Docs" },
+									{ href: "/changelog", content: "Changelog" },
+								]}
 							/>
 						</nav>
 						<a className="meld-header-action" href={appUrl("/")}>
-							Open app <ArrowUpRightIcon aria-hidden size={15} />
+							Open app <ArrowUpRightIcon aria-hidden size={14} />
 						</a>
 					</div>
 				</header>
 				<main id="main-content">
 					<section aria-labelledby="hero-title" className="meld-hero meld-wrap">
-						<a className="meld-release" href="/changelog">
-							<span className="meld-release-dot" /> Open source. In active
-							development. <ArrowRightIcon aria-hidden size={14} />
-						</a>
-						<div className="meld-hero-copy">
-							<h1 id="hero-title">
-								Work with your team.
-								<br />
-								<span>And their agents.</span>
-							</h1>
-							<div className="meld-hero-aside">
-								<p>
-									Give your teammates, Codex, and Claude Code one place to work.
-									Share the context. Ask for help. Review the result together.
-								</p>
-								<div className="meld-actions">
-									<a className="meld-button" href={appUrl("/")}>
-										Start with OpenMeld <ArrowRightIcon aria-hidden size={16} />
-									</a>
-									<a className="meld-link" href={REPOSITORY_URL}>
-										<GithubLogoIcon aria-hidden size={18} /> GitHub
-									</a>
-								</div>
-							</div>
-						</div>
-						<figure className="meld-product" id="product">
-							<div className="meld-product-label">
-								<span>
-									<span className="meld-live-dot" /> ONE SHARED SPACE
-								</span>
-								<span>People + agents + context</span>
-							</div>
-							<a
-								aria-label="View full-size OpenMeld interface screenshot"
-								className="meld-product-image"
-								href={workspaceImage}
-								rel="noreferrer"
-								target="_blank"
-							>
-								<picture>
-									<source
-										height={2080}
-										media="(max-width: 540px)"
-										srcSet={workspaceMobileImage}
-										width={780}
-									/>
-									<img
-										alt="OpenMeld shared Space: Maya asks about a release, Codex reports a patch, and Claude Code reviews the remaining checks."
-										fetchPriority="high"
-										height={1520}
-										src={workspaceImage}
-										width={2560}
-									/>
-								</picture>
+						<h1 id="hero-title">
+							Your team. Your agents.
+							<br />
+							<span>One shared workspace.</span>
+						</h1>
+						<p className="meld-hero-description">
+							Bring Codex, Claude Code, and your cloud agents into the same
+							conversation. Turn a brief into work your whole team can review.
+						</p>
+						<div className="meld-actions">
+							<a className="meld-button" href={appUrl("/")}>
+								Start with OpenMeld <ArrowRightIcon aria-hidden size={16} />
 							</a>
-							<figcaption>
-								<span>OpenMeld interface. Sample workspace.</span>
-								<span>
-									View full size <ArrowUpRightIcon aria-hidden size={13} />
-								</span>
-							</figcaption>
-						</figure>
-					</section>
-					<section aria-labelledby="work-title" className="meld-work meld-wrap">
-						<div className="meld-section-heading">
-							<p className="meld-eyebrow">
-								A conversation that moves the work forward
-							</p>
-							<h2 id="work-title">
-								The team sees the request.
-								<br />
-								The team gets the result.
-							</h2>
+							<a className="meld-link" href={REPOSITORY_URL}>
+								<GithubLogoIcon aria-hidden size={18} /> Built in the open
+							</a>
 						</div>
-						<div className="meld-work-grid">
+						<div id="product">
+							<ProductDemo
+								hero
+								scene="Conversation"
+								title="Interactive OpenMeld Space demo"
+							/>
+						</div>
+						<p className="meld-demo-note">
+							Demo workspace. Open the release notes, explore a Space, or try
+							the editor.
+						</p>
+					</section>
+					<section
+						aria-labelledby="together-title"
+						className="meld-section meld-wrap"
+					>
+						<div className="meld-section-heading">
+							<h2 id="together-title">
+								The whole team.
+								<br />
+								<span>In on the work.</span>
+							</h2>
+							<p>
+								A teammate adds the brief. An agent prepares the draft. You open
+								the file and ask for a change. Everyone can follow the work in
+								the same Space.
+							</p>
+						</div>
+						<ProductDemo scene="Spaces" title="Explore OpenMeld Spaces" />
+						<div className="meld-details">
 							<article>
-								<span className="meld-index">01 / SHARE</span>
-								<h3>Start with the same context.</h3>
+								<h3>One conversation to build on.</h3>
 								<p>
-									Put the brief, files, and decisions in a shared Space. People
-									and agents can refer to the same conversation.
+									People and agents share the thread. The next question starts
+									with the work already there.
 								</p>
 							</article>
 							<article>
-								<span className="meld-index">02 / ASK</span>
-								<h3>Bring in the right agent.</h3>
+								<h3>Results you can use.</h3>
 								<p>
-									Mention an agent when you need it. Connect local agents for
-									work in your projects, or ask the hosted Center Agent.
+									Open the document. Review the changes. Give the next
+									instruction where the result arrived.
 								</p>
 							</article>
 							<article>
-								<span className="meld-index">03 / REVIEW</span>
-								<h3>Keep the answer with the work.</h3>
+								<h3>A place for every project.</h3>
 								<p>
-									Agent replies return to the Space. Your teammates can read the
-									result, ask a follow-up, and decide what happens next.
+									Keep the launch, customer research, and website work in their
+									own Spaces.
 								</p>
 							</article>
 						</div>
 					</section>
 					<section
 						aria-labelledby="agents-title"
-						className="meld-agents"
+						className="meld-section meld-agents"
 						id="agents"
 					>
-						<div className="meld-wrap meld-agents-inner">
-							<div className="meld-agents-copy">
-								<p className="meld-eyebrow">
-									Your tools. A shared place to use them.
-								</p>
+						<div className="meld-wrap">
+							<div className="meld-section-heading">
 								<h2 id="agents-title">
-									Keep the agents
+									Already your agents.
 									<br />
-									you already know.
+									<span>Now part of the team.</span>
 								</h2>
-								<p>
-									Connect the coding agents on your computer. Keep their
-									accounts, your project files, and the way you work. Give your
-									team a shared place to ask for their help.
-								</p>
-								<a className="meld-link" href={LOCAL_AGENTS_GUIDE_PATH}>
-									Connect your first agent{" "}
-									<ArrowRightIcon aria-hidden size={16} />
-								</a>
+								<div>
+									<p>
+										Connect the agents on your computer. Keep your
+										subscriptions, project files, and local tools. Give your
+										team a shared place to work with them.
+									</p>
+									<a className="meld-link" href={LOCAL_AGENTS_GUIDE_PATH}>
+										Connect your first agent{" "}
+										<ArrowRightIcon aria-hidden size={16} />
+									</a>
+								</div>
 							</div>
-							<div className="meld-agent-directory">
-								<LandingLinks
-									axis="xy"
-									className="meld-agent-links"
-									links={listLocalAgentInstallGuides().map((agent) => ({
-										href: buildLocalAgentGuideDetailPath(agent.agentId),
-										content: (
-											<>
-												<LocalAgentLogo
-													agentId={`builtin:${agent.agentId}`}
-													className="meld-agent-logo"
-												/>
-												<span>{agent.displayName}</span>
-												<ArrowUpRightIcon aria-hidden size={16} />
-											</>
-										),
-									}))}
-								/>
-								<p>Local agents need a connected, online computer.</p>
-							</div>
+							<LandingLinks
+								axis="xy"
+								className="meld-agent-links"
+								links={listLocalAgentInstallGuides().map((agent) => ({
+									href: buildLocalAgentGuideDetailPath(agent.agentId),
+									content: (
+										<>
+											<LocalAgentLogo
+												agentId={`builtin:${agent.agentId}`}
+												className="meld-agent-logo"
+											/>
+											<span>{agent.displayName}</span>
+											<ArrowUpRightIcon aria-hidden size={15} />
+										</>
+									),
+								}))}
+							/>
+							<p className="meld-footnote">
+								Local agents work while their computer is connected. Your Center
+								Agent runs in the cloud.
+							</p>
 						</div>
 					</section>
 					<section
-						aria-labelledby="channels-title"
-						className="meld-channels meld-wrap"
+						aria-labelledby="knowledge-title"
+						className="meld-section meld-wrap"
 					>
-						<p className="meld-eyebrow">Start where your team talks</p>
-						<div className="meld-channels-body">
-							<h2 id="channels-title">
-								A browser tab.
+						<div className="meld-section-heading">
+							<h2 id="knowledge-title">
+								Your team’s knowledge.
 								<br />
-								Or your team’s Slack.
+								<span>Ready for the next task.</span>
+							</h2>
+							<p>
+								Give agents the product brief, customer notes, and decisions
+								behind the work. Keep useful instructions in shared Skills,
+								ready to use again.
+							</p>
+						</div>
+						<ProductDemo scene="Files" title="Explore team files and Skills" />
+						<div className="meld-details meld-details-two">
+							<article>
+								<h3>The context is already here.</h3>
+								<p>
+									Organize shared documents in Team Knowledge. Keep personal
+									files separate. Bring the right material into each task.
+								</p>
+							</article>
+							<article>
+								<h3>Teach it once. Use it again.</h3>
+								<p>
+									Turn your release-writing rules or research method into a
+									Skill. Share the instructions and reference files with the
+									team.
+								</p>
+							</article>
+						</div>
+					</section>
+					<section
+						aria-labelledby="routine-title"
+						className="meld-section meld-wrap"
+					>
+						<div className="meld-section-heading">
+							<h2 id="routine-title">
+								Friday’s review.
+								<br />
+								<span>Already on the calendar.</span>
+							</h2>
+							<p>
+								Set a Routine to review project updates every week. Choose the
+								instructions, schedule, and destination. Read each result in the
+								conversation where your team works.
+							</p>
+						</div>
+						<ProductDemo
+							scene="Routines"
+							title="Explore a scheduled project review"
+						/>
+					</section>
+					<section
+						aria-labelledby="channel-title"
+						className="meld-section meld-channel-section"
+					>
+						<div className="meld-wrap meld-section-heading">
+							<h2 id="channel-title">
+								The next task starts
+								<br />
+								<span>in your team’s Slack.</span>
 							</h2>
 							<div>
 								<p>
-									Start in OpenMeld, or connect your Center Agent to Slack,
-									Lark, or Feishu. Your team can ask for help in a channel it
-									already uses.
+									Ask your Center Agent for help without leaving the channel.
+									Connect the tools it needs for the job. Slack, Lark, and
+									Feishu are supported.
 								</p>
-								<a className="meld-link" href={appUrl("/add-to-slack")}>
-									Add to Slack <ArrowRightIcon aria-hidden size={16} />
+								<a className="meld-button" href={appUrl("/add-to-slack")}>
+									Add to Slack <ArrowUpRightIcon aria-hidden size={16} />
 								</a>
 							</div>
 						</div>
 					</section>
-					{/* Layout adapted from Tailark Mist FAQs 2; see SOURCES.md. Interaction is owned by @openmeld/ui. */}
+					<section
+						aria-labelledby="computer-title"
+						className="meld-section meld-wrap meld-computer-section"
+					>
+						<div className="meld-section-heading">
+							<h2 id="computer-title">
+								Give the work
+								<br />
+								<span>a computer of its own.</span>
+							</h2>
+							<p>
+								Your cloud agent can work with files, run code, and use a
+								browser. It has an environment to prepare the work, check it,
+								and bring back the result.
+							</p>
+						</div>
+						<div className="meld-details">
+							<article>
+								<h3>Files it can work on.</h3>
+								<p>Prepare documents and process data in a cloud workspace.</p>
+							</article>
+							<article>
+								<h3>Code it can run.</h3>
+								<p>Use a terminal, install dependencies, and test changes.</p>
+							</article>
+							<article>
+								<h3>Tools for the task.</h3>
+								<p>
+									Use connected apps and Skills within the access you grant.
+								</p>
+							</article>
+						</div>
+						<a className="meld-link" href="https://docs.openmeld.ai">
+							Explore the docs <ArrowUpRightIcon aria-hidden size={16} />
+						</a>
+					</section>
 					<section
 						aria-labelledby="faq-title"
-						className="meld-faq meld-wrap"
-						id="faq"
+						className="meld-section meld-faq meld-wrap"
 					>
 						<div>
-							<p className="meld-eyebrow">Before you start</p>
-							<h2 id="faq-title">
-								A few useful <br />
-								answers.
-							</h2>
+							<h2 id="faq-title">A few useful answers.</h2>
 							<a className="meld-link" href={LOCAL_AGENTS_GUIDE_PATH}>
 								Setup guide <ArrowUpRightIcon aria-hidden size={15} />
 							</a>
 						</div>
-						<Accordion className="meld-questions">
+						<Accordion>
 							{questions.map((item) => (
-								<AccordionItem
-									className="meld-question"
-									key={item.question}
-									value={item.question}
-								>
+								<AccordionItem key={item.question} value={item.question}>
 									<AccordionTrigger>{item.question}</AccordionTrigger>
 									<AccordionContent>
 										<p>{item.answer}</p>
@@ -298,23 +368,15 @@ export function LandingPage() {
 							))}
 						</Accordion>
 					</section>
-					<section className="meld-start">
-						<div className="meld-wrap meld-start-inner">
-							<div>
-								<p className="meld-eyebrow">Start with one real task</p>
-								<h2>
-									Bring your work.
-									<br />
-									Bring your agents.
-								</h2>
-							</div>
-							<div>
-								<a className="meld-button" href={appUrl("/")}>
-									Start with OpenMeld <ArrowRightIcon aria-hidden size={16} />
-								</a>
-								<p>Open the app. Ask your first question.</p>
-							</div>
-						</div>
+					<section className="meld-start meld-wrap">
+						<h2>
+							Bring a real task.
+							<br />
+							<span>See where it goes.</span>
+						</h2>
+						<a className="meld-button" href={appUrl("/")}>
+							Start with OpenMeld <ArrowRightIcon aria-hidden size={16} />
+						</a>
 					</section>
 				</main>
 				<footer className="meld-footer meld-wrap">
@@ -322,11 +384,10 @@ export function LandingPage() {
 						<a aria-label="OpenMeld homepage" className="meld-brand" href="/">
 							<OpenMeldWordmark />
 						</a>
-						<p>People and agents, working together.</p>
-						<span>Experimental software. Built in the open.</span>
+						<p>Experimental software. Built in the open.</p>
 					</div>
 					<nav aria-label="Footer">
-						<a href={appUrl("/agent-interface")}>Agent guide</a>
+						<a href="https://docs.openmeld.ai">Docs</a>
 						<a href="/changelog">Changelog</a>
 						<a href={REPOSITORY_URL}>GitHub</a>
 						<a href="/privacy">Privacy</a>
@@ -350,8 +411,8 @@ function LandingLinks({
 	const ref = useRef<HTMLDivElement>(null);
 	const hover = useFluidHover(ref, { axis, gapClick: false });
 	return (
-		// biome-ignore lint/a11y/noNoninteractiveElementInteractions: shared hover only; native links retain all activation and keyboard behavior.
-		// biome-ignore lint/a11y/noStaticElementInteractions: pointer movement only drives a decorative shared highlight, not an action.
+		// biome-ignore lint/a11y/noNoninteractiveElementInteractions: Pointer motion controls only the shared decorative highlight.
+		// biome-ignore lint/a11y/noStaticElementInteractions: Native links own activation and keyboard focus.
 		<div
 			className={className}
 			onMouseEnter={hover.handlers.onMouseEnter}
@@ -371,7 +432,6 @@ function LandingLinks({
 		</div>
 	);
 }
-
 function LandingLink({
 	link,
 	index,

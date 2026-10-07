@@ -22,6 +22,23 @@ reader. Brand components, fonts, and assets belong to `@openmeld/ui`; static
 agent metadata and public metadata helpers belong to `@openmeld/product-catalog`.
 Public content is not duplicated in Web.
 
+### Frozen product demo
+
+`/product-demo/` is a static, explicitly refreshed presentation artifact. Its
+builder lives in `clients/web/scripts/website-capture` and composes real Web
+components with fictional data and memory-only adapters. Website runtime code
+does not import Web-private modules or call App APIs. Website builds publish
+the checked-in artifact; they do not rebuild it when product code changes.
+
+The embedded demo supports a bounded set of interactions: Space navigation,
+local message composition, file browsing, Skill inspection, and sample Routine
+editing, pause/resume, and history. It does not authenticate, execute agents,
+connect providers, or persist changes. Transport and preference adapters are
+replaced during compilation. A CSP blocks network connections and form
+submission. The iframe permits same-origin scripts so normal module loading
+works; it is trusted authored presentation, not an origin isolation boundary.
+Keep this boundary and the explicit refresh instructions in the builder README.
+
 Navigation uses ordinary anchors. App links enter the existing App resolver,
 which alone chooses the viewer's Organization and checks access. Web's public
 page stubs redirect to the website. `/agent-interface` remains an interactive

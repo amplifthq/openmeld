@@ -6,7 +6,8 @@ areas: ["website"]
 audiences: ["users", "admins"]
 ---
 
-The homepage now shows OpenMeld's interface with a sample shared conversation
-between a teammate, Codex, and Claude Code. Separate desktop and mobile captures
-keep the product readable on smaller screens. The page explains shared Spaces,
-local agent setup, browser and Slack entry points, and current product limits.
+Explore OpenMeld from the homepage without creating an account. The demo uses
+real product components with fictional data. Open a shared Space, try the
+message editor, browse files and Skills, or edit and pause a sample Routine.
+Changes stay in the page and reset on reload. The homepage also explains local
+agents, shared team context, Slack access, and cloud computers.

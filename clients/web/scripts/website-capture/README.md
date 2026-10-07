@@ -1,29 +1,55 @@
-# Website product captures
+# Frozen Website demo
 
-Run from the repository root:
+Build-time reuse keeps the Website honest without tying its release to every
+App UI change. The source composes actual Web and shared UI components. The
+Website publishes the resulting static artifact, not a second product app.
+
+## Provenance and refresh
+
+This revision starts from product UI at `c0732ec03` on origin/main. All sample
+people, messages, files, Skills, and Routine results belong to fictional Atlas.
+No production account, captured conversation, or private asset is included.
+
+From the repository root:
 
 ```sh
-pnpm -C clients/web exec vite --config scripts/website-capture/vite.config.ts
+pnpm -C clients/web exec vite build --config scripts/website-capture/vite.config.ts
+pnpm -C clients/website dev
 ```
 
-Open `http://127.0.0.1:30185/o/test/spaces/release` in a browser. Capture at
-1280 × 760 and 390 × 1040 CSS pixels, with device scale 2. Export JPEG at
-quality 94 to `clients/website/src/assets/product/shared-space.jpg` and
-`shared-space-mobile.jpg`. Inspect both images before updating them.
+Review `/product-demo/index.html?scene=Conversation`, `Spaces`, `Files`,
+`Skills`, and `Routines`, plus the embedded homepage at desktop and phone
+widths. Commit the builder and regenerated `clients/website/public/product-demo`
+together. Ordinary Website builds never refresh this artifact. Revert those
+files together to restore a prior version.
 
-This preview imports production Web components for the shell, navigation,
-sidebar, conversation header, message surfaces, profile avatars, Markdown, and
-composer. It composes these surfaces with fictional conversation data. It is
-not a recording of a live agent execution or a signed-in user session.
+## Real component owners
 
-The preview reuses the existing conversation-preview transport isolation.
-Server functions throw instead of calling a Worker. The composer does not send
-messages. No production account, credentials, private files, or user history
-are loaded. The sidebar data comes from the existing in-memory test fixture.
-The capture override selects Release planning to match the transcript.
+- Shell: `AppSurfaceLayout`, `AppRailNavigationGroup`, `ConversationsSidebar`,
+  `PeopleSidebar`, and `SpaceWindowHeader`. The harness composes their slots.
+- Spaces: `SpaceDirectory`, message primitives, `SpaceAttachmentFileCard`, and
+  `SpaceComposer` with the real editor.
+- Team: `FileSystem`, `OrganizationSkillDocument`, and `RoutinesPage`.
+- Interaction primitives: existing `@openmeld/ui` Fluid and Base UI components.
 
-Website consumes static image assets only. Do not import Web components into
-Website or add an authenticated App dependency to the public landing page.
+The demo supplies the title/tab composition and fictional content. Unsupported
+Team tabs are disabled. Account-changing and creation controls are omitted.
+The product's organization initial is used for the fictional team's rail icon.
 
-Refresh these captures when the production UI changes. The public caption must
-continue to identify the sample workspace.
+## Data boundary
+
+Memory adapters replace server functions, Routine API calls, organization
+context, sidebar preferences, cookies, and browser preferences. A memory router
+keeps product links inside the demo. The local composer appends a visitor's text
+without simulating an agent response. Reloading clears all edits.
+
+The artifact CSP has `connect-src 'none'` and `form-action 'none'`. It has no
+credentials or live execution transport. The iframe permits scripts and same
+origin; this is trusted authored code, not a security boundary for untrusted
+content. Do not add account/session providers or storage reads. Recheck imports
+and inspect browser network/console output after updating product components.
+
+The hero loads eagerly; lower scenes use native lazy iframes. The real editor
+and component bundle is larger than a screenshot. Do not claim production
+performance from a localhost smoke; measure the deployed asset delivery before
+promoting this draft.
