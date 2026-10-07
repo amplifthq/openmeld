@@ -313,6 +313,8 @@ const createRecordingPostgres = async (input?: {
   dispatchFactsByDispatchId?: ReadonlyMap<string, RecordingDispatchFact>;
   executionRow?: RecordingRuntimeCoordinatorExecutionRow | null;
   interactionInboxResolveFailures?: number;
+  interactionInboxResolveGate?: Promise<void>;
+  onInteractionInboxResolve?: () => void;
   interactionInboxWriteFailures?: number;
   readinessImpactWriteError?: Error | null;
   replyPublishedProjectionWriteFailures?: number;
@@ -624,6 +626,8 @@ const createRecordingPostgres = async (input?: {
       if (text.trimStart().startsWith("INSERT")) {
         fail("interactionWrite", "interaction Inbox write unavailable");
       } else if (text.includes("resolution_status = 'resolved'")) {
+        input?.onInteractionInboxResolve?.();
+        await input?.interactionInboxResolveGate;
         fail("interactionResolve", "interaction Inbox resolution unavailable");
       }
     }
@@ -709,6 +713,8 @@ const createHarness = async (input?: {
   exhaustionProjectionRereadError?: boolean;
   executionRow?: RecordingRuntimeCoordinatorExecutionRow | null;
   interactionInboxResolveFailures?: number;
+  interactionInboxResolveGate?: Promise<void>;
+  onInteractionInboxResolve?: () => void;
   interactionInboxWriteFailures?: number;
   maxStorageGetKeys?: number;
   promotionRedriveStatus?: "enqueued" | "retry_scheduled";
@@ -746,6 +752,8 @@ const createHarness = async (input?: {
     executionRow: input?.executionRow ?? null,
     interactionInboxResolveFailures:
       input?.interactionInboxResolveFailures ?? 0,
+    interactionInboxResolveGate: input?.interactionInboxResolveGate,
+    onInteractionInboxResolve: input?.onInteractionInboxResolve,
     interactionInboxWriteFailures: input?.interactionInboxWriteFailures ?? 0,
     readinessImpactWriteError: input?.readinessImpactWriteError ?? null,
     replyPublishedProjectionWriteFailures:
@@ -16572,9 +16580,87 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toEqual([]);
   });
 
+  it("delivers and acknowledges an owner response while the Inbox projection is blocked", async () => {
+    const gate = Promise.withResolvers<void>();
+    const started = Promise.withResolvers<void>();
+    const harness = await createHarness({
+      interactionInboxResolveGate: gate.promise,
+      onInteractionInboxResolve: started.resolve,
+    });
+    const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
+      harness;
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    await (
+      hub as unknown as {
+        handleDispatchInteractionRequestFrame: (
+          socket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    sentFrames.length = 0;
+    let receipt: Response | undefined;
+    const response = fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/interaction/respond",
+      {
+        actorOwnerUserId: "owner-1",
+        interactionId: "interaction-1",
+        response: { kind: "permission", optionId: "allow-once" },
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      }
+    ).then((result) => {
+      receipt = result;
+      return result;
+    });
+    try {
+      await started.promise;
+      await vi.waitFor(() => {
+        expect(receipt?.status).toBe(200);
+        expect(sentFrames).toContainEqual(
+          expect.objectContaining({
+            code: "daemon.dispatch.interaction_response",
+          })
+        );
+      });
+      expect(
+        storageRecords.has(
+          `runtime-coordinator:interaction-inbox-repair:${RUNTIME_COORDINATOR_EXECUTION_ID}`
+        )
+      ).toBe(true);
+      await expect(receipt?.json()).resolves.toMatchObject({
+        ok: true,
+        status: "accepted",
+      });
+    } finally {
+      gate.resolve();
+      await response;
+      await Promise.all(waitUntilTasks);
+    }
+    expect([
+      ...(await harness.recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
+  });
+
   it("projects and resolves one normal-priority Inbox review for the interaction owner", async () => {
-    const { hub, recordingPostgres, sentFrames, socket, state } =
-      await createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      waitUntilTasks,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16661,6 +16747,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
       await expect(retry.json()).resolves.toMatchObject(expected);
     }
+    await Promise.all(waitUntilTasks);
     expect([
       ...(await recordingPostgres.interactionInboxRows.values()),
     ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
@@ -17336,8 +17423,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("cancels an expired Local Agent interaction without expiring the Wake watchdog", async () => {
-    const { hub, recordingPostgres, sentFrames, socket, state } =
-      await createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      waitUntilTasks,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17403,6 +17496,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         response: { kind: "cancel" },
       },
     });
+    await Promise.all(waitUntilTasks);
     expect([
       ...(await recordingPostgres.interactionInboxRows.values()),
     ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);

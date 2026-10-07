@@ -938,6 +938,11 @@ answers fail, and an already-handled interaction ID cannot create a new pending
 request. Receipts share the execution record's lifetime and contain no answer
 text. New request content requires a new interaction ID.
 
+Inbox resolution is a recipient projection. RuntimeCoordinator durably records
+its repair intent before scheduling projection work, but does not wait for
+PostgreSQL Inbox updates before delivering the saved response or returning its
+acceptance receipt. The existing alarm retries unfinished projection work.
+
 An unresolved request pauses the ordinary stale-progress watchdog until its
 bounded expiry, at most eight hours. After a response is stored, delivery must
 complete within the bounded response-delivery watchdog; a disconnected Service

@@ -5790,20 +5790,25 @@ Permission cards show the native choices; question cards collect every answer
 in bounded steps; plan cards show the bounded plan and support approval or
 change feedback. Web posts the shared response to the Space interaction
 endpoint, disables duplicate submission while it is pending, keeps a failed
-submission retryable, and refreshes authoritative progress after success. It
-does not continue the Agent from browser state.
+submission retryable, and refreshes authoritative progress after every attempt.
+A transport timeout, lost connection, invalid receipt, or server error leaves
+the outcome unconfirmed. Web makes one bounded confirmation attempt with the
+exact original response, using Core's retained receipt. It never repeats a
+permission-setting mutation during confirmation. If confirmation also fails,
+the card shows neutral `Response not confirmed` feedback and a `Check response`
+action that resends the same answer. Explicit rejections remain errors. Web
+does not continue the Agent or claim acceptance from an absent pending card.
 
 For controllers with a native low-interruption Permission Mode, a permission
-card may also offer to save that mode for future requests. Web sends the current
-response first so the Wake resumes immediately, then saves the Profile setting
-as a non-blocking follow-up. A failed setting save does not undo or delay the
-response: Web shows a concise error with an `Edit Agent Profile` action that
-opens the Profile dialog focused on Permissions. A successful save shows a
-lightweight confirmation that distinguishes the saved Binding intent from when
-OpenMeld Service syncs it and whether an active local Agent accepts a live
-update. Web does not invent a generic mode for controllers such as OpenCode that
-own a different permission contract, and it never offers a dangerous mode
-through this shortcut.
+card may also offer to save that mode for future requests. Web first saves the
+selected Profile setting, then attaches its Binding reference to the permission
+response. If the setting cannot be saved, Web keeps the request actionable and
+does not send the approval. Response confirmation reuses that saved reference
+without saving the setting again. A saved Binding intent does not by itself
+prove that an active local Agent has applied the mode. Web does not invent a
+generic mode for controllers such as OpenCode that
+own a different permission contract. High-trust modes require explicit user
+confirmation.
 The ordinary approval card does not include a separate Profile settings button
 or a standing explanation of permission synchronization.
 

@@ -59,6 +59,7 @@ import {
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { projectAgentStreamReplyPlacements } from "#/lib/spaces/active-wake-conversation";
+import { sendWebSpaceAgentInteractionResponse } from "#/lib/spaces/agent-interaction-response";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
@@ -2560,35 +2561,31 @@ export function useSpaceLandingController(input: {
 					})
 				: () => undefined;
 			try {
-				const response = await createUnscopedWebSpaceApi({
-					openMeldProfileId: input.profileId,
-				}).respondToAgentInteraction({
+				await sendWebSpaceAgentInteractionResponse({
 					body,
+					openMeldProfileId: input.profileId,
 					spaceId: input.spaceId,
-					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
 				});
-				if (!response.ok) {
-					throw new Error(response.message);
-				}
 			} catch (error) {
 				rollback();
-				const failure = toStructuredApiClientFailure(error);
-				throw new Error(failure.message);
+				throw error;
 			} finally {
 				if (input.organizationId) {
 					queryClient.invalidateQueries({
 						queryKey: inboxQueryKeys.organization(input.organizationId),
 					});
 				}
-			}
-
-			activeWakeProgressSummaryQuery.refetch().catch((error) => {
-				console.warn("[openmeld.web.space.agent_interaction_refresh_failed]", {
-					error: error instanceof Error ? error.message : String(error),
-					interactionId: body.interactionId,
-					spaceId: input.spaceId,
+				activeWakeProgressSummaryQuery.refetch().catch((error) => {
+					console.warn(
+						"[openmeld.web.space.agent_interaction_refresh_failed]",
+						{
+							error: error instanceof Error ? error.message : String(error),
+							interactionId: body.interactionId,
+							spaceId: input.spaceId,
+						}
+					);
 				});
-			});
+			}
 		},
 		[
 			activeWakeProgressSummaryQuery.refetch,
