@@ -8,10 +8,22 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
-import type { ReactNode, RefObject } from "react";
+import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+	lazy,
+	type ReactNode,
+	type RefObject,
+	Suspense,
+	useState,
+} from "react";
 import { SpaceAddMembersCandidates } from "./people-agent-picker-candidates";
 import type { SpaceAddMembersCandidateGroups } from "./people-agent-picker-model";
+
+const PeopleAgentPickerCreateAgent = lazy(() =>
+	import("../profiles/people-agent-picker-create-agent").then((module) => ({
+		default: module.PeopleAgentPickerCreateAgent,
+	}))
+);
 
 export function PeopleAgentPickerDialog(input: {
 	open: boolean;
@@ -36,16 +48,22 @@ export function PeopleAgentPickerDialog(input: {
 	onRetry?: () => void;
 	emptyMessage: string;
 	includeAgentOwners?: boolean;
+	onAgentCreated?: (profileId: string) => Promise<void>;
 	actions?: ReactNode;
 	notice?: ReactNode;
-	children?: ReactNode;
 	id?: string;
 	finalFocus?: RefObject<HTMLElement | null>;
 }) {
+	const [creating, setCreating] = useState(false);
+	const [creationBusy, setCreationBusy] = useState(false);
+	const isSubmitting = input.isSubmitting || creationBusy;
 	return (
 		<Dialog
 			onOpenChange={(open) => {
-				if (!input.isSubmitting) {
+				if (!isSubmitting) {
+					if (!open) {
+						setCreating(false);
+					}
 					input.onOpenChange(open);
 				}
 			}}
@@ -57,13 +75,45 @@ export function PeopleAgentPickerDialog(input: {
 				finalFocus={input.finalFocus}
 				id={input.id}
 			>
-				{input.children ?? (
+				{creating && input.onAgentCreated ? (
+					<Suspense
+						fallback={
+							<div className="flex flex-col gap-3">
+								<DialogHeader>
+									<DialogTitle>Create an Agent</DialogTitle>
+								</DialogHeader>
+								<SkeletonRows label="Loading Agent creation" />
+							</div>
+						}
+					>
+						<PeopleAgentPickerCreateAgent
+							onBack={() => setCreating(false)}
+							onBusyChange={setCreationBusy}
+							onCreated={input.onAgentCreated}
+						/>
+					</Suspense>
+				) : (
 					<div className="flex min-h-0 flex-col gap-3">
 						<DialogHeader>
 							<DialogTitle>{input.title}</DialogTitle>
 						</DialogHeader>
 						<DialogDescription>{input.description}</DialogDescription>
-						{input.actions}
+						{(input.onAgentCreated || input.actions) && (
+							<div className="flex flex-wrap items-center gap-2">
+								{input.onAgentCreated && (
+									<Button
+										disabled={isSubmitting || input.selectionDisabled}
+										onClick={() => setCreating(true)}
+										size="xs"
+										variant="outline"
+									>
+										<PlusIcon aria-hidden="true" />
+										New Agent
+									</Button>
+								)}
+								{input.actions}
+							</div>
+						)}
 						<div className="relative">
 							<MagnifyingGlassIcon
 								aria-hidden="true"
