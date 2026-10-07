@@ -1,0 +1,226 @@
+.meld-connectors-section {
+	padding-top: 120px;
+}
+.meld-connectors-panel {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	padding: 72px 0 38px;
+	border: 1px solid transparent;
+	border-radius: 18px;
+	background:
+		radial-gradient(ellipse at 50% 75%, #ffffff05, transparent 65%) padding-box,
+		linear-gradient(#111, #111) padding-box,
+		linear-gradient(135deg, #4b4b4b, #252525 35%, #343434 75%, #242424)
+		border-box;
+}
+.meld-connectors-copy {
+	width: min(640px, calc(100% - 48px));
+	margin: 0 auto;
+	text-align: center;
+}
+.meld-connectors-copy h2 {
+	margin: 0;
+	font-size: clamp(32px, 3.7vw, 46px);
+	font-weight: 500;
+	line-height: 1.15;
+	letter-spacing: -0.045em;
+	text-wrap: balance;
+}
+.meld-connectors-copy p {
+	margin: 22px 0 0;
+	font-size: 17px;
+	line-height: 1.65;
+	color: var(--muted-foreground);
+	text-wrap: pretty;
+}
+.meld-connectors-wall {
+	display: grid;
+	gap: 16px;
+	margin-top: 58px;
+	padding: 20px 0;
+	mask-image: linear-gradient(
+		to right,
+		transparent,
+		#000 16%,
+		#000 84%,
+		transparent
+	);
+}
+.meld-connectors-track {
+	display: flex;
+	width: max-content;
+	animation: meld-connectors-drift 56s linear infinite;
+	animation-play-state: paused;
+}
+.meld-connectors-track-reverse {
+	animation-direction: reverse;
+	animation-duration: 64s;
+}
+.meld-connectors-panel[data-running="true"] .meld-connectors-track {
+	animation-play-state: running;
+}
+.meld-connectors-group {
+	display: flex;
+	gap: 14px;
+	padding-right: 14px;
+}
+.meld-connector-tile {
+	display: flex;
+	flex: 0 0 120px;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 16px;
+	height: 122px;
+	border: 1px solid transparent;
+	border-radius: 14px;
+	background:
+		linear-gradient(145deg, #242424, #191919) padding-box,
+		linear-gradient(145deg, #464646, #282828 40%, #323232) border-box;
+	box-shadow: 0 6px 16px #00000014;
+}
+.meld-connector-tile > span:last-child {
+	font-size: 12px;
+	color: #c1c1c5;
+	letter-spacing: -0.01em;
+}
+.meld-connectors-panel .meld-connector-logo {
+	width: 38px;
+	height: 38px;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	box-shadow: none;
+}
+.meld-connectors-footer {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 8px 24px;
+	margin: 22px 52px 0;
+	font-size: 13px;
+}
+.meld-connectors-footer p {
+	margin: 0;
+	color: var(--muted-foreground);
+}
+.meld-connectors-details {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 44px;
+	padding: 0 8px;
+	border-radius: 6px;
+	color: #ddd;
+	transition: color 150ms;
+}
+.meld-connectors-details:hover {
+	color: #fff;
+}
+.meld-connectors-motion {
+	position: absolute;
+	bottom: 30px;
+	left: 22px;
+	color: var(--muted-foreground);
+}
+.meld-connectors-sheet {
+	width: min(560px, 100vw);
+	overflow-y: auto;
+	background: #141414;
+}
+.meld-connectors-sheet [data-slot="sheet-header"] {
+	padding: 40px 28px 24px;
+}
+.meld-connectors-list {
+	margin: 0;
+	padding: 0 28px 32px;
+	list-style: none;
+}
+.meld-connectors-list li {
+	display: flex;
+	gap: 16px;
+	padding: 20px 0;
+	border-top: 1px solid var(--border);
+}
+.meld-connectors-list h3 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 500;
+}
+.meld-connectors-list p {
+	margin: 6px 0 0;
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--muted-foreground);
+}
+@keyframes meld-connectors-drift {
+	to {
+		transform: translateX(-50%);
+	}
+}
+@media (max-width: 600px) {
+	.meld-connectors-section {
+		padding-top: 82px;
+	}
+	.meld-connectors-panel {
+		padding: 48px 0 30px;
+	}
+	.meld-connectors-copy p {
+		font-size: 15px;
+	}
+	.meld-connectors-wall {
+		margin-top: 36px;
+		gap: 12px;
+	}
+	.meld-connectors-group {
+		gap: 10px;
+		padding-right: 10px;
+	}
+	.meld-connector-tile {
+		flex-basis: 100px;
+		height: 108px;
+		gap: 13px;
+		border-radius: 12px;
+	}
+	.meld-connectors-footer {
+		flex-direction: column;
+		gap: 6px;
+		margin: 20px 36px 0;
+		text-align: center;
+	}
+	.meld-connectors-motion {
+		bottom: 31px;
+		left: 8px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.meld-connectors-wall {
+		padding: 0 24px;
+		mask-image: none;
+	}
+	.meld-connectors-track {
+		width: 100%;
+		animation: none;
+	}
+	.meld-connectors-track-reverse,
+	.meld-connectors-group + .meld-connectors-group {
+		display: none;
+	}
+	.meld-connectors-group {
+		display: grid;
+		width: min(750px, 100%);
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 12px;
+		margin: 0 auto;
+		padding: 0;
+	}
+}
+@media (max-width: 600px) and (prefers-reduced-motion: reduce) {
+	.meld-connectors-group {
+		width: min(300px, 100%);
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}

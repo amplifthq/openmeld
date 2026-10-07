@@ -47,13 +47,14 @@ import {
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 
 export function MessageSearchButton(input: {
+	enabled?: boolean;
 	spaceId?: string;
 	profileId?: string;
 	scope?: "inbox" | "messages";
 }) {
 	const [open, setOpen] = useState(false);
 	const organization = useOptionalAppOrganization();
-	if (!organization) {
+	if (!organization || input.enabled === false) {
 		return null;
 	}
 	const label = input.scope === "inbox" ? "Search Inbox" : "Search messages";

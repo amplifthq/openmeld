@@ -881,6 +881,9 @@ importers:
       '@openmeld/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@paper-design/shaders-react':
+        specifier: 0.0.81
+        version: 0.0.81(@types/react@19.2.14)(react@19.2.4)
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -893,6 +896,9 @@ importers:
       '@tanstack/react-start':
         specifier: 1.168.49
         version: 1.168.49(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.1))
+      metal-fx:
+        specifier: ^2.0.11
+        version: 2.0.11(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       motion:
         specifier: ^12.38.0
         version: 12.38.0(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -5819,6 +5825,18 @@ packages:
     resolution: {integrity: sha512-jRPVU+6/12baj87q2+UGRh30FBVBzqKdJ7rP/mSqiL1kpNQB9yZ1j0+m3sru1m+C8hiFK7lBFwjUtYUBI7+UpQ==}
     cpu: [x64]
     os: [win32]
+
+  '@paper-design/shaders-react@0.0.81':
+    resolution: {integrity: sha512-3FMkeZqj9sSvK/WkgekGu3crnOQd4R2iH8IT+jVBuQmq1m8p88VFvxh63s9bSt2exBwjBNaRfSo0FSCeNxqh3w==}
+    peerDependencies:
+      '@types/react': ^18 || ^19
+      react: ^18 || ^19
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
+  '@paper-design/shaders@0.0.81':
+    resolution: {integrity: sha512-jeGdyjMscZ2bxmQdo8lhwUufHUf4iq3s1ayjh8PXU7Go42Rw8E3I0It1FZdc3HuWt5J82m//DRWaxsRqRfA4Gg==}
 
   '@pdf-lib/standard-fonts@1.0.0':
     resolution: {integrity: sha512-hU30BK9IUN/su0Mn9VdlVKsWBS6GyhVfqjwl1FjZN4TxP6cCw0jP2w7V3Hf5uX7M0AZJ16vey9yE0ny7Sa59ZA==}
@@ -11896,6 +11914,12 @@ packages:
 
   meshoptimizer@1.1.1:
     resolution: {integrity: sha512-oRFNWJRDA/WTrVj7NWvqa5HqE1t9MYDj2VaWirQCzCCrAd2GHrqR/sQezCxiWATPNlKTcRaPRHPJwIRoPBAp5g==}
+
+  metal-fx@2.0.11:
+    resolution: {integrity: sha512-BdAdXXmJmqVbPxwjb3mN5TmS9r1+fde4RhGdK6In3ktT53/oLNFIwM2idRxR9KmVCa+7Yod1i0tR9nljsfLH1g==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
 
   micromark-core-commonmark@2.0.3:
     resolution: {integrity: sha512-RDBrHEMSxVFLg6xvnXmb1Ayr2WzLAWjeSATAoxwKYJV94TeNavgoIdA0a9ytzDSVzBy2YKFK+emCPOEibLeCrg==}
@@ -18764,6 +18788,15 @@ snapshots:
 
   '@oxc-resolver/binding-win32-x64-msvc@11.17.1':
     optional: true
+
+  '@paper-design/shaders-react@0.0.81(@types/react@19.2.14)(react@19.2.4)':
+    dependencies:
+      '@paper-design/shaders': 0.0.81
+      react: 19.2.4
+    optionalDependencies:
+      '@types/react': 19.2.14
+
+  '@paper-design/shaders@0.0.81': {}
 
   '@pdf-lib/standard-fonts@1.0.0':
     dependencies:
@@ -25963,6 +25996,11 @@ snapshots:
       uuid: 11.1.0
 
   meshoptimizer@1.1.1: {}
+
+  metal-fx@2.0.11(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+    dependencies:
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
 
   micromark-core-commonmark@2.0.3:
     dependencies:

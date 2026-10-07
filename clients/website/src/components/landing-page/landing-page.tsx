@@ -1,236 +1,454 @@
 import { LOCAL_AGENTS_GUIDE_PATH } from "@openmeld/product-catalog/local-agent-install-guides";
-import { buttonVariants } from "@openmeld/ui/components/button";
+import { homePageCopy } from "@openmeld/product-catalog/site";
 import {
-	OpenMeldLogoStrong,
-	type OpenMeldLogoStrongAppearance,
-} from "@openmeld/ui/components/openmeld-logo-strong";
-import { ArrowRightIcon } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
-import { PublicPageHeader } from "#/components/public-page-header";
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
+import {
+	Accordion,
+	AccordionContent,
+	AccordionItem,
+	AccordionTrigger,
+} from "@openmeld/ui/fluid/accordion";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import { FluidHoverHighlight } from "@openmeld/ui/fluid/fluid-hover-highlight";
+import {
+	useFluidHover,
+	useRegisterFluidHoverItem,
+} from "@openmeld/ui/hooks/use-fluid-hover";
+import {
+	AppleLogoIcon,
+	ArrowRightIcon,
+	ArrowUpRightIcon,
+	CaretDownIcon,
+	DownloadSimpleIcon,
+	GithubLogoIcon,
+	WindowsLogoIcon,
+} from "@phosphor-icons/react";
+import { MotionConfig } from "motion/react";
+import { type ReactNode, useRef } from "react";
 import { appUrl } from "#/lib/app-url";
-import { LandingPageFooterLogo } from "./landing-page-footer-logo";
+import { ConnectorShowcase } from "./connector-showcase";
+import { HeroDescription } from "./hero-copy";
+import { LandingFooter } from "./landing-footer";
 import {
-	LANDING_PAGE_HERO_HEADING,
-	LANDING_PAGE_HERO_TAGLINE,
-	LandingPageHeroSubtitle,
-	SlackMarkIcon,
-} from "./landing-page-hero-copy";
-import { LandingPageHeroShaderBackground } from "./landing-page-hero-shader-background";
-import { LandingPageNarrative } from "./landing-page-narrative";
+	ChannelShowcase,
+	ComputerBento,
+	HeroAgents,
+	PlatformMetalBadge,
+} from "./landing-showcases";
+import {
+	AgentShowcase,
+	CenterAgentShowcase,
+	KnowledgeShowcase,
+	RoutineShowcase,
+	UsageShowcase,
+} from "./product-showcases";
+import "./landing-page.css";
 
-const LANDING_LOGO_FONT_SIZE = "clamp(0.29rem,0.65vw,0.52rem)";
-const LANDING_LOGO_LIGHT_APPEARANCE = {
-	baseOpacity: 0.12,
-	fillMinOpacity: 0.44,
-	glowBlurPx: 8,
-	glowMaxOpacity: 0.32,
-	influenceContrast: 1.8,
-	strokeBrightness: 1,
-	strokeOpacity: 0.28,
-} satisfies OpenMeldLogoStrongAppearance;
-const LANDING_CONTENT_CLASS_NAME =
-	"mx-auto w-full max-w-[82rem] px-6 sm:px-10 lg:px-16";
-const AGENT_INTERFACE_PATH = appUrl("/agent-interface");
-const HERO_SHADER_FILTER_STYLE = {
-	background: [
-		"radial-gradient(ellipse 38rem 30rem at 28% 50%, color-mix(in oklab, var(--background) 98%, transparent) 0, color-mix(in oklab, var(--background) 93%, transparent) 46%, color-mix(in oklab, var(--background) 70%, transparent) 66%, transparent 86%)",
-		"radial-gradient(ellipse 34rem 36rem at 77% 42%, color-mix(in oklab, var(--background) 94%, transparent) 0, color-mix(in oklab, var(--background) 82%, transparent) 52%, transparent 84%)",
-		"linear-gradient(90deg, color-mix(in oklab, var(--background) 48%, transparent) 0%, transparent 32%, transparent 68%, color-mix(in oklab, var(--background) 46%, transparent) 100%)",
-	].join(", "),
-};
+const REPOSITORY_URL = "https://github.com/amplifthq/openmeld";
+function OpenAppButton({ compact = false }: { compact?: boolean }) {
+	return (
+		<a
+			className={`meld-button meld-button-web ${compact ? "meld-button-compact" : ""}`}
+			href={appUrl("/")}
+		>
+			Open App <PlatformMetalBadge appearance="ring">Web</PlatformMetalBadge>
+		</a>
+	);
+}
+function DownloadButton() {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger className="meld-button">
+				<DownloadSimpleIcon aria-hidden size={18} />
+				Download
+				<PlatformMetalBadge>Desktop</PlatformMetalBadge>
+				<CaretDownIcon aria-hidden size={14} />
+			</DropdownMenuTrigger>
+			<FluidDropdownMenuContent
+				align="start"
+				className="dark meld-download-menu"
+				gapClick={false}
+			>
+				<FluidDropdownMenuItem
+					index={0}
+					onClick={() =>
+						window.location.assign(appUrl("/desktop?platform=macos-arm64"))
+					}
+				>
+					<AppleLogoIcon aria-hidden />
+					<span>macOS</span>
+					<span className="ml-auto text-muted-foreground text-xs">
+						Apple silicon
+					</span>
+				</FluidDropdownMenuItem>
+				<FluidDropdownMenuItem
+					index={1}
+					onClick={() =>
+						window.location.assign(appUrl("/desktop?platform=windows-x64"))
+					}
+				>
+					<WindowsLogoIcon aria-hidden />
+					<span>Windows</span>
+					<span className="ml-auto text-muted-foreground text-xs">x64</span>
+				</FluidDropdownMenuItem>
+				<FluidDropdownMenuItem
+					index={2}
+					onClick={() => window.location.assign(appUrl("/desktop"))}
+				>
+					<DownloadSimpleIcon aria-hidden />
+					<span>All downloads</span>
+					<ArrowUpRightIcon aria-hidden className="ml-auto" />
+				</FluidDropdownMenuItem>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+function AppActions() {
+	return (
+		<div className="meld-actions">
+			<DownloadButton />
+			<OpenAppButton />
+		</div>
+	);
+}
+const questions = [
+	{
+		question: "What can I try first?",
+		answer:
+			"Open the app and ask your Center Agent to research a topic or work on a file. It runs in the cloud. When you want teammates and other agents involved, create a shared Space.",
+	},
+	{
+		question: "Can I keep my existing agent subscriptions?",
+		answer:
+			"Yes. Connect a supported agent installed on your computer, such as Codex or Claude Code. It keeps its existing sign-in and subscription. Your provider’s usage limits and charges still apply.",
+	},
+	{
+		question: "Does my computer need to stay on?",
+		answer:
+			"Your computer must be online and connected for its local agents to work. The hosted Center Agent runs in the cloud and does not depend on your computer.",
+	},
+	{
+		question: "What happens to our files and conversations?",
+		answer:
+			"Shared conversations, context, and published results are stored in OpenMeld’s cloud workspace. Local agents run on your computer. Connected AI providers and tools process the data needed for their work. Local execution does not mean all data stays on your computer.",
+	},
+	{
+		question: "Is the workspace on this page live?",
+		answer:
+			"It uses OpenMeld’s product components with fictional data. You can explore, open files, and try the message editor. The demo does not contact an agent, connect an account, or save your changes. Reload it to start over.",
+	},
+];
+
+function ProductDemo({
+	scene,
+	title,
+	hero = false,
+}: {
+	scene: string;
+	title: string;
+	hero?: boolean;
+}) {
+	return (
+		<div
+			className={`meld-demo meld-demo-${scene.toLowerCase()} ${hero ? "meld-demo-hero" : ""}`}
+		>
+			<iframe
+				loading={hero ? "eager" : "lazy"}
+				referrerPolicy="no-referrer"
+				sandbox="allow-scripts allow-same-origin"
+				src={`/product-demo/index.html?scene=${scene}`}
+				title={title}
+			/>
+		</div>
+	);
+}
 
 export function LandingPage() {
-	const appEntryPath = appUrl("/");
-	const isHeaderOnInverseSurface = useLandingHeaderOnInverseSurface();
-
 	return (
-		<>
-			<main className="landing-copy-weight relative z-10 min-h-svh bg-background">
-				<PublicPageHeader
-					appEntryClassName={
-						isHeaderOnInverseSurface
-							? "!border-background/30 !bg-foreground/78 !text-background backdrop-blur-md hover:!border-background/45 hover:!bg-foreground/90 hover:!text-background"
-							: "!border-foreground/30 !bg-background/78 !text-foreground backdrop-blur-md hover:!border-foreground/45 hover:!bg-background/90 hover:!text-foreground"
-					}
-					appEntryPath={appEntryPath}
-					brandLinkClassName={
-						isHeaderOnInverseSurface
-							? "!border-0 bg-foreground/78 px-3 py-2 backdrop-blur-md [&_span]:!text-background"
-							: "!border-0 bg-background/78 px-3 py-2 backdrop-blur-md [&_span]:!text-foreground"
-					}
-					className={
-						isHeaderOnInverseSurface
-							? "!border-0 !border-b-0 !bg-transparent !backdrop-blur-none fixed inset-x-0 top-0 z-50 text-background transition-colors duration-200"
-							: "!border-0 !border-b-0 !bg-transparent !backdrop-blur-none fixed inset-x-0 top-0 z-50 text-foreground transition-colors duration-200"
-					}
-				/>
-				<LandingPageHero appEntryPath={appEntryPath} />
-				<LandingPageNarrative appEntryPath={appEntryPath} />
-			</main>
-			<LandingPageFooter />
-		</>
-	);
-}
-
-function useLandingHeaderOnInverseSurface() {
-	const [isOnInverseSurface, setIsOnInverseSurface] = useState(false);
-
-	useEffect(() => {
-		const inverseSection = document.getElementById("agent-activity");
-		if (!inverseSection) {
-			return;
-		}
-
-		let frameId: number | null = null;
-		const measure = () => {
-			frameId = null;
-			const rectangle = inverseSection.getBoundingClientRect();
-			const headerProbeY = 28;
-			setIsOnInverseSurface(
-				rectangle.top <= headerProbeY && rectangle.bottom >= headerProbeY
-			);
-		};
-		const scheduleMeasurement = () => {
-			if (frameId === null) {
-				frameId = window.requestAnimationFrame(measure);
-			}
-		};
-
-		measure();
-		window.addEventListener("resize", scheduleMeasurement);
-		window.addEventListener("scroll", scheduleMeasurement, { passive: true });
-
-		return () => {
-			if (frameId !== null) {
-				window.cancelAnimationFrame(frameId);
-			}
-			window.removeEventListener("resize", scheduleMeasurement);
-			window.removeEventListener("scroll", scheduleMeasurement);
-		};
-	}, []);
-
-	return isOnInverseSurface;
-}
-
-function LandingPageHero({ appEntryPath }: { appEntryPath: string }) {
-	return (
-		<section
-			className="relative overflow-hidden"
-			data-testid="landing-hero-section"
-		>
-			<LandingPageHeroShaderBackground />
-			<div
-				aria-hidden="true"
-				className="pointer-events-none absolute inset-0 z-[1]"
-				data-testid="landing-hero-shader-filter"
-				style={HERO_SHADER_FILTER_STYLE}
-			/>
-			<div
-				className={`${LANDING_CONTENT_CLASS_NAME} relative grid min-h-svh items-center gap-16 py-20 lg:grid-cols-12 lg:py-24`}
-				data-testid="landing-hero-content-grid"
-			>
-				<div className="relative z-10 flex flex-col items-center text-center lg:col-span-6 lg:items-start lg:text-left">
-					<OpenMeldLogoStrong
-						className="mx-auto text-foreground lg:mx-0"
-						lightAppearance={LANDING_LOGO_LIGHT_APPEARANCE}
-						size={LANDING_LOGO_FONT_SIZE}
-					/>
-					<h1 className="landing-display-tight mt-8 max-w-3xl text-balance font-geist-pixel-square font-medium text-[clamp(2.5rem,3.75vw,3.75rem)] text-foreground leading-[0.96]">
-						{LANDING_PAGE_HERO_HEADING}
-					</h1>
-					<p
-						className="mt-6 max-w-sm text-pretty text-base text-muted-foreground leading-7 sm:text-lg"
-						data-testid="landing-hero-tagline"
+		<MotionConfig reducedMotion="user">
+			<div className="dark meld-site">
+				<a className="meld-skip" href="#main-content">
+					Skip to content
+				</a>
+				<header className="meld-header">
+					<div className="meld-wrap meld-header-inner">
+						<a
+							aria-label="OpenMeld homepage"
+							className="meld-brand meld-brand-motion"
+							href="/"
+						>
+							<OpenMeldLogoStrong
+								ariaLabel={null}
+								pointerTracking="viewport"
+								size={4}
+							/>
+						</a>
+						<nav aria-label="Main navigation">
+							<LandingLinks
+								axis="x"
+								className="meld-nav-items"
+								links={[
+									{ href: "#product", content: "Product" },
+									{ href: "#agents", content: "Agents" },
+									{ href: appUrl("/desktop"), content: "Downloads" },
+									{ href: "https://docs.openmeld.ai", content: "Docs" },
+									{ href: "/changelog", content: "Changelog" },
+								]}
+							/>
+						</nav>
+						<OpenAppButton compact />
+					</div>
+				</header>
+				<main id="main-content">
+					<section aria-labelledby="hero-title" className="meld-hero meld-wrap">
+						<HeroAgents />
+						<h1 className="meld-hero-title" id="hero-title">
+							{homePageCopy.tagline}
+						</h1>
+						<HeroDescription />
+						<AppActions />
+						<div className="meld-open-source">
+							<a href={REPOSITORY_URL}>
+								<GithubLogoIcon aria-hidden size={18} />
+								Steal our code (legally){" "}
+								<ArrowUpRightIcon aria-hidden size={14} />
+							</a>
+							<span>100% open source. MIT licensed.</span>
+						</div>
+						<div id="product">
+							<ProductDemo
+								hero
+								scene="Conversation"
+								title="Interactive OpenMeld Space demo"
+							/>
+						</div>
+					</section>
+					<section
+						aria-labelledby="agents-title"
+						className="meld-section meld-agents"
+						id="agents"
 					>
-						{LANDING_PAGE_HERO_TAGLINE}
-					</p>
-					<div className="mt-9 flex flex-wrap justify-center gap-3 lg:justify-start">
-						<a
-							className={buttonVariants({
-								className: "h-11 gap-2 rounded-md px-5 text-sm",
-							})}
-							href={appEntryPath}
-						>
-							Start with your Center Agent
-							<ArrowRightIcon aria-hidden className="size-4" />
+						<div className="meld-wrap">
+							<div className="meld-section-heading">
+								<h2 id="agents-title">
+									Already your agents.
+									<br />
+									<span>Now part of the team.</span>
+								</h2>
+								<div>
+									<p>
+										Keep your subscriptions, files, and local tools. Bring the
+										agents you use into your team’s conversation.
+									</p>
+									<a className="meld-link" href={LOCAL_AGENTS_GUIDE_PATH}>
+										Connect your first agent{" "}
+										<ArrowRightIcon aria-hidden size={16} />
+									</a>
+								</div>
+							</div>
+							<AgentShowcase />
+							<p className="meld-footnote">
+								Local agents work while their computer is connected. Your Center
+								Agent runs in the cloud.
+							</p>
+						</div>
+					</section>
+					<section
+						aria-labelledby="center-agent-title"
+						className="meld-section meld-wrap"
+						id="center-agent"
+					>
+						<div className="meld-section-heading">
+							<h2 id="center-agent-title">
+								One Center Agent.
+								<br />
+								<span>For your whole team.</span>
+							</h2>
+							<p>
+								Your organization’s own agent. It works with your shared
+								context, uses connected apps, and joins your team through
+								Channels. You choose the model.
+							</p>
+						</div>
+						<CenterAgentShowcase />
+					</section>
+					<section
+						aria-labelledby="channel-title"
+						className="meld-section meld-channel-section"
+					>
+						<div className="meld-wrap">
+							<ChannelShowcase />
+						</div>
+					</section>
+					<section
+						aria-labelledby="knowledge-title"
+						className="meld-section meld-wrap"
+					>
+						<div className="meld-section-heading">
+							<h2 id="knowledge-title">
+								Your team’s knowledge.
+								<br />
+								<span>Ready for the next task.</span>
+							</h2>
+							<p>
+								Shared files for context. Shared Skills for how to work. Your
+								agents start with what your team already knows.
+							</p>
+						</div>
+						<KnowledgeShowcase />
+					</section>
+					<section
+						aria-labelledby="routine-title"
+						className="meld-section meld-wrap"
+					>
+						<div className="meld-section-heading">
+							<h2 id="routine-title">
+								Friday’s review.
+								<br />
+								<span>Already on the calendar.</span>
+							</h2>
+							<p>
+								Set the task and the schedule. Your agent brings the result back
+								to the conversation.
+							</p>
+						</div>
+						<RoutineShowcase />
+					</section>
+					<section
+						aria-labelledby="connectors-title"
+						className="meld-section meld-wrap meld-connectors-section"
+						id="integrations"
+					>
+						<ConnectorShowcase />
+					</section>
+					<section
+						aria-labelledby="computer-title"
+						className="meld-section meld-wrap meld-computer-section"
+					>
+						<div className="meld-section-heading">
+							<h2 id="computer-title">
+								A free cloud computer.
+								<br />
+								<span>For you and all your agents.</span>
+							</h2>
+							<p>
+								Everyone gets a free cloud computer. Your local and cloud agents
+								share it to work with files, run code, and get things done.
+							</p>
+						</div>
+						<ComputerBento />
+						<a className="meld-link" href="https://docs.openmeld.ai">
+							Explore the docs <ArrowUpRightIcon aria-hidden size={16} />
 						</a>
-						<a
-							className={buttonVariants({
-								className:
-									"h-11 gap-2 rounded-md px-5 text-sm shadow-surface-2",
-								variant: "secondary",
-							})}
-							href={appUrl("/add-to-slack")}
-						>
-							<SlackMarkIcon className="size-4" />
-							Add to Slack
-						</a>
-					</div>
-				</div>
-
-				<LandingPageHeroSubtitle className="relative z-10 mx-auto max-w-lg text-pretty text-center text-base text-muted-foreground leading-8 lg:col-span-4 lg:col-start-9 lg:mx-0 lg:max-w-md lg:text-left" />
+					</section>
+					<section
+						aria-labelledby="usage-title"
+						className="meld-section meld-wrap"
+						id="usage"
+					>
+						<div className="meld-section-heading">
+							<h2 id="usage-title">
+								The whole team’s usage.
+								<br />
+								<span>In one clear view.</span>
+							</h2>
+							<p>
+								See cloud model costs and recorded local-agent tokens across
+								your organization. Switch to your own agents. Open the details
+								when you need them.
+							</p>
+						</div>
+						<UsageShowcase />
+					</section>
+					<section
+						aria-labelledby="faq-title"
+						className="meld-section meld-faq meld-wrap"
+					>
+						<div>
+							<h2 id="faq-title">A few useful answers.</h2>
+							<a className="meld-link" href={LOCAL_AGENTS_GUIDE_PATH}>
+								Setup guide <ArrowUpRightIcon aria-hidden size={15} />
+							</a>
+						</div>
+						<Accordion>
+							{questions.map((item) => (
+								<AccordionItem key={item.question} value={item.question}>
+									<AccordionTrigger>{item.question}</AccordionTrigger>
+									<AccordionContent>
+										<p>{item.answer}</p>
+									</AccordionContent>
+								</AccordionItem>
+							))}
+						</Accordion>
+					</section>
+					<section className="meld-start meld-wrap">
+						<h2>
+							Bring a real task.
+							<br />
+							<span>See where it goes.</span>
+						</h2>
+						<AppActions />
+					</section>
+				</main>
+				<LandingFooter repositoryUrl={REPOSITORY_URL} />
 			</div>
-		</section>
+		</MotionConfig>
 	);
 }
 
-function LandingPageFooter() {
+function LandingLinks({
+	links,
+	axis,
+	className,
+}: {
+	links: readonly { href: string; content: ReactNode }[];
+	axis: "x" | "xy";
+	className: string;
+}) {
+	const ref = useRef<HTMLDivElement>(null);
+	const hover = useFluidHover(ref, { axis, gapClick: false });
 	return (
-		<footer className="landing-copy-weight sticky bottom-0 z-0 flex min-h-[24rem] flex-col overflow-hidden bg-muted/80">
-			<div className={`${LANDING_CONTENT_CLASS_NAME} pt-12 sm:pt-16`}>
-				<div className="flex flex-col gap-8 text-muted-foreground text-sm md:flex-row md:items-start md:justify-between">
-					<div className="max-w-sm">
-						<p className="font-medium text-foreground">OpenMeld</p>
-						<p className="mt-2 text-muted-foreground/80 text-xs leading-5">
-							<span
-								className="font-medium text-amber-600 dark:text-amber-400"
-								data-testid="landing-footer-experimental"
-							>
-								Experimental
-							</span>{" "}
-							software for people and local agents working as one team.
-						</p>
-					</div>
-					<nav aria-label="Footer">
-						<ul className="flex flex-wrap gap-x-6 gap-y-3">
-							<li>
-								<a className="hover:text-foreground" href="/changelog">
-									Changelog
-								</a>
-							</li>
-							<li>
-								<a
-									className="hover:text-foreground"
-									href={AGENT_INTERFACE_PATH}
-								>
-									Guide for your agents
-								</a>
-							</li>
-							<li>
-								<a
-									className="hover:text-foreground"
-									href={LOCAL_AGENTS_GUIDE_PATH}
-								>
-									Install local agents
-								</a>
-							</li>
-							<li>
-								<a className="hover:text-foreground" href="/privacy">
-									Privacy
-								</a>
-							</li>
-							<li>
-								<a className="hover:text-foreground" href="/terms">
-									Terms
-								</a>
-							</li>
-						</ul>
-					</nav>
-				</div>
-			</div>
-			<div className="mt-auto w-full">
-				<LandingPageFooterLogo />
-			</div>
-		</footer>
+		// biome-ignore lint/a11y/noNoninteractiveElementInteractions: Pointer motion controls only the shared decorative highlight.
+		// biome-ignore lint/a11y/noStaticElementInteractions: Native links own activation and keyboard focus.
+		<div
+			className={className}
+			onMouseEnter={hover.handlers.onMouseEnter}
+			onMouseLeave={hover.handlers.onMouseLeave}
+			onMouseMove={hover.handlers.onMouseMove}
+			ref={ref}
+		>
+			<FluidHoverHighlight className="meld-nav-highlight" hover={hover} />
+			{links.map((link, index) => (
+				<LandingLink
+					index={index}
+					key={link.href}
+					link={link}
+					registerItem={hover.registerItem}
+				/>
+			))}
+		</div>
+	);
+}
+function LandingLink({
+	link,
+	index,
+	registerItem,
+}: {
+	link: { href: string; content: ReactNode };
+	index: number;
+	registerItem: ReturnType<typeof useFluidHover>["registerItem"];
+}) {
+	const ref = useRef<HTMLAnchorElement>(null);
+	useRegisterFluidHoverItem(registerItem, index, ref);
+	return (
+		<a href={link.href} ref={ref}>
+			{link.content}
+		</a>
 	);
 }

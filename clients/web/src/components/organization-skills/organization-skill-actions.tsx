@@ -12,6 +12,7 @@ import {
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import type { RefObject } from "react";
+import { useAppLinkCapability } from "../app/app-link-capability";
 
 export type SkillAction =
 	| "copy"
@@ -29,12 +30,18 @@ export function OrganizationSkillActions(input: {
 	onAction: (action: SkillAction) => void;
 	triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
+	const canCopyLink = useAppLinkCapability();
 	const items = (
 		<>
 			<FluidDropdownMenuGroup>
-				<FluidDropdownMenuItem index={0} onClick={() => input.onAction("copy")}>
-					Copy link
-				</FluidDropdownMenuItem>
+				{canCopyLink && (
+					<FluidDropdownMenuItem
+						index={0}
+						onClick={() => input.onAction("copy")}
+					>
+						Copy link
+					</FluidDropdownMenuItem>
+				)}
 				<FluidDropdownMenuItem
 					index={1}
 					onClick={() => input.onAction("usage")}

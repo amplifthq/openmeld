@@ -1,0 +1,142 @@
+# Frozen Website demo
+
+Build-time reuse keeps the Website honest without tying its release to every
+App UI change. The source composes actual Web and shared UI components. The
+Website publishes the resulting static artifact, not a second product app.
+
+## Provenance and refresh
+
+This revision starts from product UI at `c0732ec03` on origin/main. All sample
+people, messages, files, Skills, and Routine results belong to fictional Amplift.
+No production account, captured conversation, or private asset is included.
+Human avatars use local Pexels stock portraits. Photo credits, license, and
+fictional-profile usage are recorded in [avatars/SOURCES.md](avatars/SOURCES.md).
+
+From the repository root:
+
+```sh
+pnpm -C clients/web exec vite build --config scripts/website-capture/vite.config.ts
+pnpm -C clients/website dev
+```
+
+Review `/product-demo/index.html?scene=Conversation`, `Spaces`, `Files`,
+`Skills`, and `Routines`, plus focused `CreateAgent`, `Knowledge`, and
+`Schedule`, `CenterAgent`, and `Usage` scenes and the embedded homepage at desktop and phone
+widths. Commit the builder and regenerated `clients/website/public/product-demo`
+together. Ordinary Website builds never refresh this artifact. Revert those
+files together to restore a prior version.
+
+Refreshes keep the current entry and hashed assets available while building.
+The builder writes new assets first, then atomically replaces `index.html`.
+A failed build therefore leaves the previous demo usable. Old hashed assets
+remain available for already-open demos; remove obsolete assets only when the
+preview server is stopped, before a clean artifact refresh. Do not run multiple
+demo builds against the same output directory at once.
+
+## Real component owners
+
+- Shell: `AppSurfaceLayout`, `AppRailNavigationGroup`, `ConversationsSidebar`,
+  `PeopleSidebar`, and `SpaceWindowHeader`. The harness composes their slots.
+- Spaces: `SpaceDirectory`, message primitives, `SpaceAttachmentFileCard`, and
+  `SpaceComposer` with the real editor.
+- Rail: `OrganizationSwitcher` with the shared pointer-reactive O avatar,
+  `SidebarUserFooter`, and `DitherProfileAvatar`.
+- Inbox: `InboxPage`, its feed, filters, item menus, and read-state mutations.
+- Team: `TeamHeader`, `TeamHome`, `DirectoryHumanProfileDetails`, `AgentList`,
+  `AgentProfileSidebarItem`, `AgentProfileWorkspaceDetail`,
+  `OrganizationPluginsPage`, `OrganizationSkillsListPage`,
+  `OrganizationSkillDetailPage`, `FileSystem`, and `RoutinesPage`.
+- Interaction primitives: existing `@openmeld/ui` Fluid and Base UI components.
+- Create Agent: shared `AgentRuntimeChoice`, `LocalAgentSelector`,
+  `AgentNameEditor`, and `PersonalRemoteAgentConfiguration`. Remote provider,
+  model, reasoning, and avatar presentation use the real product controls and
+  the bundled `release/vendor-models.json` catalog. The five header logos are
+  supported examples from that catalog; xAI remains selectable in the model
+  picker. Selection and naming are local; there is no creation submission or
+  connection to the visitor's computer.
+- Center Agent: the real `AgentAvatarEditor`, `HostedModelSelect`, and Agent
+  configuration cards. Its initial model is GPT-6 Astra. Avatar preview/save
+  and model selection remain in memory. Connected apps and Channels are
+  fictional readouts using the public catalog's shared logos.
+- Usage: the real `RemoteUsageCard` and `LocalAgentTokenUsageCard`, including
+  their shared ECharts SVG charts, Fluid scope tabs, Details accordions, period
+  selection, and tables. Refresh is hidden through the cards' `showRefresh` prop.
+  Numeric fixtures pass `aiUsageQueryResponseSchema`;
+  totals, chart series, and details derive from the same sample buckets. The
+  organization and member views use distinct values. Detail tables retain the
+  product's maximum height and shared Fluid ScrollArea, including edge fades.
+
+The demo supplies fictional content through real header slots. The Space member
+button opens the product's resizable member panel or mobile drawer. The panel
+starts open on desktop at the product's minimum width (17rem). The module sidebar
+starts at 200px, enough to show Customer research in full. The 28px user avatar
+shares the rail's centerline with the organization switcher and navigation.
+Claude Code and Codex messages show their human owner.
+The first Space follows a checkout regression: Maya wakes James's Codex, which
+wakes Maya's Claude Code to check the billing rules. A prefilled Wake draft lets
+visitors send the next step with one click. Optimistic messages and replies use
+the same transcript layout. Each requested Agent starts with Working inside its
+reply bubble; streamed text fills that same bubble without a separate status row.
+The message column uses the available width. Sidebar
+pinning changes memory-only state. Team uses the shared header and the real
+People overview. All six Team tabs use the memory router and remain interactive.
+People and Agent cards open the real read-only detail components. Plugins use the
+bundled product catalog, with local empty connection records. Search and category
+filters work; provider authorization and credential inputs are omitted. Files
+reuse the product browser and its toolbar slots for Team files, My files, and
+Trash. Skills open the real catalog and read-only detail page.
+
+Inbox supports category/filter changes, unread-only, item menus, bulk mark-read,
+and links back to sample Spaces. Its blue rail dot derives from the same local
+items. Workspace-wide message search is omitted because it requires live data.
+The organization menu contains the fictional Amplift organization; the user menu
+shows Maya's identity. Account-changing, chat-creation, and creation controls are
+omitted. Existing product consumers retain their default capabilities.
+The shared `AppLinkCapability` disables public-link actions in demo menus.
+Internal memory-router navigation remains available.
+
+## Data boundary
+
+Memory adapters replace server functions, Inbox/catalog/Routine/usage API calls, organization
+context, sidebar preferences, cookies, and browser preferences. A memory router
+keeps product links inside the demo. The composer reuses the product mention
+picker and Wake/Reference tokens. Sending adds an optimistic message, then locally
+simulates Thinking, Working, and a short template reply for each addressed Agent.
+One in-memory request drives the transcript and sidebar state. Human mentions and
+Reference tokens do not start replies. The attachment button is disabled.
+Reloading clears all edits.
+
+The artifact CSP has `connect-src 'none'` and `form-action 'none'`. It has no
+credentials or live execution transport. The iframe permits scripts and same
+origin; this is trusted authored code, not a security boundary for untrusted
+content. Do not add account/session providers or storage reads. Recheck imports
+and inspect browser network/console output after updating product components.
+
+The hero loads eagerly. Create Agent, Center Agent, and Usage use lazy iframes whose own content
+ResizeObserver reports a bounded height to the same-origin parent. Its content
+has no viewport-height scroll wrapper. Each scene
+starts on a dark HTML canvas before scripts or styles load. Create Agent, Center Agent, and
+Usage use transparent document backgrounds once mounted, allowing the landing
+page shader to show around their cards. The shell reserves
+12px top, right, and bottom insets on desktop, with no bottom toolbar.
+The real editor
+and component bundle is larger than a screenshot. Do not claim production
+performance from a localhost smoke; measure the deployed asset delivery before
+promoting this draft.
+
+## Layered product DOM
+
+Lower knowledge and Routine sections render real product components as DOM,
+with no screenshot assets or imitation controls. The frozen bundle provides:
+
+- `ShowcaseFiles`: the real FileSystem list and Team files toolbar.
+- `ShowcaseSkill`: the real `OrganizationSkillDocument`.
+- `ShowcaseRoutines`: three fictional team routines in the real Routines page.
+- `ShowcaseRoutineResult`: real Space header, message, and file card.
+
+Showcase roots are inert and expose their natural content height through the
+same bounded message used by Create Agent. The parent fits and scales the DOM
+viewport, so all rendered text remains text and no inner scrollbar is needed.
+On small screens, the foreground Skill and report remain readable; secondary
+table layers are available in the feature drawers. Rebuild the frozen demo when
+these components or fixtures change. Website builds do not rebuild the Web App.
