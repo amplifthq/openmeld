@@ -108,7 +108,7 @@ describe("immutable Desktop candidate download", () => {
 	it.each([
 		true,
 		false,
-	])("redirects Windows preview downloads to the verified CDN artifact, body=%s", async (includeBody) => {
+	])("streams the unsigned Windows preview even with a signed-artifact CDN, body=%s", async (includeBody) => {
 		downloadEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN =
 			"https://downloads.openmeld.ai";
 		const preview = {
@@ -118,22 +118,28 @@ describe("immutable Desktop candidate download", () => {
 			releaseSha: "22245aa4a774ad28e0ade8ec8d313b98caa1f069",
 			sha256:
 				"65b824ff55eec9a6f3f4bb55f9d30e98649df41cfbb564bb9ecba3376b71ee8a",
-			sizeBytes: 123_341_680,
+			sizeBytes: 3,
 		};
-		store.get.mockImplementation(async (key) =>
-			key === "desktop/internal-preview-windows-x64.json"
-				? object(JSON.stringify(preview))
-				: null
-		);
+		store.get.mockImplementation((key) => {
+			if (key === "desktop/internal-preview-windows-x64.json") {
+				return Promise.resolve(object(JSON.stringify(preview)));
+			}
+			return Promise.resolve(
+				key ===
+					`desktop/internal-preview/${preview.sha256}/OpenMeld-Desktop-0.1.25-windows-x64-internal-preview.exe`
+					? object("exe")
+					: null
+			);
+		});
 		store.head.mockResolvedValue({
 			size: preview.sizeBytes,
 			httpEtag: '"etag"',
 		} satisfies Pick<R2Object, "size" | "httpEtag">);
 		const response = await call("?platform=windows-x64", includeBody);
-		expect(response.status).toBe(307);
-		expect(response.headers.get("location")).toBe(
-			`https://downloads.openmeld.ai/desktop/internal-preview/${preview.sha256}/OpenMeld-Desktop-0.1.25-windows-x64-internal-preview.exe`
-		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("location")).toBeNull();
+		expect(response.headers.get("content-length")).toBe("3");
+		expect(await response.text()).toBe(includeBody ? "exe" : "");
 		expect(response.headers.get("cache-control")).toBe("no-store");
 	});
 });
