@@ -496,74 +496,73 @@ publish the same portable tarball, as defined in
 Windows compatibility CI also consumes that artifact and exercises the generated
 PowerShell bootstrap; signed-in computer and Wake acceptance remain separate.
 
-## Agent Experience Occurrence Feedback
+## Agent Experience Feedback
 
 Task collaboration uses focused, agent-chosen `[OpenMeld Dev]` Spaces only when
 they help the actual work. Follow
 [OpenMeld Development Collaboration](development-workflow.md#openmeld-development-collaboration)
 for Space naming, CLI-only handoffs, optional membership and Wake, and native
-environment callbacks. The occurrence log below has a different purpose.
+environment callbacks. The feedback Space below is for confirmed product
+problems that need another owner, not an occurrence log or repair progress feed.
 
-Record firsthand problems an Agent actually encounters while using released,
-supported OpenMeld products in production. This includes production cloud
-surfaces and officially released Desktop, CLI, and Service installations running
-locally. The Agent may be developing software or doing other business work;
-eligibility depends on the product behavior it used, not the task it was doing.
-Use the non-interactive Space:
+Record only firsthand OpenMeld product bugs or experience gaps that remain
+confirmed in current `origin/main`, that you will not take on, and that have no
+existing repair owner. Use the non-interactive Space:
 
 ```text
 [Agent Experience] OpenMeld CLI, Service & Workflow Feedback
 https://openmeld.ai/o/amplift/spaces/5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378
 ```
 
-### What belongs here
+### Check eligibility before posting
 
-- Include bugs, usability problems, missing capabilities, and avoidable work
-  when a real use of the released product shows a concrete impact on the task,
-  correctness, reliability, time, tokens, or user experience. An abstract
-  preference for a different design or "best practice" is not enough.
-- Exclude findings confined to unmerged or merged-but-unreleased changes,
-  development/canary builds, staging, test fixtures, and internal build, CI/CD,
-  release, or validation tooling. Keep them in the owning task, PR, or issue.
-  For example, a new PostgreSQL branch's cache bug belongs in that PR; a
-  released CLI omitting real Space messages during development belongs here.
-- Expected permission, input, quota, and upstream failures are not product
-  defects when OpenMeld handles them correctly. Report concrete OpenMeld
-  mishandling, such as endless retries, lost results, or a false success state.
-  A temporary local tool failure or machine resource shortage alone is not
-  evidence of a general product defect.
-- Judge the version where the problem occurred, not the repair's status. A
-  production occurrence still belongs here when its fix is unmerged, unreleased,
-  or already shipped. An isolated reproduction or code review of released
-  source alone does not establish a production occurrence; keep that finding
-  in the task, PR, or issue, even when it merits an urgent fix. Never reproduce
-  a dangerous fault in production just to qualify for this log.
+All three conditions must hold:
 
-Identify the affected product surface and environment, with the installed
-version or release evidence when available. If released production use is not
-established, keep the finding with its task until that basic fact is confirmed.
-Reporting an observed symptom does not require a root-cause investigation or a
-deployment SHA for every cloud report.
+1. **Confirmed current-origin product problem.** Refresh `origin/main` and
+   record its commit. Use relevant source evidence or a safe isolated
+   reproduction to confirm the observed bug or experience gap still exists.
+   Identify the affected product surface, expected behavior, and concrete user
+   impact. A failure notice alone does not establish a product defect. If the
+   evidence is insufficient, keep investigating in the task instead of posting.
+2. **You will not take on the repair.** If you intend to investigate and fix it,
+   keep the evidence and progress in your task and PR. This applies before you
+   create a branch or PR, during implementation, and while awaiting review or
+   release. If you later leave a confirmed problem unresolved without an owner,
+   check eligibility again and report it as a handoff.
+3. **No existing repair or duplicate report.** Check relevant open PRs, known
+   active tasks, and a bounded recent Space history. Inspect actual scope;
+   a similar PR title or Activity status does not prove coverage or ownership.
+   An existing repair owner counts even without a PR. Keep additional evidence
+   with that task or PR. For an existing unowned Space report, add material new
+   evidence in its thread instead of creating another top-level report.
 
-### One report per occurrence
+Cloud, Web, Desktop, CLI, and Service product behavior can qualify. Problems
+confined to a development branch, staging, fixtures, internal build, CI/CD,
+release, or validation tooling stay in the owning task, PR, or issue. An
+isolated reproduction may prove a current-origin product defect; it does not
+prove that production runs the same code. State those facts separately. Never
+reproduce a dangerous fault in production just to qualify for this Space.
 
-Use Felix's authorized Human Profile directly; no Service, Wake, history read,
-duplicate search, or Agent membership is required. Report each independent
-production occurrence once, even when the same symptom has happened before.
-Another Agent inspecting the same failure, a diagnostic reproduction, a repair
-update, or an acceptance rerun is not another occurrence. Keep those details
-in a reply to the known report or in the owning task/PR. Link an existing report
-or incident ID when already known; do not add a mandatory history search.
+Expected permission, input, quota, and upstream failures are not product bugs
+when OpenMeld handles them correctly. Concrete mishandling, such as lost
+results or a false success state, can qualify. Exclude speculative causes,
+abstract feature wishes, already-fixed problems, and repair or acceptance
+progress updates. A missing deployment of an existing fix belongs with that
+release, not in a new feedback report.
 
-Frequency means independent production occurrences, not message count or the
-number of Agents involved. Recording does not authorize or require an immediate
-fix, and development findings do not need another feedback Space.
+### One report per unresolved problem
+
+Use Felix's authorized Human Profile directly after the checks above. No
+Service startup, Wake, or Agent membership is required. Recording requests a
+handoff; it does not authorize another Agent to implement a fix. Preserve
+existing reports as history; this rule does not authorize deleting them.
 
 Start with `[bug]`, `[friction]`, or `[gap]`. Identify the actual Agent, model
 when known, session or thread ID, UTC time, product environment/version, task,
 expected and observed behavior, concrete impact, brief non-sensitive evidence,
-and current status. Keep the report brief and continue the main task unless
-the problem is a real blocker. Never include credentials, secrets, private
+the checked origin commit, and why the problem needs another owner. Keep the
+report brief and continue the main task unless the problem is a real blocker.
+Never include credentials, secrets, private
 transcripts, or unrelated user content.
 
 Use this direct command template:
@@ -576,18 +575,20 @@ openmeld space send 5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6c
 Reporter: <agent and model>
 Session: <session or thread ID>
 Observed: <UTC timestamp>
-Product: <production surface or official local product; version when available>
+Product: <affected product surface and observed environment/version>
+Origin: <fresh origin/main commit and evidence that the problem remains>
 Context: <real task and command or workflow>
 Expected: <expected result>
 Observed behavior: <what happened>
 Impact: <time, tokens, correctness, or user impact>
 Evidence: <non-sensitive IDs, timings, or exact error>
-Status: recorded only; not fixed by this report
+Ownership: <why I will not take this on; relevant repair/duplicate checks>
+Status: confirmed unresolved problem; needs another owner
 EOF
 ```
 
 The former `OpenMeld CI/CD & Agent Workflow Feedback` Space remains historical;
-use this occurrence log only for new reports that meet the production-use scope.
+use this Space only for new reports that pass all eligibility checks above.
 
 ## Change Checklist
 

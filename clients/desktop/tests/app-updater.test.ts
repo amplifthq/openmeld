@@ -70,6 +70,70 @@ function fixture(
   };
 }
 describe("Desktop update consent", () => {
+  it("keeps a slow download alive while bytes continue to arrive", async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, driver, recordFailure } = fixture();
+      await controller.act("check");
+      driver.downloadUpdate.mockImplementationOnce((token) => {
+        if (!token) {
+          throw new Error("Missing cancellation token");
+        }
+        return token.createPromise(() => {
+          /* Await user cancellation. */
+        });
+      });
+      const downloading = controller.act("download");
+      for (const percent of [1, 2, 3]) {
+        await vi.advanceTimersByTimeAsync(60_000);
+        driver.emit("download-progress", { percent });
+        expect(controller.snapshot().status).toBe("downloading");
+      }
+      await controller.act("cancel");
+      await downloading;
+      expect(recordFailure).not.toHaveBeenCalled();
+      expect(controller.snapshot().status).toBe("available");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it.each([
+    "cancel",
+    "stall",
+  ] as const)("recovers from a %s without blocking a new download", async (reason) => {
+    vi.useFakeTimers();
+    try {
+      const { controller, driver, recordFailure } = fixture();
+      await controller.act("check");
+      driver.downloadUpdate.mockImplementationOnce((token) => {
+        if (!token) {
+          throw new Error("Download requires cancellation support");
+        }
+        return token.createPromise((_resolve, _reject, onCancel) => {
+          onCancel(() => {
+            /* No native request in this controller fixture. */
+          });
+        });
+      });
+      const downloading = controller.act("download");
+      driver.emit("download-progress", { percent: 27 });
+      if (reason === "cancel") {
+        await controller.act("cancel");
+      } else {
+        await vi.advanceTimersByTimeAsync(90_000);
+      }
+      await downloading;
+      expect(controller.snapshot().status).toBe(
+        reason === "cancel" ? "available" : "error"
+      );
+      expect(recordFailure).toHaveBeenCalledTimes(reason === "cancel" ? 0 : 1);
+      await controller.act("download");
+      expect(controller.snapshot().status).toBe("downloaded");
+      expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("retains safe download failure evidence through a successful retry", async () => {
     const directory = mkdtempSync(
       join(tmpdir(), "openmeld-update-diagnostic-")

@@ -12,6 +12,7 @@ export async function getSpaceBootstrap(
     includeAgentReadiness?: boolean;
     historyQuery?: SpaceSignalsReadQuery;
     includeAgentStreamPresence?: boolean;
+    includeAgentStreamRecovery?: boolean;
   }
 ) {
   return await client.requestJson({
@@ -19,7 +20,8 @@ export async function getSpaceBootstrap(
       input.spaceId,
       input.historyQuery,
       input.includeAgentStreamPresence,
-      input.includeAgentReadiness
+      input.includeAgentReadiness,
+      input.includeAgentStreamRecovery
     ),
     operation: "space.bootstrap.read",
     headers: {
@@ -41,7 +43,8 @@ export function buildSpaceBootstrapReadPath(
   spaceId: string,
   historyQuery?: SpaceSignalsReadQuery,
   includeAgentStreamPresence?: boolean,
-  includeAgentReadiness?: boolean
+  includeAgentReadiness?: boolean,
+  includeAgentStreamRecovery?: boolean
 ): string {
   const url = new URL(
     buildSpaceBootstrapPath(spaceId),
@@ -55,6 +58,9 @@ export function buildSpaceBootstrapReadPath(
   }
   if (includeAgentReadiness === false) {
     url.searchParams.set("includeAgentReadiness", "false");
+  }
+  if (includeAgentStreamRecovery === true) {
+    url.searchParams.set("includeAgentStreamRecovery", "true");
   }
   return `${url.pathname}${url.search}`;
 }

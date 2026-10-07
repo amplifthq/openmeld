@@ -194,6 +194,7 @@ import {
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
   executeAgentProfileWorkRecoveryBodySchema,
   executeAgentProfileWorkRecoveryResponseSchema,
+  firstWorkResponseSchema,
   forgetComputerResponseSchema,
   forgetComputerRouteParamsSchema,
   forgetCurrentComputerResponseSchema,
@@ -378,7 +379,7 @@ import type {
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
   AgentProfileExecutionModeResponse,
-  AgentStreamToolPart,
+  AgentStreamPart,
   AgentTaskCompletionCondition,
   AgentWorkloadSnapshot,
   ArchiveProjectRpcInput,
@@ -1031,6 +1032,12 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
+import {
+  hasStartedTutorial,
+  readFirstWork,
+  reserveFirstWork,
+  updateFirstWork,
+} from "../onboarding/first-work";
 import {
   rpcCenterAgentListOpportunities as centerAgentListOpportunities,
   rpcCenterAgentRecommendOpportunity as centerAgentRecommendOpportunity,
@@ -2563,7 +2570,7 @@ export type ApplySpaceAgentStreamPartInput = {
   profileId: string;
   triggerMessageId: string;
   dispatchId: string;
-  part: AgentStreamToolPart;
+  part: AgentStreamPart;
 };
 export type CloseSpaceAgentStreamInput = {
   spaceId: string;
@@ -5370,6 +5377,48 @@ export async function rpcGetCurrentAgentProfileSession(
     status: "found",
   });
 }
+async function requireTaskRecoveryRequester(
+  env: CoreBindings,
+  request: ReturnType<typeof requireAgentProfileBindingRequest>,
+  body: ExecuteAgentProfileWorkRecoveryBody
+): Promise<string | undefined> {
+  if (request.owner.id === request.context.actorContext.ownerUserId) {
+    return undefined;
+  }
+  const denied = () =>
+    createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_allowed",
+      reason: "This task needs its Agent owner's attention.",
+      status: 403,
+    });
+  if (!body.spaceId) {
+    throw denied();
+  }
+  const { stub, spaceId } = resolveRpcSpaceStubOrThrow(env, body.spaceId);
+  const queue = await stub.rpcInputQueue({
+    spaceId,
+    context: request.context,
+    includeRecovery: true,
+  });
+  const allowed = queue.recoveries?.find(
+    (item) =>
+      item.targetProfileId === request.agentProfileId &&
+      item.expectedInterruptedTargetWakeLifecycleId ===
+        body.expectedInterruptedTargetWakeLifecycleId
+  );
+  if (
+    !(
+      allowed &&
+      (body.action === allowed.action ||
+        (allowed.action === "fork_interrupted_work" &&
+          body.action === "skip_interrupted_work"))
+    )
+  ) {
+    throw denied();
+  }
+  return request.context.actorContext.openMeldProfileId;
+}
+
 export async function rpcExecuteAgentProfileWorkRecovery(
   env: CoreBindings,
   input: ExecuteAgentProfileWorkRecoveryInput
@@ -5386,7 +5435,16 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       status: 400,
     });
   }
-  const request = await requireAgentProfileWorkRecoveryScope(env, input);
+  const request = await requireAgentProfileWorkRecoveryScope(
+    env,
+    input,
+    parsedBody.data.spaceId !== undefined
+  );
+  const requesterProfileId = await requireTaskRecoveryRequester(
+    env,
+    request,
+    parsedBody.data
+  );
   const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
   const recovery =
     runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
@@ -5450,6 +5508,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     });
   } else if (parsedBody.data.action === "fork_interrupted_work") {
     const continuation = await executeAgentProfileWorkContinuation({
+      requesterProfileId,
       context: request.context,
       env,
       expectedInterruptedTargetWakeLifecycleId:
@@ -5463,6 +5522,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     throwUnstartedAgentProfileWorkContinuationError(continuation);
   } else if (parsedBody.data.action === "skip_interrupted_work") {
     await executeAgentProfileInterruptedWorkSkip({
+      requesterProfileId,
       expectedInterruptedTargetWakeLifecycleId:
         parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
       ownerShard,
@@ -5511,6 +5571,7 @@ export async function rpcAgentProfileExecutionMode(
   );
 }
 async function executeAgentProfileInterruptedWorkSkip(input: {
+  requesterProfileId?: string;
   expectedInterruptedTargetWakeLifecycleId: string;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
@@ -5535,6 +5596,7 @@ async function executeAgentProfileInterruptedWorkSkip(input: {
       return null;
     });
   const skipped = await input.ownerShard.rpcSkipAgentProfileInterruptedWork({
+    requesterProfileId: input.requesterProfileId,
     expectedInterruptedTargetWakeLifecycleId:
       input.expectedInterruptedTargetWakeLifecycleId,
     ownerUserId: input.ownerUserId,
@@ -5605,7 +5667,11 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
         );
       if (
         recovery.status !== "available" ||
-        recovery.action !== "continue_interrupted_work"
+        (recovery.action !== "continue_interrupted_work" &&
+          !(
+            recovery.action === "fork_interrupted_work" &&
+            recovery.automaticForkEligible === true
+          ))
       ) {
         continue;
       }
@@ -5614,6 +5680,12 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
       await executeAgentProfileWorkContinuation({
         context: input.context,
         env: input.env,
+        ...(recovery.action === "fork_interrupted_work"
+          ? {
+              forkInterruptedConversation: true,
+              requireAutomaticForkEligibility: true as const,
+            }
+          : {}),
         ownerShard,
         ownerUserId: input.ownerUserId,
         recovery,
@@ -5677,10 +5749,12 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
   return false;
 }
 async function executeAgentProfileWorkContinuation(input: {
+  requesterProfileId?: string;
   context: CoreRpcContextInput;
   env: CoreBindings;
   expectedInterruptedTargetWakeLifecycleId?: string;
   forkInterruptedConversation?: boolean;
+  requireAutomaticForkEligibility?: true;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   recovery: Extract<
@@ -5734,7 +5808,10 @@ async function executeAgentProfileWorkContinuation(input: {
     input.forkInterruptedConversation ||
       input.recovery.forkInterruptedConversation
   );
-  if (input.recovery.authorizedContinuationClientMessageId === null) {
+  if (
+    input.recovery.authorizedContinuationClientMessageId === null ||
+    input.requesterProfileId
+  ) {
     const currentTarget =
       await requireCurrentAgentProfileWorkContinuationTarget({
         env: input.env,
@@ -5743,6 +5820,7 @@ async function executeAgentProfileWorkContinuation(input: {
       });
     const authorized =
       await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
+        requesterProfileId: input.requesterProfileId,
         continuationClientMessageId,
         currentAgentControllerRef: currentTarget.agentControllerRef,
         currentBindingId: currentTarget.bindingId,
@@ -5753,6 +5831,7 @@ async function executeAgentProfileWorkContinuation(input: {
         ...(forkInterruptedConversation
           ? { forkInterruptedConversation: true }
           : {}),
+        requireAutomaticForkEligibility: input.requireAutomaticForkEligibility,
         ownerUserId: input.ownerUserId,
         requireAcceptedExecutionTargetRevision: true,
         targetProfileId: input.targetProfileId,
@@ -5780,6 +5859,23 @@ async function executeAgentProfileWorkContinuation(input: {
     withdrawal.status !== "withdrawn"
   ) {
     return "deferred";
+  }
+  if (input.requireAutomaticForkEligibility) {
+    const current =
+      runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
+        await input.ownerShard.rpcReadAgentProfileWorkRecovery({
+          ownerUserId: input.ownerUserId,
+          targetProfileId: input.targetProfileId,
+        })
+      );
+    if (
+      current.status !== "available" ||
+      current.automaticForkEligible !== true ||
+      current.interruptedTargetWakeLifecycleId !==
+        input.recovery.interruptedTargetWakeLifecycleId
+    ) {
+      return "deferred";
+    }
   }
   await stub.rpcStartUsageExhaustedContinuation({
     continuationClientMessageId,
@@ -19077,6 +19173,86 @@ export async function rpcWriteCurrentDeviceObservedMetadata(
     metadata: parsed.data.metadata,
   });
 }
+export async function rpcFirstWork(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput } & (
+    | import("@openmeld/schemas").FirstWorkAction
+    | { action?: undefined }
+  )
+) {
+  const context = requireRpcContext(input.context);
+  const scope = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const human = requireHumanSpaceMemberFromContext({
+    context,
+    userId: scope.userId,
+  });
+  const db = requireCenterAgentDb(env);
+  let record = await readFirstWork(db, scope);
+  if (input.action === "start") {
+    // The same bootstrap owner used by Center Agent conversations. Fresh
+    // organizations must have a real candidate before opening the picker.
+    await readOrInitializeCenterAgentDesignation({
+      activeOrganization: scope,
+      context,
+      db,
+      env,
+      required: true,
+    });
+    record = await reserveFirstWork(db, {
+      ...scope,
+      profileId: human.profileId,
+      spaceId: resolveNewSpaceId(env.OPENMELD_SPACES).toString(),
+      runId: input.runId,
+      previousRunId: input.previousRunId,
+    });
+  }
+  if (input.action === "progress" && record?.runId === input.runId) {
+    record = await updateFirstWork(db, { ...scope, ...input });
+  }
+  if (input.action === "create") {
+    if (
+      !record ||
+      record.runId !== input.runId ||
+      record.profileId !== human.profileId
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "onboarding.run_changed",
+        reason: "The tutorial changed in another tab. Open Help to continue.",
+      });
+    }
+    // Same Space owner and authorization as ordinary creation. The reserved ID
+    // makes retries safe if the create response is lost. Never add members here.
+    await createSpaceWithResolvedId(env, {
+      ...input.space,
+      context,
+      organizationId: scope.organizationId,
+      spaceId: record.spaceId,
+      name: input.space.name,
+      visibility: input.space.visibility ?? "private",
+      accessMode: input.space.accessMode ?? "members_only",
+    });
+    if (record.step === "create-space") {
+      record = await updateFirstWork(db, {
+        ...scope,
+        runId: record.runId,
+        revision: record.revision,
+        step: "add-center-agent",
+        paused: false,
+      });
+    }
+  }
+  // This association never grants Space access. SpaceEntryGate and every
+  // ordinary Space request still enforce current membership and access.
+  return firstWorkResponseSchema.parse({
+    record: await readFirstWork(db, scope),
+    hasStartedTutorial: await hasStartedTutorial(db, scope.userId),
+  });
+}
+
 export async function rpcCreateSpace(
   env: CoreBindings,
   input?: CreateSpaceInput
@@ -23090,7 +23266,8 @@ async function requireAgentProfileWorkRecoveryScope(
   input: {
     agentProfileId: string;
     context?: CoreRpcContextInput;
-  }
+  },
+  allowRequester = false
 ): Promise<ReturnType<typeof requireAgentProfileBindingRequest>> {
   const request = requireAgentProfileBindingRequest(input);
   const activeOrganizationId = normalizeOptionalText(
@@ -23130,12 +23307,15 @@ async function requireAgentProfileWorkRecoveryScope(
     });
   }
   if (
-    !ownersEqual(
-      {
-        id: profileScope.scope.ownerUserId,
-        kind: "owner_account",
-      },
-      request.owner
+    !(
+      allowRequester ||
+      ownersEqual(
+        {
+          id: profileScope.scope.ownerUserId,
+          kind: "owner_account",
+        },
+        request.owner
+      )
     )
   ) {
     throw createCoreRpcHttpError({
@@ -23144,7 +23324,10 @@ async function requireAgentProfileWorkRecoveryScope(
       status: 404,
     });
   }
-  return request;
+  return {
+    ...request,
+    owner: { id: profileScope.scope.ownerUserId, kind: "owner_account" },
+  };
 }
 type ActiveOrganization = {
   memberId?: string;
@@ -25662,9 +25845,10 @@ export type SpaceFilePinsInput = GetSpaceMetaInput & {
   mutation?: SpaceFilePinMutation;
 };
 
-export type SpaceInputQueueInput = GetSpaceMetaInput & {
-  mutation?: SpaceInputQueueMutation;
-};
+export type SpaceInputQueueInput = GetSpaceMetaInput &
+  import("@openmeld/schemas/types").SpaceInputQueueOptions & {
+    mutation?: SpaceInputQueueMutation;
+  };
 
 export async function rpcSpaceInputQueue(
   env: CoreBindings,

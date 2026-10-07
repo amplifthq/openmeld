@@ -15,6 +15,10 @@ import {
 } from "#/lib/organizations/inbox";
 import { DISPLAY_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { inboxQueryKeys, invalidateInboxFacts } from "./inbox";
+import {
+	hasPendingInboxReads,
+	optimisticallyReadInbox,
+} from "./inbox-optimistic-read";
 
 export type InboxFeedFilters = {
 	category: InboxFeedCategory;
@@ -87,6 +91,21 @@ export function useMutateOrganizationInboxFeed(organizationId: string) {
 	return useMutation({
 		mutationFn: (body: MutateInboxFeedBody) =>
 			mutateCurrentInboxFeed({ ...body, organizationId }),
-		onSuccess: () => invalidateInboxFacts({ queryClient, organizationId }),
+		onMutate: async (body) => {
+			if (body.operation !== "read") {
+				return;
+			}
+			await queryClient.cancelQueries({
+				queryKey: inboxQueryKeys.organization(organizationId),
+			});
+			return optimisticallyReadInbox(queryClient, organizationId, body);
+		},
+		onError: (_error, _body, context) => context?.settle(false),
+		onSuccess: (_response, _body, context) => context?.settle(true),
+		onSettled: () => {
+			if (!hasPendingInboxReads(queryClient, organizationId)) {
+				return invalidateInboxFacts({ queryClient, organizationId });
+			}
+		},
 	});
 }

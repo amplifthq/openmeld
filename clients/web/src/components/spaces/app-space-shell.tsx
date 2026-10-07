@@ -62,6 +62,7 @@ export function SpaceWindowFrame(input: {
 
 type AppSpaceShellBaseProps = {
 	children: ReactNode;
+	defaultModuleSidebarOpen?: boolean;
 	initialOuterSidebarState?: SidebarPersistedState;
 	initialSidebarState?: SidebarPersistedState;
 };
@@ -87,7 +88,9 @@ export function AppSpaceShell(input: AppSpaceShellProps) {
 			key={`${input.currentProfileId ?? ""}:${input.currentSpaceId ?? ""}`}
 		>
 			<SpaceWindowShell
-				defaultModuleSidebarOpen={!!input.currentSpaceId}
+				defaultModuleSidebarOpen={
+					input.defaultModuleSidebarOpen ?? !!input.currentSpaceId
+				}
 				initialOuterSidebarState={input.initialOuterSidebarState}
 				initialSidebarState={input.initialSidebarState}
 				sidebar={

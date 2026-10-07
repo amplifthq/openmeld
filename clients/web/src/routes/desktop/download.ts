@@ -1,6 +1,7 @@
 import { env as cloudflareEnv } from "cloudflare:workers";
 import type { DesktopReleasePlatform } from "@openmeld/schemas";
 import { createFileRoute } from "@tanstack/react-router";
+import { desktopDownloadRedirect } from "#/lib/desktop-download-redirect";
 import {
 	buildDesktopDownloadHeaders,
 	parseDesktopCandidateSelector,
@@ -48,7 +49,11 @@ export async function downloadDesktopPreview(input: {
 			platform
 		);
 	}
-	return await downloadDefault(bucket, input.includeBody, platform);
+	return await downloadDefault(
+		bucket,
+		input.includeBody && !cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN,
+		platform
+	);
 }
 
 async function downloadCandidate(
@@ -63,7 +68,7 @@ async function downloadCandidate(
 			bucket,
 			id,
 			async (key) => {
-				if (!includeBody) {
+				if (!includeBody || cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN) {
 					return bucket.head(key);
 				}
 				const loaded = await bucket.get(key);
@@ -79,6 +84,12 @@ async function downloadCandidate(
 			});
 		}
 		const { candidate, artifact: object } = available;
+		if (cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN) {
+			return desktopDownloadRedirect(
+				cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN,
+				candidate.objectKey
+			);
+		}
 		const headers = buildDesktopDownloadHeaders({
 			artifactName: candidate.artifactName,
 			etag: object.httpEtag,
@@ -176,6 +187,12 @@ async function downloadDefault(
 			status: 503,
 			headers: { "cache-control": "no-store" },
 		});
+	}
+	if (cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN) {
+		return desktopDownloadRedirect(
+			cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN,
+			releaseManifest.objectKey
+		);
 	}
 	const headers = buildDesktopDownloadHeaders({
 		artifactName: releaseManifest.artifactName,

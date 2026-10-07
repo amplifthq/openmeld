@@ -31,6 +31,7 @@ import type {
   ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { rpcCenterAgentListAgentActivitySessions } from "../src/agent-activity/activity-center-agent-rpc";
 import {
   claimReadyAgentTaskCompletionSubscription,
   readAgentTaskCompletionSubscription,
@@ -688,6 +689,26 @@ describe("Remote Agent native delivery callback service", () => {
         prepareRemoteAgentMemberRequest(env, execution.context, {
           memberId: "another-member",
           userId: sender.ownerUserId,
+        })
+      ).rejects.toThrow("verified requester");
+      await expect(
+        rpcCenterAgentListAgentActivitySessions(env, {
+          context: execution.context,
+          limit: 20,
+          speakerMember: {
+            memberId: sender.id,
+            userId: sender.ownerUserId,
+          },
+        })
+      ).resolves.toMatchObject({ sessions: [] });
+      await expect(
+        rpcCenterAgentListAgentActivitySessions(env, {
+          context: execution.context,
+          limit: 20,
+          speakerMember: {
+            memberId: "another-member",
+            userId: sender.ownerUserId,
+          },
         })
       ).rejects.toThrow("verified requester");
       await expect(

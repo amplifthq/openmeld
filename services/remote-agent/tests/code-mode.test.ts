@@ -445,6 +445,80 @@ describe("Remote Agent Code Mode", () => {
     await running;
     expect(following).not.toHaveBeenCalled();
   });
+  it("lets personal Agents discover and request session history without bypassing authorization", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const authorize = vi.fn(async () => ({ kind: "authorize" }));
+    const read = vi.fn(async () => ({
+      kind: "error" as const,
+      code: "denied" as const,
+      message: "History access is disabled.",
+    }));
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const tool = tools.openmeld_read_session_history;
+        if (!tool?.execute) {
+          throw new Error("Session history is unavailable");
+        }
+        return {
+          result: await tool.execute(
+            {
+              computerId: "computer-1",
+              projectId: "project-1",
+              sessionId: "session-1",
+            },
+            TOOL_OPTIONS
+          ),
+        };
+      },
+    });
+    const catalog = await getRemoteAgentFlueTools({
+      personalAgent: true,
+      agentActivityReadEnabled: true,
+      storage,
+      submissionId: SUBMISSION_ID,
+      coreWorker: {
+        personalRemoteAgentSpaceTool: authorize,
+        agentSessionHistory: read,
+      },
+      env: { LOADER: {} as WorkerLoader },
+      codeModeRuntime: runtime,
+    });
+    expect(catalog.capabilities.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "openmeld_list_agent_activity_sessions",
+        "openmeld_read_session_history",
+      ])
+    );
+    const codeMode = catalog.tools.find((tool) => tool.name === "codemode");
+    if (!codeMode) {
+      throw new Error("Code Mode is unavailable");
+    }
+    const run = () =>
+      codeMode.run({
+        data: { code: "read history" },
+        log: console,
+        toolCallId: "personal-history",
+      });
+    await run();
+    expect(read).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        computerId: "computer-1",
+        request: {
+          operation: "read_session",
+          projectId: "project-1",
+          sessionId: "session-1",
+          offset: 0,
+          limit: 20,
+        },
+      })
+    );
+    authorize.mockRejectedValue(
+      new Error("remote_agent.space_membership_revoked")
+    );
+    await expect(run()).rejects.toThrow("space_membership_revoked");
+    expect(read).toHaveBeenCalledTimes(1);
+  });
   it("checks personal execution authority before direct and Code Mode computer calls", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const execute = vi.fn(async () => ({ result: "computer-result" }));

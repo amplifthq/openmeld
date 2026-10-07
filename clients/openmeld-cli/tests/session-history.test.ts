@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -98,7 +105,7 @@ async function fixture() {
       })
     ).payload.result;
   };
-  const enable = (readerProfileIds: string[] = []) =>
+  const enable = () =>
     send({
       operation: "update_settings",
       expectedRevision: 1,
@@ -110,7 +117,6 @@ async function fixture() {
             bindingGeneration: connection.bindingGeneration,
           },
         ],
-        readerProfileIds,
       },
     });
   return { root, repo, connection, readHistory, send, enable };
@@ -139,6 +145,30 @@ describe("controlled session history", () => {
       kind: "audit",
       entries: [{ outcome: "allowed", count: 1 }],
     });
+    // Same native ID, different provider: routing and audit must retain both.
+    expect(await f.send({ ...read, provider: "claude-code" })).toMatchObject({
+      kind: "session",
+      provider: "claude-code",
+    });
+    expect(f.readHistory).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sessionId: read.sessionId,
+        provider: "claude-code",
+      })
+    );
+    expect(await f.send({ operation: "read_audit" })).toMatchObject({
+      kind: "audit",
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          provider: "codex",
+          sessionId: read.sessionId,
+        }),
+        expect.objectContaining({
+          provider: "claude-code",
+          sessionId: read.sessionId,
+        }),
+      ]),
+    });
     expect(
       await f.send(
         { operation: "read_audit" },
@@ -146,12 +176,11 @@ describe("controlled session history", () => {
       )
     ).toMatchObject({ kind: "error", code: "denied" });
   });
-  it("requires both an owner root and a specifically permitted reader", async () => {
+  it("allows any verified owner-delegated reader but rejects another human root", async () => {
     const f = await fixture();
-    await f.enable(["agent"]);
+    await f.enable();
     for (const requester of [
       { ...owner, requesterUserId: "coworker", readerProfileId: "agent" },
-      { ...owner, readerProfileId: "other-agent" },
     ]) {
       expect(await f.send(read, requester)).toMatchObject({
         kind: "error",
@@ -159,14 +188,43 @@ describe("controlled session history", () => {
       });
     }
     expect(f.readHistory).not.toHaveBeenCalled();
-    expect(
-      await f.send(read, {
-        ...owner,
-        readerProfileId: "agent",
-        audience: "space",
-        spaceId: "space",
+    for (const readerProfileId of ["agent", "new-agent"]) {
+      expect(
+        await f.send(read, {
+          ...owner,
+          readerProfileId,
+          audience: "space",
+          spaceId: "space",
+        })
+      ).toMatchObject({ kind: "session", requester: { audience: "space" } });
+    }
+  });
+  it("requires fresh consent when upgrading per-Agent grants to all delegated agents", async () => {
+    const f = await fixture();
+    await f.enable();
+    const path = sessionHistoryStorePath(f.root, "owner", "org");
+    const saved = JSON.parse(await readFile(path, "utf8"));
+    await writeFile(
+      path,
+      JSON.stringify({
+        ...saved,
+        version: 1,
+        policy: { ...saved.policy, readerProfileIds: ["agent"] },
       })
-    ).toMatchObject({ kind: "session", requester: { audience: "space" } });
+    );
+    const settings = await f.send({ operation: "read_settings" });
+    expect(settings).toMatchObject({
+      kind: "settings",
+      policy: { enabled: false, revision: 3 },
+    });
+    expect(
+      await f.send(read, { ...owner, readerProfileId: "agent" })
+    ).toMatchObject({ kind: "error", code: "denied" });
+    expect(f.readHistory).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+      version: 2,
+      policy: { enabled: false },
+    });
   });
   it("does not inherit consent when a Project is removed and reconnected", async () => {
     const f = await fixture();
@@ -195,7 +253,7 @@ describe("controlled session history", () => {
       await f.send({
         operation: "update_settings",
         expectedRevision: 2,
-        policy: { enabled: false, connections: [], readerProfileIds: [] },
+        policy: { enabled: false, connections: [] },
       });
       return {
         cwd: f.repo,

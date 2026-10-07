@@ -49,7 +49,8 @@ describe("buildSpaceMessageDetailsPresentation", () => {
 			presentation.activityItems.find((item) => item.kind === "target")
 		).toMatchObject({
 			status: "pending",
-			description: "Waiting for Codex. Another app is using this conversation.",
+			description:
+				"Codex · Waiting for another app. Another app is using this conversation.",
 		});
 	});
 
