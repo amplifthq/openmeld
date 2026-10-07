@@ -264,7 +264,11 @@ the existing theme provider owns persistence and system appearance. Spaces and i
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
 Discover, in that order (Discover is absent in personal workspaces).
 
-Your Spaces and Direct messages default to Cards and offer Table in the directory toolbar.
+Your Spaces, Direct messages, and Discover default to Cards and offer Table in the directory toolbar.
+The tab body and navigation read the same immediate URL state, so switching
+panels does not wait for route loaders to commit the search parameter.
+All three tabs retain the same Space shell and sidebar. Switching the directory
+panel does not remount sidebar avatars, subscriptions, or resize controls.
 The sidebar's View and filters menu includes Show message previews. It defaults
 to off and persists per Human Profile and Organization in the browser preference
 store. One setting controls the sidebar and both directory card views; it does
@@ -289,11 +293,13 @@ unused avatar slots remain part of the Space navigation target. The member
 popover also has a primary Open Space link in its header; keyboard activation
 of the member trigger remains available.
 The existing browser preference store remembers this choice per Human Profile
-and Organization, shared across Your Spaces and Direct messages. Direct message
+and Organization, shared across all three tabs. Direct message
 cards keep peer and Center Agent session identity, unread destinations, groups,
 pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
 grid height; the title follows directly, with one latest-message preview row
-only when messages exist. Discover retains its existing layout.
+only when messages exist. Discover cards and rows expose the same Preview and
+Join actions, pending state, and access checks. Responsive member grids mount
+each avatar once; CSS changes visible slots without duplicating avatar drawing.
 The Agents directory uses the same store to remember grouped versus expanded
 presentation per viewer, Organization, and person. Search and temporary filters
 do not become saved layout preferences.
