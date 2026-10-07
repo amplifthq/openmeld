@@ -214,6 +214,12 @@ Session available through that provider's documented local surface, maps it to
 exactly one authorized connection, and uploads bounded pages containing only
 the shared metadata contract.
 
+Codex discovery includes every model provider and uses `updatedAt` for the
+last activity time. `recencyAt` is a sorting key, not an activity timestamp.
+When native discovery lists multiple copies of one thread, Service resolves
+its metadata with `thread/read` and `includeTurns: false`. It does not read
+conversation turns to reconcile the inventory.
+
 Provider-reported working directories are resolved to their canonical local
 paths before connection matching. This includes arbitrary user-created symlink
 aliases, not only known macOS path aliases. An unavailable or unreadable path
@@ -573,6 +579,11 @@ destination; private source messages are not automatically shared with a Space.
 
 The Computer page holds Session history access and owner-only Access history
 beside File access. Service stores settings and bounded access metadata locally.
+Computer-scoped inventory queries filter sessions and source coverage before
+pagination. Discovery failure or incomplete coverage must remain visible; an
+empty page does not establish that the Computer has no Codex sessions. Personal
+Remote Agents receive the same inventory and history tools, subject to their
+existing per-call Space authorization and the history access policy above.
 The history service does not persist transcript bodies, index them in cloud
 storage, or put them in telemetry or browser persistent caches. An authorized
 downstream agent conversation or model provider can retain a tool result or a

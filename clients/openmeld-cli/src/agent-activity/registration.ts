@@ -233,6 +233,7 @@ function addActivitySessionsOptions(command: Command) {
     )
     .option("--origin <origin>", "Filter by openmeld, local, or unknown")
     .option("--native-session <id>", "Locate one Native Session ID")
+    .option("--computer <id>", "Filter by connected Computer ID")
     .option("--query <text>", "Search Native Session title or ID")
     .option("--limit <count>", "Page size, from 1 through 100", "50")
     .option("--cursor <cursor>", "Continue from a prior page cursor")

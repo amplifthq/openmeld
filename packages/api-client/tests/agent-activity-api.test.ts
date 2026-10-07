@@ -8,6 +8,34 @@ import {
 } from "../src";
 
 describe("api-client Agent Activity API", () => {
+  it("keeps Computer scope on paginated Session Inventory requests", async () => {
+    const transport = vi.fn<OpenMeldApiClientTransport>(() =>
+      Promise.resolve(
+        jsonResponse({
+          asOfMs: 1000,
+          coverage: [],
+          nextCursor: null,
+          organization: { id: "org-1", name: "Example team" },
+          sessions: [],
+        })
+      )
+    );
+    const api = createAgentActivityApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await api.readSessions({ computerId: "computer-1", cursor: "page+/=" });
+
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/agent-activity/sessions?computerId=computer-1&cursor=page%2B%2F%3D",
+      })
+    );
+  });
+
   it("requests reviewed provider details only when the reader opts in", () => {
     expect(buildAgentActivitySnapshotPath()).toBe(
       "/v1/organizations/current/agent-activity"

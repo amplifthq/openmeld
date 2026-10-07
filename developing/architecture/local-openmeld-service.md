@@ -1884,6 +1884,11 @@ only controls how quickly the new route becomes available again.
 Every durable local Project connection writer emits the same lane-local catalog
 refresh signal, while an idempotent no-op emits nothing.
 
+Execution Host connection refresh replaces the contents of its shared route
+map in place. Already queued dispatches must read that same map at admission
+so they see refreshed working-folder facts and route removals. Refresh does
+not relax the current identity, durable configuration, or freshness checks.
+
 Current working-folder facts are a negotiated transport capability. The Service
 requests expected routes in `v4`, then falls back through `v3`, `v2`, and the
 legacy query only when Core explicitly returns `invalid_payload`. A network,

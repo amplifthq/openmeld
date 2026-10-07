@@ -3793,6 +3793,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       description:
         "List the current Organization's authorized, metadata-only Local Agent Session Inventory. Use this to find stable Native Session IDs, owner, Project, Computer, Local Agent, status, provider-native title, resume/fork capability, and current Agent Profile Binding. This is read-only inventory evidence; visibility does not grant operation authority. Continue with cursor when nextCursor is present.",
       input: object({
+        computerId: optionalNonEmptyStringSchema,
         cursor: optional(nonEmptyStringSchema),
         limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
         memberUserId: optionalNonEmptyStringSchema,

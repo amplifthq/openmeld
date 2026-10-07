@@ -27,6 +27,7 @@ export function buildAgentActivitySnapshotPath(
 
 export function buildAgentActivitySessionsPath(
   query: {
+    computerId?: string;
     cursor?: string;
     limit?: number;
     memberUserId?: string;

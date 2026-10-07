@@ -5,6 +5,7 @@ import {
 	createSessionHistoryApi,
 } from "@openmeld/api-client";
 import type {
+	AgentActivityInventoryCoverage,
 	AgentActivityInventorySession,
 	PeopleComputerTarget,
 	SessionHistoryOperation,
@@ -43,6 +44,9 @@ export function ComputerSessionHistoryCard(
 	> | null>(null);
 	const [sessions, setSessions] = useState<AgentActivityInventorySession[]>([]);
 	const [sessionsLoaded, setSessionsLoaded] = useState(false);
+	const [coverage, setCoverage] = useState<AgentActivityInventoryCoverage[]>(
+		[]
+	);
 	const [cursor, setCursor] = useState<string | null>(null);
 	const [history, setHistory] = useState<Session | null>(null);
 	const [selected, setSelected] =
@@ -108,13 +112,13 @@ export function ComputerSessionHistoryCard(
 	}
 	async function listSessions(next?: string) {
 		const response = await createAgentActivityApi(foundation()).readSessions({
+			computerId: input.computerId,
 			provider: "codex",
 			limit: 100,
 			...(next ? { cursor: next } : {}),
 		});
-		const rows = response.sessions.filter(
-			(session) => session.computer.id === input.computerId
-		);
+		const rows = response.sessions;
+		setCoverage(response.coverage);
 		setSessions((previous) => (next ? [...previous, ...rows] : rows));
 		setCursor(response.nextCursor);
 		setSessionsLoaded(true);
@@ -139,7 +143,8 @@ export function ComputerSessionHistoryCard(
 				<CardDescription>
 					Read Codex conversations from this computer, including sessions
 					outside OpenMeld. Access is off until you enable it for selected
-					projects.
+					projects. Access covers all Codex sessions in each selected project,
+					including other tasks.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-4">
@@ -313,10 +318,12 @@ export function ComputerSessionHistoryCard(
 						Manage history access
 					</Button>
 				)}
-				{sessionsLoaded && sessions.length === 0 ? (
-					<p className="text-muted-foreground text-sm">
-						No Codex sessions found on this computer.
-					</p>
+				{sessionsLoaded ? (
+					<SessionInventoryStatus
+						coverage={coverage}
+						hasMore={cursor !== null}
+						hasSessions={sessions.length > 0}
+					/>
 				) : null}
 				{sessions.length > 0 ? (
 					<ul className="space-y-2">
@@ -329,6 +336,9 @@ export function ComputerSessionHistoryCard(
 									{session.nativeSessionTitle ?? "Untitled Codex session"}
 									<span className="ml-2 text-muted-foreground">
 										{session.project.name}
+										{session.dataState === "stale"
+											? " · Last known session"
+											: ""}
 									</span>
 								</span>
 								<Button
@@ -432,4 +442,37 @@ export function ComputerSessionHistoryCard(
 			</CardContent>
 		</Card>
 	);
+}
+
+function SessionInventoryStatus(input: {
+	coverage: AgentActivityInventoryCoverage[];
+	hasSessions: boolean;
+	hasMore: boolean;
+}) {
+	const complete =
+		input.coverage.length > 0 &&
+		input.coverage.every((source) => source.state === "current");
+	if (complete && (input.hasSessions || input.hasMore)) {
+		return null;
+	}
+	return (
+		<output className="block text-muted-foreground text-sm">
+			{complete
+				? "No Codex sessions found on this computer."
+				: sessionInventoryNotice(input.coverage)}
+		</output>
+	);
+}
+
+function sessionInventoryNotice(coverage: AgentActivityInventoryCoverage[]) {
+	if (coverage.some((source) => source.state === "error")) {
+		return "Codex session discovery failed. Check Codex on this computer, then try again. Any listed sessions are from the last successful scan.";
+	}
+	if (coverage.some((source) => source.state === "disconnected")) {
+		return "A project connection is no longer available. Reconnect the project to refresh its sessions.";
+	}
+	if (coverage.some((source) => source.state === "unsupported")) {
+		return "Codex session discovery is not supported on this computer yet.";
+	}
+	return "The session list is not up to date yet. Check that this computer has a connected project, then try again.";
 }
