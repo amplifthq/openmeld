@@ -582,12 +582,15 @@ destination; private source messages are not automatically shared with a Space.
 
 The Computer page holds Session history access and owner-only Access history
 beside File access. Service stores settings and bounded access metadata locally.
-The compact card shows access status and one Manage access entry. Settings load
-with the page; conversation titles and recent access load when its drawer opens.
-The drawer groups settings, Conversations, and Recent access. Provider names
-belong on conversation rows; the current Codex-only read support is explicit.
+The card keeps the master switch and Project selection directly editable.
+Only infrequent conversation browsing and access history live in the drawer.
+Settings load with the page; conversation titles and recent access load when
+the drawer opens. Provider names belong on conversation rows; the current
+Codex-only read support is explicit.
 Switches save immediately, with confirmed state and inline failure recovery.
-Long lists use the shared Fluid Scroll Area with fades. Conversation bodies load
+The drawer uses one shared Fluid Scroll Area filling its remaining height,
+without nested fixed-height lists. Project selection on the card remains
+bounded. Conversation bodies load
 only after an explicit Read action, in a bounded reader that clears its body on
 close or return to the list. Reading replaces the drawer contents, without a
 nested dialog. There are no separate browse or reveal-audit gates inside it.

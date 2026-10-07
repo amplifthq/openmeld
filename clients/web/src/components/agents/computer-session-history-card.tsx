@@ -233,12 +233,6 @@ type State = ReturnType<typeof useConversationAccess>;
 export function ComputerSessionHistoryCard(input: Props) {
 	const [open, setOpen] = useState(false);
 	const state = useConversationAccess(input, open);
-	let status = "Connecting…";
-	if (state.settingsError) {
-		status = "Unavailable";
-	} else if (state.settings) {
-		status = state.settings.policy.enabled ? "On" : "Off";
-	}
 	return (
 		<Sheet
 			onOpenChange={(value) => {
@@ -250,15 +244,10 @@ export function ComputerSessionHistoryCard(input: Props) {
 			open={open}
 		>
 			<Card>
-				<CardContent className="flex items-center justify-between gap-4 pt-4">
-					<div className="space-y-1">
-						<CardTitle>Conversation access</CardTitle>
-						<p className="text-muted-foreground text-sm">
-							{status} · Local agent conversations
-						</p>
-					</div>
+				<CardContent className="space-y-4 pt-4">
+					<AccessSettings state={state} />
 					<SheetTrigger render={<Button size="sm" variant="secondary" />}>
-						Manage access
+						View conversations &amp; history
 					</SheetTrigger>
 				</CardContent>
 			</Card>
@@ -279,18 +268,19 @@ export function ComputerSessionHistoryCard(input: Props) {
 				) : (
 					<>
 						<SheetHeader className="pr-12">
-							<SheetTitle>Conversation access</SheetTitle>
+							<SheetTitle>Conversations &amp; access history</SheetTitle>
 							<SheetDescription>
-								Control what you and your agents can read. Currently supports
-								Codex.
+								Conversations on this computer and recent reads. Currently
+								supports Codex.
 							</SheetDescription>
 						</SheetHeader>
 						<ScrollArea
 							className="min-h-0 flex-1"
 							contentClassName="space-y-4 p-4"
-							viewportProps={{ "aria-label": "Conversation access details" }}
+							viewportProps={{
+								"aria-label": "Conversations and access history",
+							}}
 						>
-							<AccessSettings state={state} />
 							<ConversationList state={state} />
 							<AccessLog profiles={input.profiles} state={state} />
 						</ScrollArea>
@@ -307,7 +297,9 @@ function AccessSettings({ state }: { state: State }) {
 	return (
 		<section aria-label="Conversation access settings" className="space-y-4">
 			<div className="flex items-center justify-between gap-4">
-				<CardTitle id="conversation-access-label">Allow access</CardTitle>
+				<CardTitle id="conversation-access-label">
+					Conversation access
+				</CardTitle>
 				<Switch
 					aria-describedby="conversation-access-help"
 					aria-labelledby="conversation-access-label"
@@ -322,8 +314,8 @@ function AccessSettings({ state }: { state: State }) {
 				className="text-muted-foreground text-sm"
 				id="conversation-access-help"
 			>
-				Only you and agents acting on your requests. Other members do not get
-				access.
+				Read local conversations yourself or through agents acting for you.
+				Currently supports Codex.
 			</p>
 			{saving || !(settings || settingsError) ? (
 				<output className="block text-muted-foreground text-xs">
@@ -458,30 +450,25 @@ function ConversationList({ state }: { state: State }) {
 					No Codex conversations found in connected projects.
 				</p>
 			) : null}
-			<ScrollArea
-				className="-mr-3 max-h-64"
-				viewportProps={{ "aria-label": "Codex conversations" }}
-			>
-				<ul className="divide-y pr-3">
-					{sessions.map((session) => (
-						<ConversationRow
-							key={`${session.project.id}/${session.nativeSessionId}`}
-							session={session}
-							state={state}
-						/>
-					))}
-				</ul>
-				{cursor ? (
-					<Button
-						disabled={sessionsLoading}
-						onClick={() => loadSessions(cursor)}
-						size="sm"
-						variant="secondary"
-					>
-						{sessionsLoading ? "Loading…" : "Load more conversations"}
-					</Button>
-				) : null}
-			</ScrollArea>
+			<ul className="divide-y">
+				{sessions.map((session) => (
+					<ConversationRow
+						key={`${session.project.id}/${session.nativeSessionId}`}
+						session={session}
+						state={state}
+					/>
+				))}
+			</ul>
+			{cursor ? (
+				<Button
+					disabled={sessionsLoading}
+					onClick={() => loadSessions(cursor)}
+					size="sm"
+					variant="secondary"
+				>
+					{sessionsLoading ? "Loading…" : "Load more conversations"}
+				</Button>
+			) : null}
 		</section>
 	);
 }
@@ -559,21 +546,16 @@ function AccessLog({
 					No reads yet. Requests from you and your agents will appear here.
 				</p>
 			) : null}
-			<ScrollArea
-				className="-mr-3 max-h-56"
-				viewportProps={{ "aria-label": "Recent conversation access" }}
-			>
-				<ul className="divide-y pr-3">
-					{audit?.entries.map((entry) => (
-						<AccessLogRow
-							entry={entry}
-							key={entry.requestId}
-							profiles={profiles}
-							sessions={sessions}
-						/>
-					))}
-				</ul>
-			</ScrollArea>
+			<ul className="divide-y">
+				{audit?.entries.map((entry) => (
+					<AccessLogRow
+						entry={entry}
+						key={entry.requestId}
+						profiles={profiles}
+						sessions={sessions}
+					/>
+				))}
+			</ul>
 		</section>
 	);
 }

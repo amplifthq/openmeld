@@ -18,7 +18,8 @@ Hosted Wakes keep retrying the same request when submission cannot be confirmed,
 instead of entering a waiting state that blocks admission recovery.
 
 Computer conversation access now uses one switch and selected projects, without
-a per-Agent list. A compact card opens one drawer for settings, conversations,
-and recent access. Settings save immediately; messages open in the same drawer.
+a per-Agent list. Settings stay directly editable on the Computer card and save
+immediately. Conversation browsing and recent access open in one full-height
+drawer, with messages in the same drawer.
 Existing per-Agent grants stay off until you enable the new
 setting; other members still cannot read your history.
