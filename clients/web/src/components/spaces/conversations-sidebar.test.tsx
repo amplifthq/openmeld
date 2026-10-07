@@ -123,29 +123,32 @@ async function selectView(name: "Grouped" | "Recent") {
 	fireEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
 
-it("remembers hidden message previews after remount and restores them from the menu", async () => {
+it("hides previews by default and remembers an explicit choice after remount", async () => {
 	const mounted = mount();
 	const previewName =
 		"Open preview message in Release planning: The release plan is ready to review.";
-	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
+	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
 	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
 	fireEvent.click(
 		await screen.findByRole("menuitemcheckbox", {
 			name: "Show message previews",
 		})
 	);
-	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
+	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
 	expect(screen.getByRole("link", { name: "Release planning" })).toBeTruthy();
 	mounted.unmount();
-	mount();
-	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
+	const remounted = mount();
+	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
 	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
 	const toggle = await screen.findByRole("menuitemcheckbox", {
 		name: "Show message previews",
 	});
-	expect(toggle.getAttribute("aria-checked")).toBe("false");
+	expect(toggle.getAttribute("aria-checked")).toBe("true");
 	fireEvent.click(toggle);
-	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
+	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
+	remounted.unmount();
+	mount();
+	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
 });
 
 it("refreshes row timestamps across midnight and when the window regains focus", () => {

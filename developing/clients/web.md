@@ -220,7 +220,7 @@ Discover, in that order (Discover is absent in personal workspaces).
 
 Your Spaces and Direct messages default to Cards and offer Table in the directory toolbar.
 The sidebar's View and filters menu includes Show message previews. It defaults
-to on and persists per Human Profile and Organization in the browser preference
+to off and persists per Human Profile and Organization in the browser preference
 store. One setting controls the sidebar and both directory card views; it does
 not change Table previews or suppress actionable needs-input status. Hidden or
 absent message previews reserve no sidebar line or card footer. Single-line

@@ -18,6 +18,7 @@ Your browser remembers the Space view you choose and each person's grouped or
 expanded Agent view.
 
 Use Show message previews in the sidebar settings to show or hide message
-previews across the sidebar and cards. Your browser remembers the choice.
+previews across the sidebar and cards. Previews are off by default, and your
+browser remembers the choice across pages and reloads.
 Rows without previews keep their titles and actions centered, and title hints
 open beside the full row without covering its text.
