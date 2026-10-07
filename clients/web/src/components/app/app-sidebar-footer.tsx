@@ -43,6 +43,7 @@ import {
 	AccountsSwitcherView,
 	useAccountSwitcher,
 } from "./app-account-switcher";
+import { AppHelpMenu } from "./app-help-menu";
 import { useAppNavigationPresentation } from "./app-navigation-presentation";
 import { AppSettingsMenuItem } from "./app-settings-menu-item";
 import type {
@@ -144,7 +145,13 @@ export function AppSidebarFooter({
 	);
 	return (
 		<SidebarFooter className={footerClassName}>
-			<SidebarMenu aria-label="App utilities" className={actionsClassName}>
+			<SidebarMenu
+				activeIndicatorClassName={iconOnly ? "rounded-full" : undefined}
+				aria-label="App utilities"
+				className={actionsClassName}
+				focusIndicatorClassName={iconOnly ? "rounded-full" : undefined}
+				hoverIndicatorClassName={iconOnly ? "rounded-full" : undefined}
+			>
 				<SidebarUserMenuItem
 					avatar={
 						<AccountAvatarWithComputerAttention>
@@ -241,14 +248,15 @@ export function AppSidebarFooter({
 								</div>
 								<DropdownMenuSeparator />
 								<FluidDropdownMenuGroup>
+									<AppHelpMenu index={invitationEntry.nextMenuIndex + 3} />
 									{desktop ? (
 										<DesktopSignOutMenuItem
-											index={invitationEntry.nextMenuIndex + 3}
+											index={invitationEntry.nextMenuIndex + 4}
 										/>
 									) : (
 										<FluidDropdownMenuItem
 											disabled={logout.isPending}
-											index={invitationEntry.nextMenuIndex + 3}
+											index={invitationEntry.nextMenuIndex + 4}
 											onClick={() => {
 												logout.mutate(undefined, {
 													onSuccess: () => window.location.assign("/"),
@@ -279,7 +287,7 @@ export function AppSidebarFooter({
 						}
 					}}
 					open={menuOpen}
-					triggerClassName={iconOnly ? "size-8" : undefined}
+					triggerClassName={iconOnly ? "size-8 rounded-full" : undefined}
 					triggerLabel={[
 						`Open user menu for ${name}`,
 						computerAttentionLabel,

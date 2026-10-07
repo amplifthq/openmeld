@@ -26,3 +26,7 @@ Your pins are saved in this browser. Sidebar icons now show their names as soon
 as you hover over them.
 The hover highlight moves continuously between primary and pinned entries,
 including while a navigation popover opens or closes.
+
+The account avatar and its hover background stay circular in every corner style.
+Open Help from the account menu to see the three latest published updates,
+with links to the full changelog, OpenMeld website, and documentation.

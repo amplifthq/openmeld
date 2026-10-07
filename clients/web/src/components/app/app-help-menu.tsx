@@ -1,0 +1,150 @@
+import { changelogQueryResponseSchema } from "@openmeld/schemas";
+import {
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuSub,
+} from "@openmeld/ui/components/dropdown-menu";
+import { FluidActionListItem } from "@openmeld/ui/fluid/action-list";
+import {
+	FluidDropdownMenuGroup,
+	FluidDropdownMenuSubContent,
+	FluidDropdownMenuSubTrigger,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import {
+	ArrowUpRightIcon,
+	BookOpenTextIcon,
+	GlobeHemisphereWestIcon,
+	LifebuoyIcon,
+} from "@phosphor-icons/react";
+import { useQuery } from "@tanstack/react-query";
+import { type ReactNode, useState } from "react";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+
+const website = "https://openmeld.ai";
+const changelogUrl = `${website}/changelog`;
+const dateFormat = new Intl.DateTimeFormat("en-GB", {
+	day: "numeric",
+	month: "short",
+	timeZone: "UTC",
+});
+
+function HelpLink({
+	children,
+	href,
+	index,
+}: {
+	children: ReactNode;
+	href: string;
+	index: number;
+}) {
+	return (
+		<DropdownMenuItem
+			className="gap-2 focus:bg-transparent"
+			nativeButton={false}
+			render={
+				<FluidActionListItem
+					index={index}
+					render={
+						<a href={href} rel="noopener noreferrer" target="_blank">
+							{children}
+						</a>
+					}
+				/>
+			}
+		>
+			{children}
+		</DropdownMenuItem>
+	);
+}
+
+function TimelineDot({ last = false }: { last?: boolean }) {
+	return (
+		<span
+			aria-hidden="true"
+			className="relative flex size-4 shrink-0 items-center justify-center self-center"
+		>
+			<span className="size-1.5 rounded-full border border-muted-foreground" />
+			{!last && (
+				<span className="absolute top-3 left-1/2 h-6 w-px -translate-x-1/2 bg-border" />
+			)}
+		</span>
+	);
+}
+
+export function AppHelpMenu({ index }: { index: number }) {
+	const [open, setOpen] = useState(false);
+	const changelog = useQuery({
+		queryKey: ["changelog", "latest", 3],
+		enabled: open,
+		staleTime: 300_000,
+		queryFn: () =>
+			createUnscopedWebOpenMeldApiFoundation().requestJson({
+				url: "/v1/changelog?limit=3",
+				method: "GET",
+				operation: "changelog.read",
+				schema: changelogQueryResponseSchema,
+				invalidMessage: "Invalid changelog response.",
+			}),
+	});
+	return (
+		<DropdownMenuSub onOpenChange={setOpen} open={open}>
+			<FluidDropdownMenuSubTrigger index={index}>
+				<LifebuoyIcon />
+				Help
+			</FluidDropdownMenuSubTrigger>
+			<FluidDropdownMenuSubContent
+				className="w-[420px] max-w-[calc(100vw-24px)]"
+				sideOffset={6}
+			>
+				<div className="px-2 py-1.5 text-muted-foreground text-xs">
+					What's new
+				</div>
+				<FluidDropdownMenuGroup>
+					{changelog.data?.entries.map((entry, entryIndex) => (
+						<HelpLink
+							href={`${changelogUrl}#update-${entry.id}`}
+							index={entryIndex}
+							key={entry.id}
+						>
+							<TimelineDot />
+							<span className="min-w-0 flex-1 truncate" title={entry.title}>
+								{entry.title}
+							</span>
+							<time
+								className="shrink-0 text-muted-foreground"
+								dateTime={entry.publishedAt}
+							>
+								{dateFormat.format(new Date(`${entry.publishedAt}T00:00:00Z`))}
+							</time>
+						</HelpLink>
+					))}
+					{!changelog.data && (
+						<output className="px-2 py-2 text-muted-foreground text-xs">
+							{changelog.isError
+								? "Updates couldn't load. View the full changelog below."
+								: "Loading updates…"}
+						</output>
+					)}
+					<HelpLink href={changelogUrl} index={3}>
+						<TimelineDot last />
+						<span className="flex-1">Full changelog</span>
+						<ArrowUpRightIcon className="text-muted-foreground" />
+					</HelpLink>
+				</FluidDropdownMenuGroup>
+				<DropdownMenuSeparator />
+				<FluidDropdownMenuGroup>
+					<HelpLink href={website} index={0}>
+						<GlobeHemisphereWestIcon />
+						<span className="flex-1">OpenMeld website</span>
+						<ArrowUpRightIcon className="text-muted-foreground" />
+					</HelpLink>
+					<HelpLink href="https://docs.openmeld.ai" index={1}>
+						<BookOpenTextIcon />
+						<span className="flex-1">Documentation</span>
+						<ArrowUpRightIcon className="text-muted-foreground" />
+					</HelpLink>
+				</FluidDropdownMenuGroup>
+			</FluidDropdownMenuSubContent>
+		</DropdownMenuSub>
+	);
+}
