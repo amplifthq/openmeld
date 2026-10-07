@@ -228,6 +228,16 @@ export function NewChatDialog(input: {
 						)}
 				</>
 			}
+			onAgentCreated={async (profileId) => {
+				setQuery("");
+				setSelected((current) => new Set([...current, profileId]));
+				setError(null);
+				try {
+					await directory.refetch({ throwOnError: true });
+				} catch {
+					setError("Agent created. Couldn’t refresh the list. Try again.");
+				}
+			}}
 			onClear={() => {
 				if (!createdSpaceId) {
 					setSelected(new Set());
@@ -238,6 +248,7 @@ export function NewChatDialog(input: {
 			onRetry={
 				directory.isError
 					? () => {
+							setError(null);
 							directory.refetch();
 						}
 					: undefined

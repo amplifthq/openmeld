@@ -2,7 +2,7 @@ import { useLocalAgentRecoveryController } from "#/components/agents/use-local-a
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { CreateProfileDialogStep } from "./create-profile-dialog";
 
-export function SpacePickerCreateAgent(input: {
+export function PeopleAgentPickerCreateAgent(input: {
 	onBack: () => void;
 	onBusyChange: (busy: boolean) => void;
 	onCreated: (profileId: string) => Promise<void>;
