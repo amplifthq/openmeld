@@ -3857,7 +3857,7 @@ describe("space read commands", () => {
         code: "space.dispatch_result.not_found",
         requestId: "req-result-404",
         status: 404,
-        message: expect.stringContaining("This does not mean the Wake failed."),
+        message: expect.stringContaining("--gateway-url 'http://localhost'"),
       });
     });
   });
@@ -3954,7 +3954,7 @@ describe("space read commands", () => {
         requestId: "req-result-agent-404",
         status: 404,
         message: expect.stringContaining(
-          `--dispatch 'dispatch-missing' --profile '${PROFILE.openMeldProfileId}' --view agent`
+          `--dispatch 'dispatch-missing' --profile '${PROFILE.openMeldProfileId}' --gateway-url 'http://localhost' --view agent`
         ),
       });
     });
