@@ -1805,6 +1805,7 @@ export function useSpaceLandingController(input: {
 	} = useSpaceLandingFeed({
 		openMeldProfileId: input.profileId,
 		participationEnabled: currentProfileIsActiveSpaceMember,
+		accessRejected: Boolean(currentAccessRejection),
 		readinessScope: {
 			organizationId: input.organizationId,
 			storageScope: input.ownerAccountId,

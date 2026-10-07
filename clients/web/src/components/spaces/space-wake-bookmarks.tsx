@@ -20,7 +20,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useContext,
-	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -60,6 +60,7 @@ export function SpaceWakeBookmarksProvider(input: {
 }) {
 	const elements = useRef(new Map<string, Set<HTMLElement>>());
 	const visibleElements = useRef(new Set<HTMLElement>());
+	const unmeasuredElements = useRef(new Set<HTMLElement>());
 	const [visibleKeys, setVisibleKeys] = useState<ReadonlySet<string>>(
 		new Set()
 	);
@@ -72,6 +73,7 @@ export function SpaceWakeBookmarksProvider(input: {
 		(key: string, element: HTMLElement) => {
 			const group = elements.current.get(key) ?? new Set<HTMLElement>();
 			group.add(element);
+			unmeasuredElements.current.add(element);
 			elements.current.set(key, group);
 			if (pendingJump.current === key) {
 				pendingJump.current = null;
@@ -79,8 +81,10 @@ export function SpaceWakeBookmarksProvider(input: {
 			}
 			let timer: ReturnType<typeof setTimeout> | undefined;
 			const publishVisibility = () => {
-				const visible = [...group].some((node) =>
-					visibleElements.current.has(node)
+				const visible = [...group].some(
+					(node) =>
+						visibleElements.current.has(node) ||
+						unmeasuredElements.current.has(node)
 				);
 				setVisibleKeys((current) => {
 					if (current.has(key) === visible) {
@@ -95,25 +99,34 @@ export function SpaceWakeBookmarksProvider(input: {
 					return next;
 				});
 			};
+			// Do not label a newly mounted row offscreen before scroll restoration
+			// and the observer's first measurement have settled its placement.
+			publishVisibility();
 			const observer = new IntersectionObserver(
 				([entry]) => {
 					if (!entry) {
 						return;
 					}
 					clearTimeout(timer);
+					const firstMeasurement = unmeasuredElements.current.delete(element);
 					// Require a readable status line, not a one-pixel glimpse at the edge.
 					const visible =
 						entry.isIntersecting &&
 						entry.intersectionRatio >=
 							(visibleElements.current.has(element) ? 0.3 : 0.6);
-					timer = setTimeout(() => {
+					const updateVisibility = () => {
 						if (visible) {
 							visibleElements.current.add(element);
 						} else {
 							visibleElements.current.delete(element);
 						}
 						publishVisibility();
-					}, 120);
+					};
+					if (firstMeasurement) {
+						updateVisibility();
+					} else {
+						timer = setTimeout(updateVisibility, 120);
+					}
 				},
 				{
 					root: element.closest('[data-slot="message-scroller-viewport"]'),
@@ -126,6 +139,7 @@ export function SpaceWakeBookmarksProvider(input: {
 				observer.disconnect();
 				group.delete(element);
 				visibleElements.current.delete(element);
+				unmeasuredElements.current.delete(element);
 				publishVisibility();
 				if (group.size === 0) {
 					elements.current.delete(key);
@@ -193,7 +207,7 @@ export function SpaceWakeBookmarkAnchor(input: {
 	const [element, setElement] = useState<HTMLDivElement | null>(null);
 	const key = wakeBookmarkKey(input.item);
 	const register = context?.register;
-	useEffect(
+	useLayoutEffect(
 		() => (element && register ? register(key, element) : undefined),
 		[element, key, register]
 	);
