@@ -24,6 +24,14 @@ import {
 } from "./fixtures";
 import { NODE_CODE_MODE_RUNTIME } from "./node-code-mode-runtime";
 
+// This Node loop exercises real model traffic, Core reads and tool authority.
+// Production usage persistence requires a Cloudflare invocation and SQL owner;
+// it is covered by the Worker tests, not this isolated SQLite conversation.
+vi.mock("../flue-adapter/ai-usage", () => ({
+  createFlueMeteredFetch: (input: { fetch?: typeof globalThis.fetch }) =>
+    input.fetch ?? globalThis.fetch,
+}));
+
 const ACTIVITY = "openmeld_read_center_agent_activity";
 const code = (limit: number) =>
   `async () => codemode.${ACTIVITY}({limit:${limit}})`;
