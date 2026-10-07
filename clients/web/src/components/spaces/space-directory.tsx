@@ -23,7 +23,6 @@ import {
 	TableRow,
 } from "@openmeld/ui/components/table";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
-import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
@@ -55,6 +54,10 @@ import { DirectoryRowActions } from "../app/directory-row-actions";
 import { DirectorySearch } from "../app/directory-search";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
+import {
+	DirectoryCardGrid,
+	DirectoryCardItem,
+} from "../directory/directory-card-grid";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -563,17 +566,12 @@ function DirectoryGroupLayout(input: {
 	return input.layout === "table" ? (
 		<Table className="w-full table-fixed">{input.children}</Table>
 	) : (
-		<FluidCardGroup className="px-2">
-			<FluidNavMenu
-				activeValue={null}
-				aria-label={
-					input.label === "Spaces" ? "Spaces" : `${input.label} Spaces`
-				}
-				className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] [&_[data-sidebar=menu]]:gap-3"
-			>
-				{input.children}
-			</FluidNavMenu>
-		</FluidCardGroup>
+		<DirectoryCardGrid
+			aria-label={input.label === "Spaces" ? "Spaces" : `${input.label} Spaces`}
+			className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] px-2 lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
+		>
+			{input.children}
+		</DirectoryCardGrid>
 	);
 }
 
@@ -597,33 +595,31 @@ function UnindexedJoinedRow(input: {
 }) {
 	if (input.layout === "cards") {
 		return (
-			<FluidNavMenuItem index={input.index} value={input.space.spaceId}>
-				<FluidCardItem
-					className="border border-border"
-					itemId={input.space.spaceId}
+			<DirectoryCardItem
+				className="border border-border"
+				itemId={input.space.spaceId}
+			>
+				<Link
+					aria-label={`Open ${input.space.name}`}
+					className="flex min-h-52 flex-col justify-end gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					search={{ profileId: input.profileId }}
+					to={buildOrganizationSpacePath({
+						orgSlug: input.orgSlug,
+						spaceId: input.space.spaceId,
+					})}
 				>
-					<Link
-						aria-label={`Open ${input.space.name}`}
-						className="flex min-h-52 flex-col justify-end gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-						search={{ profileId: input.profileId }}
-						to={buildOrganizationSpacePath({
-							orgSlug: input.orgSlug,
-							spaceId: input.space.spaceId,
-						})}
-					>
-						<UsersThreeIcon className="mb-auto size-10 text-muted-foreground" />
-						<span className="line-clamp-2 font-medium text-sm">
-							{input.space.name}{" "}
-							<WelcomeSpaceLabel spaceId={input.space.spaceId} />
-						</span>
-						<span className="text-muted-foreground text-xs">
-							{input.space.activeMemberCount === null
-								? "Member count unavailable"
-								: `${input.space.activeMemberCount} members`}
-						</span>
-					</Link>
-				</FluidCardItem>
-			</FluidNavMenuItem>
+					<UsersThreeIcon className="mb-auto size-10 text-muted-foreground" />
+					<span className="line-clamp-2 font-medium text-sm">
+						{input.space.name}{" "}
+						<WelcomeSpaceLabel spaceId={input.space.spaceId} />
+					</span>
+					<span className="text-muted-foreground text-xs">
+						{input.space.activeMemberCount === null
+							? "Member count unavailable"
+							: `${input.space.activeMemberCount} members`}
+					</span>
+				</Link>
+			</DirectoryCardItem>
 		);
 	}
 	return (
@@ -693,50 +689,48 @@ function JoinedRow(input: {
 	);
 	if (input.layout === "cards") {
 		return (
-			<FluidNavMenuItem index={input.index} value={item.spaceId}>
-				<FluidCardItem className="border border-border" itemId={item.spaceId}>
-					<FluidContextMenuScope
-						target={
-							<div
-								className="group/directory-row relative flex h-full min-h-56 flex-col gap-3 rounded-md p-4"
-								data-space-id={item.spaceId}
-							>
-								<div className="pointer-events-none absolute top-2 right-2 z-20 [&_button]:pointer-events-auto">
-									{actions}
-								</div>
-								<div className="relative z-10 w-fit">
-									<MemberPreview
-										appearances={input.appearances}
-										item={item}
-										layout="card"
-										orgSlug={input.input.orgSlug}
-									/>
-								</div>
-								<Link
-									aria-label={`Open ${item.spaceName}`}
-									className="block min-w-0 outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring"
-									{...route}
-								>
-									<SpaceDirectorySummary
-										item={item}
-										layout="card"
-										preview={input.preview}
-										unread={input.unread > 0}
-									/>
-								</Link>
-								<div className="mt-auto flex min-h-5 items-end justify-between gap-2">
-									<div className="relative z-10 min-w-0">{statusContent}</div>
-									<span className="shrink-0 text-muted-foreground text-xs">
-										{timestamp !== null && (
-											<SidebarConversationTime timestamp={timestamp} />
-										)}
-									</span>
-								</div>
+			<DirectoryCardItem className="border border-border" itemId={item.spaceId}>
+				<FluidContextMenuScope
+					target={
+						<div
+							className="group/directory-row relative flex h-full min-h-56 flex-col gap-3 rounded-md p-4"
+							data-space-id={item.spaceId}
+						>
+							<div className="pointer-events-none absolute top-2 right-2 z-20 [&_button]:pointer-events-auto">
+								{actions}
 							</div>
-						}
-					/>
-				</FluidCardItem>
-			</FluidNavMenuItem>
+							<div className="relative z-10 w-fit">
+								<MemberPreview
+									appearances={input.appearances}
+									item={item}
+									layout="card"
+									orgSlug={input.input.orgSlug}
+								/>
+							</div>
+							<Link
+								aria-label={`Open ${item.spaceName}`}
+								className="block min-w-0 outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring"
+								{...route}
+							>
+								<SpaceDirectorySummary
+									item={item}
+									layout="card"
+									preview={input.preview}
+									unread={input.unread > 0}
+								/>
+							</Link>
+							<div className="mt-auto flex min-h-5 items-end justify-between gap-2">
+								<div className="relative z-10 min-w-0">{statusContent}</div>
+								<span className="shrink-0 text-muted-foreground text-xs">
+									{timestamp !== null && (
+										<SidebarConversationTime timestamp={timestamp} />
+									)}
+								</span>
+							</div>
+						</div>
+					}
+				/>
+			</DirectoryCardItem>
 		);
 	}
 	return (

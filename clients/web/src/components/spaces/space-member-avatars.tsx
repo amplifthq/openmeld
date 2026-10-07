@@ -80,9 +80,7 @@ export function SpaceMemberAvatars(input: {
 			aria-hidden="true"
 			className={cn(
 				"shrink-0",
-				grid && "grid size-24 place-items-center gap-2",
-				grid &&
-					(members.length === 1 && !remaining ? "grid-cols-1" : "grid-cols-2"),
+				grid && "grid size-24 grid-cols-2 grid-rows-2 place-items-center gap-2",
 				horizontal && "isolate inline-flex h-5 max-w-full items-center",
 				!(grid || horizontal) && "relative"
 			)}
