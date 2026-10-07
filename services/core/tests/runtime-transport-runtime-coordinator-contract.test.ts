@@ -4314,7 +4314,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           storage: transaction,
           record: {
             ...fork.record,
-            primaryDispatchId: nextIdentity.dispatchId,
+            primaryDispatchId: "dispatch-after-recovery",
             targetWakeLifecycleId: nextIdentity.targetWakeLifecycleId,
             targetWakeLifecycleIdentity: nextIdentity,
             acceptedDispatchSnapshot: {
