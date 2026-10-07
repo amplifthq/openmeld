@@ -1,6 +1,6 @@
 # Flue 2 integration boundary
 
-This adapter targets exactly Flue 2.1.0. Vite builds the synchronous
+This adapter targets exactly Flue 2.2.2. Vite builds the synchronous
 `CenterAgentV2` hook function. Asynchronous materialization happens under the
 immutable submission context before rendering; nested operations reuse those
 resources, and concurrent submissions do not share them.
@@ -12,7 +12,7 @@ is not a future release strategy.
 
 ## Retained package adaptations
 
-`patches/@flue__runtime@2.1.0.patch` retains nine explicit contracts:
+`patches/@flue__runtime@2.2.2.patch` retains ten explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
    attempts remain bounded; the five-attempt policy includes the initial run.
@@ -23,7 +23,7 @@ is not a future release strategy.
    OpenMeld's execution identity. A late stop cannot abort a subsequent turn.
    The upstream conversation-wide abort remains available to upstream callers.
 3. Persisted submission operations expose their completed text, model, and
-   canonical usage through the existing operation observation. Flue 2.1.0
+   canonical usage through the existing operation observation. Flue 2.2.2
    supplies the text from its inner persisted-input operation, even though the
    outer submission handle returns void. The adaptation enriches that existing
    result with the actual model and recorded usage; it does not emit another
@@ -66,7 +66,7 @@ is not a future release strategy.
    `AgentStatics.projectResourceSignal` extension transforms only reserved
    framework resource/environment signals in model context, never canonical
    records. Live steering, joined inputs, restored histories and compaction
-   share the renderer. Upstream 2.1.0 has no public hook at this provenance
+   share the renderer. Upstream 2.2.2 has no public hook at this provenance
    boundary; a provider-payload string replacement cannot distinguish user
    quotations from framework events. Flue also mounts `task` only with declared
    subagents. OpenMeld registers only its native subset; deferred capabilities
@@ -112,6 +112,16 @@ is not a future release strategy.
    `retained-context-runtime.test.ts` covers this public runtime boundary;
    `fixtures/retained-context-evaluation.md` records the paid experiment scope.
 
+10. `AgentStatics.modelRetry` configures the existing transient model-error loop.
+   Center Agent allows five retries after the initial request, with exponential
+   delays capped at 3, 6, 12, 24, and 30 seconds and upstream 75–100% jitter.
+   Upstream 2.2.2 otherwise fixes this loop at three retries. Canonical assistant
+   error records own the retry count, including resumed submissions. The patch
+   exposes structured waiting, recovered, and exhausted observations, without
+   another execution, retry ledger, or tool replay loop. Abort interrupts backoff;
+   permanent errors retain upstream classification. Existing platform durability
+   attempts are a separate budget and are not multiplied by an adapter retry.
+
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not
 ported. Flue 2 repairs partial streams at its execution ownership boundary.
@@ -154,7 +164,7 @@ additional boundary.
 Upstream 0.4.1 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 
-These nine Flue adaptations are maintained integration code, not a completed
+These ten Flue adaptations are maintained integration code, not a completed
 escape from upstream internals. On each Flue upgrade, compare the patch with
 the new package, remove an adaptation only when the upstream behavior fulfills
 its contract, and exercise the affected cancellation, observation, compaction,
@@ -204,8 +214,8 @@ tool-only steps and empty deltas do not consume it. The first nonempty text
 delta consumes it once, and response cleanup prevents it reaching another
 submission. No new durable state or callback protocol is introduced.
 
-The Flue 2.1.0 integration retains the registration boundary, the trusted
-resource-signal projection, and conditional task mounting. Upstream 2.1.0
+The Flue 2.2.2 integration retains the registration boundary, the trusted
+resource-signal projection, and conditional task mounting. Upstream 2.2.2
 still mounts `task` unconditionally and lacks the signal projection hook, so
 the existing adaptation remains necessary. Provider-side clipping stays removed. Run
 `tool-catalog-contract.test.ts`, `tool-catalog-compaction.test.ts`,

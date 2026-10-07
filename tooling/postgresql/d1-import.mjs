@@ -27,6 +27,7 @@ import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
 // Reviewed additions after the frozen D1 journal. These have no source rows.
 const postgresqlOnlyTables = [
+  { name: "first_work_experiences" },
   { name: "cloud_computers" },
   { name: "account_deletion_requests" },
 ];
@@ -39,6 +40,16 @@ function csv(value) {
 }
 
 function sourceColumn(column) {
+  if (column.source === "ended_interaction") {
+    const ended =
+      "source_kind = 'runtime_coordinator_interaction' AND attention = 'action_required' AND resolution_status = 'resolved' AND resolved_at_ms IS NOT NULL";
+    const value = {
+      read_at_ms: "coalesce(read_at_ms, resolved_at_ms)",
+      title: "'Request ended'",
+      preview: "'This request no longer needs a response.'",
+    }[column.name];
+    return `CASE WHEN ${ended} THEN ${value} ELSE ${quote(column.name)} END AS ${quote(column.name)}`;
+  }
   if (column.source === "new_nullable") {
     return `NULL AS ${quote(column.name)}`;
   }
@@ -297,6 +308,11 @@ function nativeColumns(table, targetColumns) {
     });
   }
   if (table.name === "inbox_items") {
+    // Match native migration 0023 when historical rows arrive after migrations.
+    for (const name of ["read_at_ms", "title", "preview"]) {
+      const index = columns.findIndex((column) => column.name === name);
+      columns[index] = { ...columns[index], source: "ended_interaction" };
+    }
     columns.push({
       name: "sequence",
       type: "INTEGER",

@@ -39,9 +39,16 @@ require unrelated product Worker upgrades or production secret synchronization.
 2. Sensitive values belong in the approved Doppler process-injection path or local `.dev.vars` / `.dev.vars.prod` for local work, and in Cloudflare Worker secret storage for staging and production.
 3. This repo uses `.dev.vars.prod`, not `.dev.vars.production`, because the Wrangler environment name is `prod`.
 4. `wrangler.jsonc` is the source of truth for public Worker config. Do not hand-maintain staging or production vars in the Cloudflare dashboard.
+
 5. Secret sync is explicit. Staging and production secret changes happen through the matching `sync:secrets:*` command, not an untracked Dashboard edit.
 6. Every Cloudflare Worker package must provide `cf-typegen`, `sync:config:stg`, `sync:stg`, `sync:config:prod`, and `sync:prod`.
 7. Every Worker package that owns secrets must also provide `sync:secrets:stg` and `sync:secrets:prod`.
+
+Web's production `OPENMELD_DESKTOP_DOWNLOAD_ORIGIN` points to the R2 custom
+domain `https://downloads.openmeld.ai` for immutable Desktop artifacts. Other
+environments omit it and use their own bucket. The domain's artifact-only WAF
+rule, cache eligibility rule and Smart Tiered Cache are described in
+`developing/clients/desktop.md`; the R2 development URL remains disabled.
 
 For a brand-new OpenMeld account surface, Core, Auth, and Remote Agent form a
 Service Binding cycle, while Gateway and Web need stable identities before

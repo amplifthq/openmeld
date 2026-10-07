@@ -64,6 +64,9 @@ export function registerBootstrapRoute(app: Hono<HonoBindings>): void {
     }
     const parsedBootstrapQuery = spaceBootstrapQuerySchema.safeParse({
       includeAgentReadiness: searchParams.get("includeAgentReadiness"),
+      includeAgentStreamRecovery: searchParams.get(
+        "includeAgentStreamRecovery"
+      ),
       includeAgentStreamPresence: searchParams.get(
         "includeAgentStreamPresence"
       ),
@@ -125,7 +128,17 @@ export function registerBootstrapRoute(app: Hono<HonoBindings>): void {
                     agentStreamsForReplyPlacementReader(
                       result.payload.activeAgentStreamPresences,
                       supported
-                    ),
+                    ).map((presence) => {
+                      if (
+                        parsedBootstrapQuery.data.includeAgentStreamRecovery ===
+                        true
+                      ) {
+                        return presence;
+                      }
+                      const { recovery: _recovery, ...legacyPresence } =
+                        presence;
+                      return legacyPresence;
+                    }),
                 }
               : {}),
           },

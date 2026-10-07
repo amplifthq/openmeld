@@ -10,6 +10,7 @@ import type {
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -44,6 +45,8 @@ const {
 	toastMock: {
 		error: vi.fn(),
 		success: vi.fn(),
+		loading: vi.fn(),
+		dismiss: vi.fn(),
 	},
 	updatePrimaryBindingAgentControllerCollaborationModeMock: vi.fn(),
 }));
@@ -381,7 +384,7 @@ describe("SpaceMembersSidePanel", () => {
 			screen
 				.getByRole("button", { name: "Add 1 member" })
 				.hasAttribute("disabled")
-		).toBe(true);
+		).toBe(false);
 		expect(choice.getAttribute("aria-checked")).toBe("true");
 		fireEvent.click(retrying);
 		expect(read).toHaveBeenCalledTimes(2);
@@ -451,6 +454,8 @@ describe("SpaceMembersSidePanel", () => {
 		vi.mocked(readCurrentOrganizationProfileDirectory).mockReset();
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
+		toastMock.loading.mockReset();
+		toastMock.dismiss.mockReset();
 		updatePrimaryBindingAgentControllerCollaborationModeMock.mockReset();
 	});
 
@@ -1677,14 +1682,28 @@ describe("SpaceMembersSidePanel", () => {
 				expectedCenterAgentProfileId: centerAgentProfileId,
 			});
 		});
-		expect(screen.getByText("Directory changed. Try again.")).toBeTruthy();
-		expect(screen.getByText("2 selected")).toBeTruthy();
-		expect(screen.getByRole("checkbox", { name: "Center Agent" })).toBeTruthy();
-
-		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
+		await waitFor(() => {
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"Couldn't add members.",
+				expect.objectContaining({
+					description: "Directory changed. Try again.",
+					action: { label: "Try again", onClick: expect.any(Function) },
+				})
+			);
+		});
+		expect(
+			screen.queryByRole("dialog", { name: "Add People or Agents" })
+		).toBeNull();
+		act(() => {
+			toastMock.error.mock.calls.at(-1)?.[1].action.onClick();
+		});
 
 		await waitFor(() => {
 			expect(onAddOrganizationDirectoryProfiles).toHaveBeenCalledTimes(2);
+			expect(onAddOrganizationDirectoryProfiles).toHaveBeenLastCalledWith({
+				directoryProfileIds: [humanProfileId, centerAgentProfileId],
+				expectedCenterAgentProfileId: centerAgentProfileId,
+			});
 		});
 		await waitFor(() => {
 			expect(

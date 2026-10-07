@@ -12,9 +12,18 @@ import type {
 import { z } from "zod/v4";
 
 const storeSchema = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   policy: sessionHistoryPolicySchema,
   entries: z.array(sessionHistoryAuditSchema).max(200),
+});
+// A per-Agent grant must never silently become permission for every delegated
+// Agent. Retain selected folders and audit metadata, but require owner consent
+// to enable the simpler v2 policy. Old binaries cannot read the v2 store.
+const legacyStoreSchema = storeSchema.extend({
+  version: z.literal(1),
+  policy: sessionHistoryPolicySchema.extend({
+    readerProfileIds: z.array(z.string()).max(64),
+  }),
 });
 const tails = new Map<string, Promise<void>>();
 export function sessionHistoryStorePath(
@@ -39,19 +48,29 @@ export async function readSessionHistoryStore(path: string) {
     }
     throw error;
   });
-  return body === null
-    ? storeSchema.parse({
-        version: 1,
-        policy: {
-          enabled: false,
-          connections: [],
-          readerProfileIds: [],
-          revision: 1,
-          updatedAtMs: 0,
-        },
-        entries: [],
-      })
-    : storeSchema.parse(JSON.parse(body));
+  if (body === null) {
+    return storeSchema.parse({
+      version: 2,
+      policy: {
+        enabled: false,
+        connections: [],
+        revision: 1,
+        updatedAtMs: 0,
+      },
+      entries: [],
+    });
+  }
+  const parsed: unknown = JSON.parse(body);
+  const legacy = legacyStoreSchema.safeParse(parsed);
+  if (legacy.success) {
+    const { readerProfileIds: _readers, ...policy } = legacy.data.policy;
+    return storeSchema.parse({
+      ...legacy.data,
+      version: 2,
+      policy: { ...policy, enabled: false, revision: policy.revision + 1 },
+    });
+  }
+  return storeSchema.parse(parsed);
 }
 export async function updateSessionHistoryStore<T>(
   path: string,

@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { URL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import {
@@ -7,6 +9,66 @@ import {
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("RuntimeCoordinator interaction Inbox producer", () => {
+  it.each([
+    "open",
+    "outcome",
+    "read",
+    "cleared",
+  ])("historical cleanup preserves %s state", async (state) => {
+    const harness = await createInboxHarness();
+    try {
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        inboxDb: harness.db,
+        spaceIndexDb: harness.db,
+        nowMs: 2100,
+        ownerUserId: "user_owner",
+        interaction: buildPermissionInteraction(),
+        runtimeCoordinatorExecutionId: "execution",
+        sourceSignalId: "signal_one",
+        spaceId: "space_one",
+        targetProfileName: "Agent",
+      });
+      if (state !== "open") {
+        await harness.query(
+          `UPDATE "openmeld"."inbox_items" SET resolution_status = 'resolved', resolved_at_ms = 2300`
+        );
+      }
+      if (state === "outcome") {
+        await harness.query(
+          `UPDATE "openmeld"."inbox_items" SET attention = 'update', kind = 'wake_outcome', source_kind = 'space_signal', resolution_status = 'not_applicable', resolved_at_ms = NULL`
+        );
+      }
+      if (state === "read" || state === "cleared") {
+        await harness.query(
+          `UPDATE "openmeld"."inbox_items" SET read_at_ms = 2200`
+        );
+      }
+      if (state === "cleared") {
+        await harness.query(
+          `UPDATE "openmeld"."inbox_items" SET cleared_at_ms = 2250`
+        );
+      }
+      const before = await harness.queryFirst({
+        text: `SELECT read_at_ms, cleared_at_ms, resolution_status, occurred_at_ms FROM "openmeld"."inbox_items"`,
+      });
+      await harness.query(
+        await readFile(
+          new URL(
+            "../../../packages/db/postgresql/migrations/0026_ended_inbox_requests.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+      );
+      expect(
+        await harness.queryFirst({
+          text: `SELECT read_at_ms, cleared_at_ms, resolution_status, occurred_at_ms FROM "openmeld"."inbox_items"`,
+        })
+      ).toEqual(before);
+    } finally {
+      await harness.close();
+    }
+  });
   it.each([
     "permission",
     "plan_review",
@@ -184,7 +246,10 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
     }
   });
 
-  it("resolves the owner action when the interaction source completes", async () => {
+  it.each([
+    "source",
+    "history",
+  ])("reads an ended interaction via %s without deleting its history", async (mode) => {
     const harness = await createInboxHarness();
     try {
       const source = {
@@ -215,6 +280,20 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         spaceIndexDb: harness.db,
       });
 
+      if (mode === "history") {
+        await harness.query(`UPDATE "openmeld"."inbox_items" SET read_at_ms = NULL,
+          title = 'Approval required', preview = 'Old request'`);
+        const migration = await readFile(
+          new URL(
+            "../../../packages/db/postgresql/migrations/0026_ended_inbox_requests.sql",
+            import.meta.url
+          ),
+          "utf8"
+        );
+        await harness.query(migration);
+        await harness.query(migration);
+      }
+
       const inbox = createInboxService({ db: harness.db });
       await expect(
         inbox.list({
@@ -223,7 +302,14 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
           view: "all",
         })
       ).resolves.toMatchObject({
-        items: [{ resolutionStatus: "resolved" }],
+        items: [
+          {
+            resolutionStatus: "resolved",
+            readAt: new Date(2300).toISOString(),
+            title: "Request ended",
+            preview: "This request no longer needs a response.",
+          },
+        ],
       });
       await expect(
         inbox.summary({
@@ -232,7 +318,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         })
       ).resolves.toEqual({
         organizationId: "org_one",
-        totalUnreadCount: 1,
+        totalUnreadCount: 0,
         unreadUrgentUpdateCount: 0,
         unresolvedActionCount: 0,
       });

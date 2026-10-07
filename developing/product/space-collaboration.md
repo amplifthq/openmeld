@@ -1534,6 +1534,15 @@ reply placement is resolved and locked by Space before publication, and later
 callbacks and recovery reuse it. This does not change the source message's
 observation scope or RuntimeCoordinator execution authority.
 
+Local Wake instructions direct agents to share a brief public blocker update
+through `report_progress` when useful work can continue. The update explains
+the effect on the request and the next step; private commentary is not Space
+progress. Repeated unchanged updates, credentials, raw commands, and private
+reasoning stay out of public progress. If supported recovery cannot unblock any
+useful work, the agent uses the required completion action to explain the
+remaining blocker. Progress remains non-final and does not authorize retries or
+replace native permission controls.
+
 For interactive Center Agent turns, follow an explicit user preference for the
 main conversation, including a continuing preference while it remains relevant.
 The Center Agent selects that destination with `openmeld_set_reply_placement`

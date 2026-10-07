@@ -203,13 +203,28 @@ async function handleDispatchInteractionResponse(
     });
     return;
   }
+  // The interaction registry owns local resolution. A transport retry only
+  // confirms delivery; it does not resume the agent again.
+  if (resolution.status === "resolved") {
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.interaction_resolved",
+      text: `local agent resumed after user input for interaction ${parsedResponse.data.interactionId}`,
+      payload: {
+        interactionId: parsedResponse.data.interactionId,
+        resolutionStatus: resolution.status,
+        runtimeCoordinatorExecutionId:
+          parsedResponse.data.runtimeCoordinatorExecutionId,
+      },
+    });
+  }
   const connectionGeneration = input.currentSocketRef.connectionGeneration;
   const leaseEpoch = input.leasesByProfileId.get(authority.targetProfileId);
   if (!(connectionGeneration && leaseEpoch)) {
     emitRunLine({
       presenter: input.presenter,
       code: "daemon.run.interaction_delivery_deferred",
-      text: `local agent interaction ${parsedResponse.data.interactionId} resumed locally; delivery acknowledgement is waiting for the active lease`,
+      text: `delivery acknowledgement for local agent interaction ${parsedResponse.data.interactionId} is waiting for the active lease`,
       payload: {
         interactionId: parsedResponse.data.interactionId,
         runtimeCoordinatorExecutionId:
@@ -236,17 +251,6 @@ async function handleDispatchInteractionResponse(
   sendDaemonFrame(input.socket, {
     code: "daemon.dispatch.interaction_delivered",
     payload: deliveredRequest,
-  });
-  emitRunLine({
-    presenter: input.presenter,
-    code: "daemon.run.interaction_resolved",
-    text: `local agent resumed after user input for interaction ${parsedResponse.data.interactionId}`,
-    payload: {
-      interactionId: parsedResponse.data.interactionId,
-      resolutionStatus: resolution.status,
-      runtimeCoordinatorExecutionId:
-        parsedResponse.data.runtimeCoordinatorExecutionId,
-    },
   });
 }
 

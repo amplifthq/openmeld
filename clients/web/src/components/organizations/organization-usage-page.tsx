@@ -31,7 +31,7 @@ import { TabItem, TabPanel, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { ArrowClockwiseIcon, CalendarBlankIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { LocalAgentTokenUsageCard } from "#/components/computers/computer-token-usage";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
@@ -49,6 +49,7 @@ import {
 import { useAgentUsage } from "./use-agent-usage";
 
 const CostChart = lazy(() => import("./usage-cost-chart"));
+const EMPTY_MODELS: AiUsageQueryResponse["models"] = [];
 
 export function OrganizationUsagePage() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -81,17 +82,17 @@ function UsagePage(input: {
 					<TabItem label="Organization usage" value="organization" />
 					<TabItem label="My agents" value="my" />
 				</TabsList>
-				<TabPanel className="space-y-5" value="organization">
-					<RemoteUsageCard {...input} personal={false} />
-					<LocalAgentTokenUsageCard organizationId={input.organizationId} />
-					<OrganizationUsageStatus organizationId={input.organizationId} />
-				</TabPanel>
-				<TabPanel className="space-y-5" value="my">
-					<RemoteUsageCard {...input} personal />
+				{/* Scope changes update the mounted charts instead of disposing and
+				    rebuilding their SVG renderers on every tab switch. */}
+				<TabPanel className="space-y-5" value={view}>
+					<RemoteUsageCard {...input} personal={view === "my"} />
 					<LocalAgentTokenUsageCard
 						organizationId={input.organizationId}
-						userId={input.userId}
+						userId={view === "my" ? input.userId : undefined}
 					/>
+					{view === "organization" ? (
+						<OrganizationUsageStatus organizationId={input.organizationId} />
+					) : null}
 				</TabPanel>
 			</Tabs>
 		</section>
@@ -107,8 +108,11 @@ export function RemoteUsageCard(input: {
 	const [days, setDays] = useState(7);
 	const { owned, catalog, query, pending, failed, refreshing, refresh } =
 		useRemoteUsage(input, days);
-	const models = query.data?.models ?? [];
-	const series = usageModelSeries(models, catalog.data);
+	const models = query.data?.models ?? EMPTY_MODELS;
+	const series = useMemo(
+		() => usageModelSeries(models, catalog.data),
+		[models, catalog.data]
+	);
 	const total = models.reduce(
 		(sum, model) => sum + model.reportedCostNanoUsd,
 		0

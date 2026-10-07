@@ -25,7 +25,7 @@ import {
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
 import { ArrowClockwiseIcon, CalendarBlankIcon } from "@phosphor-icons/react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useAgentUsage } from "#/components/organizations/use-agent-usage";
 import { organizationUsageCalendarPeriod } from "#/query/organizations/organization-usage";
 import {
@@ -41,6 +41,7 @@ const date = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
 });
 type Series = NonNullable<AiUsageQueryResponse["timeSeries"]>;
+const EMPTY_SERIES: Series = [];
 
 export function ComputerTokenUsage(input: {
 	organizationId?: string;
@@ -79,24 +80,30 @@ export function LocalAgentTokenUsageCard(input: {
 	const total =
 		query.data?.models.reduce((sum, model) => sum + model.totalTokens, 0) ?? 0;
 	const series = query.data?.timeSeries;
-	const agents = localAgentTokenSeries(series ?? []);
+	const agents = useMemo(
+		() => localAgentTokenSeries(series ?? EMPTY_SERIES),
+		[series]
+	);
+	const data = useMemo(
+		() =>
+			(series ?? EMPTY_SERIES).map((bucket) => ({
+				date: date.format(bucket.fromMs),
+				...Object.fromEntries(
+					agents.map((agent) => [
+						agent.key,
+						recordedTokenValue(
+							bucket.controllers?.find(
+								(row) => row.controller === agent.controller
+							)
+						),
+					])
+				),
+			})),
+		[agents, series]
+	);
 	if (!(pending || failed) && total === 0) {
 		return null;
 	}
-	const data =
-		series?.map((bucket) => ({
-			date: date.format(bucket.fromMs),
-			...Object.fromEntries(
-				agents.map((agent) => [
-					agent.key,
-					recordedTokenValue(
-						bucket.controllers?.find(
-							(row) => row.controller === agent.controller
-						)
-					),
-				])
-			),
-		})) ?? [];
 	const unavailable =
 		failed ||
 		(query.isSuccess &&

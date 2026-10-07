@@ -74,6 +74,7 @@ describe("Remote Agent submission execution context", () => {
     );
     const routineToolNames = (
       await getTestCapabilityCatalog({
+        agentActivityReadEnabled: true,
         codeModeRuntime: TEST_CODE_MODE_RUNTIME,
         coreWorker: {},
         env: { LOADER: TEST_CODE_MODE_LOADER },
@@ -84,6 +85,7 @@ describe("Remote Agent submission execution context", () => {
     ).map((tool) => tool.name);
     const ordinaryToolNames = (
       await getTestCapabilityCatalog({
+        agentActivityReadEnabled: true,
         codeModeRuntime: TEST_CODE_MODE_RUNTIME,
         coreWorker: {},
         env: { LOADER: TEST_CODE_MODE_LOADER },

@@ -3,6 +3,7 @@ import {
 	desktopCandidateIdSchema,
 	desktopCandidateUpdateArtifact,
 } from "@openmeld/schemas";
+import { desktopDownloadRedirect } from "./desktop-download-redirect";
 import {
 	buildDesktopUpdaterFeed,
 	readDesktopCandidate,
@@ -59,7 +60,8 @@ export async function desktopUpdateArtifactResponse(
 	bucket: Store | undefined,
 	platform: DesktopReleasePlatform,
 	candidate: string,
-	includeBody: boolean
+	includeBody: boolean,
+	downloadOrigin?: string
 ) {
 	const headers = new Headers({
 		"cache-control": "no-store",
@@ -85,17 +87,21 @@ export async function desktopUpdateArtifactResponse(
 			return new Response(null, { status: 404, headers });
 		}
 		let body: ReadableStream | null = null;
-		const artifact = includeBody
-			? await bucket.get(update.objectKey).then((loaded) => {
-					body = loaded?.body ?? null;
-					return loaded;
-				})
-			: await bucket.head(update.objectKey);
+		const artifact =
+			includeBody && !downloadOrigin
+				? await bucket.get(update.objectKey).then((loaded) => {
+						body = loaded?.body ?? null;
+						return loaded;
+					})
+				: await bucket.head(update.objectKey);
 		if (!artifact) {
 			return new Response(null, { status: 404, headers });
 		}
 		if (artifact.size !== update.sizeBytes) {
 			throw new Error("Desktop update artifact size mismatch.");
+		}
+		if (downloadOrigin) {
+			return desktopDownloadRedirect(downloadOrigin, update.objectKey);
 		}
 		headers.set("content-length", String(artifact.size));
 		headers.set("cache-control", "public, max-age=31536000, immutable");

@@ -192,6 +192,7 @@ export function EmptyStateSetupActionCard(input: {
 					ADD_CARD_PICKER_CLASS_NAME,
 					"min-h-44 cursor-pointer border-muted-foreground/40 hover:border-muted-foreground/70"
 				)}
+				data-walkthrough={input.itemId}
 				onClick={input.onClick}
 				type="button"
 			>
@@ -220,6 +221,7 @@ export function EmptyStateSetupActionCard(input: {
 					cardPickerCardClassName(),
 					"min-h-36 justify-between gap-5 bg-transparent p-4 hover:bg-transparent focus-visible:ring-inset"
 				)}
+				data-walkthrough={input.itemId}
 				onClick={input.onClick}
 				type="button"
 			>

@@ -5,6 +5,7 @@ import type {
 	PostSpaceMembersResponse,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -92,6 +93,7 @@ const directory: OrganizationSpaceProfileCandidates = {
 };
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => mocks.navigate,
+	useRouter: () => ({ state: { location: { pathname: "/o/acme/spaces" } } }),
 }));
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
@@ -103,9 +105,24 @@ vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 	useDefaultHumanProfile: () => ({ defaultHumanProfile: profile }),
 }));
 vi.mock("#/query/organizations/organization-directory", () => ({
+	organizationQueryKeys: {
+		spaces: (id: string) => ["organizations", id, "spaces"],
+	},
 	organizationSpaceProfileCandidatesQueryOptions: () => ({
 		queryKey: ["picker-test"],
 		queryFn: async () => directory,
+	}),
+}));
+vi.mock("#/query/spaces/bootstrap", () => ({
+	spaceBootstrapQueryOptions: () => ({
+		queryKey: ["test-bootstrap"],
+		queryFn: () => new Promise(() => undefined),
+	}),
+}));
+vi.mock("#/query/spaces/members", () => ({
+	spaceMembersQueryOptions: () => ({
+		queryKey: ["test-members"],
+		queryFn: () => new Promise(() => undefined),
 	}),
 }));
 vi.mock("#/lib/spaces/create-space-in-organization", () => ({
@@ -124,6 +141,7 @@ vi.mock("#/lib/spaces/direct-message", () => ({
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.navigate.mockResolvedValue(undefined);
 	mocks.create.mockResolvedValue({ spaceId } satisfies CreateSpaceResponse);
 	mocks.add.mockResolvedValue({
 		addedMemberIds: [miraId, centerId],
@@ -192,29 +210,37 @@ it("opens Center Agent draft when it is the only selection", async () => {
 	expect(mocks.dm).not.toHaveBeenCalled();
 	expect(mocks.create).not.toHaveBeenCalled();
 });
-it("creates a private Space for multiple targets and retries membership on that same Space", async () => {
-	mocks.add.mockRejectedValueOnce(new Error("Membership unavailable"));
+it("enters a multi-target Space before creation finishes and adds the selected members after confirmation", async () => {
+	let confirmCreation: (response: CreateSpaceResponse) => void = () =>
+		undefined;
+	mocks.create.mockImplementationOnce(
+		() =>
+			new Promise<CreateSpaceResponse>((resolve) => {
+				confirmCreation = resolve;
+			})
+	);
 	const closed = await openPicker();
 	fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
 	fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
 	fireEvent.click(screen.getByRole("button", { name: "Create Space" }));
-	await screen.findByText("Membership unavailable");
+	await waitFor(() => expect(closed).toHaveBeenCalledWith(false));
+	expect(mocks.navigate).toHaveBeenCalledWith({
+		to: expect.stringContaining("/o/acme/spaces/creating-"),
+	});
+	expect(mocks.add).not.toHaveBeenCalled();
 	expect(mocks.create).toHaveBeenCalledWith(
 		expect.objectContaining({
 			organizationId: "org",
-			space: {
+			space: expect.objectContaining({
 				name: "Center Agent, Mira",
 				visibility: "private",
 				accessMode: "members_only",
-			},
+			}),
 		})
 	);
-	expect(mocks.navigate).not.toHaveBeenCalled();
-	expect(closed).not.toHaveBeenCalled();
-	fireEvent.click(screen.getByRole("button", { name: "Retry adding members" }));
-	await waitFor(() => expect(closed).toHaveBeenCalledWith(false));
+	await act(async () => confirmCreation({ spaceId }));
+	await waitFor(() => expect(mocks.add).toHaveBeenCalledTimes(1));
 	expect(mocks.create).toHaveBeenCalledTimes(1);
-	expect(mocks.add).toHaveBeenCalledTimes(2);
 	expect(mocks.add).toHaveBeenLastCalledWith({
 		spaceId,
 		directoryProfileIds: [centerId, miraId],

@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 
 const navigateSpy = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const preloadSpy = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 const route = vi.hoisted(() => ({ searchStr: "" }));
 
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigateSpy,
+	useRouter: () => ({ preloadRoute: preloadSpy }),
 	useRouterState: ({
 		select,
 	}: {
@@ -17,6 +19,7 @@ vi.mock("@tanstack/react-router", () => ({
 afterEach(() => {
 	cleanup();
 	navigateSpy.mockClear();
+	preloadSpy.mockClear();
 	route.searchStr = "";
 });
 
@@ -30,6 +33,11 @@ describe("CenterAgentHeaderTabs", () => {
 				organizationSlug="acme"
 			/>
 		);
+		fireEvent.focus(screen.getByRole("tab", { name: "Channels" }));
+		expect(preloadSpy).toHaveBeenLastCalledWith({
+			to: "/o/acme/center-agent/channels?draft=new",
+		});
+		expect(navigateSpy).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("tab", { name: "Channels" }));
 		expect(navigateSpy).toHaveBeenLastCalledWith({
 			to: "/o/acme/center-agent/channels?draft=new",

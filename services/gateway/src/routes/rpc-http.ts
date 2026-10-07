@@ -24,6 +24,7 @@ import { registerDispatchLookupRoutes } from "./rpc-http.dispatch-lookup";
 import { registerDispatchTraceRoutes } from "./rpc-http.dispatch-trace";
 import { registerExecutionRecoveryRoutes } from "./rpc-http.execution-recovery";
 import { registerFileRootRoutes } from "./rpc-http.file-roots";
+import { registerFirstWorkRoutes } from "./rpc-http.first-work";
 import { registerInboxRoutes } from "./rpc-http.inbox";
 import { registerSpaceInputQueueRoutes } from "./rpc-http.input-queue";
 import { registerLocalRuntimeExpectedRoutesRoutes } from "./rpc-http.local-runtime-expected-routes";
@@ -59,6 +60,7 @@ import { registerWakeStopRoutes } from "./rpc-http.wake-stop";
 import { registerWakeTraceWaterfallRoutes } from "./rpc-http.wake-trace-waterfall";
 
 export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
+  registerFirstWorkRoutes(app);
   registerAccountAvatarRoutes(app);
   registerDiagnosticsRoute(app);
   registerChangelogRoutes(app);

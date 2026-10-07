@@ -47,6 +47,7 @@ export const {
 } = authSchema;
 
 export const {
+  firstWorkExperiences,
   aiUsageRecords,
   organizationAiUsagePolicies,
   inboxCenterAgentReadWatermarks,

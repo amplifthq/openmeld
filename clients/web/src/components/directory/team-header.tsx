@@ -1,6 +1,6 @@
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { UsersThreeIcon } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -14,28 +14,42 @@ import {
 } from "#/lib/organizations/organization-routes";
 
 const TEAM_VIEWS = [
-	"people",
-	"agents",
-	"plugins",
-	"skills",
-	"files",
-	"routines",
-] as const;
-const TEAM_DESTINATIONS = [
-	buildOrganizationPeoplePath,
-	buildOrganizationAgentsPath,
-	buildOrganizationPluginsPath,
-	buildOrganizationSkillsPath,
-	buildOrganizationFilesPath,
-	buildOrganizationRoutinesPath,
+	{ id: "people", label: "People", destination: buildOrganizationPeoplePath },
+	{ id: "agents", label: "Agents", destination: buildOrganizationAgentsPath },
+	{
+		id: "plugins",
+		label: "Plugins",
+		destination: buildOrganizationPluginsPath,
+	},
+	{ id: "skills", label: "Skills", destination: buildOrganizationSkillsPath },
+	{ id: "files", label: "Files", destination: buildOrganizationFilesPath },
+	{
+		id: "routines",
+		label: "Routines",
+		destination: buildOrganizationRoutinesPath,
+	},
 ] as const;
 
 export function TeamHeader(input: {
-	active: (typeof TEAM_VIEWS)[number];
+	active: (typeof TEAM_VIEWS)[number]["id"];
 	actions?: ReactNode;
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const navigate = useNavigate();
+	const router = useRouter();
+	const preload = (index: number) => {
+		const view = TEAM_VIEWS[index];
+		if (!view || view.id === input.active) {
+			return;
+		}
+		router
+			.preloadRoute({
+				to: view.destination(currentOrganization.slug),
+				search: {},
+				hash: "",
+			})
+			.catch(console.error);
+	};
 	return (
 		<SpaceWindowHeader
 			actions={input.actions}
@@ -48,25 +62,31 @@ export function TeamHeader(input: {
 					className="h-full shrink-0 gap-5"
 					idPrefix="team-directory"
 					onSelect={(index) => {
-						const destination = TEAM_DESTINATIONS[index];
-						if (!destination) {
+						const view = TEAM_VIEWS[index];
+						if (!view) {
 							return;
 						}
 						navigate({
-							to: destination(currentOrganization.slug),
+							to: view.destination(currentOrganization.slug),
 							search: {},
 							hash: "",
 						}).catch(console.error);
 					}}
-					selectedIndex={TEAM_VIEWS.indexOf(input.active)}
+					selectedIndex={TEAM_VIEWS.findIndex(
+						(view) => view.id === input.active
+					)}
 					variant="underline"
 				>
-					<TabsSubtleItem index={0} label="People" labelClassName="text-sm" />
-					<TabsSubtleItem index={1} label="Agents" labelClassName="text-sm" />
-					<TabsSubtleItem index={2} label="Plugins" labelClassName="text-sm" />
-					<TabsSubtleItem index={3} label="Skills" labelClassName="text-sm" />
-					<TabsSubtleItem index={4} label="Files" labelClassName="text-sm" />
-					<TabsSubtleItem index={5} label="Routines" labelClassName="text-sm" />
+					{TEAM_VIEWS.map((view, index) => (
+						<TabsSubtleItem
+							index={index}
+							key={view.id}
+							label={view.label}
+							labelClassName="text-sm"
+							onFocus={() => preload(index)}
+							onPointerEnter={() => preload(index)}
+						/>
+					))}
 				</TabsSubtle>
 			}
 			renderFrame={false}

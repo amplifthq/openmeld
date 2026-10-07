@@ -33,7 +33,6 @@ import {
 	ArrowClockwiseIcon,
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
-	ChatCircleIcon,
 	CopyIcon,
 	DotsThreeIcon,
 	FileIcon,
@@ -49,6 +48,7 @@ import {
 	UploadSimpleIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	type DragEvent,
 	lazy,
@@ -63,6 +63,7 @@ import { ReadPausedState } from "#/components/app/read-paused-state";
 import type { FileSystemItem } from "#/components/extend/file-system";
 import { mayShowCachedReadData } from "#/lib/query-display";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
+import { spaceFileContentQueryOptions } from "#/query/spaces/space-files";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	formatFileSize,
@@ -99,17 +100,14 @@ export function SpaceFileBrowser(input: {
 	onMove: (entry: SpaceFileEntry) => void;
 	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	onNewFolder: () => void;
-	onHandOff?: () => void;
 	onNewTextFile: (kind: "markdown" | "text" | "csv") => void;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onOpenBreadcrumb: (folderId: string | null, name: string) => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRestore: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
-	onToggleShowChatUploads: () => void;
 	onTrash: (entry: SpaceFileEntry) => void;
 	onUploadFiles: (files: readonly File[]) => Promise<void>;
-	showChatUploads: boolean;
 	spaceId: string;
 	view: "active" | "trash";
 	onViewChange: (view: "active" | "trash") => void;
@@ -172,16 +170,6 @@ export function SpaceFileBrowser(input: {
 							<UploadSimpleIcon aria-hidden="true" />
 							Upload
 						</Button>
-						{input.onHandOff ? (
-							<Button
-								disabled={input.busy}
-								onClick={input.onHandOff}
-								size="sm"
-								variant="outline"
-							>
-								Send to agent
-							</Button>
-						) : null}
 						<DropdownMenu>
 							<DropdownMenuTrigger
 								render={<Button disabled={input.busy} size="sm" />}
@@ -227,10 +215,6 @@ export function SpaceFileBrowser(input: {
 						</DropdownMenu>
 					</>
 				) : null}
-				<ShowChatUploadsToggle
-					onToggle={input.onToggleShowChatUploads}
-					showChatUploads={input.showChatUploads}
-				/>
 				{input.canWrite ? (
 					<Button
 						onClick={() => input.onViewChange("trash")}
@@ -260,10 +244,8 @@ export function SpaceFileBrowser(input: {
 			onRename={input.onRename}
 			onRestore={input.onRestore}
 			onRetry={input.onRetry}
-			onShowRegularFiles={input.onToggleShowChatUploads}
 			onTrash={input.onTrash}
 			onUpload={() => input.fileInputRef.current?.click()}
-			showChatUploads={input.showChatUploads}
 			spaceId={input.spaceId}
 			toolbarStart={toolbarStart}
 			view={input.view}
@@ -398,15 +380,14 @@ function SpaceFileBrowserContent(input: {
 	onNewTextFile: (kind: "markdown" | "text" | "csv") => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
-	onShowRegularFiles: () => void;
 	onRestore: (entry: SpaceFileEntry) => void;
 	onTrash: (entry: SpaceFileEntry) => void;
 	onUpload: () => void;
-	showChatUploads: boolean;
 	spaceId: string;
 	toolbarStart: ReactNode;
 	view: "active" | "trash";
 }) {
+	const queryClient = useQueryClient();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => setMounted(true), []);
@@ -472,11 +453,9 @@ function SpaceFileBrowserContent(input: {
 						kind: "file",
 						path: entry.name,
 						name: entry.name,
-						badge:
-							input.showChatUploads && entry.origin === "chat_upload"
-								? "Chat upload"
-								: undefined,
+						badge: entry.origin === "chat_upload" ? "Chat upload" : undefined,
 						contentType: entry.latestRevision.mimeType,
+						etag: `${entry.id}:${entry.latestRevision.revision}`,
 						size: entry.latestRevision.sizeBytes,
 						createdAt: entry.createdAt,
 						updatedAt: entry.updatedAt,
@@ -488,7 +467,7 @@ function SpaceFileBrowserContent(input: {
 		return (
 			<ContextMenu>
 				<ContextMenuTrigger
-					className="block"
+					className="block h-full min-h-0"
 					onContextMenuCapture={(event) => {
 						if (!(event.target as Element).closest('[role="option"]')) {
 							setSelectedId(null);
@@ -498,7 +477,7 @@ function SpaceFileBrowserContent(input: {
 					{mounted ? (
 						<Suspense fallback={<DelayedSpaceFilesSkeleton />}>
 							<FileSystem
-								className="h-[min(65vh,48rem)] min-h-96"
+								className="h-full min-h-0"
 								embedded
 								emptyContent={pendingEmptyContent}
 								errorContent={
@@ -506,16 +485,29 @@ function SpaceFileBrowserContent(input: {
 										<SpaceFilesLoadError
 											error={input.error}
 											onRetry={input.onRetry}
-											onShowRegularFiles={
-												input.showChatUploads
-													? input.onShowRegularFiles
-													: undefined
-											}
 										/>
 									) : undefined
 								}
 								isLoading={input.isPending && !input.isPaused && showPending}
 								items={items}
+								loadPreviewImageUrl={async (file) => {
+									const entry = entriesByPath.get(file.path);
+									if (
+										entry?.kind !== "file" ||
+										!entry.latestRevision.mimeType.startsWith("image/")
+									) {
+										return null;
+									}
+									const content = await queryClient.fetchQuery(
+										spaceFileContentQueryOptions({
+											api: input.api,
+											fileId: entry.id,
+											revision: entry.latestRevision.revision,
+											spaceId: input.spaceId,
+										})
+									);
+									return content.mediaPreview?.getSnapshot() ?? null;
+								}}
 								onEntryContextMenu={(item) =>
 									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
 								}
@@ -640,8 +632,7 @@ function SpaceFileBrowserContent(input: {
 												<span className="block truncate font-medium text-sm">
 													{entry.name}
 												</span>
-												{input.showChatUploads &&
-												entry.kind === "file" &&
+												{entry.kind === "file" &&
 												entry.origin === "chat_upload" ? (
 													<Badge className="shrink-0" variant="outline">
 														Chat upload
@@ -718,42 +709,14 @@ function SpaceFileBrowserContent(input: {
 	);
 }
 
-function ShowChatUploadsToggle(input: {
-	onToggle: () => void;
-	showChatUploads: boolean;
-}) {
-	return (
-		<Button
-			aria-pressed={input.showChatUploads}
-			onClick={input.onToggle}
-			size="sm"
-			type="button"
-			variant={input.showChatUploads ? "secondary" : "ghost"}
-		>
-			<ChatCircleIcon aria-hidden="true" />
-			{input.showChatUploads ? "Hide chat files" : "Include chat files"}
-		</Button>
-	);
-}
-
-function resolveFilesSubtitle(input: {
-	showChatUploads: boolean;
-	view: "active" | "trash";
-}): string {
+function resolveFilesSubtitle(input: { view: "active" | "trash" }): string {
 	if (input.view === "trash") {
 		return "Restore files you still need.";
 	}
-	if (input.showChatUploads) {
-		return "Files in this Space, including files sent in chat.";
-	}
-	return "Files in this Space. Files sent in chat are hidden by default.";
+	return "Files shared in this Space, including chat attachments.";
 }
 
-function SpaceFilesLoadError(input: {
-	error: unknown;
-	onRetry: () => void;
-	onShowRegularFiles?: () => void;
-}) {
+function SpaceFilesLoadError(input: { error: unknown; onRetry: () => void }) {
 	return (
 		<div
 			className="flex min-h-64 flex-col items-center justify-center rounded-md border border-destructive/40 bg-destructive/5 px-6 text-center"
@@ -768,11 +731,6 @@ function SpaceFilesLoadError(input: {
 				{resolveSpaceFileErrorMessage(input.error)}
 			</p>
 			<div className="mt-4 flex flex-wrap justify-center gap-2">
-				{input.onShowRegularFiles ? (
-					<Button onClick={input.onShowRegularFiles} size="sm" type="button">
-						Show regular files
-					</Button>
-				) : null}
 				<Button
 					onClick={input.onRetry}
 					size="sm"
@@ -969,11 +927,13 @@ function SpaceFileEntryVisual(input: {
 		input.entry.latestRevision.mimeType.startsWith("image/")
 	) {
 		return (
-			<SpaceFileImageThumbnail
-				api={input.api}
-				entry={input.entry}
-				spaceId={input.spaceId}
-			/>
+			<span className="inline-flex h-11 w-16 shrink-0 overflow-hidden rounded-md">
+				<SpaceFileImageThumbnail
+					api={input.api}
+					entry={input.entry}
+					spaceId={input.spaceId}
+				/>
+			</span>
 		);
 	}
 	return (
@@ -1017,17 +977,19 @@ function SpaceFileImageThumbnail(input: {
 	});
 
 	return (
-		<span className="inline-flex h-11 w-16 shrink-0" ref={root}>
+		<span
+			className="relative inline-flex size-full min-h-0 overflow-hidden"
+			ref={root}
+		>
 			{imageSource.sourceUrl ? (
+				// biome-ignore lint/correctness/useImageSize: the preview viewport owns dimensions; the absolute image cannot shift layout.
 				<img
 					alt=""
-					className="h-11 w-16 shrink-0 rounded-md border border-border/70 bg-muted object-contain"
+					className="absolute inset-0 size-full object-contain"
 					data-slot="space-file-image-thumbnail"
 					decoding="async"
-					height={44}
 					loading="lazy"
 					src={imageSource.sourceUrl}
-					width={64}
 				/>
 			) : (
 				<output
@@ -1037,7 +999,7 @@ function SpaceFileImageThumbnail(input: {
 							: `Loading preview for ${input.entry.name}`
 					}
 					className={cn(
-						"grid h-11 w-16 shrink-0 place-items-center rounded-md border border-border/70 bg-muted text-muted-foreground",
+						"absolute inset-0 grid size-full place-items-center bg-muted text-muted-foreground",
 						visible &&
 							imageSource.isLoading &&
 							"animate-pulse motion-reduce:animate-none"

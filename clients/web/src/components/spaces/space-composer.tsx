@@ -341,6 +341,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		override: input.slots?.primaryAction,
 		policy,
 	});
+	const feedbackLayout = resolveComposerFeedbackLayout(input, membersPending);
 	if (input.context.readOnly) {
 		return (
 			<div
@@ -416,7 +417,12 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						/>
 					</SpaceComposerEditorBoundary>
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
-						<div className="flex flex-1 items-center gap-0">
+						<div
+							className={cn(
+								"flex min-w-0 items-center gap-0",
+								feedbackLayout.leading
+							)}
+						>
 							{taskContext.menu}
 							<SpaceComposerAttachmentAction
 								enabled={input.capabilities?.attachments !== false}
@@ -484,7 +490,12 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									</span>
 								))}
 						</div>
-						<div className="flex min-w-0 items-center justify-end gap-2">
+						<div
+							className={cn(
+								"flex min-w-0 items-center justify-end gap-2",
+								feedbackLayout.trailing
+							)}
+						>
 							{input.slots?.profileControl}
 							{input.slots?.beforePrimaryAction}
 							{deviceWaitPresentation.hint ? (
@@ -495,14 +506,16 @@ export function SpaceComposer(input: SpaceComposerProps) {
 								</TooltipHint>
 							) : null}
 							<SpaceComposerMentionOnlyAction {...input} />
+							<div className="min-w-0 break-words text-right empty:hidden">
+								<ComposerFeedback
+									error={input.slots?.error}
+									members={input.members}
+									membersPending={membersPending}
+								/>
+							</div>
 							{primaryAction}
 						</div>
 					</PromptInputActions>
-					<ComposerFeedback
-						error={input.slots?.error}
-						members={input.members}
-						membersPending={membersPending}
-					/>
 				</PromptInput>
 			</div>
 		</div>
@@ -511,6 +524,19 @@ export function SpaceComposer(input: SpaceComposerProps) {
 
 function hasPendingComposerMembers(input: SpaceComposerProps) {
 	return Boolean(input.members && input.content.authoredMentions.length > 0);
+}
+
+function resolveComposerFeedbackLayout(
+	input: SpaceComposerProps,
+	membersPending: boolean
+) {
+	if (
+		input.slots?.error ||
+		(membersPending && input.members?.state === "error")
+	) {
+		return { leading: "shrink-0", trailing: "flex-1" };
+	}
+	return { leading: "flex-1", trailing: "" };
 }
 
 function ComposerFeedback(input: {
