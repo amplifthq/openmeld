@@ -3754,8 +3754,12 @@ and schema version changes close older tab connections. The query-cache writer
 subscribes only to successful data updates for the exact query owned by each
 segment; unrelated query events and all mutation-cache events must not serialize
 or write these records. After saved Space history is restored, the existing
-live-tail reconciliation reads updates after its latest recorded signal id. A
-missing or reaped anchor falls back to the bounded recent-history read. On a
+live-tail reconciliation reads updates after its server-confirmed cursor. The
+history query owns that cursor separately from retained and live display rows;
+receiving a live row does not prove that intervening history was read. A missing
+or reaped anchor falls back to the bounded recent-history read, which saves its
+confirmed cursor for later visits and reloads. Older saved records without this
+cursor use a recent-history read before catch-up. On a
 cold restore with no successful in-memory status snapshot, the safe display
 snapshot and history may render read-only while current Space status confirms
 access; no mutation can become available before that confirmation. Status and
