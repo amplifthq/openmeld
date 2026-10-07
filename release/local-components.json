@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T09:39:16.259Z",
+  "updatedAt": "2026-10-07T13:53:23.536Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.247",
+      "packageVersion": "0.3.248",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible; deploy cloud readers before publishing optional Plugin and session history commands."
+      "reason": "Hosted recovery adds optional bootstrap and stream fields; old CLI callers keep the legacy response and local Wake remains compatible."
     },
     "service": {
-      "bundleHash": "b0aebc4526d2f2a10112500f150b6e030237b64bfe2c16d434a84bca71d0e9d8",
-      "portableBundleHash": "9b420e3cb237e71a9be0adcc15b2a206bf710d9d5c48c493388f90c5c25fd4dd",
-      "bundleVersion": "0.3.247",
+      "bundleHash": "9de92fda4919718485efba6ea8ee55fb09cd7a17a1405cdadc0d3e3e6c081da0",
+      "portableBundleHash": "6406cd6453eba482852466288081dc8e8c3f9a778beb734b95441eb3a41259ed",
+      "bundleVersion": "0.3.248",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Old Services retain safe existing workflows; new permission fields and session history capability require cloud receivers first and remain opt-in."
+      "reason": "Shared schemas change the portable bundle hash, but hosted recovery adds no Service transport requirement or local execution contract floor."
     },
     "skills": {
       "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",
