@@ -287,7 +287,7 @@ export function ChatsDirectory() {
 						{layout === "cards" ? (
 							<DirectoryCardGrid
 								aria-label={section.name}
-								className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
+								className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] items-start lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
 							>
 								{section.chats.map((chat) => (
 									<ChatDirectoryCard
@@ -434,7 +434,10 @@ function ChatDirectoryCard({
 		chat.recentMessagePreviews ??
 		(latest ? [{ ...latest, text: normalizeMessagePreview(latest.text) }] : []);
 	return (
-		<DirectoryCardItem className="border border-border" itemId={chat.spaceId}>
+		<DirectoryCardItem
+			className="h-auto border border-border"
+			itemId={chat.spaceId}
+		>
 			<FluidContextMenuScope
 				target={
 					<div className="@container/space-card group/directory-row relative flex h-full min-w-0 flex-col gap-3 rounded-md p-4">
@@ -464,7 +467,7 @@ function ChatDirectoryCard({
 								{title}
 							</Link>
 							{unread > 0 && (
-								<span className="relative z-10 shrink-0">
+								<span className="relative z-10 flex shrink-0 items-center">
 									<SpaceUnreadLink
 										count={unread}
 										showCount

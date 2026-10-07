@@ -550,7 +550,7 @@ function DirectoryGroupLayout(input: {
 	) : (
 		<DirectoryCardGrid
 			aria-label={input.label === "Spaces" ? "Spaces" : `${input.label} Spaces`}
-			className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] px-2 lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
+			className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] items-start px-2 lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
 		>
 			{input.children}
 		</DirectoryCardGrid>
@@ -673,7 +673,10 @@ function JoinedRow(input: {
 			: []);
 	if (input.layout === "cards") {
 		return (
-			<DirectoryCardItem className="border border-border" itemId={item.spaceId}>
+			<DirectoryCardItem
+				className="h-auto border border-border"
+				itemId={item.spaceId}
+			>
 				<FluidContextMenuScope
 					target={
 						<div
@@ -705,7 +708,7 @@ function JoinedRow(input: {
 									/>
 								</Link>
 								{input.unread > 0 && (
-									<span className="relative z-10 shrink-0">
+									<span className="relative z-10 flex shrink-0 items-center">
 										<SpaceUnreadLink
 											count={input.unread}
 											showCount

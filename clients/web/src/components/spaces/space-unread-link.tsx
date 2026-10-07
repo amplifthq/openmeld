@@ -42,7 +42,7 @@ export function SpaceUnreadLink(input: {
 			aria-label={`${input.count} unread ${input.count === 1 ? "update" : "updates"}. Jump to first unread`}
 			className={
 				input.showCount
-					? "pointer-events-auto relative shrink-0 rounded bg-unread/10 px-1.5 text-unread text-xs tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+					? "pointer-events-auto relative inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-unread/10 px-1 text-unread text-xs tabular-nums leading-none outline-none focus-visible:ring-1 focus-visible:ring-ring"
 					: "status-dot pointer-events-auto relative bg-unread outline-none focus-visible:ring-1 focus-visible:ring-ring"
 			}
 			data-conversation-unread-indicator="true"

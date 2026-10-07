@@ -21,7 +21,7 @@ export function SpaceDirectorySummary(input: {
 		<>
 			<span
 				className={cn(
-					"flex items-center gap-2 text-sm",
+					"flex min-h-5 items-center gap-2 text-sm leading-5",
 					input.unread ? "font-semibold text-foreground" : "font-medium"
 				)}
 			>
@@ -40,7 +40,7 @@ export function SpaceDirectorySummary(input: {
 				{input.item.visibility === "private" && (
 					<LockKeyIcon
 						aria-label="Invite-only in this organization"
-						className="size-3 shrink-0 text-muted-foreground"
+						className="block size-3 shrink-0 self-center text-muted-foreground"
 					/>
 				)}
 			</span>
