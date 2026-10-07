@@ -371,7 +371,7 @@ describe("SpaceAgentInteractionCard", () => {
 				Object.assign(new Error("transport failed"), { code })
 			)
 			.mockResolvedValue(undefined);
-		render(
+		const card = (
 			<SpaceAgentInteractionCard
 				item={createWakeProgressItem({
 					canRespond: true,
@@ -404,6 +404,7 @@ describe("SpaceAgentInteractionCard", () => {
 				]}
 			/>
 		);
+		const { rerender } = render(card);
 		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
 		fireEvent.click(screen.getByRole("radio", { name: "Approve for me" }));
 		fireEvent.click(
@@ -412,6 +413,19 @@ describe("SpaceAgentInteractionCard", () => {
 		await screen.findByText("Response not confirmed");
 		expect(screen.queryByRole("alert")).toBeNull();
 		expect(screen.queryByText("Response sent")).toBeNull();
+		rerender(
+			<SpaceAgentInteractionCard
+				item={createWakeProgressItem({
+					canRespond: false,
+					interactionId: "unconfirmed",
+					request: null,
+				})}
+				onRespond={onRespond}
+			/>
+		);
+		expect(screen.getByText("Waiting for the local agent owner")).toBeTruthy();
+		expect(screen.queryByRole("button")).toBeNull();
+		rerender(card);
 		fireEvent.click(screen.getByRole("button", { name: "Check response" }));
 		await screen.findByText("Response sent");
 		expect(onRespond).toHaveBeenCalledTimes(2);
@@ -473,10 +487,14 @@ describe("SpaceAgentInteractionCard", () => {
 
 function createWakeProgressItem(input: {
 	canRespond: boolean;
+	interactionId?: string;
 	kind?: AgentInteractionPendingSummary["kind"];
 	request: AgentInteractionRequest | null;
 }): WakeProgressItem {
-	const interactionId = input.request?.interactionId ?? "interaction-private";
+	const interactionId =
+		input.interactionId ??
+		input.request?.interactionId ??
+		"interaction-private";
 	return {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",

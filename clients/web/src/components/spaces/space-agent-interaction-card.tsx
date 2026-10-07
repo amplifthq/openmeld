@@ -137,7 +137,7 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 		}
 	};
 
-	if (unconfirmedResponse) {
+	if (unconfirmedResponse && canRespond) {
 		return (
 			<InteractionShell
 				kind={pendingInteraction.kind}
@@ -150,7 +150,7 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 				</output>
 				<ApprovalCardFooter>
 					<Button
-						disabled={isSubmitting || !canRespond}
+						disabled={isSubmitting}
 						onClick={() => respond(unconfirmedResponse)}
 						type="button"
 						variant="outline"

@@ -5803,8 +5803,8 @@ does not send the approval. Response confirmation reuses that saved reference
 without saving the setting again. A saved Binding intent does not by itself
 prove that an active local Agent has applied the mode. Web does not invent a
 generic mode for controllers such as OpenCode that
-own a different permission contract, and it never offers a dangerous mode
-through this shortcut.
+own a different permission contract. High-trust modes require explicit user
+confirmation.
 The ordinary approval card does not include a separate Profile settings button
 or a standing explanation of permission synchronization.
 
