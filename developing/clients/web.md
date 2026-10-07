@@ -5542,6 +5542,9 @@ An active-Wake response received within the existing 30-second Space snapshot
 window remains usable during a return visit's immediate revalidation. Older
 responses and retired presentation lifetimes cannot restore controls. Core
 still checks current Stop authority on each request.
+The same short return window retains this viewer's local `sending` or
+`request_sent` submission before a dispatch is assigned. It never promotes a
+cached execution to running or extends the existing local submission expiry.
 Neither snapshot omission, stream disappearance, ordinary Agent text nor human
 follow-ups establishes completion. Failed, stopped, publication-unknown and
 published outcomes retain their distinct meanings; Core still owns execution

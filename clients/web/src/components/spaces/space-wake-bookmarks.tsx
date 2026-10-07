@@ -286,92 +286,56 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 		hasMore: context.hasMore,
 		onJump: () => selected && context.jump(selected),
 	});
+	if (!visible) {
+		return null;
+	}
 	return (
-		<AnimatePresence initial={false}>
-			{visible ? (
-				<WakeBookmarkPresence>
-					<Popover
-						onOpenChange={(next) => {
-							if (next && !multiple) {
-								return;
-							}
-							if (next) {
-								setOpenedItems(context.items);
-							}
-							setOpen(next);
-						}}
-						open={open}
-					>
-						<PopoverTrigger render={button} />
-						<PopoverContent
-							align="end"
-							className="w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md motion-reduce:animate-none"
-							side="top"
-						>
-							<ScrollArea className="max-h-72">
-								<PopoverTitle>Work outside your view</PopoverTitle>
-								<div className="flex flex-col gap-1">
-									{items.map((item) => (
-										<WakeBookmarkRow
-											current={context.activeItems.find(
-												(candidate) =>
-													wakeBookmarkKey(candidate) === wakeBookmarkKey(item)
-											)}
-											item={item}
-											key={wakeBookmarkKey(item)}
-											onClick={() => {
-												context.jump(item);
-												setOpen(false);
-											}}
-										/>
-									))}
-								</div>
-								{context.hasMore ? (
-									<p className="text-muted-foreground">
-										This list may be incomplete. More work is active in this
-										Space.
-									</p>
-								) : null}
-							</ScrollArea>
-						</PopoverContent>
-					</Popover>
-				</WakeBookmarkPresence>
-			) : null}
-		</AnimatePresence>
-	);
-}
-
-function WakeBookmarkPresence({ children }: { children: ReactNode }) {
-	const present = useIsPresent();
-	const reducedMotion = useReducedMotion();
-	return (
-		<motion.div
-			animate={{
-				opacity: 1,
-				transform: "translateY(0px)",
-				filter: "blur(0px)",
-			}}
-			aria-hidden={!present}
-			className="min-w-0"
-			data-slot="composer-active-wakes"
-			exit={{
-				opacity: 0,
-				transform: reducedMotion ? "none" : "translateY(6px)",
-				filter: reducedMotion ? "none" : "blur(3px)",
-			}}
-			inert={!present}
-			initial={{
-				opacity: 0,
-				transform: reducedMotion ? "none" : "translateY(6px)",
-				filter: reducedMotion ? "none" : "blur(3px)",
-			}}
-			transition={{
-				duration: reducedMotion ? 0 : 0.18,
-				ease: [0.23, 1, 0.32, 1],
-			}}
-		>
-			{children}
-		</motion.div>
+		<div className="min-w-0" data-slot="composer-active-wakes">
+			<Popover
+				onOpenChange={(next) => {
+					if (next && !multiple) {
+						return;
+					}
+					if (next) {
+						setOpenedItems(context.items);
+					}
+					setOpen(next);
+				}}
+				open={open}
+			>
+				<PopoverTrigger render={button} />
+				<PopoverContent
+					align="end"
+					className="w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md motion-reduce:animate-none"
+					side="top"
+				>
+					<ScrollArea className="max-h-72">
+						<PopoverTitle>Work outside your view</PopoverTitle>
+						<div className="flex flex-col gap-1">
+							{items.map((item) => (
+								<WakeBookmarkRow
+									current={context.activeItems.find(
+										(candidate) =>
+											wakeBookmarkKey(candidate) === wakeBookmarkKey(item)
+									)}
+									item={item}
+									key={wakeBookmarkKey(item)}
+									onClick={() => {
+										context.jump(item);
+										setOpen(false);
+									}}
+								/>
+							))}
+						</div>
+						{context.hasMore ? (
+							<p className="text-muted-foreground">
+								This list may be incomplete. More work is active in this Space.
+							</p>
+						) : null}
+					</ScrollArea>
+				</PopoverContent>
+			</Popover>
+		</div>
 	);
 }
 
