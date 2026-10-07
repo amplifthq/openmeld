@@ -1213,7 +1213,10 @@ function ThreadTimeline(input: {
 				scrollElement={scrollElement}
 			/>
 			<MessageScroller className="min-h-0 flex-1">
-				<MessageScrollerViewport className="px-4 py-4" ref={setScrollElement}>
+				<MessageScrollerViewport
+					className="space-conversation-inline-padding py-4"
+					ref={setScrollElement}
+				>
 					<SpaceMessageReadObserver
 						key={input.readScopeKey}
 						onViewedUpdates={input.onViewedUpdates}
@@ -1954,7 +1957,7 @@ function ThreadComposer(input: {
 			}}
 			members={input.composerMembers}
 			presentation={{
-				className: "px-4 py-4",
+				className: "space-conversation-inline-padding py-4",
 				dataSlot: "thread-composer",
 				maxHeight: 180,
 			}}

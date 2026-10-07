@@ -103,7 +103,27 @@ html[data-space-conversation-layout="centered"]
 
 [data-space-conversation-content-width] {
   width: 100%;
+}
+
+[data-space-conversation-content-width],
+.space-conversation-inline-padding {
   padding-inline: var(--space-conversation-inline-padding);
+}
+
+html[data-space-conversation-layout="full-width"] {
+  --space-conversation-inline-padding: 0.5rem;
+}
+
+/* Desk windows keep their own frame, independently of the page preference. */
+[data-desk-space-window] {
+  --space-conversation-inline-padding: 1rem;
+}
+
+/* Full-width rows use the content frame's inset once, including in Threads. */
+html[data-space-conversation-layout="full-width"]
+  #space-thread-panel:not([data-desk-space-window] #space-thread-panel)
+  [data-message-row-id] {
+  padding-inline: 0;
 }
 
 /* Thread covers only the main conversation. Other side panels stay available. */
