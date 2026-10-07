@@ -194,6 +194,7 @@ export function useSpaceLandingFeed(input: {
 	spaceId: string;
 	openMeldProfileId: string;
 	participationEnabled: boolean;
+	accessRejected?: boolean;
 	statusReady: boolean;
 	statusRefetch: () => Promise<unknown>;
 	membersRefetch: () => Promise<unknown>;
@@ -796,7 +797,9 @@ export function useSpaceLandingFeed(input: {
 
 	useEffect(() => {
 		if (!input.participationEnabled) {
-			clearTransientStreams();
+			if (input.accessRejected) {
+				clearTransientStreams();
+			}
 			currentSocketAttemptKeyRef.current = null;
 			readySocketAttemptKeyRef.current = null;
 			clearReconnectTimer(reconnectTimerRef);
@@ -1077,6 +1080,7 @@ export function useSpaceLandingFeed(input: {
 		input.openMeldProfileId,
 		input.membersRefetch,
 		input.participationEnabled,
+		input.accessRejected,
 		readinessOrganizationId,
 		readinessStorageScope,
 		input.spaceId,

@@ -484,6 +484,7 @@ function AppSpacesIndexEntryShell(input: {
 }) {
 	return (
 		<SpaceWindowShell
+			defaultModuleSidebarOpen={false}
 			initialOuterSidebarState={
 				input.initialSidebarStates?.outer ?? APP_SIDEBAR_DEFAULT_STATES.outer
 			}

@@ -52,10 +52,11 @@ describe("owner-supplied public failure facts", () => {
     );
     expect(presentation.body).toContain(
       languageTag === "en"
-        ? "Earlier actions may have taken effect"
-        : "之前的操作可能已经生效"
+        ? "Some actions may have taken effect"
+        : "部分操作可能已经生效"
     );
     expect(presentation.body).not.toMatch(UNSUPPORTED_INTERRUPTION_GUIDANCE);
+    expect(presentation.body).not.toContain("Diagnostics");
     const noRecovery = formatPublicInterruptedTaskFailureFacts({
       ...facts,
       completedResults: [],

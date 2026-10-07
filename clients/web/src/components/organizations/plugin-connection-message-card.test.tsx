@@ -366,6 +366,7 @@ describe("Plugin connection in a conversation", () => {
 		);
 		await waitFor(() =>
 			expect(api.githubShared).toHaveBeenCalledExactlyOnceWith({
+				existingInstallation: false,
 				organizationId: "org-acme",
 			})
 		);

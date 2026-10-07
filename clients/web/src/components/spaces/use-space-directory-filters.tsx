@@ -1,7 +1,8 @@
 import {
-	DropdownMenuCheckboxItem,
-	DropdownMenuItem,
-} from "@openmeld/ui/components/dropdown-menu";
+	FluidDropdownMenuCheckboxItem as DropdownMenuCheckboxItem,
+	FluidDropdownMenuItem as DropdownMenuItem,
+	FluidDropdownMenuGroup,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import {
 	ActivityIcon,
 	EnvelopeSimpleIcon,
@@ -25,7 +26,7 @@ export function useSpaceDirectoryFilters(
 	onSearch: () => void,
 	searchLabel = "Search Spaces"
 ) {
-	const groupFilter = useSidebarGroupFilter(groups);
+	const groupFilter = useSidebarGroupFilter(groups, 1);
 	const [statuses, setStatuses] = useState<Status[]>([]);
 	const toggle = (id: Status) =>
 		setStatuses((current) =>
@@ -53,23 +54,27 @@ export function useSpaceDirectoryFilters(
 				);
 			}),
 		menu: (
-			<>
-				<DropdownMenuItem onClick={() => requestAnimationFrame(onSearch)}>
+			<FluidDropdownMenuGroup>
+				<DropdownMenuItem
+					index={0}
+					onClick={() => requestAnimationFrame(onSearch)}
+				>
 					<MagnifyingGlassIcon />
 					{searchLabel}
 				</DropdownMenuItem>
 				{groupFilter.menu}
-				{STATUS_OPTIONS.map(([id, label, Icon]) => (
+				{STATUS_OPTIONS.map(([id, label, Icon], index) => (
 					<DropdownMenuCheckboxItem
 						checked={statuses.includes(id)}
 						closeOnClick={false}
+						index={index + 2}
 						key={id}
 						onCheckedChange={() => toggle(id)}
 					>
 						<Icon /> {label}
 					</DropdownMenuCheckboxItem>
 				))}
-			</>
+			</FluidDropdownMenuGroup>
 		),
 		badges: (
 			<>

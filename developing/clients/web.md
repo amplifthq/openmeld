@@ -201,22 +201,67 @@ Pinning that same ID into the URL must not remount the conversation and discard
 an attachment-open request. Opening a final-message attachment therefore retains
 its selected file revision while switching from Messages to Files.
 
-Web uses three navigation levels: a 76px application rail (52px in Icons only), a contextual
+Web uses three navigation levels: a 64px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
-Team are the rail's destinations, in that order. Desk is temporarily hidden
+Team are the rail's primary destinations, in that order. Hovering Spaces offers
+Direct messages and Discover, using the existing Spaces view parameter. Both
+can be pinned; Direct messages appears as DMs in the rail. Personal workspaces
+hide Discover in the popover and pinned list. Hovering Team (or pressing
+Arrow Down/Space on it) offers Agents, Plugins, Skills, Files, and Routines
+with separate pin toggles. Clicking Team still opens People. Pinned shortcuts appear below a short divider and
+persist in the browser; links always target the current Organization. A pinned
+current page selects its shortcut instead of also selecting Team. Icon tooltips
+open immediately. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
 switching remains at the top; the global Create entry is temporarily hidden.
-Creation remains available in the Spaces and Team contextual headers. Global search sits
-above Settings in the footer, using the same compact utility styling. Inbox
+Creation remains available in the Spaces and Team contextual headers. Global search
+and Settings are available in the footer account menu. Search has its own section
+and the shared Command K keycaps. Inbox
 retains the shared attention badge and active-route treatment. In the compact
 rail, hover and active backgrounds surround the icon and its attention marker;
 labels stay outside that background. The Organization avatar fills its 36px
 shape-aware trigger. Account, theme, and Settings remain reachable
-from the rail. Search, Settings, theme, and account controls share one footer
-hover scope, so the same background moves across all four without nested or
-competing highlights. Spaces and its contextual sidebar heading always open
+from the account menu. Its 32px avatar trigger retains its left and bottom inset.
+Separate Fluid hover groups own account identity, Search, actions, and sign-out.
+A compact Light/Dark/System selector follows Download Desktop App without a divider and keeps the menu
+open when changed. Settings > Appearance reuses the same selector and icon set;
+the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
 Discover, in that order (Discover is absent in personal workspaces).
+
+Your Spaces and Direct messages default to Cards and offer Table in the directory toolbar.
+The sidebar's View and filters menu includes Show message previews. It defaults
+to off and persists per Human Profile and Organization in the browser preference
+store. One setting controls the sidebar and both directory card views; it does
+not change Table previews or suppress actionable needs-input status. Hidden or
+absent message previews reserve no sidebar line or card footer. Single-line
+sidebar rows center their icon, title, and actions, and title tooltips anchor
+to the full row's trailing edge rather than the avatar.
+Both presentations consume the same saved sections, ordering, filters,
+membership previews, unread destinations, and current work indicators. Cards
+use eight 40px member slots, reducing to six, four or two on narrow cards. The avatar
+area reserves two rows, and cards stretch to equal height within each grid row.
+Overflow occupies the final slot; at least one avatar remains. The title truncates
+before its unread count; the title, lock, and count share one vertical center.
+Cards omit activity timestamps and show only the latest message
+as plain text, with its message link and full-text
+hover previews. Empty conversations have no preview footer. The opt-in directory
+projection reads eight members and two message previews from the authorized account
+index, with no per-card Space history fan-out. Member previews and action menus
+keep independent targets.
+Card member previews open only over an avatar or the overflow count. Gaps and
+unused avatar slots remain part of the Space navigation target. The member
+popover also has a primary Open Space link in its header; keyboard activation
+of the member trigger remains available.
+The existing browser preference store remembers this choice per Human Profile
+and Organization, shared across Your Spaces and Direct messages. Direct message
+cards keep peer and Center Agent session identity, unread destinations, groups,
+pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
+grid height; the title follows directly, with one latest-message preview row
+only when messages exist. Discover retains its existing layout.
+The Agents directory uses the same store to remember grouped versus expanded
+presentation per viewer, Organization, and person. Search and temporary filters
+do not become saved layout preferences.
 
 The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal
@@ -695,6 +740,15 @@ build-time copy, stores a second archive, or manufactures publication state. A
 source failure renders an explicit unavailable state with one retry action and
 no stale or model-authored fallback.
 
+The account Help submenu reads the latest three updates from the production
+anonymous Changelog endpoint in every environment, including local development.
+Its Web server function uses the shared API client and schema without forwarding
+account cookies or credentials, then returns only entry IDs, titles, and dates.
+The browser loads on demand, shares a five-minute query cache, and retains it for
+30 minutes after the menu unmounts. The upstream read has an eight-second deadline
+and the query does not retry automatically. Existing cached entries remain visible
+during refresh; a failed first load shows an error and the official Changelog link.
+
 ### Workspace switcher
 
 The top of the rail contains the only workspace-switching surface. Its order
@@ -941,7 +995,7 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    When a row has a message preview, its link includes that exact Signal target.
    Thread placement comes from the shared Space thread catalog. Explicit targets
    take precedence over a previously saved open Thread, and target message reads
-   begin alongside Space prefetch. Known Thread targets show a loading panel
+   begin alongside Space prefetch. Known Thread targets and saved open Threads reserve their panel
    during access and bootstrap checks without rendering protected messages early.
    Each Inbox row or notification activation carries a new in-memory focus request,
    so selecting the same target again reopens its Thread and refocuses the message
@@ -1188,9 +1242,16 @@ Organization root redirect there, preserving their intent.
 Direct messages at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
 It stays on a conversation directory, sharing sidebar grouping, sort order,
 previews, and unread projections. Loading never presents a false empty state
-or automatically opens a conversation. A genuinely empty list offers New chat.
-New chat and Space members share the people-and-agents picker, including search
-and nested agent ownership. One explicit selection opens a direct conversation;
+or automatically opens a conversation. A genuinely empty list offers New message.
+New message and Space members share the people-and-agents picker, including search
+and nested agent ownership. Both entry points offer **New Agent** through the
+same inline creation step. Back preserves the current query and selection.
+Successful creation returns to the picker, clears its search, refreshes the
+Organization directory, and selects the new Agent alongside any existing
+selection. Creation alone does not open a conversation or add Space membership.
+If the New message directory refresh fails, show that the Agent was created and
+offer a retry without repeating creation. One explicit selection opens a direct
+conversation;
 multiple selections create a new private, members-only Space through the existing
 Space creation and directory membership APIs. A successfully created Space is
 retained while retrying failed member additions. Selecting an agent alone does
@@ -1432,9 +1493,9 @@ revocation keep their separate existing Web contracts. See the
 The Auth read preserves vendor-owned browser session renewal and deletion cookies
 through the HTTP proxy, separate from the credential-free JSON projection.
 
-The application rail keeps Settings and theme controls visible above the account
-trigger. Their hit areas and keyboard order are stable; footer hover does not
-reveal, hide, or move them.
+The application rail keeps only the account trigger in its footer. Search,
+Settings, and theme controls are available in its menu. Desktop update attention
+appears on the account trigger and the Settings menu entry.
 
 Normal Settings entry points open the global **App settings** dialog over the
 current organization page. The `appSettings` search parameter owns the selected
@@ -5390,6 +5451,8 @@ before Members restores the preview. Dismissal is saved per Organization,
 Human Profile, and Space in this browser, without changing shared pin state.
 
 Appearance includes Toolbar shortcuts for Computer, Center Agent, and Inbox.
+All three default to off when no browser preference is saved. Existing saved
+choices are preserved, and users can enable each shortcut in Appearance.
 Each bottom shortcut also exposes a compact hide control on hover or keyboard
 focus, with Undo. Touch users customize shortcuts in Appearance. Browser-wide
 preferences apply on first paint; hiding all shortcuts removes the reserved
@@ -5536,6 +5599,19 @@ older display caches cannot seed working streams after completion evidence has
 been collected. Live Thread progress is never stored in retained Thread history
 or previews. Accepted outcomes also suppress replayed streams for that execution.
 Evidence is not persisted and contains no message body or Stop permission.
+The same in-memory presentation lifetime retains received reply-stream content
+across route changes. Stream text is not written to persisted history or browser
+storage. A pending membership read does not clear it; explicit access rejection
+does. Published outcomes still suppress the matching stream.
+Received Markdown does not replay per-word entrance animations on route return;
+new text retains the shared pacing behavior and reduced-motion preference.
+An active-Wake response received within the existing 30-second Space snapshot
+window remains usable during a return visit's immediate revalidation. Older
+responses and retired presentation lifetimes cannot restore controls. Core
+still checks current Stop authority on each request.
+The same short return window retains this viewer's local `sending` or
+`request_sent` submission before a dispatch is assigned. It never promotes a
+cached execution to running or extends the existing local submission expiry.
 Neither snapshot omission, stream disappearance, ordinary Agent text nor human
 follow-ups establishes completion. Failed, stopped, publication-unknown and
 published outcomes retain their distinct meanings; Core still owns execution
@@ -5648,7 +5724,10 @@ status resolver, and Orb as the conversation. The own-work query applies
 `sourceProfileId` before the server's bounded result limit, and live invalidation
 refreshes both filtered and unfiltered summaries through their shared key prefix.
 Viewport visibility changes placement only, never execution state. A readable
-working status hides its matching bookmark; a short visibility delay and separate
+working status hides its matching bookmark. Mounted rows do not acquire an
+offscreen bookmark until the observer measures them after scroll restoration.
+The first measurement applies immediately. A short
+visibility delay and separate
 enter/leave thresholds avoid flicker at the scroll boundary. One bookmark jumps
 directly to the working status; multiple bookmarks open a stable-order list with
 request previews and Thread attribution. An open list updates state in place and
@@ -6459,3 +6538,16 @@ Use the scoped owner documents for deeper rules:
 - Final Wakeability must come from the Core-owned Wakeability projection.
 - A visible Wake problem should end with a clear outcome, one next action, and a
   diagnostic path, not internal subsystem vocabulary.
+## Computer session history
+
+Computer owners manage Session history access beside File access. History starts
+off, requires selected connected Projects, and optionally permits selected
+Agents. Settings are acknowledged by the live source Service; offline edits
+must not appear saved. Save uses the last policy revision and requires reload
+after a concurrent change.
+
+Owners can browse current Codex sessions and read message pages, including
+sessions without a Profile. Private results use component memory only, never
+the persisted query cache or route loaders. Access history is owner-only and
+contains request metadata, not conversation text. Clearly disclose that Agent
+conversations and model providers can retain returned results.

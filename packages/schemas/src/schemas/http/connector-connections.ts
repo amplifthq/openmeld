@@ -1,4 +1,5 @@
 import * as z from "../../lazy-zod";
+import { pluginConnectionHealthSchema } from "../runtime/openconnector-runtime";
 
 export const CENTER_AGENT_APP_CONNECTOR_SERVICES = [
   "feishu",
@@ -104,6 +105,7 @@ export const githubAppInstallationStateSchema = z
 export const githubAppInstallationIdSchema = z.string().regex(/^[1-9][0-9]*$/u);
 
 export const connectorConnectionSchema = z.strictObject({
+  health: pluginConnectionHealthSchema.optional(),
   canDisconnect: z.boolean(),
   connectionName: connectorConnectionNameSchema,
   createdAtMs: timestampMsSchema,
@@ -290,6 +292,7 @@ export const connectorCredentialConnectResponseSchema = z.strictObject({
 });
 
 export const connectorOrganizationContextQuerySchema = z.strictObject({
+  includeConnectionHealth: z.literal("true").optional(),
   expectedOrganizationId: trimmedNonEmptyStringSchema,
   includeAuthorizationExpiry: z.literal("true").optional(),
 });

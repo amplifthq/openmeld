@@ -363,6 +363,8 @@ export type ParsedDaemonFrame = {
     | "daemon.dispatch.progress"
     | "daemon.reasoning.preferences"
     | "daemon.error"
+    | "daemon.session_history.request"
+    | "daemon.session_history.request_result"
     | "daemon.computer_file_access.read_policy"
     | "daemon.computer_file_access.read_policy_result"
     | "daemon.computer_file_access.update_policy"

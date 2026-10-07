@@ -542,13 +542,18 @@ unrelated items before showing an empty state. Legacy `view=unread` links open
 All with the switch enabled.
 
 List titles reserve a 6px status dot with an 8px gap. An unresolved action or
-review uses the existing red attention tone, including after it is read.
+review uses the yellow attention tone, including after it is read. Red is
+reserved for an explicit error, never inferred from a pending action count.
 Otherwise, an unread open urgent item uses the yellow urgent tone, and other
 unread items use the blue unread token. Read items without pending work have no
 dot; the reserved space keeps titles aligned. Each item shows at most one dot,
 with action priority above urgency and ordinary unread state. Existing text
 labels and screen-reader unread text remain available. Reading does not resolve
-pending work, and resolving an action removes its red attention treatment.
+pending work, and resolving an action removes its yellow attention treatment.
+Submitting an Agent interaction response optimistically removes one pending
+action from that Space's cached attention count. Failure restores the snapshot
+only if no newer snapshot has replaced it. Settlement refreshes Inbox projections;
+this presentation update does not assert that execution has resumed.
 
 Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the

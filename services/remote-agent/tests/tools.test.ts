@@ -377,8 +377,10 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     expect(disabled).not.toContain("openmeld_read_agent_activity");
     expect(disabled).not.toContain("openmeld_list_agent_activity_sessions");
+    expect(disabled).not.toContain("openmeld_read_session_history");
     expect(enabled).toContain("openmeld_read_agent_activity");
     expect(enabled).toContain("openmeld_list_agent_activity_sessions");
+    expect(enabled).toContain("openmeld_read_session_history");
   });
 
   it("enables the Agent Activity read-tool fence in every Remote Agent wrangler env", () => {

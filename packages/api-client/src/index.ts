@@ -346,6 +346,7 @@ export type {
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
 export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
+export { createSessionHistoryApi } from "./session-history/api";
 export type {
   AddSpaceMembersInput,
   CreateSpaceDiagnosticReportBody,
