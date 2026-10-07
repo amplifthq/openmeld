@@ -98,6 +98,7 @@ import {
   prepareExecutionContextAssignment,
   recordExecutionContextCandidate,
   recordExecutionContextCompletion,
+  retireRecoveredContextSourceAssociation,
 } from "../src/runtime-transport/application/execution-context-authority";
 import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../src/runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
@@ -4296,6 +4297,60 @@ describe("runtime transport runtime coordinator transport contract", () => {
         completion: undefined,
       })
     ).rejects.toThrow("result_mismatch");
+    for (const [writeKey, value] of Object.entries(fork.writes)) {
+      await storage.put(writeKey, value);
+    }
+    const nextIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-after-recovery",
+      dispatchId: "dispatch-after-recovery",
+      sourceSignalId: "source-after-recovery",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const selectNextContext = (mode: "auto" | "resume" = "auto") =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          storage: transaction,
+          record: {
+            ...fork.record,
+            primaryDispatchId: nextIdentity.dispatchId,
+            targetWakeLifecycleId: nextIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: nextIdentity,
+            acceptedDispatchSnapshot: {
+              ...originalSnapshot,
+              contextRequest: {
+                ...sourceRequest,
+                selection:
+                  mode === "auto"
+                    ? { mode }
+                    : { mode, sourceWakeId: original.targetWakeLifecycleId },
+              },
+            },
+          },
+        })
+      );
+    await expect(selectNextContext()).rejects.toThrow("selection_required");
+    const replacement = fork.record.acceptedDispatchSnapshot?.executionContext;
+    if (!replacement) {
+      throw new Error("Expected replacement context");
+    }
+    await storage.transaction((transaction) =>
+      retireRecoveredContextSourceAssociation({
+        storage: transaction,
+        sourceContextId: response.executionContext.id,
+        replacementContextId: replacement.id,
+      })
+    );
+    expect(
+      (await selectNextContext()).record.acceptedDispatchSnapshot
+        ?.executionContext?.id
+    ).toBe(replacement.id);
+    // Recovery changes only the automatic route; explicit source history survives.
+    expect(
+      (await selectNextContext("resume")).record.acceptedDispatchSnapshot
+        ?.executionContext?.id
+    ).toBe(response.executionContext.id);
   });
   it.each([
     { agentControllerRef: "builtin:codex", confirmsOwnBoundary: true },

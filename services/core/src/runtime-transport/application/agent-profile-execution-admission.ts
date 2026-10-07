@@ -65,6 +65,7 @@ import {
   ExecutionContextSelectionError,
   hasRetainedExecutionContexts,
   prepareExecutionContextAssignment,
+  retireRecoveredContextSourceAssociation,
 } from "./execution-context-authority";
 import {
   buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey,
@@ -5206,6 +5207,20 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
     );
   }
   const coordinator = projectAgentProfileWorkCoordinator(input.admission);
+  if (
+    input.outcome === "succeeded" &&
+    coordinator.recoveryGate?.status === "continuation_running" &&
+    coordinator.recoveryGate.forkInterruptedConversation &&
+    coordinator.recoveryGate.interruptedWork.executionContextId &&
+    currentItem.executionContextId
+  ) {
+    await retireRecoveredContextSourceAssociation({
+      storage: input.transaction,
+      sourceContextId:
+        coordinator.recoveryGate.interruptedWork.executionContextId,
+      replacementContextId: currentItem.executionContextId,
+    });
+  }
   const removal = input.outcome
     ? settleAgentProfileWork({
         coordinator,

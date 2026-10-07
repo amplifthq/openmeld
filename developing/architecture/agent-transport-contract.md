@@ -414,6 +414,10 @@ input; receipt reconciliation never changes the binding of an attempted delivery
 After a successful fork, follow-ups already assigned to that replacement context
 can proceed without another approval when no unrelated work is held. Failed or
 stopped continuations and mixed-context queues retain the existing recovery gate.
+Successful recovery retires only the source context's automatic scope association
+inside the same owner transaction. Its context and Wake history remain available
+for explicit selection. The replacement remains the conversation's automatic
+route; ordinary user-created forks retain their existing selection semantics.
 
 Contract impact: the owner read and authorization RPCs add optional fields. Older
 owner shards omit eligibility or reject the new strict authorization field, so
