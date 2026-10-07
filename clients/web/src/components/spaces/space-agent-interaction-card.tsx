@@ -11,8 +11,10 @@ import type {
 } from "@openmeld/schemas/types";
 import {
 	ApprovalCard,
+	ApprovalCardFooter,
 	ApprovalCardHeader,
 } from "@openmeld/ui/components/approval-card";
+import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleDotsIcon,
@@ -24,6 +26,7 @@ import {
 	type ActionPermissionModeOption,
 	ActionRequestForm,
 } from "#/components/actions/action-request-form";
+import { isAgentInteractionResponseUnconfirmed } from "#/lib/spaces/agent-interaction-response";
 
 export type SpaceAgentInteractionResponseHandler = (
 	input: RespondToSpaceAgentInteractionBody
@@ -66,6 +69,8 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 	const pendingInteraction = input.item.pendingInteraction;
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [unconfirmedResponse, setUnconfirmedResponse] =
+		useState<AgentInteractionResponse | null>(null);
 	const [submission, setSubmission] = useState<"continue" | "stop" | null>(
 		null
 	);
@@ -96,22 +101,20 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 
 		setErrorMessage(null);
 		setIsSubmitting(true);
+		let submittedResponse: AgentInteractionResponse | null = null;
 		try {
-			const permissionModeUpdate =
-				permissionMode && input.onPermissionModeUpdate
-					? await input.onPermissionModeUpdate({
-							permissionMode,
-							profileId: input.item.targetProfileId,
-						})
-					: undefined;
+			submittedResponse = await preparePermissionResponse({
+				response,
+				permissionMode,
+				profileId: input.item.targetProfileId,
+				onPermissionModeUpdate: input.onPermissionModeUpdate,
+			});
 			await canRespond({
 				interactionId: pendingInteraction.interactionId,
-				response:
-					response.kind === "permission" && permissionModeUpdate
-						? { ...response, permissionModeUpdate }
-						: response,
+				response: submittedResponse,
 				runtimeCoordinatorExecutionId,
 			});
+			setUnconfirmedResponse(null);
 			setSubmission(
 				isWorkingFolderRecoveryQuestion(request) &&
 					isWorkingFolderRecoveryDecline(response)
@@ -119,6 +122,11 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 					: "continue"
 			);
 		} catch (error) {
+			if (submittedResponse && isAgentInteractionResponseUnconfirmed(error)) {
+				setUnconfirmedResponse(submittedResponse);
+				return;
+			}
+			setUnconfirmedResponse(null);
 			setErrorMessage(
 				error instanceof Error
 					? error.message
@@ -128,6 +136,31 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 			setIsSubmitting(false);
 		}
 	};
+
+	if (unconfirmedResponse) {
+		return (
+			<InteractionShell
+				kind={pendingInteraction.kind}
+				presentation={input.presentation}
+				targetLabel={input.item.targetLabel}
+				title="Response not confirmed"
+			>
+				<output aria-live="polite" className="text-muted-foreground text-sm">
+					Your response may already be saved. Check the response to confirm it.
+				</output>
+				<ApprovalCardFooter>
+					<Button
+						disabled={isSubmitting || !canRespond}
+						onClick={() => respond(unconfirmedResponse)}
+						type="button"
+						variant="outline"
+					>
+						{isSubmitting ? "Checking response…" : "Check response"}
+					</Button>
+				</ApprovalCardFooter>
+			</InteractionShell>
+		);
+	}
 
 	if (submission) {
 		return (
@@ -194,6 +227,26 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 			) : null}
 		</InteractionShell>
 	);
+}
+
+async function preparePermissionResponse(input: {
+	response: AgentInteractionResponse;
+	permissionMode?: AgentControllerPermissionMode;
+	profileId: string;
+	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
+}): Promise<AgentInteractionResponse> {
+	if (
+		input.response.kind !== "permission" ||
+		!input.permissionMode ||
+		!input.onPermissionModeUpdate
+	) {
+		return input.response;
+	}
+	const permissionModeUpdate = await input.onPermissionModeUpdate({
+		permissionMode: input.permissionMode,
+		profileId: input.profileId,
+	});
+	return { ...input.response, permissionModeUpdate };
 }
 
 function InteractionShell(input: {

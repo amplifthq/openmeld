@@ -5786,8 +5786,14 @@ Permission cards show the native choices; question cards collect every answer
 in bounded steps; plan cards show the bounded plan and support approval or
 change feedback. Web posts the shared response to the Space interaction
 endpoint, disables duplicate submission while it is pending, keeps a failed
-submission retryable, and refreshes authoritative progress after success. It
-does not continue the Agent from browser state.
+submission retryable, and refreshes authoritative progress after every attempt.
+A transport timeout, lost connection, invalid receipt, or server error leaves
+the outcome unconfirmed. Web makes one bounded confirmation attempt with the
+exact original response, using Core's retained receipt. It never repeats a
+permission-setting mutation during confirmation. If confirmation also fails,
+the card shows neutral `Response not confirmed` feedback and a `Check response`
+action that resends the same answer. Explicit rejections remain errors. Web
+does not continue the Agent or claim acceptance from an absent pending card.
 
 For controllers with a native low-interruption Permission Mode, a permission
 card may also offer to save that mode for future requests. Web sends the current

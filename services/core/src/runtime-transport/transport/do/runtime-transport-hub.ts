@@ -14542,7 +14542,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     interaction: RuntimeTransportDispatchInteractionRequest["interaction"];
     resolvedAtMs: number;
   }): Promise<void> {
-    await this.tryApplyRuntimeCoordinatorInteractionInboxRepair({
+    const record: RuntimeCoordinatorInteractionInboxRepairRecord = {
       attemptCount: 0,
       desiredStatus: "resolved",
       interaction: {
@@ -14568,12 +14568,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ?.rootSignalId ?? null,
       updatedAtMs: input.resolvedAtMs,
       v: 1,
-    });
+    };
+    await this.claimRuntimeCoordinatorInteractionInboxRepair(record);
+    this.ctx.waitUntil(
+      this.applyRuntimeCoordinatorInteractionInboxRepair(record)
+    );
   }
   private async tryApplyRuntimeCoordinatorInteractionInboxRepair(
     record: RuntimeCoordinatorInteractionInboxRepairRecord
   ): Promise<void> {
     await this.claimRuntimeCoordinatorInteractionInboxRepair(record);
+    await this.applyRuntimeCoordinatorInteractionInboxRepair(record);
+  }
+  private async applyRuntimeCoordinatorInteractionInboxRepair(
+    record: RuntimeCoordinatorInteractionInboxRepairRecord
+  ): Promise<void> {
     const targetInboxDb = getPostgresDatabase(this.env);
     const spaceIndexDb = getPostgresDatabase(this.env);
     if (!(targetInboxDb && spaceIndexDb)) {
