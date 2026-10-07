@@ -27,7 +27,7 @@
     "changelog:build": "node scripts/changelog/build.mjs",
     "changelog:check": "node scripts/changelog/check.mjs",
     "setup:dev": "pnpm build && pnpm openmeld:dev:install",
-    "dev": "node scripts/dev/dev-guard.mjs",
+    "dev": "node scripts/dev/doppler-environment.mjs worktree --no-sandbox",
     "dev:doctor": "node scripts/dev/doppler-environment.mjs doctor",
     "dev:help": "node scripts/dev/doppler-environment.mjs help",
     "dev:worktree": "node scripts/dev/doppler-environment.mjs worktree --no-sandbox",

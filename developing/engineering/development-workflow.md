@@ -164,7 +164,7 @@ For a new worktree, use Node from `.nvmrc`, pnpm from `packageManager`, and
 `pnpm install --frozen-lockfile`. Run `pnpm dev:doctor`, then
 `pnpm dev:postgresql` to start the complete Web/Worker stack. Use the
 printed lane-specific URL. Docker is needed only for
-`pnpm dev:worktree:sandbox -- --postgresql`. `pnpm check` checks installed dependencies; it no
+`pnpm dev:worktree:sandbox`. `pnpm check` checks installed dependencies; it no
 longer installs them implicitly. Install again after a lockfile change.
 
 The isolated launchers reserve local capacity before starting processes.
@@ -359,8 +359,10 @@ R2 emulation and other Miniflare state retain the worktree's isolated Wrangler
 persistence root. They are separate owners, not copies of relational tables.
 Do not start package-local Workers against guessed state or connection paths.
 
-The legacy `pnpm dev` D1 guard and D1-based fixture scripts describe the
-pre-cutover stack. They do not prepare a current PostgreSQL product database.
+`pnpm dev`, `pnpm dev:worktree`, and the explicit `pnpm dev:postgresql` alias
+start the same PostgreSQL supervisor. Low-level isolated launchers also use
+PostgreSQL. The historical D1 fixture scripts do not prepare a current product
+database.
 Do not repair current PostgreSQL startup by seeding a historical Miniflare D1
 file or resetting another worktree's state. Use the current supervisor and the
 native migration/acceptance owner; preserve the affected lane when diagnosing
@@ -378,12 +380,12 @@ commands when multiple worktrees need live localhost stacks at the same time:
 | `pnpm dev:web:worktree` | Separate Web launcher when needed; `dev:postgresql` already starts Web. |
 | `pnpm dev:seed` | Historical D1 fixture helper; does not support the PostgreSQL product lane. See [fixture scope](../../scripts/dev/sidebar-fixtures.md). |
 | `pnpm dev:account` | Historical D1 account helper; use normal local product sign-up for PostgreSQL smoke. |
-| `pnpm dev:worktree:sandbox -- --postgresql` | Start the PostgreSQL Web/Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
-| `pnpm dev` | Legacy fixed-port D1 guard, not current PostgreSQL product preparation. |
+| `pnpm dev:worktree:sandbox` | Start the PostgreSQL Web/Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
+| `pnpm dev` / `pnpm dev:worktree` | Start the current PostgreSQL product through the same isolated supervisor. |
 | `pnpm dev:web` | Legacy fixed-port Web launcher; keep its Worker and database lane aligned. |
-| `pnpm dev:isolated` | Legacy low-level isolated stack for checkouts that still use local environment files. |
-| `pnpm dev:isolated:no-sandbox` | Legacy Docker-free isolated stack for checkouts that still use local environment files. |
-| `pnpm dev:isolated --test-scheduled` | Legacy isolated stack that also prints its loopback-only Routine scheduler trigger. |
+| `pnpm dev:isolated` | Low-level PostgreSQL isolated stack for checkouts that still use local environment files. |
+| `pnpm dev:isolated:no-sandbox` | Low-level Docker-free PostgreSQL isolated stack for checkouts that still use local environment files. |
+| `pnpm dev:isolated --test-scheduled` | PostgreSQL isolated stack that also prints its loopback-only Routine scheduler trigger. |
 | `pnpm dev:web:isolated` | Legacy low-level Web attachment for checkouts that still use local environment files. |
 
 For isolated Plugin acceptance, set `OPENMELD_DEV_PLUGIN_FIXTURE_URL` in the
@@ -574,7 +576,7 @@ the lightweight and complete commands.
 
 This lane is not valid Sandbox evidence. If a change touches Sandbox tools,
 container bindings, shell execution, Sandbox files, or the interaction between
-Code Mode and Sandbox, use `pnpm dev:worktree:sandbox -- --postgresql` with Docker and prove at
+Code Mode and Sandbox, use `pnpm dev:worktree:sandbox` with Docker and prove at
 least one real shell or file operation before declaring the change done. Use
 that complete lane as the final combined-capability regression when a release
 changes both Sandbox and another Remote Agent tool family.
