@@ -517,8 +517,12 @@ Square.
 
 ## 6. Shared Sidebar family and resize behavior
 
-The outer rail's Team resource popover opens on hover or Arrow Down/Space.
-Clicking Team still navigates to People. Agents, Plugins, Skills, Files, and Routines link to the existing
+The outer rail's Spaces and Team resource popovers open on hover or Arrow Down/Space.
+Clicking Spaces still opens Your Spaces; clicking Team opens People.
+Spaces offers Direct messages and Discover using the existing `view` search parameter.
+The pinned Direct messages label is DMs. Discover is hidden in personal workspaces,
+including saved pins, without deleting the browser preference.
+Agents, Plugins, Skills, Files, and Routines link to the existing
 Team destinations and each has a separate Pin to sidebar toggle. Pins start
 empty, persist in this browser in selection order, and resolve against the
 current Organization. A short divider separates pinned entries from the main

@@ -203,7 +203,10 @@ its selected file revision while switching from Messages to Files.
 
 Web uses three navigation levels: a 64px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
-Team are the rail's primary destinations, in that order. Hovering Team (or pressing
+Team are the rail's primary destinations, in that order. Hovering Spaces offers
+Direct messages and Discover, using the existing Spaces view parameter. Both
+can be pinned; Direct messages appears as DMs in the rail. Personal workspaces
+hide Discover in the popover and pinned list. Hovering Team (or pressing
 Arrow Down/Space on it) offers Agents, Plugins, Skills, Files, and Routines
 with separate pin toggles. Clicking Team still opens People. Pinned shortcuts appear below a short divider and
 persist in the browser; links always target the current Organization. A pinned

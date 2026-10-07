@@ -1733,14 +1733,22 @@ describe("AppOuterRail", () => {
 		).toBe("page");
 	});
 	it.each([
-		["Agents", "/o/acme/agents", "agents"],
-		["Plugins", "/o/acme/plugins", "plugins"],
-		["Skills", "/o/acme/skills", "skills"],
-		["Files", "/o/acme/files", "files"],
-		["Routines", "/o/acme/routines", "people"],
-	] as const)("pins %s without navigating, restores it, and selects only the pinned destination", async (label, path, section) => {
+		["Agents", "/o/acme/agents", "agents", "Team", "Agents"],
+		["Plugins", "/o/acme/plugins", "plugins", "Team", "Plugins"],
+		["Skills", "/o/acme/skills", "skills", "Team", "Skills"],
+		["Files", "/o/acme/files", "files", "Team", "Files"],
+		["Routines", "/o/acme/routines", "people", "Team", "Routines"],
+		[
+			"Direct messages",
+			"/o/acme/spaces?view=messages",
+			"space",
+			"Spaces",
+			"DMs",
+		],
+		["Discover", "/o/acme/spaces?view=discover", "space", "Spaces", "Discover"],
+	] as const)("pins %s without navigating, restores it, and selects only the pinned destination", async (label, path, section, parent, sidebarLabel) => {
 		const view = renderRail();
-		fireEvent.keyDown(screen.getByRole("link", { name: "Team" }), {
+		fireEvent.keyDown(screen.getByRole("link", { name: parent }), {
 			key: "ArrowDown",
 		});
 		fireEvent.click(
@@ -1749,20 +1757,23 @@ describe("AppOuterRail", () => {
 		expect(navigateMock).not.toHaveBeenCalled();
 		expect(
 			within(screen.getByRole("navigation", { name: "Pinned shortcuts" }))
-				.getByRole("link", { name: label })
+				.getByRole("link", { name: sidebarLabel })
 				.getAttribute("href")
 		).toBe(path);
 		view.unmount();
-		routerLocation.pathname = path;
+		const url = new URL(path, "http://localhost");
+		routerLocation = { pathname: url.pathname, searchStr: url.search };
 		appShellSection = section;
 		renderRail();
 		expect(
-			screen.getByRole("link", { name: label }).getAttribute("aria-current")
+			screen
+				.getByRole("link", { name: sidebarLabel })
+				.getAttribute("aria-current")
 		).toBe("page");
 		expect(
-			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
+			screen.getByRole("link", { name: parent }).getAttribute("aria-current")
 		).toBeNull();
-		fireEvent.keyDown(screen.getByRole("link", { name: "Team" }), {
+		fireEvent.keyDown(screen.getByRole("link", { name: parent }), {
 			key: "ArrowDown",
 		});
 		fireEvent.click(
@@ -1772,8 +1783,24 @@ describe("AppOuterRail", () => {
 			screen.queryByRole("navigation", { name: "Pinned shortcuts" })
 		).toBeNull();
 		expect(
-			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
+			screen.getByRole("link", { name: parent }).getAttribute("aria-current")
 		).toBe("page");
+	});
+	it("hides Discover in personal workspaces without forgetting its saved pin", async () => {
+		window.localStorage.setItem(
+			"openmeld.appearance.sidebar-shortcuts",
+			"discover"
+		);
+		appOrganization.currentOrganization.isPersonal = true;
+		renderRail();
+		fireEvent.keyDown(screen.getByRole("link", { name: "Spaces" }), {
+			key: "ArrowDown",
+		});
+		await screen.findByRole("link", { name: "Direct messages" });
+		expect(screen.queryByRole("link", { name: "Discover" })).toBeNull();
+		expect(
+			window.localStorage.getItem("openmeld.appearance.sidebar-shortcuts")
+		).toBe("discover");
 	});
 
 	it("keeps Computers out of the main app rail", () => {

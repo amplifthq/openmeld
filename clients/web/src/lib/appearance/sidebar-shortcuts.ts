@@ -1,6 +1,8 @@
 import { useBrowserPreference } from "../use-browser-preference";
 
 export const SIDEBAR_SHORTCUT_IDS = [
+	"messages",
+	"discover",
 	"agents",
 	"plugins",
 	"skills",

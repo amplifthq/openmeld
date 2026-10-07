@@ -123,10 +123,14 @@ export function AppRailNavigationGroup(input: {
 	position: number;
 	standaloneSelection?: boolean;
 	pinnedDestinations?: readonly AppRailDestination[];
-	renderTeamTrigger?: (trigger: ReactElement) => ReactElement;
+	renderSectionTrigger?: (
+		section: "spaces" | "team",
+		trigger: ReactElement
+	) => ReactElement;
 	tier: SidebarMode;
 }) {
 	const { presentation } = useAppNavigationPresentation();
+	const renderSectionTrigger = input.renderSectionTrigger;
 	const renderDestination = (destination: AppRailDestination) => (
 		<AppRailLink
 			active={
@@ -140,7 +144,14 @@ export function AppRailNavigationGroup(input: {
 			destination={destination}
 			key={destination.id}
 			renderTrigger={
-				destination.id === "people" ? input.renderTeamTrigger : undefined
+				renderSectionTrigger &&
+				(destination.id === "people" || destination.id === "directMessages")
+					? (trigger) =>
+							renderSectionTrigger(
+								destination.id === "people" ? "team" : "spaces",
+								trigger
+							)
+					: undefined
 			}
 			tier={input.tier}
 		/>

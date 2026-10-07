@@ -43,9 +43,10 @@ import {
 	buildAppRailGroups,
 } from "./app-rail-navigation";
 import {
-	AppTeamShortcutsPopover,
+	AppRailShortcutsPopover,
 	buildPinnedRailDestinations,
 	resolveActiveSidebarShortcut,
+	visibleSidebarShortcuts,
 } from "./app-rail-shortcuts";
 import { AppSidebarFooter } from "./app-sidebar-footer";
 import { AppSidebarHeader } from "./app-sidebar-header";
@@ -65,13 +66,18 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	});
 	const { currentOrganization } = useAppOrganization();
 	const shortcuts = useSidebarShortcuts();
-	const pathname = useLocation({ select: (location) => location.pathname });
+	const location = useLocation({ select: (location) => location });
+	const visiblePins = visibleSidebarShortcuts(
+		shortcuts.pinned,
+		currentOrganization.isPersonal === true
+	);
 	const activeShortcut = resolveActiveSidebarShortcut(
-		pathname,
-		currentOrganization.slug
+		location.pathname,
+		currentOrganization.slug,
+		location.searchStr
 	);
 	const pinnedActive =
-		activeShortcut && shortcuts.pinned.includes(activeShortcut)
+		activeShortcut && visiblePins.includes(activeShortcut)
 			? activeShortcut
 			: undefined;
 	const inboxAttention = useInboxAttention(currentOrganization.id);
@@ -149,12 +155,14 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 							group={group}
 							key={group.id}
 							pinnedDestinations={buildPinnedRailDestinations(
-								shortcuts.pinned,
+								visiblePins,
 								currentOrganization.slug
 							)}
 							position={index}
-							renderTeamTrigger={(trigger) => (
-								<AppTeamShortcutsPopover
+							renderSectionTrigger={(section, trigger) => (
+								<AppRailShortcutsPopover
+									group={section}
+									isPersonal={currentOrganization.isPersonal === true}
 									orgSlug={currentOrganization.slug}
 									pinned={shortcuts.pinned}
 									toggle={shortcuts.toggle}
