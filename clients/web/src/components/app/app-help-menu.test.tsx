@@ -1,5 +1,4 @@
 import { changelogIndexSchema } from "@openmeld/schemas";
-import type { ChangelogQueryResponse } from "@openmeld/schemas/types";
 import {
 	DropdownMenu,
 	DropdownMenuTrigger,
@@ -11,9 +10,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import publishedIndex from "../../../../../changelog/index.json";
 import { AppHelpMenu } from "./app-help-menu";
 
-const requestJson = vi.hoisted(() => vi.fn());
-vi.mock("#/lib/openmeld-api/client", () => ({
-	createUnscopedWebOpenMeldApiFoundation: () => ({ requestJson }),
+const readLatestChangelogMock = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/changelog/read-latest-changelog", () => ({
+	readLatestChangelog: readLatestChangelogMock,
 }));
 afterEach(cleanup);
 
@@ -21,19 +20,7 @@ it("opens the latest three published updates and preserves official external lin
 	const entries = changelogIndexSchema
 		.parse(publishedIndex)
 		.entries.slice(0, 3);
-	requestJson.mockResolvedValueOnce({
-		entries,
-		hasMore: true,
-		latestPublishedAt: entries[0].publishedAt,
-		schemaVersion: 1,
-		source: {
-			kind: "github",
-			repository: "amplifthq/openmeld",
-			path: "changelog/index.json",
-			ref: "main",
-		},
-		totalMatching: publishedIndex.entries.length,
-	} satisfies ChangelogQueryResponse);
+	readLatestChangelogMock.mockResolvedValueOnce(entries);
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
@@ -62,9 +49,7 @@ it("opens the latest three published updates and preserves official external lin
 		);
 	}
 	expect(document.querySelectorAll("time")).toHaveLength(3);
-	expect(requestJson).toHaveBeenCalledWith(
-		expect.objectContaining({ url: "/v1/changelog?limit=3" })
-	);
+	expect(readLatestChangelogMock).toHaveBeenCalledTimes(1);
 	for (const [name, href] of [
 		["Full changelog", "https://openmeld.ai/changelog"],
 		["OpenMeld website", "https://openmeld.ai"],

@@ -1,4 +1,3 @@
-import { changelogQueryResponseSchema } from "@openmeld/schemas";
 import {
 	DropdownMenuItem,
 	DropdownMenuSeparator,
@@ -18,7 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { readLatestChangelog } from "#/lib/changelog/read-latest-changelog";
 
 const website = "https://openmeld.ai";
 const changelogUrl = `${website}/changelog`;
@@ -74,17 +73,12 @@ function TimelineDot({ last = false }: { last?: boolean }) {
 export function AppHelpMenu({ index }: { index: number }) {
 	const [open, setOpen] = useState(false);
 	const changelog = useQuery({
-		queryKey: ["changelog", "latest", 3],
+		queryKey: ["changelog", "production", "latest", 3],
 		enabled: open,
 		staleTime: 300_000,
-		queryFn: () =>
-			createUnscopedWebOpenMeldApiFoundation().requestJson({
-				url: "/v1/changelog?limit=3",
-				method: "GET",
-				operation: "changelog.read",
-				schema: changelogQueryResponseSchema,
-				invalidMessage: "Invalid changelog response.",
-			}),
+		gcTime: 1_800_000,
+		retry: false,
+		queryFn: () => readLatestChangelog(),
 	});
 	return (
 		<DropdownMenuSub onOpenChange={setOpen} open={open}>
@@ -100,7 +94,7 @@ export function AppHelpMenu({ index }: { index: number }) {
 					What's new
 				</div>
 				<FluidDropdownMenuGroup>
-					{changelog.data?.entries.map((entry, entryIndex) => (
+					{changelog.data?.map((entry, entryIndex) => (
 						<HelpLink
 							href={`${changelogUrl}#update-${entry.id}`}
 							index={entryIndex}

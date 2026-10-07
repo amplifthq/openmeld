@@ -706,6 +706,15 @@ build-time copy, stores a second archive, or manufactures publication state. A
 source failure renders an explicit unavailable state with one retry action and
 no stale or model-authored fallback.
 
+The account Help submenu reads the latest three updates from the production
+anonymous Changelog endpoint in every environment, including local development.
+Its Web server function uses the shared API client and schema without forwarding
+account cookies or credentials, then returns only entry IDs, titles, and dates.
+The browser loads on demand, shares a five-minute query cache, and retains it for
+30 minutes after the menu unmounts. The upstream read has an eight-second deadline
+and the query does not retry automatically. Existing cached entries remain visible
+during refresh; a failed first load shows an error and the official Changelog link.
+
 ### Workspace switcher
 
 The top of the rail contains the only workspace-switching surface. Its order
