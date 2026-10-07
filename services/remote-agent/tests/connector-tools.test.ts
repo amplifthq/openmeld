@@ -533,6 +533,7 @@ describe("Remote Agent generic App tools", () => {
         {
           connected: null,
           connectionStored: true,
+          descriptionUnavailable: false,
           health: { state: "unknown" },
           nativeHttp: null,
           nextAction: expect.any(String),
