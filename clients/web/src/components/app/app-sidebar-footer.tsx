@@ -304,30 +304,15 @@ function AccountFooterAvatar(input: {
 		return (
 			<DitherProfileAvatar
 				{...input.humanProfileAvatar}
-				className={
-					input.iconOnly
-						? "rounded-md after:rounded-md [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-image]]:rounded-md"
-						: undefined
-				}
 				profileKind="human"
 				size={input.iconOnly ? 32 : 20}
 			/>
 		);
 	}
 	return (
-		<Avatar
-			className={
-				input.iconOnly ? "size-8 rounded-md after:rounded-md" : "size-5"
-			}
-		>
-			<AvatarImage
-				alt=""
-				className={input.iconOnly ? "rounded-md" : undefined}
-				src={input.account.image ?? undefined}
-			/>
-			<AvatarFallback className={input.iconOnly ? "rounded-md" : undefined}>
-				{input.name.slice(0, 1)}
-			</AvatarFallback>
+		<Avatar className={input.iconOnly ? "size-8" : "size-5"}>
+			<AvatarImage alt="" src={input.account.image ?? undefined} />
+			<AvatarFallback>{input.name.slice(0, 1)}</AvatarFallback>
 		</Avatar>
 	);
 }
