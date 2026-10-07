@@ -1,8 +1,10 @@
 import * as z from "zod/v4";
 import { openMeldRequestContextSchema } from "./profile-identity";
+import { runtimeCoordinatorExecutionTokenEchoSchema } from "./runtime-coordinator-execution-token";
 import { daemonServiceLaneSchema } from "./service-contract";
 
 export const SESSION_HISTORY_RUNTIME_CAPABILITY = "session-history-v1";
+export const SESSION_HISTORY_CAPABILITY_HEADER = "x-openmeld-session-history";
 const id = z.string().trim().min(1).max(512);
 export const sessionHistoryConnectionSchema = z.strictObject({
   projectId: id,
@@ -37,12 +39,13 @@ export const sessionHistoryOperationSchema = z.discriminatedUnion("operation", [
 ]);
 // Core constructs this from authenticated execution evidence, never message text.
 export const sessionHistoryRequesterSchema = z.strictObject({
+  requestRootId: id,
   ownerUserId: id,
   requesterUserId: id,
   readerProfileId: id.nullable(),
   delegatorProfileId: id.nullable(),
   spaceId: id.nullable(),
-  audience: z.enum(["owner_private", "space"]),
+  audience: z.enum(["owner_private", "space", "externally_shared"]),
 });
 export const sessionHistoryAuditSchema = z.strictObject({
   requestId: id,
@@ -53,6 +56,22 @@ export const sessionHistoryAuditSchema = z.strictObject({
   offset: z.number().int().nonnegative(),
   count: z.number().int().nonnegative(),
   outcome: z.enum(["allowed", "denied", "failed"]),
+});
+export const sessionHistoryPageSchema = z.strictObject({
+  kind: z.literal("session"),
+  sessionId: id,
+  requester: sessionHistoryRequesterSchema,
+  messages: z
+    .array(
+      z.strictObject({
+        role: z.enum(["user", "assistant"]),
+        text: z.string().max(8000),
+        truncated: z.boolean(),
+      })
+    )
+    .max(50),
+  nextOffset: z.number().int().nonnegative().nullable(),
+  omittedNonMessageItems: z.boolean(),
 });
 export const sessionHistoryResultSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -66,22 +85,7 @@ export const sessionHistoryResultSchema = z.discriminatedUnion("kind", [
     kind: z.literal("audit"),
     entries: z.array(sessionHistoryAuditSchema).max(200),
   }),
-  z.strictObject({
-    kind: z.literal("session"),
-    sessionId: id,
-    requester: sessionHistoryRequesterSchema,
-    messages: z
-      .array(
-        z.strictObject({
-          role: z.enum(["user", "assistant"]),
-          text: z.string().max(8000),
-          truncated: z.boolean(),
-        })
-      )
-      .max(50),
-    nextOffset: z.number().int().nonnegative().nullable(),
-    omittedNonMessageItems: z.boolean(),
-  }),
+  sessionHistoryPageSchema,
   z.strictObject({
     kind: z.literal("error"),
     code: z.enum(["denied", "changed", "unavailable", "unsupported", "failed"]),
@@ -89,6 +93,12 @@ export const sessionHistoryResultSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export const sessionHistoryRpcInputSchema = z.strictObject({
+  execution: z
+    .strictObject({
+      dispatchId: id,
+      executionTokenEcho: runtimeCoordinatorExecutionTokenEchoSchema,
+    })
+    .optional(),
   context: openMeldRequestContextSchema,
   organizationId: id,
   deviceId: id,
@@ -111,7 +121,7 @@ export const sessionHistoryRequestFrameSchema = z.strictObject({
 });
 export const sessionHistoryResultFrameSchema = z.strictObject({
   v: z.literal(1),
-  code: z.literal("daemon.session_history.result"),
+  code: z.literal("daemon.session_history.request_result"),
   payload: z.strictObject({
     requestId: id,
     result: sessionHistoryResultSchema,
@@ -124,4 +134,9 @@ export const runtimeTransportSessionHistoryRequestSchema = z.strictObject({
   lane: daemonServiceLaneSchema,
   requestId: id,
   request: sessionHistoryServiceRequestSchema,
+});
+export const sessionHistoryAgentRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  computerId: id,
+  request: sessionHistoryReadSchema,
 });

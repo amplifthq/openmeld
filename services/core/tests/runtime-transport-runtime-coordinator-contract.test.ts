@@ -4996,6 +4996,118 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toHaveLength(deliveryFrameCount);
   });
 
+  it("round-trips session history through its exact capable socket without caching", async () => {
+    const { hub, sentFrames, socket, state } = await createHarness();
+    configureCompatibleRoute({ socket, state });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live session.");
+    }
+    session.capabilities = { ...session.capabilities, sessionHistory: true };
+    state.sessionIdBySocket.set(socket, "daemon-session-1");
+    Object.defineProperty(hub, "currentDeviceOperationWaiters", {
+      value: new Map(),
+    });
+    const requester = {
+      requestRootId: "human-root",
+      ownerUserId: "owner-1",
+      requesterUserId: "owner-1",
+      readerProfileId: null,
+      delegatorProfileId: null,
+      spaceId: null,
+      audience: "owner_private",
+    };
+    const responsePromise = fetchRuntimeTransportJson(hub, "/session-history", {
+      v: 1,
+      deviceId: "device-1",
+      lane: "dev-local",
+      ownerUserId: "owner-1",
+      requestId: "history-read",
+      request: {
+        organizationId: "org",
+        expectedDeviceId: "device-1",
+        requester,
+        request: {
+          operation: "read_session",
+          projectId: "project",
+          sessionId: "session",
+          offset: 0,
+          limit: 20,
+        },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(sentFrames).toContainEqual(
+        expect.objectContaining({ code: "daemon.session_history.request" })
+      )
+    );
+    const result = {
+      kind: "session",
+      sessionId: "session",
+      requester,
+      messages: [
+        { role: "user", text: "synthetic private message", truncated: false },
+      ],
+      nextOffset: null,
+      omittedNonMessageItems: false,
+    };
+    RuntimeTransportHub.prototype.webSocketMessage.call(
+      hub,
+      socket,
+      JSON.stringify({
+        v: 1,
+        code: "daemon.session_history.request_result",
+        payload: { requestId: "history-read", result },
+      })
+    );
+    const response = await responsePromise;
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual(result);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("rejects unsupported or mismatched session history without sending (capable=%s)", async (capable) => {
+    const { hub, sentFrames, socket, state } = await createHarness();
+    configureCompatibleRoute({ socket, state });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live session.");
+    }
+    if (capable) {
+      session.capabilities = { ...session.capabilities, sessionHistory: true };
+    }
+    const response = await fetchRuntimeTransportJson(hub, "/session-history", {
+      v: 1,
+      deviceId: "device-1",
+      lane: "dev-local",
+      ownerUserId: "owner-1",
+      requestId: "history-denied",
+      request: {
+        organizationId: "org",
+        expectedDeviceId: capable ? "other-device" : "device-1",
+        requester: {
+          requestRootId: "root",
+          ownerUserId: "owner-1",
+          requesterUserId: "owner-1",
+          readerProfileId: null,
+          delegatorProfileId: null,
+          spaceId: null,
+          audience: "owner_private",
+        },
+        request: { operation: "read_settings" },
+      },
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      kind: "error",
+      code: capable ? "denied" : "unsupported",
+    });
+    expect(sentFrames).not.toContainEqual(
+      expect.objectContaining({ code: "daemon.session_history.request" })
+    );
+  });
+
   it("round-trips Computer file access only through a capable exact session", async () => {
     const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });

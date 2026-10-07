@@ -550,7 +550,7 @@ The original D1 digest rollout used migrations 0029–0032 and a one-time
 active-duration backfill. Those schema prerequisites are included in the native
 PostgreSQL baseline; do not replay the old migration/backfill sequence. New
 changes use the [PostgreSQL workflow](../engineering/postgresql.md).
-# On-demand session history
+## On-demand session history
 
 Session history is an optional Computer capability, separate from Activity
 metadata and File access. It is disabled by default. The Computer owner selects
@@ -573,6 +573,14 @@ destination; private source messages are not automatically shared with a Space.
 
 The Computer page holds Session history access and owner-only Access history
 beside File access. Service stores settings and bounded access metadata locally.
-No transcript body belongs in that store, server databases, telemetry, or browser
-persistent caches. This does not promise that an authorized downstream agent or
-its model provider will not retain a tool result or a published answer.
+The history service does not persist transcript bodies, index them in cloud
+storage, or put them in telemetry or browser persistent caches. An authorized
+downstream agent conversation or model provider can retain a tool result or a
+published answer; on-demand access does not change those retention rules.
+
+Reads return at most 50 messages, with at most 8,000 characters per message.
+The native response is bounded to 8 MiB; larger sessions fail explicitly. Access
+history retains the latest 200 requests locally, including the verified human
+root, reader, immediate delegator, destination, range, and outcome. Revocation
+stops subsequent reads and in-flight reads whose authorization changes before
+release. It cannot retract results already delivered.

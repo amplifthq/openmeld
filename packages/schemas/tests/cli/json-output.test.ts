@@ -826,6 +826,7 @@ describe("cli --json output envelope contract", () => {
       "projects.connections.remove",
       "activity.read",
       "activity.sessions",
+      "activity.history",
       "activity.install",
       "activity.uninstall",
       "activity.status",

@@ -23,3 +23,6 @@ export type SessionHistoryServiceRequest = z.infer<
 export type SessionHistoryRequestFrame = z.infer<
   Schemas["sessionHistoryRequestFrameSchema"]
 >;
+export type SessionHistoryAgentRpcInput = z.infer<
+  Schemas["sessionHistoryAgentRpcInputSchema"]
+>;

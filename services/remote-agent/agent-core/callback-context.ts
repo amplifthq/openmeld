@@ -592,6 +592,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadAgentActivityOverview?(
     input: CenterAgentReadAgentActivityToolRpcInput
   ): Promise<AgentActivityOverviewResponse>;
+  agentSessionHistory?(
+    input: import("@openmeld/schemas/types").SessionHistoryAgentRpcInput
+  ): Promise<import("@openmeld/schemas/types").SessionHistoryResult>;
   centerAgentSearchMemory?(
     input: CenterAgentSearchMemoryRpcInput
   ): Promise<CenterAgentSearchMemoryResponse>;

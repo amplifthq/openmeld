@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T17:22:36.371Z",
+  "updatedAt": "2026-10-07T08:44:37.518Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.246",
+      "packageVersion": "0.3.247",
       "updatePolicy": "available",
-      "reason": "Existing setup, Wake, Space actions and diagnostics remain compatible; new Computer callers follow cloud receiver deployment."
+      "reason": "Additive activity history command and JSON envelope; existing commands remain compatible."
     },
     "service": {
-      "bundleHash": "e9b936e089defd0d463ea1337b8f4270e3a10f44fd3f4b07bafb5f5c6a3937ae",
-      "portableBundleHash": "6a75821360a06ff971b26acd98efdb0395cf1495c5f6ea7adbeeded2cb798402",
-      "bundleVersion": "0.3.246",
+      "bundleHash": "60801d8f6444cf0db9aa7146d1454541265726e66a5b8fb98198a813259d789b",
+      "portableBundleHash": "bd9dba1e284faa43acf96bd93f039b6c6cd1aeb9cdc7403414960faf4a4b6e08",
+      "bundleVersion": "0.3.247",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Existing accepted work and Service lifecycle contracts remain compatible; new local controller capabilities are optional."
+      "reason": "Optional session-history-v1 handshake; old Services fail closed for new reads and retain existing workflows."
     },
     "skills": {
       "bundleHash": "bb72e332e8322d3035c65cd1214aca7e1c611a00114d7b955764c419a8731aea",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Context and retained-result tools add optional bounded reads without changing existing actions or delivery authority."
+      "reason": "Bundled managed skills retain existing Wake and Space action contracts; no mandatory migration."
     }
   }
 }
