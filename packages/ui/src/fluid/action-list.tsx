@@ -107,6 +107,7 @@ export function FluidActionList({
           if (containerRef.current?.contains(event.relatedTarget as Node)) {
             return;
           }
+          pointerFocus.current = false;
           setFocusedIndex(null);
           setActiveIndex(null);
         }}

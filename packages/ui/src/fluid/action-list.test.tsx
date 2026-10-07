@@ -38,6 +38,12 @@ describe("FluidActionList", () => {
         )
       ).toBeNull()
     );
+    // Tabbing back into a mounted list starts outside its capture handlers.
+    fireEvent.blur(item, { relatedTarget: document.body });
+    fireEvent.focus(item);
+    expect(
+      container.querySelector('[data-slot="fluid-action-list-focus-indicator"]')
+    ).not.toBeNull();
   });
   it("keeps nested menu focus from highlighting an unrelated outer action", () => {
     render(
