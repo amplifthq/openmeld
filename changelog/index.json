@@ -2,6 +2,66 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "personal-agent-empty-state",
+      "title": "A clearer starting point for your first Agent",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1557",
+        "pr:1568",
+        "worker-version:74100b9e-a3cd-4ddb-81e1-65e823b44fc1"
+      ],
+      "body": "Your empty Agents section now shows a full-width card with a centered Create\nAgent button. Other members' empty sections keep a simple status message."
+    },
+    {
+      "id": "compact-sidebar-account-menu",
+      "title": "A simpler, customizable sidebar",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "settings"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1568",
+        "commit:bc90c55ef435b3dcbe3e8b2d5d455a11df46680a",
+        "worker-version:74100b9e-a3cd-4ddb-81e1-65e823b44fc1"
+      ],
+      "body": "The sidebar keeps its main navigation and a smaller account avatar. Open the\naccount menu for Search, Settings, and a compact Light, Dark, or System theme\nselector. Search shows the Command K shortcut with keycaps that follow your\ncorner style. The same theme selector is\navailable in Settings > Appearance, and changing themes keeps the menu open.\n\nComputer, Center Agent, and Inbox toolbar shortcuts now default to off. Enable\nthem in Settings > Appearance when you need them. Saved choices stay unchanged.\n\nThe Spaces and Team sidebar search fields stay aligned when switching sections,\nwithout an entrance animation.\n\nHover over Team to jump to Agents, Plugins, Skills, Files, or Routines.\nHover over Spaces for Direct messages and Discover. Pin Direct messages to add\na compact DMs shortcut to your sidebar.\nPin the ones you use often to the sidebar, or unpin them from the same menu.\nYour pins are saved in this browser. Sidebar icons now show their names as soon\nas you hover over them.\nThe hover highlight moves continuously between primary and pinned entries,\nincluding while a navigation popover opens or closes.\n\nThe account avatar and its hover background stay circular in every corner style.\nOpen Help from the account menu to see the three latest published updates,\nwith links to the full changelog, OpenMeld website, and documentation.\nHelp reads the same official updates in local development and production and\nreuses recent results when reopened.\nMenu focus outlines follow keyboard navigation and no longer appear from mouse\nhover after reopening a menu."
+    },
+    {
+      "id": "current-development-and-release-guidance",
+      "title": "Align development and release guidance with PostgreSQL",
+      "kind": "fixed",
+      "areas": [
+        "development",
+        "release"
+      ],
+      "audiences": [
+        "contributors",
+        "operators"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1558",
+        "commit:bc90c55ef435b3dcbe3e8b2d5d455a11df46680a"
+      ],
+      "body": "Default development commands start the isolated PostgreSQL product stack.\nDesktop pilot builds use the shared renderer memory budget and resource checks.\nHosted releases reject unsupported PostgreSQL scopes before preparing artifacts.\nRelease status preserves known deployment history when impact analysis or\nreceipt verification remains unresolved."
+    },
+    {
       "id": "toolbar-inbox-grouped-feed",
       "title": "Browse grouped updates from the Inbox toolbar",
       "kind": "improved",
@@ -20,6 +80,26 @@
         "worker-version:9ad65d51-9690-4d55-a2c1-95cb50d1f4d5"
       ],
       "body": "The Inbox toolbar now shares the full Inbox's conversation and system-update\ngroups. Scroll to load older items, expand a group, or mark it as read without\nleaving your work. Pending requests stay visible after reading, and the full\nInbox remains one click away. Loading failures offer a retry without discarding\nupdates already on screen."
+    },
+    {
+      "id": "spaces-card-view",
+      "title": "Browse Spaces as cards",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1562",
+        "pr:1568",
+        "worker-version:74100b9e-a3cd-4ddb-81e1-65e823b44fc1"
+      ],
+      "body": "Spaces and Direct messages open in a card view inside your existing groups.\nSwitch to the table whenever you need a denser view. Both views keep your\nsorting, filters, unread updates, and Space actions.\n\nCards show up to eight member slots and adapt to narrower widths. Unread counts\nstay beside the Space name, and the latest message appears as a clean text\npreview without Markdown formatting marks.\n\nYour browser remembers the Space view you choose and each person's grouped or\nexpanded Agent view.\n\nWithout a saved choice, the sidebar starts collapsed on Spaces and Team overviews\nand opens when you enter a conversation, person, or Agent detail page.\nYour choice to open or close it stays in place across pages and reloads.\n\nUse Show message previews in the sidebar settings to show or hide message\npreviews across the sidebar and cards. Previews are off by default, and your\nbrowser remembers the choice across pages and reloads.\nRows without previews keep their titles and actions centered, and title hints\nopen beside the full row without covering its text."
     },
     {
       "id": "consistent-usage-brand-colors",
@@ -62,6 +142,26 @@
         "dispatch:8e50474d-da2c-4d3d-9a60-15e57e952212"
       ],
       "body": "Local agents can use OpenCode 2 or the official Antigravity ACP installation.\nBoth support continued conversations, native tools, permission requests, and\nquestions through the existing OpenMeld controls. Existing OpenCode 1 and\nAntigravity CLI installations remain supported.\n\nAntigravity status checks do not start sign-in. A connected provider account is\nstill required to run its models. Automatic reply repair remains unavailable\nfor these two new transports until their tool restrictions can be verified."
+    },
+    {
+      "id": "desktop-0-1-24-unified-preview",
+      "title": "Desktop 0.1.24 Preview",
+      "kind": "improved",
+      "areas": [
+        "desktop"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1568",
+        "commit:bc90c55ef435b3dcbe3e8b2d5d455a11df46680a",
+        "desktop-candidate:383cf7a1c0108015a095bfb2154da79d19b17973705909b10ff18569b226427d",
+        "workflow:37603249378"
+      ],
+      "body": "Desktop 0.1.24 brings the updated sidebar, Space cards, Plugin connection status,\nand Computer session-history controls to macOS and Windows x64 Preview.\nIt also keeps useful details when an update fails.\n\nThe macOS build is signed and notarized. Windows remains an unsigned internal\nPreview with its own download channel."
     },
     {
       "id": "center-agent-settings-loading",
@@ -128,6 +228,67 @@
       "body": "Agent progress and available Stop controls stay visible when you jump to a\nmessage or open its Thread. Active requests use one Working status instead of\nswitching between similar labels. Known live work remains visible while Thread\nhistory loads, and messages load independently of progress updates."
     },
     {
+      "id": "retain-cloud-computer-command-results",
+      "title": "Keep cloud command results available during longer tasks",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "computer"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1557",
+        "pr:1568",
+        "worker-version:3c584f02-1241-45b1-84b7-b27eed8666b4"
+      ],
+      "body": "Cloud Computers collect and save command results while an agent works on other\nsteps. A completed result remains available after the runtime removes its\ntemporary command log. File synchronization must be confirmed before a command\nreports completion.\n\nAn agent can recover from a reported command loss without the same error\ndiscarding its final response. Interruption notices use simpler instructions and\nno longer direct you to an unspecified Diagnostics screen."
+    },
+    {
+      "id": "stable-space-switching",
+      "title": "Keep conversations stable when switching Spaces",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1560",
+        "pr:1568",
+        "worker-version:74100b9e-a3cd-4ddb-81e1-65e823b44fc1"
+      ],
+      "body": "Returning to a Space keeps received Agent progress in view. An open Thread\nreserves its place while messages load, and visible work no longer briefly\nappears again beside the composer. Received reply text stays readable without\nreplaying a blur effect when you return.\n\nPending actions use a yellow status dot instead of red. Responding to an Agent\napproval or question immediately updates the Space's attention indicator."
+    },
+    {
+      "id": "desktop-update-failure-details",
+      "title": "Keep Desktop update failure details",
+      "kind": "improved",
+      "areas": [
+        "desktop"
+      ],
+      "audiences": [
+        "users",
+        "support"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1558",
+        "pr:1568",
+        "desktop-candidate:383cf7a1c0108015a095bfb2154da79d19b17973705909b10ff18569b226427d",
+        "workflow:37603249378"
+      ],
+      "body": "Desktop keeps a bounded local record of the latest update failure. Check for\nUpdates can reveal this record after a restart or a successful retry. Records\ninclude the update stage, versions, native error code, and HTTP status when\navailable. They exclude raw URLs, credentials, paths, and response bodies."
+    },
+    {
       "id": "hosted-agent-context-recovery",
       "title": "Keep hosted agents on track after context compaction",
       "kind": "improved",
@@ -150,6 +311,25 @@
         "commit:9e377afcb9686978faeb332493a8c03d76646f5a"
       ],
       "body": "Center Agents and hosted Remote Agents can recover their most recently selected\ntools and available retained results after a conversation is shortened. Context\ncompaction reserves room for new work and uses one summary request per working\ncheckpoint. Computer tasks keep their existing identity for progress checks,\nresult retrieval, and cancellation."
+    },
+    {
+      "id": "preserve-staged-service-release-projection",
+      "title": "Keep staged Service releases on the published CLI version",
+      "kind": "fixed",
+      "areas": [
+        "release"
+      ],
+      "audiences": [
+        "operators"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1569",
+        "commit:035a8ab5ff529464aa22550ded1775160c4e1d07",
+        "worker-version:5b8476d9-feaf-4b8c-88a5-d5d8c5b7a30d"
+      ],
+      "body": "Combined Remote Agent and Local Service releases keep Core's version declaration\non the published CLI until the new CLI artifacts are available. Operators can\ncomplete the PostgreSQL cloud stage locally and then use GitHub's signed CLI\npublication workflow."
     },
     {
       "id": "stable-space-composer",
@@ -235,6 +415,46 @@
         "dispatch:8e50474d-da2c-4d3d-9a60-15e57e952212"
       ],
       "body": "Local Agents can select Ling 3.1 Flash Free through OpenCode or Space Bunny\nthrough OpenCode Go, with their supported reasoning efforts. The Go route\nrequires an active OpenCode Go subscription.\n\nThe former Go Space Bunny Free route is unavailable. Existing selections stay\nunchanged so you can choose another model. The separate OpenCode Space Bunny\nFree route is still listed."
+    },
+    {
+      "id": "space-inbox-read-efficiency",
+      "title": "More reliable Space return visits and lighter Inbox reads",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "inbox"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1561",
+        "pr:1568",
+        "worker-version:74100b9e-a3cd-4ddb-81e1-65e823b44fc1",
+        "worker-version:5b8476d9-feaf-4b8c-88a5-d5d8c5b7a30d"
+      ],
+      "body": "Spaces keep their recovered message position when you leave and return, avoiding\nrepeated catch-up failures. Opening a Space combines its access and membership\nreads. Inbox reuses current Agent ownership checks within each feed request,\nreducing repeated database work while keeping permissions, counts, and bulk\nactions consistent."
+    },
+    {
+      "id": "files-routines-local-skeletons",
+      "title": "Quieter loading in Files and Routines",
+      "kind": "improved",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1568",
+        "commit:bc90c55ef435b3dcbe3e8b2d5d455a11df46680a",
+        "worker-version:74100b9e-a3cd-4ddb-81e1-65e823b44fc1"
+      ],
+      "body": "Files and Routines show simple skeletons where content is loading, keeping\nnavigation and available toolbar actions usable. Files no longer switches\nbetween repeated loading messages, and background refreshes keep existing\nfiles visible."
     },
     {
       "id": "quiet-space-live-updates",
