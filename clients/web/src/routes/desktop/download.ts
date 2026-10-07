@@ -130,28 +130,9 @@ async function downloadDefault(
 
 	if (!releaseManifest) {
 		if (platform === "windows-x64") {
-			const preview = await readWindowsInternalPreview(bucket);
-			if (preview) {
-				let body: ReadableStream | null = null;
-				const object = includeBody
-					? await bucket.get(preview.objectKey).then((loaded) => {
-							body = loaded?.body ?? null;
-							return loaded;
-						})
-					: await bucket.head(preview.objectKey);
-				if (!object || object.size !== preview.sizeBytes) {
-					return new Response("Windows preview artifact is unavailable.", {
-						status: 503,
-						headers: { "cache-control": "no-store" },
-					});
-				}
-				const headers = buildDesktopDownloadHeaders({
-					artifactName: preview.artifactName,
-					etag: object.httpEtag,
-					sizeBytes: object.size,
-				});
-				headers.set("cache-control", "no-store");
-				return new Response(body, { headers });
+			const previewResponse = await downloadWindowsPreview(bucket, includeBody);
+			if (previewResponse) {
+				return previewResponse;
 			}
 		}
 		return new Response("OpenMeld Desktop preview is not uploaded yet.", {
@@ -196,6 +177,39 @@ async function downloadDefault(
 	}
 	const headers = buildDesktopDownloadHeaders({
 		artifactName: releaseManifest.artifactName,
+		etag: object.httpEtag,
+		sizeBytes: object.size,
+	});
+	headers.set("cache-control", "no-store");
+	return new Response(body, { headers });
+}
+
+async function downloadWindowsPreview(bucket: R2Bucket, includeBody: boolean) {
+	const preview = await readWindowsInternalPreview(bucket);
+	if (!preview) {
+		return null;
+	}
+	let body: ReadableStream | null = null;
+	const object = includeBody
+		? await bucket.get(preview.objectKey).then((loaded) => {
+				body = loaded?.body ?? null;
+				return loaded;
+			})
+		: await bucket.head(preview.objectKey);
+	if (!object || object.size !== preview.sizeBytes) {
+		return new Response("Windows preview artifact is unavailable.", {
+			status: 503,
+			headers: { "cache-control": "no-store" },
+		});
+	}
+	if (cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN) {
+		return desktopDownloadRedirect(
+			cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN,
+			preview.objectKey
+		);
+	}
+	const headers = buildDesktopDownloadHeaders({
+		artifactName: preview.artifactName,
 		etag: object.httpEtag,
 		sizeBytes: object.size,
 	});
