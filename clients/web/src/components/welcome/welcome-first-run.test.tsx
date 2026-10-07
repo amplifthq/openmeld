@@ -24,6 +24,21 @@ import { SpaceCreationSidebar } from "#/components/spaces/space-creation-sidebar
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { WelcomeFirstRun } from "./welcome-first-run";
 
+const tutorial = vi.hoisted(() => ({
+	record: null as import("@openmeld/schemas").FirstWorkRecord | null,
+	create: vi.fn(),
+}));
+
+vi.mock(
+	"#/components/onboarding/walkthrough/walkthrough-context",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("#/components/onboarding/walkthrough/walkthrough-context")
+		>()),
+		useWalkthrough: () => (tutorial.record ? tutorial : null),
+	})
+);
+
 const { listAccountSpaceItemsMock, navigateMock, createSpaceMock, routerMock } =
 	vi.hoisted(() => ({
 		createSpaceMock: vi.fn(),
@@ -174,11 +189,59 @@ beforeAll(() => {
 
 describe("WelcomeFirstRun", () => {
 	beforeEach(() => {
+		tutorial.record = null;
+		tutorial.create.mockReset();
 		focusManager.setFocused(false);
 		listAccountSpaceItemsMock.mockReset();
 		createSpaceMock.mockReset();
 		navigateMock.mockClear();
 		routerMock.state.location.pathname = "/o/acme/new-space";
+	});
+
+	it("creates the tutorial's reserved Space instead of an unrelated optimistic Space", async () => {
+		const spaceId = "a".repeat(64);
+		tutorial.record = {
+			organizationId: "org-acme",
+			profileId: "human-1",
+			spaceId,
+			runId: "c1d4aa28-5eee-4a99-9622-7b4e604ba0bb",
+			revision: 0,
+			iteration: 1,
+			step: "create-space",
+			paused: false,
+		};
+		tutorial.create.mockResolvedValue(spaceId);
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [],
+		});
+		const client = new QueryClient({
+			defaultOptions: {
+				queries: { retry: false },
+				mutations: { retry: false },
+			},
+		});
+		render(
+			<QueryClientProvider client={client}>
+				<WelcomeFirstRun />
+			</QueryClientProvider>
+		);
+		fireEvent.click(await screen.findByRole("button", { name: CREATE_CHOICE }));
+		expect(
+			(screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value
+		).toBe("Welcome to OpenMeld");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Create", exact: true })
+		);
+		await waitFor(() =>
+			expect(navigateMock).toHaveBeenCalledWith({
+				to: `/o/acme/spaces/${spaceId}?profileId=human-1`,
+				replace: true,
+			})
+		);
+		expect(tutorial.create).toHaveBeenCalledTimes(1);
+		expect(createSpaceMock).not.toHaveBeenCalled();
+		client.clear();
 	});
 
 	it.each([

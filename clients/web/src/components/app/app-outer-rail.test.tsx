@@ -268,6 +268,7 @@ describe("AppOuterRail", () => {
 		);
 		viewer += 1;
 		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+			drawImage: vi.fn<CanvasRenderingContext2D["drawImage"]>(),
 			fillRect: vi.fn(),
 			fillStyle: "",
 			globalCompositeOperation: "source-over",
