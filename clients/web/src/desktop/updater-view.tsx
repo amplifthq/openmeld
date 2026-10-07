@@ -80,7 +80,7 @@ export function DesktopUpdaterView(input: {
 					</div>
 					{action || progress || (view.busy && !input.readError) ? (
 						<div
-							className="@lg/desktop-update:w-auto w-full @lg/desktop-update:min-w-36 shrink-0"
+							className="@lg/desktop-update:w-auto w-full @lg/desktop-update:min-w-36 shrink-0 space-y-3"
 							data-slot="desktop-update-action"
 						>
 							{progress}
