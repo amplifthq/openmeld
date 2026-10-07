@@ -49,11 +49,7 @@ export async function downloadDesktopPreview(input: {
 			platform
 		);
 	}
-	return await downloadDefault(
-		bucket,
-		input.includeBody && !cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN,
-		platform
-	);
+	return await downloadDefault(bucket, input.includeBody, platform);
 }
 
 async function downloadCandidate(
@@ -146,12 +142,13 @@ async function downloadDefault(
 	}
 
 	let body: ReadableStream | null = null;
-	const object = includeBody
-		? await bucket.get(releaseManifest.objectKey).then((loaded) => {
-				body = loaded?.body ?? null;
-				return loaded;
-			})
-		: await bucket.head(releaseManifest.objectKey);
+	const object =
+		includeBody && !cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN
+			? await bucket.get(releaseManifest.objectKey).then((loaded) => {
+					body = loaded?.body ?? null;
+					return loaded;
+				})
+			: await bucket.head(releaseManifest.objectKey);
 	if (!object) {
 		return new Response("OpenMeld Desktop preview artifact is missing.", {
 			headers: {
@@ -201,12 +198,6 @@ async function downloadWindowsPreview(bucket: R2Bucket, includeBody: boolean) {
 			status: 503,
 			headers: { "cache-control": "no-store" },
 		});
-	}
-	if (cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN) {
-		return desktopDownloadRedirect(
-			cloudflareEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN,
-			preview.objectKey
-		);
 	}
 	const headers = buildDesktopDownloadHeaders({
 		artifactName: preview.artifactName,
