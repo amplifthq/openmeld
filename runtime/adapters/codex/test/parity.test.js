@@ -300,6 +300,139 @@ test("codex Stop fences the default app-server path while writer occupancy waits
   }
 });
 
+for (const [initialMode, targetMode, version, receipt, expectedStatus] of [
+  [
+    "codex:askForApproval",
+    "codex:approveForMe",
+    "0.160.1",
+    "applied",
+    "applied",
+  ],
+  [
+    "codex:approveForMe",
+    "codex:askForApproval",
+    "0.160.1",
+    "applied",
+    "applied",
+  ],
+  [
+    "codex:askForApproval",
+    "codex:fullAccess",
+    "0.160.1",
+    "applied",
+    "not_applied",
+  ],
+  [
+    "codex:fullAccess",
+    "codex:approveForMe",
+    "0.160.1",
+    "applied",
+    "not_applied",
+  ],
+  [
+    "codex:customConfig",
+    "codex:approveForMe",
+    "0.160.1",
+    "applied",
+    "not_applied",
+  ],
+  [
+    "codex:askForApproval",
+    "codex:approveForMe",
+    "0.150.1",
+    "applied",
+    "not_applied",
+  ],
+  [
+    "codex:askForApproval",
+    "codex:approveForMe",
+    "0.160.1",
+    "notFound",
+    "not_applied",
+  ],
+]) {
+  test(`codex live permissions ${initialMode} -> ${targetMode} (${version}, ${receipt})`, async () => {
+    const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-permissions-"));
+    const fixturePath = join(fixtureDir, "app-server.mjs");
+    const logPath = join(fixtureDir, "rpc.jsonl");
+    await writeFakeCodexAppServerFixture(fixturePath);
+    let activeTurn;
+    let accepted;
+    const turnAccepted = new Promise((resolve) => {
+      accepted = resolve;
+    });
+    try {
+      const execution = invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: fixtureDir,
+        agentControllerPermissionMode: initialMode,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "60000",
+          OPENMELD_FAKE_CODEX_NATIVE_VERSION: version,
+          OPENMELD_FAKE_CODEX_PERMISSION_RECEIPT: receipt,
+        },
+        taskId: "permission-task",
+        threadId: "permission-thread",
+        prompt: "Continue working",
+        onActiveTurn: (turn) => {
+          activeTurn = turn;
+          return () => undefined;
+        },
+        onRuntimeEvent: (event) => {
+          if (event.phase === "provider_turn_accepted") {
+            accepted();
+          }
+        },
+      });
+      await Promise.race([
+        turnAccepted,
+        execution.then(() => assert.fail("Turn ended before admission")),
+      ]);
+      const result = await activeTurn.updatePermissionMode({
+        taskId: "permission-task",
+        agentControllerPermissionMode: targetMode,
+      });
+      assert.equal(result.status, expectedStatus);
+      const messages = await readFakeAppServerMessages(logPath);
+      const update = messages.find(
+        (message) => message.method === "turn/settings/update"
+      );
+      if (expectedStatus === "applied") {
+        assert.deepEqual(update.params, {
+          threadId: "permission-thread",
+          turnId: "turn-1",
+          approvalsReviewer:
+            targetMode === "codex:approveForMe" ? "auto_review" : "user",
+        });
+      }
+      assert.equal(
+        messages.filter((message) => message.method === "turn/start").length,
+        1
+      );
+      assert.equal(
+        messages.some((message) => message.method === "turn/interrupt"),
+        false
+      );
+      await activeTurn.interrupt();
+      await execution;
+      assert.equal(
+        (
+          await activeTurn.updatePermissionMode({
+            taskId: "permission-task",
+            agentControllerPermissionMode: targetMode,
+          })
+        ).status,
+        "not_applied"
+      );
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
+
 for (const [mode, expectedStatus] of [
   ["applied", "applied"],
   ["unsupported", "not_applied"],
@@ -1214,6 +1347,10 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    };",
       "    if (startDelayMs > 0) setTimeout(onStart, startDelayMs); else onStart();",
       "    return;",
+      "  }",
+      // Captured from the native Codex 0.160.1 TurnSettingsUpdateResponse.
+      "  if (message.method === 'turn/settings/update') {",
+      "    write({ id: message.id, result: { status: process.env.OPENMELD_FAKE_CODEX_PERMISSION_RECEIPT || 'applied' } }); return;",
       "  }",
       // Shape captured from Codex 0.150.1 generate-json-schema TurnSteerParams/
       // TurnSteerResponse and the official App Server turn/steer contract.
