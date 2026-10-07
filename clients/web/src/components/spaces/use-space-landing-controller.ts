@@ -3033,11 +3033,19 @@ export function useSpaceLandingController(input: {
 					options?.onMessageStaged?.(messageSeed.clientMessageId);
 					setComposerErrorMessage(null);
 				} catch (error) {
-					setComposerErrorMessage(
+					const failure = toStructuredApiClientFailure(error);
+					let message =
 						error instanceof Error
 							? error.message
-							: "Couldn't queue this message. Your draft is still here."
-					);
+							: "Couldn't queue this message. Your draft is still here.";
+					if (
+						failure.code === "network.request_failed" ||
+						failure.code === "network.timeout"
+					) {
+						message =
+							"Couldn't queue this message. Check your connection and try again.";
+					}
+					setComposerErrorMessage(message);
 				}
 				return;
 			}
