@@ -312,6 +312,12 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
             [
               { id: "unread", sequence: "71", read: false, cleared: false },
               { id: "read", sequence: "73", read: true, cleared: false },
+              {
+                id: "ended-request",
+                sequence: "75",
+                read: true,
+                cleared: false,
+              },
               { id: "cleared", sequence: "79", read: true, cleared: true },
             ]
           );
