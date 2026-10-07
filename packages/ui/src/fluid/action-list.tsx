@@ -28,7 +28,8 @@ type FluidActionListContextValue = {
 };
 
 type FluidActionListProps = HTMLAttributes<HTMLDivElement> & {
-  children: ReactNode;
+  axis?: UseFluidHoverOptions["axis"];
+  children?: ReactNode;
   focusIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
   gapClick?: UseFluidHoverOptions["gapClick"];
@@ -60,6 +61,7 @@ function matchesFocusVisible(element: HTMLElement): boolean {
 }
 
 export function FluidActionList({
+  axis = "y",
   children,
   className,
   focusIndicatorClassName,
@@ -70,7 +72,7 @@ export function FluidActionList({
   const containerRef = useRef<HTMLDivElement>(null);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const hover = useFluidHover(containerRef, {
-    axis: "y",
+    axis,
     gapClick,
     isItemDisabled: isDisabledItem,
   });

@@ -19,9 +19,12 @@ html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presen
 	[data-slot="app-rail-label"] {
 		display: none;
 	}
+	.app-sidebar-footer {
+		padding-left: 0.5rem;
+	}
 	[data-app-rail-item],
 	[data-app-rail-link] {
-		height: 2.5rem;
+		height: 2.25rem;
 	}
 }
 

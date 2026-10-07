@@ -25,6 +25,7 @@ import type { AppShellSection } from "./shell-layout";
 vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
+const SEARCH_MENU_ITEM_PATTERN = /Search/;
 const ACME_ORGANIZATION_NAME_PATTERN = /Acme/;
 const CHAT_ATTENTION_LABEL = /Spaces, Needs action, 106/;
 const navigateMock = vi.fn();
@@ -225,11 +226,8 @@ const FELIX_MENU_ITEM_NAME = /Felix/;
 const FELIX_ACCOUNT_MENU_ITEM_NAME = /Felix.*felix@example\.com/;
 const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
-const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = ["Inbox", "Spaces", "Team"] as const;
-
-const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
 
 describe("AppOuterRail", () => {
 	beforeEach(() => {
@@ -341,45 +339,22 @@ describe("AppOuterRail", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("places account, Settings, and theme controls in the footer", () => {
+	it("keeps account actions in the user menu instead of separate rail utilities", () => {
 		renderRail();
-		const settings = screen.getByRole("button", { name: "Settings" });
-		const footer = settings.closest("[data-sidebar=footer]") as HTMLElement;
-		expect(
-			within(footer).getByRole("button", { name: USER_MENU_PATTERN })
-		).toBeTruthy();
-		expect(
-			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN })
-		).toBeTruthy();
-		expect(
-			within(footer).queryByRole("button", {
-				name: TOGGLE_TRIGGER_NAME_PATTERN,
-			})
-		).toBeNull();
-	});
-
-	it("centers equal-sized utility targets in the collapsed rail", () => {
-		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
-		renderRail({ tier: "expanded", width: "9rem" });
-
 		const footer = screen
 			.getByTestId("app-outer-rail")
 			.querySelector('[data-sidebar="footer"]') as HTMLElement;
-		const utilityMenu = within(footer).getByRole("list", {
-			name: "App utilities",
-		});
-		expect(utilityMenu.className).toContain("mx-auto");
-		expect(utilityMenu.className).toContain("w-9");
-
-		for (const control of [
-			within(footer).getByRole("button", {
-				name: "Search or run a command",
-			}),
-			within(footer).getByRole("button", { name: "Settings" }),
-			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN }),
-			within(footer).getByRole("button", { name: USER_MENU_PATTERN }),
-		]) {
-			expect(control.className).toContain("size-9");
+		expect(within(footer).getAllByRole("button")).toHaveLength(1);
+		fireEvent.click(
+			within(footer).getByRole("button", { name: USER_MENU_PATTERN })
+		);
+		const menu = screen.getByRole("menu");
+		expect(
+			within(menu).getByRole("menuitem", { name: "Settings" })
+		).toBeTruthy();
+		for (const name of ["Light", "Dark", "System"]) {
+			fireEvent.click(within(menu).getByRole("menuitemradio", { name }));
+			expect(screen.getByRole("menu")).toBe(menu);
 		}
 	});
 
@@ -454,9 +429,6 @@ describe("AppOuterRail", () => {
 	it("keeps fixed navigation visible when the middle list is collapsed", () => {
 		rememberClientSidebarState("outer", { tier: "hidden", width: "308px" });
 		renderRail();
-		expect(screen.getByTestId("app-outer-rail").className).toContain(
-			"w-[4.75rem]"
-		);
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(
 			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
@@ -467,11 +439,10 @@ describe("AppOuterRail", () => {
 		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
 		renderRail({ tier: "expanded", width: "9rem" });
 
-		for (const label of ["Inbox", "Spaces", "Team", "Settings"]) {
-			const link = screen.getByRole(label === "Settings" ? "button" : "link", {
+		for (const label of ["Inbox", "Spaces", "Team"]) {
+			const link = screen.getByRole("link", {
 				name: label,
 			});
-			expect(link.getAttribute("data-slot")).toBe("tooltip-trigger");
 			expect(link.getAttribute("title")).toBeNull();
 		}
 
@@ -594,40 +565,17 @@ describe("AppOuterRail", () => {
 		expect(appSectionLabels).toEqual(PRIMARY_RAIL_LABELS);
 	});
 
-	it("places Inbox in primary navigation and search in the footer", () => {
+	it("opens command search from the account menu", async () => {
 		renderRail();
-		const rail = screen.getByTestId("app-outer-rail");
-		const footer = rail.querySelector('[data-sidebar="footer"]') as HTMLElement;
-		const utilityMenu = within(footer).getByRole("list", {
-			name: "App utilities",
-		});
-		expect(
-			within(
-				rail.querySelector(
-					'[data-slot="main-sidebar-navigation"]'
-				) as HTMLElement
-			)
-				.getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
-				.getAttribute("href")
-		).toBe("/o/acme/inbox");
-		expect(
-			(
-				within(footer).getByRole("button", {
-					name: "Search or run a command",
-				}) as HTMLButtonElement
-			).disabled
-		).toBe(false);
-		expect(footer.querySelectorAll('[data-sidebar="menu"]')).toHaveLength(1);
-		for (const control of [
-			within(footer).getByRole("button", {
-				name: "Search or run a command",
-			}),
-			within(footer).getByRole("button", { name: "Settings" }),
-			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN }),
-			within(footer).getByRole("button", { name: USER_MENU_PATTERN }),
-		]) {
-			expect(control.closest('[data-sidebar="menu"]')).toBe(utilityMenu);
-		}
+		const openCommandCenter = vi.fn();
+		window.addEventListener("openmeld:command-center", openCommandCenter);
+		fireEvent.click(screen.getByRole("button", { name: USER_MENU_PATTERN }));
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: SEARCH_MENU_ITEM_PATTERN })
+		);
+		expect(openCommandCenter).toHaveBeenCalledOnce();
+		await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+		window.removeEventListener("openmeld:command-center", openCommandCenter);
 	});
 
 	it("separates fixed application navigation from the contextual list", () => {
@@ -1161,10 +1109,9 @@ describe("AppOuterRail", () => {
 		});
 	});
 
-	it("opens Settings from the footer menu and keeps its shortcut", async () => {
+	it("opens Settings from the footer menu", async () => {
 		renderRail();
 
-		const railSettingsButton = screen.getByRole("button", { name: "Settings" });
 		fireEvent.click(
 			screen.getByRole("button", { name: "Open user menu for Felix" })
 		);
@@ -1182,7 +1129,6 @@ describe("AppOuterRail", () => {
 				resetScroll: false,
 			});
 		});
-		expect(railSettingsButton).toBeTruthy();
 		const navigation = navigateMock.mock.calls.at(-1)?.[0];
 		expect(navigation.search({ view: "needs-review" })).toEqual({
 			view: "needs-review",
@@ -1730,26 +1676,13 @@ describe("AppOuterRail", () => {
 		expect(rail.getAttribute("data-state")).toBe("expanded");
 	});
 
-	it("keeps the app section active state on route matches during navigation intent", () => {
+	it("keeps the route selection when opening the account menu", () => {
 		appShellSection = "people";
-		const rendered = renderRail();
-
+		renderRail();
 		const teamLink = screen.getByRole("link", { name: "Team" });
-		const settingsButton = screen.getByRole("button", { name: "Settings" });
-
+		fireEvent.click(screen.getByRole("button", { name: USER_MENU_PATTERN }));
+		expect(screen.getByRole("menu")).toBeTruthy();
 		expect(teamLink.getAttribute("aria-current")).toBe("page");
-		expect(settingsButton.getAttribute("aria-current")).toBeNull();
-
-		fireEvent.pointerDown(settingsButton, { button: 0 });
-
-		expect(teamLink.getAttribute("aria-current")).toBe("page");
-		expect(settingsButton.getAttribute("aria-current")).toBeNull();
-
-		appShellSection = "settings";
-		rendered.rerender(buildRailElement());
-
-		expect(teamLink.getAttribute("aria-current")).toBeNull();
-		expect(settingsButton.getAttribute("aria-current")).toBe("page");
 	});
 
 	it("derives direct, back, and forward selection from route matches", () => {

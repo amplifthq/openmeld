@@ -140,9 +140,7 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 				<AppSidebarFooter
 					account={{ ...account, image: accountAvatarImage }}
 					humanProfileAvatar={humanProfileAvatar}
-					isSettingsActive={activeDestination === "settings"}
 					mode={mode}
-					orgSlug={currentOrganization.slug}
 				/>
 			</SidebarDestinationActionsProvider>
 		</aside>

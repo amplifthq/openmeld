@@ -32,9 +32,9 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 
 ## 1. Goal and current owner
 
-Current Web uses a 76px application rail (52px in **Icons only**), with a separate
+Current Web uses a 64px application rail (52px in **Icons only**), with a separate
 **New Agent** creation action and contextual lists in a collapsible middle column.
-**Settings** remains a separated utility. **Projects**, **Documents**, and **Agent
+**Settings** lives in the account menu. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
 from this rail. The bottom toolbar puts
 the signed-in member's current **Computer** at the far-left edge of the inset
@@ -49,8 +49,9 @@ the global App Settings destination, grouped under the current Organization
 
 The Web application rail places the Organization selector above compact history,
 search, and Inbox controls. The work-area header toggles the middle column. Its
-footer uses the Fluid user dropdown with account switching, Settings, and Log out entries,
-plus adjacent Settings and theme controls. Authentication, history, and theme
+footer uses the Fluid user dropdown with account switching, Search, Settings,
+theme selection, and Log out. Search and theme selection have separate divided
+sections; theme selection reuses Appearance's compact selector. Authentication, history, and theme
 ownership remain in the existing Web hooks and router.
 
 One shell and one Settings framework let Web and the Electron GUI reuse shared
@@ -264,9 +265,8 @@ The Web shell is a stable two-layer composition built from the shared
   Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
-  future placement remains unsettled. Settings remains a bottom
-  utility that opens Account settings. The footer account dropdown offers a second
-  link to that same global Settings destination. The workspace switcher contains
+future placement remains unsettled. The footer account dropdown opens global
+Settings and contains Search and theme selection. The workspace switcher contains
   only organization selection and management actions. Send
   feedback lives in the Personal Settings group rather than as a second
   outer-rail utility. The rail has no

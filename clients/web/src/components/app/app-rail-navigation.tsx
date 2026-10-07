@@ -144,7 +144,7 @@ export function AppRailNavigationGroup(input: {
 						: undefined
 				}
 				className={cn(
-					input.tier === "icon" && "gap-1.5",
+					input.tier === "icon" && "gap-1",
 					presentation === "drawer" && "gap-2"
 				)}
 				indicatorTargetSelector={
