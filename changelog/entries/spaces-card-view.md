@@ -10,7 +10,7 @@ Spaces and Direct messages open in a card view inside your existing groups.
 Switch to the table whenever you need a denser view. Both views keep your
 sorting, filters, unread updates, and Space actions.
 
-Cards show up to six member slots and adapt to narrower widths. Unread counts
+Cards show up to eight member slots and adapt to narrower widths. Unread counts
 stay beside the Space name, and the latest message appears as a clean text
 preview without Markdown formatting marks.
 

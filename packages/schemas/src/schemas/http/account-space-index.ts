@@ -119,7 +119,7 @@ export const accountSpaceIndexItemSchema = z.strictObject({
         agentControllerRef: nullableTrimmedStringSchema,
       })
     )
-    .max(6)
+    .max(8)
     .optional(),
   creatorKind: z.union([profileSpaceCreatorKindSchema, z.null()]),
   creatorOwnerUserId: nullableTrimmedStringSchema,

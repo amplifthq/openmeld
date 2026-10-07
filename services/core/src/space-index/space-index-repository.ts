@@ -740,7 +740,7 @@ export async function listAccountSpacesFromSpaceIndex(
   }
   return { ...sections, recentlyDeletedItems };
 }
-// Only enrich the already authorized candidate list. Read at most six active
+// Only enrich the already authorized candidate list. Read at most eight active
 // members per Space, in stable membership order; never fan out to Space DOs.
 async function attachSpaceMemberPreviews(
   db: PostgresDatabase,
@@ -772,7 +772,7 @@ async function attachSpaceMemberPreviews(
       WHERE member_rank <= $2
       ORDER BY space_id, member_rank
     `,
-      values: [chunk.map((item) => item.spaceId), directoryPreviews ? 6 : 3],
+      values: [chunk.map((item) => item.spaceId), directoryPreviews ? 8 : 3],
     });
     const byId = new Map(
       chunk.map((item) => {

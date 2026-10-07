@@ -221,14 +221,14 @@ Discover, in that order (Discover is absent in personal workspaces).
 Your Spaces and Direct messages default to Cards and offer Table in the directory toolbar.
 Both presentations consume the same saved sections, ordering, filters,
 membership previews, unread destinations, and current work indicators. Cards
-use six 40px member slots, reducing to four or two on narrow cards. The avatar
+use eight 40px member slots, reducing to six, four or two on narrow cards. The avatar
 area reserves two rows, and cards stretch to equal height within each grid row.
 Overflow occupies the final slot; at least one avatar remains. The title truncates
 before its unread count; the title, lock, and count share one vertical center.
 Cards omit activity timestamps and show only the latest message
 as plain text, with its message link and full-text
 hover previews. Empty conversations have no preview footer. The opt-in directory
-projection reads six members and two message previews from the authorized account
+projection reads eight members and two message previews from the authorized account
 index, with no per-card Space history fan-out. Member previews and action menus
 keep independent targets.
 The existing browser preference store remembers this choice per Human Profile

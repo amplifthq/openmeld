@@ -122,6 +122,8 @@ describe("space index AccountSpaces read model", () => {
         "agent-3",
         "agent-4",
         "agent-5",
+        "agent-6",
+        "agent-7",
       ].map((profileId, index) => ({
         ...createMember({
           addedAt: `2026-04-10T00:0${index + 1}:00.000Z`,
@@ -225,6 +227,8 @@ describe("space index AccountSpaces read model", () => {
         "agent-2",
         "agent-3",
         "agent-4",
+        "agent-5",
+        "agent-6",
       ]);
     } finally {
       await harness.close();

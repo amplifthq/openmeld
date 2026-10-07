@@ -14,6 +14,12 @@ const TRIANGLE_POSITIONS = [
 	"right-0 bottom-0",
 ];
 const PAIR_POSITIONS = ["top-0 left-0", "right-0 bottom-0"];
+const GRID_COLUMNS = {
+	2: "grid-cols-[repeat(2,40px)]",
+	4: "grid-cols-[repeat(2,40px)]",
+	6: "grid-cols-[repeat(3,40px)]",
+	8: "grid-cols-[repeat(4,40px)]",
+};
 export function resolveSpaceMemberAppearances(
 	directory: OrganizationProfileDirectoryResponse | undefined
 ) {
@@ -69,8 +75,11 @@ export function SpaceMemberAvatars(input: SpaceMemberAvatarsProps) {
 				<span className="@min-[112px]/space-card:block @min-[176px]/space-card:hidden hidden">
 					<SpaceMemberAvatarSlots {...input} gridSlots={4} />
 				</span>
-				<span className="@min-[176px]/space-card:block hidden">
+				<span className="@min-[176px]/space-card:block @min-[224px]/space-card:hidden hidden">
 					<SpaceMemberAvatarSlots {...input} gridSlots={6} />
+				</span>
+				<span className="@min-[224px]/space-card:block hidden">
+					<SpaceMemberAvatarSlots {...input} gridSlots={8} />
 				</span>
 			</span>
 		);
@@ -78,7 +87,7 @@ export function SpaceMemberAvatars(input: SpaceMemberAvatarsProps) {
 	return <SpaceMemberAvatarSlots {...input} />;
 }
 function SpaceMemberAvatarSlots(
-	input: SpaceMemberAvatarsProps & { gridSlots?: 2 | 4 | 6 }
+	input: SpaceMemberAvatarsProps & { gridSlots?: 2 | 4 | 6 | 8 }
 ) {
 	const horizontal = input.layout === "horizontal";
 	const grid = input.layout === "grid";
@@ -109,10 +118,7 @@ function SpaceMemberAvatarSlots(
 			className={cn(
 				"shrink-0",
 				grid && "grid h-24 auto-rows-[40px] justify-start gap-2",
-				grid &&
-					(slots === 6
-						? "grid-cols-[repeat(3,40px)]"
-						: "grid-cols-[repeat(2,40px)]"),
+				grid && GRID_COLUMNS[slots],
 				horizontal && "isolate inline-flex h-5 max-w-full items-center",
 				!(grid || horizontal) && "relative"
 			)}

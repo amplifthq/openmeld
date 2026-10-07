@@ -227,7 +227,7 @@ Space SQL schema v33 creates the preview revision table for existing v32
 Spaces before message publication or backfill. Fresh-table initialization alone
 does not upgrade a Space that already has the previous migration marker.
 
-`includeDirectoryPreviews=true` opts into six member previews and up to two
+`includeDirectoryPreviews=true` opts into eight member previews and up to two
 distinct recent text messages, newest first. The same Space-local revision and
 outbox capture both message projections atomically; retention clears both.
 PostgreSQL migration `0022` adds a nullable `recent_message_previews_json` column.
