@@ -6,7 +6,7 @@ import {
 	ThinkingStepsContent,
 	ThinkingStepsHeader,
 } from "@openmeld/ui/fluid/thinking-steps";
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon, WifiHighIcon } from "@phosphor-icons/react";
 import { useReducedMotion } from "motion/react";
 import {
 	type ReactNode,
@@ -18,6 +18,7 @@ import {
 import { MessageResponse } from "#/components/ai/message-response";
 import { SPACE_AGENT_WORKING_STATUS_TEXT } from "#/lib/spaces/message-state";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { resolveAgentWorkPresentation } from "./agent-work-presentation";
 import { SpaceAgentOrb } from "./space-agent-orb";
 import {
@@ -30,6 +31,63 @@ import {
 } from "./space-agent-tool-activity-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
 import { SpaceRequestElapsedTime } from "./space-request-elapsed-time";
+
+function SpaceAgentRecoveryNotice(input: {
+	recovery: import("@openmeld/schemas/types").AgentStreamRecoveryPart;
+}) {
+	const nowMs = useNowMs(1000);
+	const seconds = Math.max(
+		0,
+		Math.ceil((input.recovery.nextRetryAtMs - nowMs) / 1000)
+	);
+	return (
+		<p
+			className="mb-2 text-[13px] text-muted-foreground"
+			data-testid="agent-recovery-notice"
+		>
+			{seconds > 0
+				? `Retrying in ${seconds}s. Your progress is saved.`
+				: "Reconnecting to the model. Your progress is saved."}
+		</p>
+	);
+}
+
+function SpaceAgentWorkTitle(input: {
+	reconnecting: boolean;
+	isLive: boolean;
+	latestStep?: SpaceAgentWorkStep;
+	requestStartedAtMs?: number;
+}) {
+	if (input.reconnecting) {
+		return (
+			<output className="flex min-w-0 items-center gap-1.5">
+				<WifiHighIcon aria-hidden="true" className="size-4 shrink-0" />
+				<span>Reconnecting</span>
+			</output>
+		);
+	}
+	if (!input.isLive) {
+		return "Work summary";
+	}
+	return (
+		<span className="flex min-w-0 items-center gap-1.5">
+			<SpaceAgentOrb
+				state={
+					input.latestStep
+						? resolveSpaceAgentWorkOrbState(input.latestStep)
+						: DEFAULT_SPACE_AGENT_ORB_STATE
+				}
+			/>
+			<span className="min-w-0">{SPACE_AGENT_WORKING_STATUS_TEXT}</span>
+			{input.requestStartedAtMs !== undefined && (
+				<>
+					<span aria-hidden="true">·</span>
+					<SpaceRequestElapsedTime startedAtMs={input.requestStartedAtMs} />
+				</>
+			)}
+		</span>
+	);
+}
 
 export function SpaceAgentToolActivity(input: {
 	align?: "start" | "end";
@@ -44,6 +102,10 @@ export function SpaceAgentToolActivity(input: {
 	const steps = resolveVisibleSpaceAgentWorkSteps(input.item);
 	const latestStep = steps.at(-1);
 	const isLive = input.item.agentStreamState?.status === "streaming";
+	const recovery =
+		isLive && input.item.agentStreamState?.recovery?.state === "waiting"
+			? input.item.agentStreamState.recovery
+			: null;
 	const progress = isLive
 		? input.item.agentStreamState?.progress
 		: input.item.agentPublicProgress;
@@ -61,7 +123,7 @@ export function SpaceAgentToolActivity(input: {
 		}
 		wasLive.current = isLive;
 	}, [isLive]);
-	if (!(latestStep || progress || reasoning)) {
+	if (!(latestStep || progress || reasoning || reasoningNotice || recovery)) {
 		return null;
 	}
 
@@ -71,9 +133,13 @@ export function SpaceAgentToolActivity(input: {
 		reasoning: reasoning ?? reasoningNotice,
 		steps,
 	});
-	const accessibleSummary = isLive
-		? `${SPACE_AGENT_WORKING_STATUS_TEXT}. ${latestStep ? `Work summary: ${summary}` : summary}`
-		: `Work summary: ${summary}`;
+	let accessibleSummary = `Work summary: ${summary}`;
+	if (isLive) {
+		accessibleSummary = `${SPACE_AGENT_WORKING_STATUS_TEXT}. ${latestStep ? `Work summary: ${summary}` : summary}`;
+	}
+	if (recovery) {
+		accessibleSummary = `Reconnecting. Attempt ${recovery.attempt} of ${recovery.maxAttempts}. ${summary}`;
+	}
 	const activity = (
 		<div className="flex w-full min-w-0 max-w-full items-start text-left">
 			<ThinkingSteps
@@ -84,37 +150,25 @@ export function SpaceAgentToolActivity(input: {
 			>
 				<div className="flex w-full min-w-0 items-center gap-2">
 					<ThinkingStepsHeader
-						active={isLive}
+						active={isLive && !recovery}
 						aria-busy={isLive}
 						aria-label={accessibleSummary}
 						className="w-fit px-0 hover:bg-transparent"
 						data-testid="space-agent-tool-activity"
-						summary={<span className="min-w-0 truncate">{summary}</span>}
-					>
-						{isLive ? (
-							<span className="flex min-w-0 items-center gap-1.5">
-								<SpaceAgentOrb
-									state={
-										latestStep
-											? resolveSpaceAgentWorkOrbState(latestStep)
-											: DEFAULT_SPACE_AGENT_ORB_STATE
-									}
-								/>
-								<span className="min-w-0">
-									{SPACE_AGENT_WORKING_STATUS_TEXT}
-								</span>
-								{input.requestStartedAtMs !== undefined && (
-									<>
-										<span aria-hidden="true">·</span>
-										<SpaceRequestElapsedTime
-											startedAtMs={input.requestStartedAtMs}
-										/>
-									</>
-								)}
+						summary={
+							<span className="min-w-0 truncate">
+								{recovery
+									? `Attempt ${recovery.attempt} of ${recovery.maxAttempts}`
+									: summary}
 							</span>
-						) : (
-							"Work summary"
-						)}
+						}
+					>
+						<SpaceAgentWorkTitle
+							isLive={isLive}
+							latestStep={latestStep}
+							reconnecting={Boolean(recovery)}
+							requestStartedAtMs={input.requestStartedAtMs}
+						/>
 					</ThinkingStepsHeader>
 					{input.control ? (
 						<div
@@ -127,6 +181,7 @@ export function SpaceAgentToolActivity(input: {
 					) : null}
 				</div>
 				<ThinkingStepsContent className="pb-1">
+					{recovery ? <SpaceAgentRecoveryNotice recovery={recovery} /> : null}
 					<AgentWorkActivityViewport
 						isLive={isLive}
 						progress={progress}

@@ -27,7 +27,7 @@ import { NODE_CODE_MODE_RUNTIME } from "./node-code-mode-runtime";
 const ACTIVITY = "openmeld_read_center_agent_activity";
 const code = (limit: number) =>
   `async () => codemode.${ACTIVITY}({limit:${limit}})`;
-const call = (name: string, args: Record<string, unknown>) =>
+const call = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
   fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
 
 it("delivers database-backed results through discovery, schemas, Code Mode and the real Flue loop, then rejects revoked authority", async () => {

@@ -49,6 +49,7 @@ describe("spaceBootstrapQueryOptions", () => {
 			spaceId: "space-123",
 			includeAgentReadiness: false,
 			includeAgentStreamPresence: true,
+			includeAgentStreamRecovery: true,
 			historyQuery: {
 				recent: true,
 				limit: SPACE_INITIAL_HISTORY_MAX_MESSAGES,
@@ -56,6 +57,7 @@ describe("spaceBootstrapQueryOptions", () => {
 			},
 		});
 		expect(result.history).toEqual({
+			confirmedCursor: null,
 			envelopes: [],
 			nextCursor: null,
 		});
@@ -95,6 +97,7 @@ describe("spaceBootstrapQueryOptions", () => {
 			spaceId: "space-123",
 			includeAgentReadiness: false,
 			includeAgentStreamPresence: true,
+			includeAgentStreamRecovery: true,
 			historyQuery: {
 				recent: true,
 				limit: SPACE_INITIAL_HISTORY_MAX_MESSAGES,

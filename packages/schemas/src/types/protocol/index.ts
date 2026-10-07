@@ -11,6 +11,8 @@ export type {
   AgentInteractionResponse,
 } from "./agent-interaction";
 export type {
+  AgentStreamPart,
+  AgentStreamRecoveryPart,
   AgentStreamToolPart,
   AgentWorkActivity,
   ClearSpaceReasoningReplay,

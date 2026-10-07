@@ -315,6 +315,14 @@ const agentStreamIdentityShape = {
   dispatchId: nonEmptyTrimmedStringFromUnknown,
 };
 
+export const agentStreamRecoveryPartSchema = z.strictObject({
+  type: z.literal("recovery"),
+  state: z.enum(["waiting", "recovered", "exhausted"]),
+  attempt: z.number().int().min(1).max(5),
+  maxAttempts: z.literal(5),
+  nextRetryAtMs: z.number().int().nonnegative(),
+});
+
 const agentStreamPresenceShape = {
   ...agentStreamIdentityShape,
   state: z.literal("streaming"),
@@ -322,6 +330,7 @@ const agentStreamPresenceShape = {
   createdAtMs: timestampSchema,
   updatedAtMs: timestampSchema,
   expiresAtMs: timestampSchema,
+  recovery: agentStreamRecoveryPartSchema.optional(),
 };
 
 function validateAgentStreamProjectionTimestamps(
@@ -419,7 +428,7 @@ export const spaceAgentActivitySchema = z.strictObject({
 export const spaceAgentStreamPartFrameSchema = z.strictObject({
   type: z.literal("space.agent_stream_part"),
   ...agentStreamIdentityShape,
-  part: agentStreamToolPartSchema,
+  part: z.union([agentStreamToolPartSchema, agentStreamRecoveryPartSchema]),
   updatedAtMs: timestampSchema,
 });
 

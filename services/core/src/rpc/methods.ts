@@ -378,7 +378,7 @@ import type {
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
   AgentProfileExecutionModeResponse,
-  AgentStreamToolPart,
+  AgentStreamPart,
   AgentTaskCompletionCondition,
   AgentWorkloadSnapshot,
   ArchiveProjectRpcInput,
@@ -2563,7 +2563,7 @@ export type ApplySpaceAgentStreamPartInput = {
   profileId: string;
   triggerMessageId: string;
   dispatchId: string;
-  part: AgentStreamToolPart;
+  part: AgentStreamPart;
 };
 export type CloseSpaceAgentStreamInput = {
   spaceId: string;

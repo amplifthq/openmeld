@@ -850,7 +850,7 @@ Canonical command families:
   `verify:pr`, and `verify:pr:full`.
 
 Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.54.6;
-`@flue/vite@2.1.0` requires Vite 8. Web and Desktop retain their independently
+`@flue/vite@2.2.2` requires Vite 8. Web and Desktop retain their independently
 validated Vite 7 builds. Root Sherif configuration allows only those exact
 Remote Agent build dependency versions to differ; it does not disable the
 dependency rule or exempt a package. Reassess these version-specific entries

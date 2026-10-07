@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T16:01:25.317Z",
+  "updatedAt": "2026-10-07T09:39:16.259Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.248",
+      "packageVersion": "0.3.247",
       "updatePolicy": "available",
-      "reason": "Read authorized local agent conversations across providers"
+      "reason": "Existing CLI commands remain compatible; deploy cloud readers before publishing optional Plugin and session history commands."
     },
     "service": {
-      "bundleHash": "9e03e28e76de609cf3b2384fefa4e52464310eedd5bdc1fc971d6f5c11f64693",
-      "portableBundleHash": "0a7599a216a8a04f31e252f0934741baf1458edf0ef75af49343f99b7dfed4bc",
-      "bundleVersion": "0.3.248",
+      "bundleHash": "b0aebc4526d2f2a10112500f150b6e030237b64bfe2c16d434a84bca71d0e9d8",
+      "portableBundleHash": "9b420e3cb237e71a9be0adcc15b2a206bf710d9d5c48c493388f90c5c25fd4dd",
+      "bundleVersion": "0.3.247",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Read authorized local agent conversations across providers"
+      "reason": "Old Services retain safe existing workflows; new permission fields and session history capability require cloud receivers first and remain opt-in."
     },
     "skills": {
       "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",

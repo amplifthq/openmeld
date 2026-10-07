@@ -2799,6 +2799,7 @@ export {
 } from "./protocol/agent-interaction";
 export {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
+  agentStreamRecoveryPartSchema,
   agentStreamToolPartSchema,
   clearSpaceReasoningReplaySchema,
   spaceAgentActivitySchema,
