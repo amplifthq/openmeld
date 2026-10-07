@@ -14,11 +14,11 @@ const TRIANGLE_POSITIONS = [
 	"right-0 bottom-0",
 ];
 const PAIR_POSITIONS = ["top-0 left-0", "right-0 bottom-0"];
-const GRID_COLUMNS = {
-	2: "grid-cols-[repeat(2,40px)]",
-	4: "grid-cols-[repeat(2,40px)]",
-	6: "grid-cols-[repeat(3,40px)]",
-	8: "grid-cols-[repeat(4,40px)]",
+const GRID_RANGES = {
+	2: "@min-[112px]/space-card:hidden",
+	4: "hidden @min-[112px]/space-card:flex @min-[176px]/space-card:hidden",
+	6: "hidden @min-[176px]/space-card:flex @min-[224px]/space-card:hidden",
+	8: "hidden @min-[224px]/space-card:flex",
 };
 export function resolveSpaceMemberAppearances(
 	directory: OrganizationProfileDirectoryResponse | undefined
@@ -65,41 +65,25 @@ type SpaceMemberAvatarsProps = {
 function visibleGridMembers(total: number, available: number, slots: number) {
 	return Math.min(available, total > slots ? slots - 1 : slots);
 }
-export function SpaceMemberAvatars(input: SpaceMemberAvatarsProps) {
-	if (input.layout === "grid") {
-		return (
-			<span aria-hidden="true" className="block">
-				<span className="block @min-[112px]/space-card:hidden">
-					<SpaceMemberAvatarSlots {...input} gridSlots={2} />
-				</span>
-				<span className="@min-[112px]/space-card:block @min-[176px]/space-card:hidden hidden">
-					<SpaceMemberAvatarSlots {...input} gridSlots={4} />
-				</span>
-				<span className="@min-[176px]/space-card:block @min-[224px]/space-card:hidden hidden">
-					<SpaceMemberAvatarSlots {...input} gridSlots={6} />
-				</span>
-				<span className="@min-[224px]/space-card:block hidden">
-					<SpaceMemberAvatarSlots {...input} gridSlots={8} />
-				</span>
-			</span>
-		);
+function gridMemberVisibility(index: number, total: number, available: number) {
+	if (index < visibleGridMembers(total, available, 2)) {
+		return undefined;
 	}
-	return <SpaceMemberAvatarSlots {...input} />;
+	if (index < visibleGridMembers(total, available, 4)) {
+		return "hidden @min-[112px]/space-card:flex";
+	}
+	if (index < visibleGridMembers(total, available, 6)) {
+		return "hidden @min-[176px]/space-card:flex";
+	}
+	return "hidden @min-[224px]/space-card:flex";
 }
-function SpaceMemberAvatarSlots(
-	input: SpaceMemberAvatarsProps & { gridSlots?: 2 | 4 | 6 | 8 }
-) {
+export function SpaceMemberAvatars(input: SpaceMemberAvatarsProps) {
 	const horizontal = input.layout === "horizontal";
 	const grid = input.layout === "grid";
-	const slots = input.gridSlots ?? 6;
 	const total = input.memberCount ?? input.members.length;
-	const gridCount = visibleGridMembers(total, input.members.length, slots);
+	const gridCount = visibleGridMembers(total, input.members.length, 8);
 	const compactCount = horizontal ? 5 : 3;
 	const members = input.members.slice(0, grid ? gridCount : compactCount);
-	const remaining = Math.max(
-		0,
-		(input.memberCount ?? members.length) - members.length
-	);
 	const compactSize = input.compactSize ?? 20;
 	const compactMemberSize =
 		members.length === 1 ? compactSize : Math.round(compactSize * 0.6);
@@ -117,8 +101,8 @@ function SpaceMemberAvatarSlots(
 			aria-hidden="true"
 			className={cn(
 				"shrink-0",
-				grid && "grid h-24 auto-rows-[40px] justify-start gap-2",
-				grid && GRID_COLUMNS[slots],
+				grid &&
+					"grid h-24 auto-rows-[40px] @min-[176px]/space-card:grid-cols-[repeat(3,40px)] @min-[224px]/space-card:grid-cols-[repeat(4,40px)] grid-cols-[repeat(2,40px)] justify-start gap-2",
 				horizontal && "isolate inline-flex h-5 max-w-full items-center",
 				!(grid || horizontal) && "relative"
 			)}
@@ -133,6 +117,7 @@ function SpaceMemberAvatarSlots(
 				<span
 					className={cn(
 						"flex",
+						grid && gridMemberVisibility(index, total, input.members.length),
 						horizontal &&
 							"relative shrink-0 bg-background ring-1 ring-background",
 						!(grid || horizontal) &&
@@ -187,14 +172,23 @@ function SpaceMemberAvatarSlots(
 					)}
 				</span>
 			))}
-			{grid && remaining > 0 && (
-				<span
-					className="grid place-items-center text-muted-foreground text-sm tabular-nums"
-					data-slot="space-member-avatar"
-				>
-					+{remaining}
-				</span>
-			)}
+			{grid &&
+				([2, 4, 6, 8] as const).map((capacity) => {
+					const count =
+						total - visibleGridMembers(total, input.members.length, capacity);
+					return count > 0 ? (
+						<span
+							className={cn(
+								"items-center justify-center text-muted-foreground text-sm tabular-nums",
+								GRID_RANGES[capacity]
+							)}
+							data-slot="space-member-avatar"
+							key={capacity}
+						>
+							+{count}
+						</span>
+					) : null;
+				})}
 		</span>
 	);
 }

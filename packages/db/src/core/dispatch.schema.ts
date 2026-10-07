@@ -85,6 +85,7 @@ import {
   openMeldFeedbackIssues,
   openMeldFeedbackReportingPolicies,
 } from "./feedback.schema.ts";
+import { firstWorkExperiences } from "./first-work.schema.ts";
 import { openMeldDaemonForgottenDevices } from "./forgotten-device.schema.ts";
 import {
   desktopUpdateInstallations,
@@ -1760,6 +1761,7 @@ export const agentActivityExecutionLinks = applicationTable(
 );
 
 export const coreSchema = {
+  firstWorkExperiences,
   aiUsageRecords,
   organizationAiUsagePolicies,
   spaceInvitations,

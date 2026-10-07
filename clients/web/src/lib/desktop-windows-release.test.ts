@@ -18,8 +18,16 @@ import {
 } from "./desktop-update-response";
 
 const bucket = vi.hoisted(() => ({ get: vi.fn(), head: vi.fn() }));
+const downloadConfig = vi.hoisted(() => ({
+	OPENMELD_DESKTOP_DOWNLOAD_ORIGIN: undefined as string | undefined,
+}));
 vi.mock("cloudflare:workers", () => ({
-	env: { OPENMELD_DESKTOP_DOWNLOADS: bucket },
+	env: {
+		OPENMELD_DESKTOP_DOWNLOADS: bucket,
+		get OPENMELD_DESKTOP_DOWNLOAD_ORIGIN() {
+			return downloadConfig.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN;
+		},
+	},
 }));
 const windowsPlatforms = ["windows-x64", "windows-arm64"] as const;
 const platforms = ["macos-arm64", ...windowsPlatforms] as const;
@@ -89,8 +97,67 @@ function publish(platform: DesktopReleasePlatform) {
 	return { manifest, location, update };
 }
 afterEach(() => {
+	downloadConfig.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN = undefined;
 	objects.clear();
 	vi.resetAllMocks();
+});
+
+it.each(
+	platforms
+)("redirects verified %s installers for candidate and promoted downloads", async (platform) => {
+	const { manifest, location } = publish(platform);
+	downloadConfig.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN =
+		"https://downloads.openmeld.ai";
+	for (const candidate of [undefined, manifest.sha256]) {
+		const url = new URL("https://openmeld.ai/desktop/download");
+		url.searchParams.set("platform", platform);
+		if (candidate) {
+			url.searchParams.set("candidate", candidate);
+		}
+		const response = await downloadDesktopPreview({
+			includeBody: true,
+			request: new Request(url),
+		});
+		expect(response.status).toBe(307);
+		expect(response.headers.get("location")).toBe(
+			`https://downloads.openmeld.ai/${location.objectKey}`
+		);
+		expect(response.headers.get("cache-control")).toBe("no-store");
+	}
+	expect(
+		bucket.get.mock.calls.some(([key]) => key === location.objectKey)
+	).toBe(false);
+});
+
+it.each(
+	platforms
+)("redirects verified %s updates to the CDN without streaming them through Web", async (platform) => {
+	const { manifest, update } = publish(platform);
+	const response = await desktopUpdateArtifactResponse(
+		bucket,
+		platform,
+		manifest.sha256,
+		true,
+		"https://downloads.openmeld.ai"
+	);
+	expect(response.status).toBe(307);
+	expect(response.headers.get("location")).toBe(
+		`https://downloads.openmeld.ai/${update.objectKey}`
+	);
+	expect(response.headers.get("cache-control")).toBe("no-store");
+	expect(bucket.get).not.toHaveBeenCalledWith(update.objectKey);
+	objects.delete(update.objectKey);
+	expect(
+		(
+			await desktopUpdateArtifactResponse(
+				bucket,
+				platform,
+				manifest.sha256,
+				true,
+				"https://downloads.openmeld.ai"
+			)
+		).status
+	).toBe(404);
 });
 
 it("serves the unsigned internal Windows installer only after its pointer and bytes exist", async () => {

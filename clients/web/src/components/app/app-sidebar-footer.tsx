@@ -28,6 +28,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { ThemeSelector } from "#/components/appearance/theme-selector";
+import { useWalkthrough } from "#/components/onboarding/walkthrough/walkthrough-context";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAppSettings } from "#/components/settings/use-app-settings";
@@ -52,6 +53,7 @@ import type {
 } from "./app-workspace-switcher";
 import {
 	CurrentComputerAttentionIndicator,
+	CurrentComputerMenuStatus,
 	useCurrentComputer,
 } from "./current-computer";
 
@@ -107,6 +109,7 @@ export function AppSidebarFooter({
 	mode: SidebarMode;
 }) {
 	const iconOnly = mode === "icon";
+	const walkthrough = useWalkthrough();
 	const computerAttentionLabel = useCurrentComputer()?.attentionLabel;
 	const updateAttention = useDesktopUpdateAttention();
 	const navigate = useNavigate();
@@ -144,7 +147,15 @@ export function AppSidebarFooter({
 		isDrawer
 	);
 	return (
-		<SidebarFooter className={footerClassName}>
+		<SidebarFooter className={cn(footerClassName, "relative")}>
+			<div
+				className={cn(
+					"absolute bottom-2 left-full z-40 ml-2",
+					menuOpen && "hidden"
+				)}
+				id="walkthrough-notice-anchor"
+				ref={walkthrough?.setNoticeAnchor}
+			/>
 			<SidebarMenu
 				activeIndicatorClassName={iconOnly ? "rounded-full" : undefined}
 				aria-label="App utilities"
@@ -244,7 +255,7 @@ export function AppSidebarFooter({
 								<div className="flex h-8 items-center gap-2 px-2 text-xs">
 									<PaletteIcon aria-hidden="true" className="size-4 shrink-0" />
 									<span className="flex-1">Theme</span>
-									<ThemeSelector inMenu />
+									<ThemeSelector />
 								</div>
 								<DropdownMenuSeparator />
 								<FluidDropdownMenuGroup>
@@ -368,9 +379,7 @@ function ComputerMenuItem(input: {
 		>
 			<DesktopTowerIcon />
 			<span className="flex-1">Computer</span>
-			{computer ? (
-				<CurrentComputerAttentionIndicator status={computer.status} />
-			) : null}
+			<CurrentComputerMenuStatus />
 		</FluidDropdownMenuItem>
 	);
 }

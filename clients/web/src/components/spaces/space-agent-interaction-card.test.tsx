@@ -1,6 +1,7 @@
 import type {
 	AgentInteractionPendingSummary,
 	AgentInteractionRequest,
+	AgentInteractionResponse,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import {
@@ -348,6 +349,93 @@ describe("SpaceAgentInteractionCard", () => {
 		expect(screen.queryByText(SECRET_COMMAND_PATTERN)).toBeNull();
 	});
 
+	it.each([
+		"network.timeout",
+		"network.request_failed",
+	])("keeps an unconfirmed %s response neutral and retries the same answer", async (code) => {
+		const permissionModeUpdate = {
+			bindingId: "binding-1",
+			mode: "codex:approveForMe",
+		} satisfies NonNullable<
+			Extract<
+				AgentInteractionResponse,
+				{ kind: "permission" }
+			>["permissionModeUpdate"]
+		>;
+		const onPermissionModeUpdate = vi
+			.fn()
+			.mockResolvedValue(permissionModeUpdate);
+		const onRespond = vi
+			.fn()
+			.mockRejectedValueOnce(
+				Object.assign(new Error("transport failed"), { code })
+			)
+			.mockResolvedValue(undefined);
+		const card = (
+			<SpaceAgentInteractionCard
+				item={createWakeProgressItem({
+					canRespond: true,
+					request: {
+						v: 1,
+						interactionId: "unconfirmed",
+						kind: "permission",
+						requestedAtMs: 1000,
+						expiresAtMs: 2000,
+						title: "Use this tool?",
+						supportsPermissionModeUpdate: true,
+						subject: { type: "tool" },
+						options: [
+							{
+								intent: "allow_once",
+								label: "Allow once",
+								optionId: "allow-once",
+							},
+						],
+					},
+				})}
+				onPermissionModeUpdate={onPermissionModeUpdate}
+				onRespond={onRespond}
+				permissionModeOptions={[
+					{
+						permissionMode: "codex:approveForMe",
+						label: "Approve for me",
+						description: "Use the Agent's approval review.",
+					},
+				]}
+			/>
+		);
+		const { rerender } = render(card);
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Approve for me" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Approve and continue" })
+		);
+		await screen.findByText("Response not confirmed");
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(screen.queryByText("Response sent")).toBeNull();
+		rerender(
+			<SpaceAgentInteractionCard
+				item={createWakeProgressItem({
+					canRespond: false,
+					interactionId: "unconfirmed",
+					request: null,
+				})}
+				onRespond={onRespond}
+			/>
+		);
+		expect(screen.getByText("Waiting for the local agent owner")).toBeTruthy();
+		expect(screen.queryByRole("button")).toBeNull();
+		rerender(card);
+		fireEvent.click(screen.getByRole("button", { name: "Check response" }));
+		await screen.findByText("Response sent");
+		expect(onRespond).toHaveBeenCalledTimes(2);
+		expect(onRespond.mock.calls[1]).toEqual(onRespond.mock.calls[0]);
+		expect(onRespond.mock.calls[0]?.[0].response.permissionModeUpdate).toEqual(
+			permissionModeUpdate
+		);
+		expect(onPermissionModeUpdate).toHaveBeenCalledOnce();
+	});
+
 	it("keeps the request actionable when sending the response fails", async () => {
 		const onRespond = vi
 			.fn()
@@ -399,10 +487,14 @@ describe("SpaceAgentInteractionCard", () => {
 
 function createWakeProgressItem(input: {
 	canRespond: boolean;
+	interactionId?: string;
 	kind?: AgentInteractionPendingSummary["kind"];
 	request: AgentInteractionRequest | null;
 }): WakeProgressItem {
-	const interactionId = input.request?.interactionId ?? "interaction-private";
+	const interactionId =
+		input.interactionId ??
+		input.request?.interactionId ??
+		"interaction-private";
 	return {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",

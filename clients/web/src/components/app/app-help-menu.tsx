@@ -3,20 +3,33 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuSub,
 } from "@openmeld/ui/components/dropdown-menu";
-import { FluidActionListItem } from "@openmeld/ui/fluid/action-list";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
+import {
+	FluidActionList,
+	FluidActionListItem,
+} from "@openmeld/ui/fluid/action-list";
 import {
 	FluidDropdownMenuGroup,
+	FluidDropdownMenuItem,
 	FluidDropdownMenuSubContent,
 	FluidDropdownMenuSubTrigger,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import {
+	ArrowCounterClockwiseIcon,
 	ArrowUpRightIcon,
 	BookOpenTextIcon,
+	CompassIcon,
 	GlobeHemisphereWestIcon,
 	LifebuoyIcon,
+	PlayIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
+import { useWalkthrough } from "#/components/onboarding/walkthrough/walkthrough-context";
 import { readLatestChangelog } from "#/lib/changelog/read-latest-changelog";
 
 const website = "https://openmeld.ai";
@@ -138,7 +151,63 @@ export function AppHelpMenu({ index }: { index: number }) {
 						<ArrowUpRightIcon className="text-muted-foreground" />
 					</HelpLink>
 				</FluidDropdownMenuGroup>
+				<TutorialMenuActions />
 			</FluidDropdownMenuSubContent>
 		</DropdownMenuSub>
+	);
+}
+
+function TutorialMenuActions() {
+	const walkthrough = useWalkthrough();
+	if (!walkthrough?.available) {
+		return null;
+	}
+	const actions = [
+		...(walkthrough.record && walkthrough.record.step !== "complete"
+			? [
+					{
+						label: "Continue tutorial",
+						icon: PlayIcon,
+						run: walkthrough.resume,
+					},
+				]
+			: []),
+		{
+			label: "Replay tutorial",
+			icon: ArrowCounterClockwiseIcon,
+			run: () => walkthrough.start(true),
+		},
+	];
+	return (
+		<div className="flex min-h-9 items-center gap-2 px-2 py-1 text-xs">
+			<CompassIcon aria-hidden="true" className="size-4 shrink-0" />
+			<span className="flex-1">Tutorial</span>
+			<FluidActionList
+				axis="x"
+				className="flex w-fit flex-row gap-1"
+				focusIndicatorClassName="z-0 border-0 bg-interaction-hover"
+				hoverIndicatorClassName="bg-interaction-hover"
+				role="presentation"
+			>
+				{actions.map(({ label, icon: Icon, run }, index) => (
+					<Tooltip key={label}>
+						<TooltipTrigger
+							render={
+								<FluidDropdownMenuItem
+									aria-label={label}
+									className="size-7 justify-center border border-border bg-transparent p-0 text-secondary-foreground"
+									disabled={walkthrough.pending}
+									index={index}
+									onClick={() => run().catch(() => undefined)}
+								/>
+							}
+						>
+							<Icon aria-hidden="true" />
+						</TooltipTrigger>
+						<TooltipContent side="top">{label}</TooltipContent>
+					</Tooltip>
+				))}
+			</FluidActionList>
+		</div>
 	);
 }

@@ -6,6 +6,7 @@ import {
   desktopPlatformUpdateFeedUrl,
   desktopUpdaterFeedSchemaForPlatform,
 } from "@openmeld/schemas";
+import { CancellationToken } from "builder-util-runtime";
 import type { MacUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
 import { assertMacUpdateBundlePath } from "./mac-bundle-path";
 import { describeUpdateFailure } from "./update-failure-diagnostic";
@@ -67,12 +68,25 @@ export function createAppUpdater(input: {
   });
   let state: DesktopUpdaterState = {
     status: "idle",
+    canCancelDownload: true,
     currentVersion: input.currentVersion,
     version: null,
     percent: null,
     errorStage: null,
   };
   let operation: Promise<void> | null = null;
+  let downloadAttempt: { token: CancellationToken; stalled: boolean } | null =
+    null;
+  let progressTimer: ReturnType<typeof setTimeout> | undefined;
+  const watchProgress = () => {
+    clearTimeout(progressTimer);
+    progressTimer = setTimeout(() => {
+      if (downloadAttempt && state.status === "downloading") {
+        downloadAttempt.stalled = true;
+        downloadAttempt.token.cancel();
+      }
+    }, 90_000);
+  };
   let verifiedDownload = false;
   let downloadedVersion: string | null = null;
   const publish = (patch: Partial<DesktopUpdaterState>) => {
@@ -100,6 +114,9 @@ export function createAppUpdater(input: {
     publish({ status: "error", errorStage: stage, percent: null });
   };
   updater.on("error", (error) => {
+    if (downloadAttempt?.token.cancelled) {
+      return;
+    }
     let stage: NonNullable<DesktopUpdaterState["errorStage"]> = "check";
     if (state.status === "installing" || state.errorStage === "install") {
       stage = "install";
@@ -114,10 +131,23 @@ export function createAppUpdater(input: {
   });
   updater.on("download-progress", ({ percent }) => {
     if (state.status === "downloading") {
+      if (downloadAttempt?.token.cancelled) {
+        return;
+      }
+      if (percent > (state.percent ?? 0)) {
+        watchProgress();
+      }
+      if (percent >= 100) {
+        clearTimeout(progressTimer);
+      }
       publish({ percent: Math.min(100, Math.max(0, percent)) });
     }
   });
   updater.on("update-downloaded", (event) => {
+    if (downloadAttempt?.token.cancelled) {
+      return;
+    }
+    clearTimeout(progressTimer);
     if (state.status === "installing" || state.errorStage === "install") {
       return;
     }
@@ -157,7 +187,28 @@ export function createAppUpdater(input: {
       return;
     }
     publish({ status: "downloading", errorStage: null, percent: 0 });
-    await updater.downloadUpdate();
+    const attempt = { token: new CancellationToken(), stalled: false };
+    downloadAttempt = attempt;
+    watchProgress();
+    try {
+      await updater.downloadUpdate(attempt.token);
+    } catch (error) {
+      if (!attempt.token.cancelled) {
+        throw error;
+      }
+      if (attempt.stalled) {
+        throw Object.assign(
+          new Error("Update download stopped making progress."),
+          {
+            code: "ERR_UPDATER_DOWNLOAD_STALLED",
+          }
+        );
+      }
+      publish({ status: "available", percent: null, errorStage: null });
+    } finally {
+      clearTimeout(progressTimer);
+      downloadAttempt = null;
+    }
   };
   const restart = async () => {
     if (!verifiedDownload || state.status === "installing") {
@@ -180,6 +231,12 @@ export function createAppUpdater(input: {
   return {
     snapshot: () => state,
     act(action: DesktopUpdaterAction): Promise<void> {
+      if (action === "cancel") {
+        if (state.status === "downloading") {
+          downloadAttempt?.token.cancel();
+        }
+        return operation ?? Promise.resolve();
+      }
       if (
         operation ||
         state.status === "installing" ||

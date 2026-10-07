@@ -2109,9 +2109,11 @@ exit unsuccessfully; discovery and confirmation are not successful execution.
 ## Read authorized session history
 
 `openmeld activity history --device <id> --lane <lane> --project-id <id>
---session <native-session-id> [--offset <n>] [--limit <n>] --json` reads bounded
-Codex messages from a connected Computer. Select IDs from current Computer and
+--session <native-session-id> [--provider codex|claude-code|opencode|grok-build]
+[--offset <n>] [--limit <n>] --json` reads bounded
+local agent messages from a connected Computer. Omitted provider means Codex.
+Select IDs and provider from current Computer and
 Activity inventory, not guessed paths. The Computer owner enables access for
-the connected Project and reader on the Computer page. A Wake uses its admitted
+the connected Project on the Computer page. A Wake uses its admitted
 Agent identity and execution proof; missing proof cannot fall back to a human
 caller. The command does not resume the source session or persist its messages.

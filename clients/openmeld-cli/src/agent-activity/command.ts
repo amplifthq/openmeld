@@ -5,14 +5,11 @@ import {
   createSessionHistoryApi,
 } from "@openmeld/api-client";
 import {
-  agentActivityInventorySessionOriginSchema,
-  agentActivityInventorySessionStatusSchema,
   agentActivitySessionInventoryQuerySchema,
   agentActivitySessionStatusSchema,
   agentActivitySnapshotQuerySchema,
   cliJsonOutputEnvelopeSchema,
   daemonServiceLaneSchema,
-  localAgentSessionProviderSchema,
   sessionHistoryReadSchema,
   sessionHistoryResultSchema,
 } from "@openmeld/schemas";
@@ -72,6 +69,7 @@ export async function runAgentActivityHistory(
     lane: string;
     projectId: string;
     session: string;
+    provider?: string;
     offset?: string;
     limit?: string;
   }
@@ -81,6 +79,7 @@ export async function runAgentActivityHistory(
       operation: "read_session",
       projectId: input.projectId,
       sessionId: input.session,
+      provider: input.provider,
       offset: Number(input.offset ?? 0),
       limit: Number(input.limit ?? 20),
     });
@@ -186,6 +185,7 @@ export async function runAgentActivityRead(
 
 export async function runAgentActivitySessions(
   input: CommandInput & {
+    computer?: string;
     cursor?: string;
     limit?: string;
     member?: string;
@@ -210,33 +210,16 @@ export async function runAgentActivitySessions(
     }
     const response = await context.activityApi.readSessions(
       agentActivitySessionInventoryQuerySchema.parse({
-        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-        ...(input.limit === undefined ? {} : { limit: input.limit }),
-        ...(input.member === undefined ? {} : { memberUserId: input.member }),
-        ...(input.nativeSession === undefined
-          ? {}
-          : { nativeSessionId: input.nativeSession }),
-        ...(input.origin === undefined
-          ? {}
-          : {
-              origin: agentActivityInventorySessionOriginSchema.parse(
-                input.origin
-              ),
-            }),
-        ...(projectId === undefined ? {} : { projectId }),
-        ...(input.provider === undefined
-          ? {}
-          : {
-              provider: localAgentSessionProviderSchema.parse(input.provider),
-            }),
-        ...(input.query === undefined ? {} : { query: input.query }),
-        ...(input.status === undefined
-          ? {}
-          : {
-              status: agentActivityInventorySessionStatusSchema.parse(
-                input.status
-              ),
-            }),
+        computerId: input.computer,
+        cursor: input.cursor,
+        limit: input.limit,
+        memberUserId: input.member,
+        nativeSessionId: input.nativeSession,
+        origin: input.origin,
+        projectId,
+        provider: input.provider,
+        query: input.query,
+        status: input.status,
       })
     );
     requireOrganizationIdentity(

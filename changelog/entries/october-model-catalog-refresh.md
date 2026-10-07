@@ -1,5 +1,8 @@
 ---
 id: october-model-catalog-refresh
+publishedAt: 2026-10-07
+release: v0.3.247
+evidence: ["pr:1567", "pr:1568", "workflow:37607115073"]
 title: Choose Exo Free and Mistral Large 4 for OpenCode
 kind: new
 areas: ["agent-profiles"]

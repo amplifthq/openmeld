@@ -9,16 +9,15 @@ import {
 import { modelBrandName } from "#/components/models/model-brand";
 
 export const usageNumber = new Intl.NumberFormat("en-US");
+const money = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 4,
+});
 export function usageMoney(nanoUsd: number) {
 	const usd = nanoUsd / 1_000_000_000;
-	return usd > 0 && usd < 0.0001
-		? "<$0.0001"
-		: new Intl.NumberFormat("en-US", {
-				style: "currency",
-				currency: "USD",
-				minimumFractionDigits: 2,
-				maximumFractionDigits: 4,
-			}).format(usd);
+	return usd > 0 && usd < 0.0001 ? "<$0.0001" : money.format(usd);
 }
 export function usageModel(model: string | null, catalog?: ModelCatalog) {
 	const name =

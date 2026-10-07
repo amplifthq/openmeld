@@ -1109,6 +1109,16 @@ have not been published or admitted as Wakes yet. They remain editable pending
 Space input until ordinary publication or an explicit Steer consumes them.
 Different Agent Profiles remain independently admissible and may work in parallel.
 
+Composer follow-ups attach only to one confirmed active response started by the
+current author in the same discussion. Another member's request is published as
+independent work; it must not enter that author's pending-input queue or steer
+their turn. Send now applies an input to the exact running turn. It is disabled
+while that response is starting, queued, waiting for another app, or waiting for
+an interaction. It does not publish another Wake or grant scheduling priority.
+Provider occupancy is labeled `Waiting for another app`; Coordinator admission
+waiting keeps `Waiting for earlier tasks`. A conversation fork does not grant
+another requester access to its history or bypass a shared-folder writer lock.
+
 For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
 native conversation model. The primary Binding still owns the connection and
 launch settings. Migration freezes a finite legacy boundary, preserves accepted
@@ -1288,6 +1298,54 @@ settings save before changing the preference; ordinary Wakes keep using the
 unchanged fast path.
 
 ## Agent Profile Operational Context
+
+The Space composer also consumes this existing owner projection for paused work
+in the current Space. It places the existing continuation/skip confirmation beside
+pending inputs in the same tray. Sorting, Send now, editing, and deletion retain
+their existing controls. The original requester can also skip their own paused
+work when the recovery gate contains only that requester's execution context.
+They can fork a read-only or Space-only context without inherited permission
+overrides. Mixed-context gates, legacy work without a verifiable requester,
+and shared write permissions retain owner-only recovery. The owner shard
+rechecks this scope when authorizing the operation. A task in another Space
+is not presented as this conversation's interrupted work.
+
+Text follow-ups to the sender's one active response enter the composer Queue,
+including while the first send is being confirmed. Queue intake can resolve
+the original client-message identity into the exact dispatch; it never invents
+a second execution. Send now requires a running execution and an acknowledged
+steering receipt. When multiple responses belong to the sender, Reply to the
+original request selects the target. Another person's request remains independent.
+In a shared Space, an explicit Agent mention or Reply to the original request
+selects the follow-up target; ordinary messages to people do not enter its Queue.
+Queue ordering and uncertain-delivery holds apply to the same task chain, not
+every task assigned to that Agent. A failed task cannot block another member's
+independent Queue.
+
+After the existing occupied-conversation waiting period, fresh available Usage
+reports may trigger one automatic native fork for Codex work that never began a
+turn. This is limited to automatically selected, explicitly read-only or
+Space-only contexts. Writable tasks, inherited unrestricted permissions,
+explicit source selections, and already forked contexts keep manual recovery.
+The continuation still waits for the original local attempt's withdrawal and
+uses the verified completed-history cutoff. Missing evidence never grants a retry.
+
+On fork continuation, untouched pending inputs from the original source author
+follow the replacement in their existing order. They keep their input identities.
+Claimed, delivered, rejected, or uncertain inputs retain their original delivery
+records; they are not replayed. Send now resolves a fresh execution binding before
+the first delivery to a successor. A continuation is not a file rollback or a
+promise that another app has stopped modifying shared files.
+After the branch succeeds, its follow-ups continue without a second confirmation
+when no unrelated work is held. Other held work still needs owner approval.
+
+Legacy Binding-only conversations without a retained per-Wake context offer Skip,
+not a fork that cannot verify its source. A previously authorized legacy fork
+that never acquired a context can also be skipped. A new task establishes the
+context required for later branch recovery. Continuations validate the original
+recipient against the retained dispatch and exact source-message identity.
+Implicitly addressed messages do not require an explicit Wake chip; the original
+recipient is not recomputed from current Space membership.
 
 Agent Profile Operational Context is the read projection that composes Agent
 Profile identity, Wakeability, current workload, applied execution settings,

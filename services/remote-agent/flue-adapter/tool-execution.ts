@@ -110,6 +110,7 @@ export async function executeRemoteAgentToolDefinition(input: {
     await recordRemoteAgentToolResultProgress({
       attempt,
       result,
+      progressValue: input.definition.progressValue,
       storage: input.storage,
       submissionId: input.submissionId,
     });

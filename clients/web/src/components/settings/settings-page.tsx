@@ -1,5 +1,7 @@
+import { Button } from "@openmeld/ui/components/button";
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -7,8 +9,9 @@ import {
 	type SettingsSectionDef,
 	toSettingsNavItems,
 } from "@openmeld/ui/lib/settings-contract";
+import { ArrowsOutIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { redirect } from "@tanstack/react-router";
+import { Link, redirect } from "@tanstack/react-router";
 import { type ReactNode, Suspense, useEffect, useState } from "react";
 import {
 	AppContextualContentFrame,
@@ -192,6 +195,29 @@ function SettingsPageShell(input: {
 				<SettingsDialogContent
 					contentKey={input.activeSectionId}
 					description="Manage your account and organization preferences."
+					headerActions={
+						input.activeSection.to ? (
+							<TooltipHint content="Open settings page">
+								<Button
+									aria-label="Open settings page"
+									nativeButton={false}
+									render={
+										<Link
+											replace
+											search={({ usageScope }) =>
+												input.activeSectionId === "usage" ? { usageScope } : {}
+											}
+											to={input.activeSection.to}
+										/>
+									}
+									size="icon-sm"
+									variant="ghost"
+								>
+									<ArrowsOutIcon aria-hidden="true" />
+								</Button>
+							</TooltipHint>
+						) : undefined
+					}
 					navigation={navigation}
 					spacious
 					title="App settings"

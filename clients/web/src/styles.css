@@ -103,7 +103,27 @@ html[data-space-conversation-layout="centered"]
 
 [data-space-conversation-content-width] {
   width: 100%;
+}
+
+[data-space-conversation-content-width],
+.space-conversation-inline-padding {
   padding-inline: var(--space-conversation-inline-padding);
+}
+
+html[data-space-conversation-layout="full-width"] {
+  --space-conversation-inline-padding: 0.5rem;
+}
+
+/* Desk windows keep their own frame, independently of the page preference. */
+[data-desk-space-window] {
+  --space-conversation-inline-padding: 1rem;
+}
+
+/* Full-width rows use the content frame's inset once, including in Threads. */
+html[data-space-conversation-layout="full-width"]
+  #space-thread-panel:not([data-desk-space-window] #space-thread-panel)
+  [data-message-row-id] {
+  padding-inline: 0;
 }
 
 /* Thread covers only the main conversation. Other side panels stay available. */
@@ -640,17 +660,25 @@ html[data-space-conversation-layout] [data-desk-space-window]
     }
   }
 }
-/* Reserve the rail lane before its directory loads. Appearance is restored
-   before hydration, so an off preference does not briefly move messages. */
+/* Reserve a lane only for a visible history rail. The preference is restored
+   before hydration, so hidden or unavailable rails do not move messages. */
 @media (min-width: 640px) {
+  [data-space-history-rail="true"] {
+    --space-history-rail-width: 2.25rem;
+  }
   html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
-    width: calc(100% - 2.75rem);
-    margin-inline-start: 2.75rem;
+    width: calc(100% - var(--space-history-rail-width));
+    margin-inline-start: var(--space-history-rail-width);
   }
   html[data-space-conversation-layout="centered"]:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     margin-inline: auto;
     position: relative;
-    inset-inline-start: min(1.375rem, max(0px, calc((var(--space-conversation-centered-max-width) + 2.75rem - 100%) / 2)));
+    inset-inline-start: min(calc(var(--space-history-rail-width) / 2), max(0px, calc((var(--space-conversation-centered-max-width) + var(--space-history-rail-width) - 100%) / 2)));
+  }
+}
+@media (min-width: 640px) and (pointer: fine) {
+  html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+    padding-inline-start: .25rem;
   }
 }
 .space-history-navigation {
@@ -659,7 +687,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
   inset-inline-start: .5rem;
   top: 50%;
   translate: 0 -50%;
-  width: 2.25rem;
+  width: 1.75rem;
   max-height: 60%;
 }
 .space-history-ticks { display: flex; flex-direction: column; height: 100%; }
@@ -668,7 +696,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
   padding: 0 .25rem; cursor: pointer; outline-offset: 2px;
 }
 .space-history-dash {
-  display: block; width: 1.75rem; height: 2px;
+  display: block; width: 1.25rem; height: 2px;
   background: var(--muted-foreground); opacity: .45; transform-origin: left; transform: scaleX(.25);
 }
 .space-history-tick[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
@@ -683,6 +711,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
   .space-history-preview { animation: none !important; }
 }
 @media (pointer: coarse) {
+  [data-space-history-rail="true"] { --space-history-rail-width: 3.25rem; }
   .space-history-navigation { top: 3.5rem; bottom: auto; height: auto !important; translate: none; }
   .space-history-touch-trigger { display: grid; place-items: center; width: 44px; height: 44px; }
   .space-history-ticks { display: none; }

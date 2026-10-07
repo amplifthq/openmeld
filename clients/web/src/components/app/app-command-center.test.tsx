@@ -1,7 +1,7 @@
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AppCommandCenter } from "./app-command-center";
 
 const navigate = vi.fn();
@@ -37,9 +37,6 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("next-themes", () => ({
 	useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }),
 }));
-vi.mock("#/components/spaces/new-chat-dialog", () => ({
-	NewChatDialog: () => null,
-}));
 vi.mock("../organizations/center-agent-chat-avatar", () => ({
 	CenterAgentChatAvatar: () => <span>Agent</span>,
 }));
@@ -58,17 +55,20 @@ afterEach(() => {
 	localStorage.clear();
 	vi.clearAllMocks();
 });
-it("finds Spaces and direct-message sessions by their sidebar titles and opens the exact conversation", async () => {
+beforeEach(() => {
 	// jsdom does not implement the browser scrolling API used by cmdk.
 	Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 		configurable: true,
 		value: vi.fn(),
 	});
+});
+
+it("finds Spaces and direct-message sessions by their sidebar titles and opens the exact conversation", async () => {
 	navigate.mockResolvedValue(undefined);
 	render(
 		<QueryClientProvider client={new QueryClient()}>
 			<TooltipProvider>
-				<AppCommandCenter />
+				<AppCommandCenter onNewMessage={vi.fn()} />
 			</TooltipProvider>
 		</QueryClientProvider>
 	);
@@ -87,4 +87,19 @@ it("finds Spaces and direct-message sessions by their sidebar titles and opens t
 	expect(navigate).toHaveBeenCalledWith({
 		to: "/o/test/chats/center-agent?session=agent",
 	});
+});
+
+it("closes command search and hands New message to the shared dialog owner", async () => {
+	const onNewMessage = vi.fn();
+	render(
+		<QueryClientProvider client={new QueryClient()}>
+			<TooltipProvider>
+				<AppCommandCenter onNewMessage={onNewMessage} />
+			</TooltipProvider>
+		</QueryClientProvider>
+	);
+	fireEvent.keyDown(window, { key: "k", metaKey: true });
+	fireEvent.click(await screen.findByRole("option", { name: "New message" }));
+	expect(onNewMessage).toHaveBeenCalledOnce();
+	expect(screen.queryByRole("combobox")).toBeNull();
 });

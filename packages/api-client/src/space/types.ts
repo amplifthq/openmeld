@@ -263,6 +263,7 @@ export type SpaceApi = {
       includeAgentReadiness?: boolean;
       historyQuery?: SpaceSignalsReadQuery;
       includeAgentStreamPresence?: boolean;
+      includeAgentStreamRecovery?: boolean;
     }
   ) => Promise<SpaceBootstrapResponse>;
   getStatus: (input: SpaceRequestInput) => Promise<GetSpaceStatusResponse>;

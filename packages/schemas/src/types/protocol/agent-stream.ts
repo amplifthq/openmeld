@@ -26,6 +26,10 @@ export type SpaceAgentStreamPresence = z.infer<SpaceAgentStreamPresenceSchema>;
 export type SpaceAgentStreamDeltaFrame =
   z.infer<SpaceAgentStreamDeltaFrameSchema>;
 export type AgentStreamToolPart = z.infer<AgentStreamToolPartSchema>;
+export type AgentStreamRecoveryPart = z.infer<
+  typeof import("../../schemas/protocol/agent-stream")["agentStreamRecoveryPartSchema"]
+>;
+export type AgentStreamPart = SpaceAgentStreamPartFrame["part"];
 export type AgentWorkActivity = NonNullable<AgentStreamToolPart["work"]>;
 export type SpaceAgentActivity = z.infer<SpaceAgentActivitySchema>;
 export type SpaceAgentStreamPartFrame =

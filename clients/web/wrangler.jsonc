@@ -126,6 +126,7 @@
       },
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
+        "OPENMELD_DESKTOP_DOWNLOAD_ORIGIN": "https://downloads.openmeld.ai",
         "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",
         "WEB_APP_URL": "https://app.openmeld.ai",
         "AUTH_DESKTOP_DEVELOPMENT_TARGET": "",

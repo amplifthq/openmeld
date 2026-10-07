@@ -149,6 +149,16 @@ describe("local service dispatch bootstrap prompt", () => {
         "within the current permissions and execution mode"
       );
       expect(instructions).toContain("Keep separate assignments separate");
+      expect(instructions).toContain(
+        "promptly use report_progress when available"
+      );
+      expect(instructions).toContain(
+        "Private commentary does not reach the Space"
+      );
+      expect(instructions).toContain("Do not repeat an unchanged blocker");
+      expect(instructions).toContain(
+        "use the required completion action to report what remains blocked"
+      );
     }
     expect(plan.userPrompt).not.toContain("OpenMeld Wake workflow:");
     expect(plan.developerInstructions).not.toContain(input.prompt);

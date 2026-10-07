@@ -6,11 +6,24 @@ import { centerAgentExecutionInputTargetSchema } from "../protocol/signal";
 const inputId = clientMessageIdSchema;
 const target = centerAgentExecutionInputTargetSchema;
 
+export const spaceInputQueueOptionsSchema = z.strictObject({
+  includeRecovery: z.boolean().optional(),
+});
+export type SpaceInputQueueOptions = z.infer<
+  typeof spaceInputQueueOptionsSchema
+>;
+
 export const spaceInputQueueMutationSchema = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("enqueue"),
     inputId,
-    target,
+    target: z.union([
+      target,
+      z.strictObject({
+        clientMessageId: clientMessageIdSchema,
+        targetProfileId: z.string().min(1),
+      }),
+    ]),
     text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
   }),
   z.strictObject({ action: z.literal("delete"), inputId }),
@@ -23,6 +36,16 @@ export const spaceInputQueueMutationSchema = z.discriminatedUnion("action", [
 ]);
 
 export const spaceInputQueueResponseSchema = z.strictObject({
+  recoveries: z
+    .array(
+      z.strictObject({
+        targetProfileId: z.string().min(1),
+        profileName: z.string(),
+        action: z.enum(["fork_interrupted_work", "skip_interrupted_work"]),
+        expectedInterruptedTargetWakeLifecycleId: z.string().min(1),
+      })
+    )
+    .optional(),
   items: z.array(
     z.strictObject({
       inputId,
