@@ -26,7 +26,9 @@ import {
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
+import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
@@ -936,27 +938,38 @@ function MemberPreview(input: {
 					</span>
 				)}
 			</PopoverTrigger>
-			<PopoverContent className="w-64 rounded-lg" side="top">
+			<PopoverContent align="start" className="w-64 rounded-lg" side="top">
 				<p className="px-2 font-medium">
 					Members {input.item.activeMemberCount ?? ""}
 				</p>
-				{input.item.memberPreviews?.map((member) => (
-					<Link
-						className="flex items-center gap-3 rounded-md p-2 hover:bg-accent"
-						key={member.profileId}
-						to={buildProfilePath({
-							orgSlug: input.orgSlug,
-							profileId: member.profileId,
-							profileKind: member.profileKind,
-						})}
-					>
-						<SpaceMemberAvatars
-							appearances={input.appearances}
-							members={[member]}
-						/>
-						<span className="min-w-0 truncate">{member.profileName}</span>
-					</Link>
-				))}
+				<FluidNavMenu activeValue={null} aria-label="Space members">
+					{input.item.memberPreviews?.map((member, index) => (
+						<FluidNavMenuItem
+							index={index}
+							key={member.profileId}
+							value={member.profileId}
+						>
+							<SidebarMenuButton
+								className="h-auto gap-3 p-2 text-xs"
+								render={
+									<Link
+										to={buildProfilePath({
+											orgSlug: input.orgSlug,
+											profileId: member.profileId,
+											profileKind: member.profileKind,
+										})}
+									/>
+								}
+							>
+								<SpaceMemberAvatars
+									appearances={input.appearances}
+									members={[member]}
+								/>
+								<span className="min-w-0 truncate">{member.profileName}</span>
+							</SidebarMenuButton>
+						</FluidNavMenuItem>
+					))}
+				</FluidNavMenu>
 				{(input.item.activeMemberCount ?? 0) >
 					(input.item.memberPreviews?.length ?? 0) && (
 					<Link
