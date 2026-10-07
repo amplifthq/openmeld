@@ -16,4 +16,7 @@ export type SpaceStorageUsage = z.infer<SpaceStorageUsageSchema>;
 export type SpaceOrganizationVisibility =
   z.infer<SpaceOrganizationVisibilitySchema>;
 export type SpaceMeta = z.infer<SpaceMetaSchema>;
+export type SpaceEntryAccessResponse = z.infer<
+  typeof import("../../schemas/http/space-meta")["spaceEntryAccessResponseSchema"]
+>;
 export type PatchSpaceMetaBody = z.infer<PatchSpaceMetaBodySchema>;

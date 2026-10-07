@@ -20,6 +20,8 @@ import {
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportBaseCapabilitiesSchema,
+  SESSION_HISTORY_CAPABILITY_HEADER,
+  SESSION_HISTORY_RUNTIME_CAPABILITY,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import releaseManifestJson from "../../../release/local-components.json";
@@ -67,6 +69,7 @@ async function openDaemonStream(
   ownerUserId: string,
   options?: {
     computerFileAccess?: boolean;
+    sessionHistory?: boolean;
     localFolderPicker?: boolean;
     computerCare?: boolean;
     executionAdmissionConfirmation?: boolean;
@@ -79,6 +82,12 @@ async function openDaemonStream(
     init: {
       headers: {
         Upgrade: "websocket",
+        ...(options?.sessionHistory
+          ? {
+              [SESSION_HISTORY_CAPABILITY_HEADER]:
+                SESSION_HISTORY_RUNTIME_CAPABILITY,
+            }
+          : {}),
         ...(options?.executionAdmissionConfirmation
           ? { [OPENMELD_EXECUTION_ADMISSION_HEADER]: "1" }
           : {}),
@@ -828,6 +837,7 @@ describe("runtime transport lease reconciliation", () => {
     const shard = getRuntimeTransportShard(ownerUserId);
     const socket = await openDaemonStream(ownerUserId, {
       computerFileAccess: true,
+      sessionHistory: true,
       localFolderPicker: true,
       computerCare: true,
       executionAdmissionConfirmation: true,
@@ -865,6 +875,7 @@ describe("runtime transport lease reconciliation", () => {
         expect(
           internal.state.sessionsById.get(daemonSessionId)?.capabilities
         ).toMatchObject({
+          sessionHistory: true,
           computerFileAccess: {
             readPolicy: true,
             updatePolicy: true,
@@ -918,6 +929,9 @@ describe("runtime transport lease reconciliation", () => {
         expect(
           internal.state.sessionsById.get(daemonSessionId)?.capabilities
         ).not.toHaveProperty("computerFileAccess");
+        expect(
+          internal.state.sessionsById.get(daemonSessionId)?.capabilities
+        ).not.toHaveProperty("sessionHistory");
         expect(
           internal.state.sessionsById.get(daemonSessionId)?.capabilities
         ).not.toHaveProperty("localFolderPicker");

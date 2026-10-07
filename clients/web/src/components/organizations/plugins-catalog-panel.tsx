@@ -50,20 +50,10 @@ export function PluginsCatalogPanel(input: {
 			queryClient,
 		})
 	);
-	const connectedServices = new Set<string>();
-	if (connectionsQuery.data) {
-		for (const connection of connectionsQuery.data.connections) {
-			if (
-				connection.status === "active" &&
-				(scope === "organization"
-					? connection.scope === "shared"
-					: connection.scope === "member" &&
-						connection.userId === connectionsQuery.data.currentUserId)
-			) {
-				connectedServices.add(connection.service);
-			}
-		}
-	}
+	const { connectedServices, reconnectServices } = connectionServices(
+		connectionsQuery.data,
+		scope
+	);
 	const connectionStatusIsPending = connectionsQuery.isPending;
 	const visiblePlugins = (
 		providersQuery.data?.providers.map(pluginFromProvider) ?? PLUGINS
@@ -177,6 +167,7 @@ export function PluginsCatalogPanel(input: {
 								connectionStatusIsPending={connectionStatusIsPending}
 								organizationSlug={input.organizationSlug}
 								plugin={plugin}
+								reconnectRequired={reconnectServices.has(plugin.service)}
 								scope={scope}
 							/>
 						</FluidCardItem>
@@ -204,7 +195,35 @@ export function PluginsCatalogPanel(input: {
 	);
 }
 
+function connectionServices(
+	connections:
+		| import("@openmeld/schemas/types").ConnectorConnectionListResponse
+		| undefined,
+	scope: "personal" | "organization"
+) {
+	const connectedServices = new Set<string>();
+	const reconnectServices = new Set<string>();
+	if (connections) {
+		for (const connection of connections.connections) {
+			if (
+				connection.status === "active" &&
+				(scope === "organization"
+					? connection.scope === "shared"
+					: connection.scope === "member" &&
+						connection.userId === connections.currentUserId)
+			) {
+				connectedServices.add(connection.service);
+				if (connection.health?.state === "reconnect_required") {
+					reconnectServices.add(connection.service);
+				}
+			}
+		}
+	}
+	return { connectedServices, reconnectServices };
+}
+
 function PluginCatalogCard(input: {
+	reconnectRequired?: boolean;
 	plugin: PluginDefinition;
 	connected: boolean | undefined;
 	connectionStatusIsPending: boolean;
@@ -239,6 +258,7 @@ function PluginCatalogCard(input: {
 						connected={input.connected}
 						loading={input.connectionStatusIsPending}
 						plugin={input.plugin}
+						reconnectRequired={input.reconnectRequired}
 					/>
 				</span>
 				<CaretRightIcon
@@ -257,6 +277,7 @@ function PluginCatalogCard(input: {
 }
 
 export function PluginStatusBadge(input: {
+	reconnectRequired?: boolean;
 	plugin: PluginDefinition;
 	connected?: boolean;
 	loading?: boolean;
@@ -277,6 +298,9 @@ export function PluginStatusBadge(input: {
 			/>
 		);
 	}
+	if (input.reconnectRequired) {
+		return <Badge variant="outline">Reconnect required</Badge>;
+	}
 	if (!input.connected) {
 		return input.connected === false ? (
 			<span className="text-muted-foreground text-xs">Not connected</span>
@@ -284,7 +308,7 @@ export function PluginStatusBadge(input: {
 	}
 	return (
 		<Badge className={resolveStatusToneProminentBadgeClassName("ready")}>
-			Connected
+			Account connected
 		</Badge>
 	);
 }

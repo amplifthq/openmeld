@@ -121,5 +121,22 @@ describe("agent interaction contracts", () => {
         },
       }).success
     ).toBe(false);
+    const response = {
+      kind: "permission",
+      optionId: "accept",
+      permissionModeUpdate: {
+        bindingId: "binding-1",
+        mode: "codex:approveForMe",
+      },
+    };
+    expect(
+      agentInteractionResolutionSchema.safeParse({ request, response }).success
+    ).toBe(false);
+    expect(
+      agentInteractionResolutionSchema.safeParse({
+        request: { ...request, supportsPermissionModeUpdate: true },
+        response,
+      }).success
+    ).toBe(true);
   });
 });

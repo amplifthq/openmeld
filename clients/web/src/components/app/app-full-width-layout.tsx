@@ -26,6 +26,7 @@ export function AppFullWidthLayout(input: {
 	globalControls?: AppGlobalControlsProps;
 	initialInnerSidebarState?: SidebarPersistedState;
 	initialOuterSidebarState?: SidebarPersistedState;
+	defaultModuleSidebarOpen?: boolean;
 	mainHeader?: ReactNode;
 	mainSidebarContent?: ReactNode;
 	mobileSidebarTitle?: string;
@@ -43,6 +44,7 @@ export function AppFullWidthLayout(input: {
 	}
 	return (
 		<AppSurfaceLayout
+			defaultModuleSidebarOpen={input.defaultModuleSidebarOpen}
 			frameSlotName="app-full-width-layout"
 			globalControls={<AppGlobalControls {...input.globalControls} />}
 			initialModuleSidebarState={input.initialOuterSidebarState}

@@ -7,12 +7,14 @@ import {
 import { modelRetirementNoticeSchema } from "../../src/schemas/config/model-catalog";
 import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
+import cursorOctoberReviewCapture from "../fixtures/cursor-model-catalog-2026.10.07.json";
 import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22.json";
 import octoberModelCatalogCapture from "../fixtures/local-model-catalog-2026.10.01.json";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
 import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
 import openCodeOctoberCapture from "../fixtures/opencode-model-catalog-1.18.34.json";
 import openCodeReviewCapture from "../fixtures/opencode-model-catalog-2026.10.06.json";
+import openCodeLatestReviewCapture from "../fixtures/opencode-model-catalog-2026.10.07.json";
 
 describe("model catalog schema", () => {
   it.each([
@@ -142,6 +144,44 @@ describe("model catalog schema", () => {
       expect(modelCatalogSchema.safeParse(catalog).success).toBe(false);
     }
   });
+  it("preserves the October 7 native model IDs and provider variant keys", () => {
+    const { agentControllers } = modelCatalogSchema.parse(vendorModelCatalog);
+    for (const model of openCodeLatestReviewCapture.models) {
+      expect(agentControllers.opencode?.models).toContainEqual(
+        expect.objectContaining({
+          id: `${model.providerID}/${model.id}`,
+          unavailable: false,
+          supportedReasoningLevels: Object.keys(model.variants),
+        })
+      );
+    }
+    for (const model of cursorOctoberReviewCapture.availableModels) {
+      expect(cursorOctoberReviewCapture.configOptions).toContainEqual({
+        value: model.modelId,
+        name: model.name,
+      });
+      expect(agentControllers.cursor?.models).toContainEqual(
+        expect.objectContaining({
+          id: model.modelId,
+          unavailable: false,
+          supportedReasoningLevels: [],
+        })
+      );
+    }
+    expect(
+      Object.values(agentControllers)
+        .flatMap((controller) =>
+          controller.models
+            .filter((model) => model.badgeLabel)
+            .map((model) => model.id)
+        )
+        .toSorted()
+    ).toEqual([
+      "opencode/exo-free",
+      "opencode/fledge-alpha-free",
+      "opencode/mistral-large-4",
+    ]);
+  });
   it("accepts the release vendor model catalog", () => {
     const result = modelCatalogSchema.safeParse(vendorModelCatalog);
 
@@ -220,7 +260,7 @@ describe("model catalog schema", () => {
       }
 
       for (const [id, displayName, minCliVersion, badgeLabel] of [
-        ["claude-sonnet-5-5", "Claude Sonnet 5.5", "2.1.284", "New"],
+        ["claude-sonnet-5-5", "Claude Sonnet 5.5", "2.1.284", null],
         ["claude-opus-5-5", "Claude Opus 5.5", "2.1.280", null],
         ["claude-fable-5-1", "Claude Fable 5.1", "2.1.257", null],
         ["claude-fable-5", "Claude Fable 5", "2.1.170", null],
@@ -329,7 +369,7 @@ describe("model catalog schema", () => {
           "opencode/longcat-2.5-preview-free",
           "OpenCode LongCat 2.5 Preview Free",
           ["low", "medium", "high"],
-          "New",
+          null,
         ],
         [
           "opencode/space-bunny-free",

@@ -16,11 +16,11 @@ import {
 	AgentProfileEditDialogController,
 } from "#/components/agents/agent-profile-edit-dialog-controller";
 import type {
-	SpaceAgentPermissionModeShortcut,
+	SpaceAgentPermissionModeOption,
 	SpaceAgentPermissionModeUpdateHandler,
 } from "./space-agent-interaction-card";
 import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
-import { resolveSpacePermissionModeShortcut } from "./space-pending-agent-action-model";
+import { resolveSpacePermissionModeOptions } from "./space-pending-agent-action-model";
 import type { SpacePendingAgentActions } from "./space-pending-agent-actions";
 
 type PendingAgentActionSurfaceProps = Omit<
@@ -57,9 +57,9 @@ export function useSpacePendingAgentActions(input: {
 		() => new Set(editableAgentProfilesById.keys()),
 		[editableAgentProfilesById]
 	);
-	const permissionModeShortcutsByProfileId = useMemo(
+	const permissionModeOptionsByProfileId = useMemo(
 		() =>
-			buildSpacePermissionModeShortcuts({
+			buildSpacePermissionModeOptions({
 				agents: input.membersSnapshot?.agents,
 				editableAgentProfileIds,
 			}),
@@ -76,15 +76,19 @@ export function useSpacePendingAgentActions(input: {
 	const onPermissionModeUpdate:
 		| SpaceAgentPermissionModeUpdateHandler
 		| undefined = input.agentProfileEditContext
-		? ({ permissionMode, profileId }) => {
+		? async ({ permissionMode, profileId }) => {
 				const context = input.agentProfileEditContext;
 				const profile = editableAgentProfilesById.get(profileId);
-				const shortcut = permissionModeShortcutsByProfileId.get(profileId);
+				const modeOption = permissionModeOptionsByProfileId
+					.get(profileId)
+					?.find((option) => option.permissionMode === permissionMode);
 				if (!(context && profile)) {
-					return;
+					throw new Error(
+						"You can no longer edit this Agent's permissions. Refresh and try again."
+					);
 				}
 
-				updateAgentProfileControllerPermissionMode({
+				return await updateAgentProfileControllerPermissionMode({
 					agentControllerPermissionMode: permissionMode,
 					context: {
 						...context,
@@ -92,9 +96,14 @@ export function useSpacePendingAgentActions(input: {
 						queryClient,
 					},
 				})
-					.then(() => {
+					.then((binding) => {
+						if (!binding.bindingId) {
+							throw new Error(
+								"Settings were saved, but OpenMeld could not confirm the updated permissions. Refresh before continuing."
+							);
+						}
 						toast.success(
-							`${shortcut?.label ?? "Permission mode"} saved for ${profile.profileName}.`,
+							`${modeOption?.label ?? "Permission mode"} saved for ${profile.profileName}.`,
 							{
 								description:
 									"It applies after OpenMeld Service syncs. This Wake changes only if the local agent accepts the update live.",
@@ -106,14 +115,18 @@ export function useSpacePendingAgentActions(input: {
 								{ error, permissionMode, profileId }
 							);
 						});
+						return {
+							bindingId: binding.bindingId,
+							mode: permissionMode,
+						};
 					})
 					.catch((error) => {
 						console.error(
-							"The Agent interaction was approved, but its permission mode could not be saved.",
+							"The Agent permission update could not be confirmed; its approval is still pending.",
 							{ error, permissionMode, profileId }
 						);
 						toast.error(
-							`The request was approved, but ${shortcut?.label ?? "the permission mode"} wasn't saved for ${profile.profileName}.`,
+							`Couldn't confirm ${modeOption?.label ?? "the permission mode"} for ${profile.profileName}. The request is still waiting for approval.`,
 							{
 								action: {
 									label: "Edit Agent Profile",
@@ -121,6 +134,7 @@ export function useSpacePendingAgentActions(input: {
 								},
 							}
 						);
+						throw error;
 					});
 			}
 		: undefined;
@@ -128,7 +142,7 @@ export function useSpacePendingAgentActions(input: {
 		items: pendingItems,
 		onPermissionModeUpdate,
 		onRespond: input.onRespond,
-		permissionModeShortcutsByProfileId,
+		permissionModeOptionsByProfileId,
 	};
 
 	return {
@@ -151,24 +165,24 @@ export function useSpacePendingAgentActions(input: {
 	};
 }
 
-function buildSpacePermissionModeShortcuts(input: {
+function buildSpacePermissionModeOptions(input: {
 	agents: SpaceMembersSnapshot["agents"] | undefined;
 	editableAgentProfileIds: ReadonlySet<string>;
-}): ReadonlyMap<string, SpaceAgentPermissionModeShortcut> {
-	const shortcuts = new Map<string, SpaceAgentPermissionModeShortcut>();
+}): ReadonlyMap<string, readonly SpaceAgentPermissionModeOption[]> {
+	const options = new Map<string, readonly SpaceAgentPermissionModeOption[]>();
 	for (const agent of input.agents ?? []) {
 		if (!input.editableAgentProfileIds.has(agent.profileId)) {
 			continue;
 		}
-		const shortcut = resolveSpacePermissionModeShortcut({
+		const choices = resolveSpacePermissionModeOptions({
 			agentControllerPermissionMode: agent.agentControllerPermissionMode,
 			agentControllerRef: agent.agentControllerRef,
 		});
-		if (shortcut) {
-			shortcuts.set(agent.profileId, shortcut);
+		if (choices.length > 0) {
+			options.set(agent.profileId, choices);
 		}
 	}
-	return shortcuts;
+	return options;
 }
 
 function resolveEditingInteractionAgentProfile<T>(input: {

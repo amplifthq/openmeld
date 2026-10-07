@@ -24,6 +24,7 @@ export type SpaceIndexProjectionOutboxSnapshot =
       eventType: "space.message_preview_updated";
       revision: number;
       preview: SpaceMessagePreview;
+      recentPreviews?: NonNullable<SpaceMessagePreview>[];
     }
   | {
       kind: "active";

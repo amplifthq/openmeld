@@ -14,7 +14,7 @@ export async function backfillSpaceMessagePreviews(
     space_id: string;
   }>({
     text: `SELECT space_id FROM "openmeld"."space_index_spaces"
-    WHERE status = 'active' AND message_preview_revision IS NULL
+    WHERE status = 'active' AND (message_preview_revision IS NULL OR recent_message_previews_json IS NULL)
     AND (message_preview_attempted_at_ms IS NULL OR message_preview_attempted_at_ms < $1)
     ORDER BY message_preview_attempted_at_ms, space_id LIMIT 10`,
     values: [nowMs - 300_000],

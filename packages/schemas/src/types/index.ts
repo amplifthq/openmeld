@@ -97,6 +97,7 @@ export type * from "./agent-view/index";
 export type * from "./common/index";
 export type * from "./config/index";
 export type * from "./daemon/index";
+export * from "./daemon/session-history";
 export type * from "./db/index";
 export type * from "./eval-report";
 export type * from "./http/index";

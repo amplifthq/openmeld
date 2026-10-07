@@ -191,6 +191,7 @@ function buildLocalServiceCapabilityHeaders(input: {
       : {}),
     [OPENMELD_RUNTIME_CAPABILITIES_HEADER]:
       COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+    [SESSION_HISTORY_CAPABILITY_HEADER]: SESSION_HISTORY_RUNTIME_CAPABILITY,
   };
 }
 
@@ -1616,3 +1617,8 @@ function resolveConnectingReason(
 ): "reconnecting" | null {
   return reconnectAttempt > 0 ? "reconnecting" : null;
 }
+
+import {
+  SESSION_HISTORY_CAPABILITY_HEADER,
+  SESSION_HISTORY_RUNTIME_CAPABILITY,
+} from "@openmeld/schemas";

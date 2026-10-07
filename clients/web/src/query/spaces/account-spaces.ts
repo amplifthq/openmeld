@@ -1,3 +1,4 @@
+import { normalizeMessagePreview } from "@openmeld/protocol";
 import {
 	ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS,
 	sanitizeSignalTextPreview,
@@ -71,7 +72,9 @@ export function updateAccountSpaceAcceptedMessage(
 						profileId: signal.profile.profileId,
 						timestamp: signal.ts,
 						text: (
-							sanitizeSignalTextPreview(signal.data.text) ?? "Message"
+							sanitizeSignalTextPreview(
+								normalizeMessagePreview(signal.data.text)
+							) ?? "Message"
 						).slice(0, 240),
 					})
 				: current

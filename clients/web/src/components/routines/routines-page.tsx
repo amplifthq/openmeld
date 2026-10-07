@@ -13,6 +13,7 @@ import {
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import { PageToolbar } from "@openmeld/ui/components/page-toolbar";
+import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
 import {
 	Table,
 	TableBody,
@@ -206,8 +207,8 @@ function RoutinesContent(input: {
 					value={scope}
 				>
 					<TabsList aria-label="Routine visibility" className="w-fit">
-						<TabItem label="Personal" value="personal" />
 						<TabItem label="Team" value="team" />
+						<TabItem label="Personal" value="personal" />
 					</TabsList>
 				</Tabs>
 				<div className="flex items-center gap-1">
@@ -235,9 +236,7 @@ function RoutinesContent(input: {
 				</div>
 			</PageToolbar>
 			{list.isPending ? (
-				<output className="py-10 text-muted-foreground text-sm">
-					Loading routines…
-				</output>
+				<SkeletonTable columns={4} label="Loading routines" />
 			) : null}
 			{list.isError ? (
 				<div className="text-sm" role="alert">

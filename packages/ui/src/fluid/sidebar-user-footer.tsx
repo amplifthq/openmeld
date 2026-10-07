@@ -20,6 +20,7 @@ type SidebarUserMenuProps = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   triggerLabel?: string;
+  triggerClassName?: string;
 };
 
 export function SidebarUserMenuItem({
@@ -45,7 +46,8 @@ export function SidebarUserMenuItem({
               }
               className={cn(
                 "h-8 gap-1.5",
-                props.iconOnly && "size-9 justify-center px-0"
+                props.iconOnly && "size-9 justify-center px-0",
+                props.triggerClassName
               )}
               isActive={props.open}
               tabIndex={0}
@@ -53,7 +55,7 @@ export function SidebarUserMenuItem({
               <span
                 className={cn(
                   "flex shrink-0 items-center justify-center",
-                  props.iconOnly ? "size-9" : "size-5"
+                  props.iconOnly ? "size-full" : "size-5"
                 )}
               >
                 {props.avatar}

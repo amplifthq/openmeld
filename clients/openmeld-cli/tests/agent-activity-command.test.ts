@@ -31,6 +31,64 @@ const project = {
 };
 
 describe("Agent Activity CLI presentation", () => {
+  it("accepts the bounded history response in the CLI JSON output contract", () => {
+    expect(
+      cliJsonOutputEnvelopeSchema.parse({
+        schemaVersion: 1,
+        type: "activity.history",
+        kind: "session",
+        sessionId: "native-1",
+        requester: {
+          requestRootId: "request-1",
+          ownerUserId: "user-1",
+          requesterUserId: "user-1",
+          readerProfileId: null,
+          delegatorProfileId: null,
+          spaceId: null,
+          audience: "owner_private",
+        },
+        messages: [
+          { role: "user", text: "Why did checkout fail?", truncated: false },
+        ],
+        nextOffset: null,
+        omittedNonMessageItems: true,
+      })
+    ).toMatchObject({
+      type: "activity.history",
+      messages: [{ text: "Why did checkout fail?" }],
+    });
+  });
+
+  it("parses history target without the parent Project filter consuming its ID", async () => {
+    const handlers = createActivityHandlers();
+    const program = new Command().exitOverride();
+    registerAgentActivityCommands(program, handlers);
+    await program.parseAsync([
+      "node",
+      "openmeld",
+      "activity",
+      "history",
+      "--device",
+      "device-1",
+      "--lane",
+      "dev-local",
+      "--project-id",
+      "project-1",
+      "--session",
+      "session-1",
+      "--json",
+    ]);
+    expect(handlers.history).toHaveBeenCalledWith(
+      expect.objectContaining({
+        device: "device-1",
+        lane: "dev-local",
+        projectId: "project-1",
+        session: "session-1",
+        json: true,
+      })
+    );
+  });
+
   it("runs the read operation from both the canonical parent and explicit alias", async () => {
     const canonicalRead = vi.fn(() => Promise.resolve());
     const canonical = createActivityProgram(canonicalRead);
@@ -521,6 +579,7 @@ function createActivityProgram(
 function createActivityHandlers() {
   return {
     context: vi.fn(() => Promise.resolve()),
+    history: vi.fn(async () => undefined),
     health: vi.fn(() => Promise.resolve()),
     hook: vi.fn(() => Promise.resolve()),
     install: vi.fn(() => Promise.resolve()),

@@ -55,6 +55,8 @@ export type SidebarScope = keyof typeof SIDEBAR_STATE_COOKIE_NAMES;
 export type SidebarTier = "expanded" | "icon" | "hidden";
 
 export type SidebarPersistedState = {
+	/** No explicit visibility choice yet; let the surface choose its default. */
+	useRouteDefault?: boolean;
 	/** Expanded Main Sidebar widths keyed by stable navigation destination. */
 	pageWidths?: Readonly<Record<string, string>>;
 	/** Stable machine ids for labeled groups the user has explicitly collapsed. */
@@ -69,8 +71,9 @@ export const SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 };
 
 export const OUTER_SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
+	useRouteDefault: true,
 	width: OUTER_SIDEBAR_DEFAULT_WIDTH,
-	tier: "expanded",
+	tier: "hidden",
 };
 
 export type AppSidebarPersistedStates = {
@@ -210,6 +213,10 @@ export function parseSidebarStateCookieValue(
 		tier: SIDEBAR_TOKEN_TIER[tierPart?.trim() ?? ""] ?? "expanded",
 		width,
 	};
+	if (scope === "outer" && tierPart === "auto") {
+		state.tier = "hidden";
+		state.useRouteDefault = true;
+	}
 	if (collapsedGroupIds.length > 0) {
 		state.collapsedGroupIds = collapsedGroupIds;
 	}
@@ -234,7 +241,11 @@ export function serializeSidebarStateCookieValue(
 	state: SidebarPersistedState,
 	scope: SidebarScope = "inner"
 ): string {
-	const baseValue = `${clampSidebarWidth(state.width, scope)}|${SIDEBAR_TIER_TOKEN[state.tier]}`;
+	const tierToken =
+		scope === "outer" && state.useRouteDefault
+			? "auto"
+			: SIDEBAR_TIER_TOKEN[state.tier];
+	const baseValue = `${clampSidebarWidth(state.width, scope)}|${tierToken}`;
 	const collapsedGroupIds = normalizeCollapsedGroupIds(state.collapsedGroupIds);
 	if (scope === "outer" && state.pageWidths) {
 		const widths = Object.entries(state.pageWidths)
@@ -440,6 +451,9 @@ export function rememberClientSidebarState(
 		return;
 	}
 	clientSidebarStateMemory[scope] = {
+		...(scope === "outer" && state.useRouteDefault
+			? { useRouteDefault: true }
+			: {}),
 		...(scope === "outer" && state.pageWidths
 			? { pageWidths: state.pageWidths }
 			: {}),

@@ -218,7 +218,9 @@ export async function runOpenConnectorAction(input: {
   };
 }
 
-function requireConnectorRuntime(input: ConnectorExecutionConfig | undefined): {
+export function requireConnectorRuntime(
+  input: ConnectorExecutionConfig | undefined
+): {
   baseUrl: string;
   fetch: typeof fetch;
   runtimeToken: string;

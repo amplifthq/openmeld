@@ -3,6 +3,7 @@ import {
   createClaudeCodeAdapter,
 } from "@openmeld/adapter-claude-code";
 import { createCodexAdapter } from "@openmeld/adapter-codex";
+import type { RuntimeAdapter } from "@openmeld/adapter-core";
 import { createOpenCodeAdapter } from "@openmeld/adapter-opencode";
 import {
   createInflightTaskControlRegistry,
@@ -25,7 +26,84 @@ function createDeferred(): {
 }
 
 describe("active permission mode sync", () => {
-  it("keeps the active mode unchanged when the adapter has no live update capability", async () => {
+  it("serializes native writes and reads the newest choice after acknowledgement", async () => {
+    const registry = createInflightTaskControlRegistry();
+    registry.registerTask({
+      adapterId: "codex",
+      taskId: "task",
+      dispatchId: "dispatch",
+      attemptId: "attempt",
+      targetProfileId: "profile",
+      agentControllerPermissionMode: "codex:askForApproval",
+    });
+    const acknowledgement = createDeferred();
+    const updatePermissionMode = vi
+      .fn<NonNullable<RuntimeAdapter["updatePermissionMode"]>>()
+      .mockImplementation(async ({ taskId }) => {
+        await acknowledgement.promise;
+        return {
+          taskId,
+          status: "applied",
+          effectiveFrom: "subsequent_tool_requests",
+        };
+      });
+    const adapter: RuntimeAdapter = {
+      adapterId: "codex",
+      dispatch: vi.fn(),
+      interrupt: vi.fn(),
+      updatePermissionMode,
+    };
+    const catalogState: Parameters<
+      typeof syncActiveTaskPermissionModes
+    >[0]["catalogState"] = {
+      routeByProfileId: new Map([
+        [
+          "profile",
+          {
+            profileId: "profile",
+            agentControllerRef: "builtin:codex",
+            agentControllerPermissionMode: "codex:approveForMe",
+            transportMode: "local-cli",
+            streamingMode: "final",
+            contextIdMappingSpec: {
+              mappingVersion: 1,
+              sourceField: "session_id",
+            },
+          },
+        ],
+      ]),
+    };
+    const input = {
+      catalogState,
+      inflightTaskControlRegistry: registry,
+      localAdapterContainer: createLocalAdapterContainer([
+        { adapter, adapterId: "codex", transportModes: ["local-cli"] },
+      ]),
+    };
+    const first = syncActiveTaskPermissionModes(input);
+    const route = catalogState.routeByProfileId.get("profile");
+    if (!route) {
+      throw new Error("test route is missing");
+    }
+    route.agentControllerPermissionMode = "codex:askForApproval";
+    const second = syncActiveTaskPermissionModes(input);
+    expect(updatePermissionMode).toHaveBeenCalledTimes(1);
+    expect(registry.getTask("task")?.agentControllerPermissionMode).toBe(
+      "codex:askForApproval"
+    );
+    acknowledgement.resolve();
+    await Promise.all([first, second]);
+    expect(
+      updatePermissionMode.mock.calls.map(
+        ([request]) => request.agentControllerPermissionMode
+      )
+    ).toEqual(["codex:approveForMe", "codex:askForApproval"]);
+    expect(registry.getTask("task")?.agentControllerPermissionMode).toBe(
+      "codex:askForApproval"
+    );
+  });
+
+  it("keeps the active mode unchanged without a registered native turn", async () => {
     const inflightTaskControlRegistry = createInflightTaskControlRegistry();
     inflightTaskControlRegistry.registerTask({
       adapterId: "codex",
@@ -40,8 +118,6 @@ describe("active permission mode sync", () => {
 
     const outcomes = await syncActiveTaskPermissionModes({
       catalogState: {
-        fingerprint: "codex-auto",
-        profileIds: ["agt-1"],
         routeByProfileId: new Map([
           [
             "agt-1",
@@ -58,7 +134,6 @@ describe("active permission mode sync", () => {
             },
           ],
         ]),
-        skippedProfiles: [],
       },
       inflightTaskControlRegistry,
       localAdapterContainer: createLocalAdapterContainer([
@@ -74,7 +149,7 @@ describe("active permission mode sync", () => {
       {
         adapterId: "codex",
         agentControllerPermissionMode: "codex:approveForMe",
-        reasonCode: "adapter.permission_mode_update_unsupported",
+        reasonCode: "adapter.task_not_active",
         status: "not_applied",
         targetProfileId: "agt-1",
         taskId: "task-1",
@@ -93,6 +168,8 @@ describe("active permission mode sync", () => {
       const runtime = (async function* () {
         for await (const _message of prompt) {
           // Consume the real SDK prompt before exposing an active query.
+          // The prompt stream stays open for later steering messages.
+          break;
         }
         queryStarted.resolve();
         await releaseQuery.promise;
@@ -148,8 +225,6 @@ describe("active permission mode sync", () => {
     try {
       const outcomes = await syncActiveTaskPermissionModes({
         catalogState: {
-          fingerprint: "claude-auto",
-          profileIds: ["agt-claude-smoke"],
           routeByProfileId: new Map([
             [
               "agt-claude-smoke",
@@ -166,7 +241,6 @@ describe("active permission mode sync", () => {
               },
             ],
           ]),
-          skippedProfiles: [],
         },
         inflightTaskControlRegistry,
         localAdapterContainer: createLocalAdapterContainer([
@@ -214,8 +288,6 @@ describe("active permission mode sync", () => {
 
     const outcomes = await syncActiveTaskPermissionModes({
       catalogState: {
-        fingerprint: "opencode-permission-json",
-        profileIds: ["agt-opencode"],
         routeByProfileId: new Map([
           [
             "agt-opencode",
@@ -235,7 +307,6 @@ describe("active permission mode sync", () => {
             },
           ],
         ]),
-        skippedProfiles: [],
       },
       inflightTaskControlRegistry,
       localAdapterContainer: createLocalAdapterContainer([

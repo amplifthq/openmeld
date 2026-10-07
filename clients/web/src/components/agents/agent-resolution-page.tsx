@@ -30,6 +30,7 @@ export function AgentResolutionPage(input: {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
+			defaultModuleSidebarOpen={input.detail}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			mainSidebarContent={<TeamPeopleSidebar />}
 		>

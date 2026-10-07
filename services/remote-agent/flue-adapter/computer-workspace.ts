@@ -26,6 +26,8 @@ import {
   agentComputerBrowserRequestSchema,
   agentComputerPreviewRequestSchema,
   cloudComputerOperationSchema,
+  type PluginConnectionGrant,
+  pluginConnectionGrantSchema,
   type RemoteAgentGitPackStart,
   type RemoteAgentGitPackStatus,
   type RemoteAgentGitTransferGrant,
@@ -36,13 +38,16 @@ import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
 import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-context";
 import { forwardGitConnectionRequest } from "../connectors/github-connection-transport";
+import { forwardPluginConnection } from "../connectors/plugin-connection";
 import {
   ACCOUNT_ERASED_KEY,
   eraseAccountStorage,
   requireRetainedAccountStorage,
 } from "./account-deletion";
 import {
+  collectComputerCommands,
   createComputerCommandTool,
+  hasCollectableComputerCommands,
   listPendingRemoteAgentComputerCommands,
   stopStoredComputerCommands,
 } from "./computer-command";
@@ -53,12 +58,20 @@ import {
   type PreviewBrowserBinding,
   validateComputerPreviewPort,
 } from "./computer-preview";
-import { COMPUTER_GIT_PATH } from "./computer-workspace-proxy";
+import {
+  describeComputerStorage,
+  withComputerCapacityErrors,
+} from "./computer-storage";
+import {
+  COMPUTER_GIT_PATH,
+  COMPUTER_PLUGIN_PATH,
+} from "./computer-workspace-proxy";
 import { authorizeGitTransfer } from "./git-transfer-authorization";
 import {
   gitUploadPackBytes,
   gitUploadPackRequest,
 } from "./git-upload-pack-stream";
+import { authorizePluginConnection } from "./plugin-connection-authorization";
 import { RemoteAgentSqlStorage } from "./storage";
 
 /**
@@ -206,16 +219,30 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
   readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
 
+  private async scheduleAlarm(at: number) {
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || at < current) {
+      await this.ctx.storage.setAlarm(at);
+    }
+  }
+
   async computerOperation(value: unknown) {
+    return await withComputerCapacityErrors(() =>
+      this.#executeComputerOperation(value)
+    );
+  }
+
+  async #executeComputerOperation(value: unknown) {
     await requireRetainedAccountStorage(this.ctx.storage);
     const request = cloudComputerOperationSchema.parse(value);
-    await this.workspace.ready();
     if (request.action === "describe") {
       return describeComputer(
         this.#nativeFiles,
-        this.env.BROWSER ? this.describeBrowser("personal") : undefined
+        this.env.BROWSER ? this.describeBrowser("personal") : undefined,
+        describeComputerStorage(this.ctx.storage.sql.databaseSize)
       );
     }
+    await this.workspace.ready();
     if (request.action === "files") {
       const execute = () =>
         this.#nativeFiles.execute({
@@ -266,6 +293,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       context: { submissionId: request.invocationId },
       storage: this.#commands,
       workingDirectory,
+      scheduleCollection: () => this.scheduleAlarm(Date.now() + 15_000),
       assertCanStart: async () => {
         await requireRetainedAccountStorage(this.ctx.storage);
         if (
@@ -287,8 +315,10 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
 
   async writeComputerFile(path: string, content: string | Uint8Array) {
     await requireRetainedAccountStorage(this.ctx.storage);
-    await this.workspace.ready();
-    await this.#files.write(path, content);
+    await withComputerCapacityErrors(async () => {
+      await this.workspace.ready();
+      await this.#files.write(path, content);
+    });
   }
 
   async pendingComputerCommands(invocationId: string) {
@@ -356,6 +386,76 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     await this.ctx.storage.put(key, grant);
   }
 
+  async registerPluginConnectionGrant(value: unknown): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    const grant = pluginConnectionGrantSchema.parse(value);
+    await this.#commands.deleteExpired({
+      prefix: "plugin-connection:",
+      nowMs: Date.now(),
+      limit: 100,
+    });
+    if (grant.expiresAtMs > Date.now() + 30 * 60 * 1000) {
+      throw new Error("plugin.connection_lifetime_invalid");
+    }
+    await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    const key = `plugin-connection:${grant.id}`;
+    const previous = await this.#commands.get<PluginConnectionGrant>(key);
+    if (
+      previous &&
+      (previous.organizationId !== grant.organizationId ||
+        previous.requesterUserId !== grant.requesterUserId ||
+        previous.connectionName !== grant.connectionName ||
+        previous.connectionUpdatedAtMs !== grant.connectionUpdatedAtMs ||
+        previous.service !== grant.service ||
+        previous.connectionScope !== grant.connectionScope ||
+        previous.authority.kind !== grant.authority.kind)
+    ) {
+      throw new Error("plugin.connection_key_conflict");
+    }
+    await this.#commands.putExpiring(key, grant, grant.expiresAtMs);
+  }
+
+  private async forwardPluginEgress(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const match = COMPUTER_PLUGIN_PATH.exec(url.pathname);
+    const grant = match
+      ? await this.#commands.get<PluginConnectionGrant>(
+          `plugin-connection:${match[1]}`
+        )
+      : undefined;
+    if (!grant) {
+      return new Response(
+        "Plugin connection expired. Renew the same connection key.",
+        { status: 403 }
+      );
+    }
+    try {
+      await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    } catch {
+      return new Response(
+        "Plugin access is no longer authorized. Review the selected account in Plugins.",
+        { status: 403 }
+      );
+    }
+    const response = await forwardPluginConnection({
+      request,
+      endpoint: `${match?.[2] ?? "/"}${url.search}`,
+      service: grant.service,
+      connectionName: grant.connectionName,
+      connectorExecution: {
+        baseUrl: this.env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: this.env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
+    });
+    try {
+      await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    } catch {
+      await response.body?.cancel();
+      return new Response("Plugin access was revoked.", { status: 403 });
+    }
+    return response;
+  }
+
   async startGitPackTransfer(
     value: unknown
   ): Promise<RemoteAgentGitPackStatus> {
@@ -398,19 +498,51 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         errorCode: null,
       };
       await this.ctx.storage.put(key, job);
-      await this.ctx.storage.setAlarm(Date.now());
+      await this.scheduleAlarm(Date.now());
     } else if (
       job.status === "running" &&
       job.startedAtMs !== null &&
       Date.now() - job.startedAtMs > GIT_PACK_RETRY_AFTER_MS
     ) {
-      await this.ctx.storage.setAlarm(Date.now());
+      await this.scheduleAlarm(Date.now());
     }
     return gitPackStatus(job);
   }
 
   async alarm(): Promise<void> {
     await requireRetainedAccountStorage(this.ctx.storage);
+    // Rearm before external I/O so a Worker replacement cannot abandon receipts.
+    await this.scheduleAlarm(Date.now() + 15_000);
+    await collectComputerCommands({
+      storage: this.#commands,
+      workspaceAccess: {
+        withWorkspace: async (operation) => {
+          using workspace = await getWorkspace(this);
+          return await operation(workspace);
+        },
+      },
+    });
+    // Pack downloads can take minutes. Keep them out of the alarm handler so
+    // they cannot block command receipts past the native retention window.
+    this.ctx.waitUntil(this.collectGitPack());
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const jobs = await this.ctx.storage.list<GitPackJob>({
+        prefix: GIT_PACK_JOB_PREFIX,
+      });
+      if (
+        !(
+          (await hasCollectableComputerCommands(this.#commands)) ||
+          [...jobs.values()].some(
+            (job) => job.status === "pending" || job.status === "running"
+          )
+        )
+      ) {
+        await this.ctx.storage.deleteAlarm();
+      }
+    });
+  }
+
+  private async collectGitPack(): Promise<void> {
     const jobs = await this.ctx.storage.list<GitPackJob>({
       prefix: GIT_PACK_JOB_PREFIX,
     });
@@ -446,7 +578,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       errorCode: null,
     };
     await this.ctx.storage.put(key, job);
-    await this.ctx.storage.setAlarm(Date.now() + GIT_PACK_RETRY_AFTER_MS);
+    await this.scheduleAlarm(Date.now() + GIT_PACK_RETRY_AFTER_MS);
     const path = gitPackPath(job);
     try {
       await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
@@ -513,7 +645,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
           (candidate) => candidate.status === "pending"
         )
       ) {
-        await this.ctx.storage.setAlarm(Date.now());
+        await this.scheduleAlarm(Date.now());
       }
     }
   }
@@ -697,6 +829,9 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   override async fetch(request: Request): Promise<Response> {
     await requireRetainedAccountStorage(this.ctx.storage);
     const url = new URL(request.url);
+    if (COMPUTER_PLUGIN_PATH.test(url.pathname)) {
+      return await this.forwardPluginEgress(request);
+    }
     if (COMPUTER_GIT_PATH.test(url.pathname)) {
       return await this.forwardComputerEgress(request);
     }

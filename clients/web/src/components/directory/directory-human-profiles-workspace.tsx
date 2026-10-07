@@ -157,6 +157,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
+			defaultModuleSidebarOpen={!!input.selectedProfileId}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			mainHeader={
 				input.selectedProfileId ? undefined : (

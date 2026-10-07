@@ -170,6 +170,22 @@ describe("space index projection outbox", () => {
       );
       const populated = captureSpaceMessagePreview(spaceSql.sql);
       expect(populated.preview?.text).toBe("Ready for review");
+      for (const [id, timestamp, text] of [
+        ["message-2", 200, "**Second** message"],
+        ["message-3", 300, "[Latest](https://example.com) message"],
+      ] as const) {
+        spaceSql.sql.exec(
+          "INSERT INTO space_signals (id, ts, type, profile_id, payload_json) VALUES (?, ?, 'signal.text', 'human-1', ?)",
+          id,
+          timestamp,
+          JSON.stringify(previewSignal(id, timestamp, text))
+        );
+      }
+      const recent = captureSpaceMessagePreview(spaceSql.sql);
+      expect(recent.recentPreviews.map((message) => message.text)).toEqual([
+        "Latest message",
+        "Second message",
+      ]);
       await projectSpaceMessagePreview({
         db: d1.db,
         spaceId: "space-alpha",
@@ -197,10 +213,26 @@ describe("space index projection outbox", () => {
       expect(current.spaceItems[0]?.messagePreview?.text).toBe(
         "Ready for review"
       );
+      expect(current.spaceItems[0]).not.toHaveProperty("recentMessagePreviews");
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...recent,
+      });
+      const directory = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        includeDirectoryPreviews: true,
+      });
+      expect(
+        directory.spaceItems[0]?.recentMessagePreviews?.map(
+          (message) => message.text
+        )
+      ).toEqual(["Latest message", "Second message"]);
       const unauthorized = await listAccountSpacesFromSpaceIndex({
         ...input,
         ownerUserId: "another-owner",
         includeMessagePreviews: true,
+        includeDirectoryPreviews: true,
       });
       expect(unauthorized.spaceItems).toEqual([]);
       spaceSql.sql.exec("DELETE FROM space_signals");

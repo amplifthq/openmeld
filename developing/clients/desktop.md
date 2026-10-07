@@ -651,6 +651,14 @@ offer Later/retry, or claim installation succeeded. Native menu and Cmd+Q remain
 available. Installation affects the GUI only and
 does not call, update, stop, or reconfigure CLI or OpenMeld Service.
 
+Update failures also write the latest bounded record to
+`<userData>/diagnostics/desktop-update-failure.json` with owner-only file access.
+It survives restart and a successful retry. Check for Updates offers Show update
+details when the record exists. The record includes time, stage, versions,
+native error code, HTTP status, and a safe classification. Raw exception text,
+URLs, headers, response bodies, and local paths are never persisted. Unknown
+errors remain explicitly unclassified. Diagnostic writes cannot block updates.
+
 ### Installed A-to-B release acceptance
 
 Every macOS Desktop production release gets one **thin real A-to-B smoke** on
@@ -1232,3 +1240,8 @@ CLI, Service, credentials, or lane state.
 Developer ID presence, Doppler names, portal access, build success, signing,
 notarization, installation, and visible product smoke are separate evidence.
 Desktop versions remain diagnostics and app-update facts, never Wake gates.
+
+Desktop pilot renderer builds reuse the renderer resource and heap owner. The
+pilot defaults to a 5120 MiB heap. `OPENMELD_RENDERER_NODE_HEAP_MB` overrides it
+within the measured machine and heavy-work budget. The reservation ends after
+compilation; it does not remain held for the preview server.

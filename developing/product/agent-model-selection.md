@@ -752,6 +752,63 @@ provider execution and a real OpenMeld Wake remain separate acceptance evidence.
 
 ---
 
+#### October 7 provider and freshness review
+
+The online catalog adds `opencode/exo-free` with `high` and
+`opencode/mistral-large-4` with `none` and `high`, using OpenCode 1.18.35's
+native provider inventory. The observed version remains a conservative
+compatibility floor. Exo Free appears without a paid Zen credential. Paid Zen
+models are hidden by the native loader when no Zen key is configured, so the
+Mistral inventory capture uses an explicit noncredential placeholder solely to
+inspect native metadata. It proves the ID and variant contract, not account
+access or inference. Mistral's official public-preview documentation and the
+Zen model list corroborate that route. Exo's free-period data may be used to
+improve the model, as stated in Zen's privacy documentation.
+
+The existing authenticated Go inventory corrects `opencode-go/qwen3.7-plus`
+to expose `high` and `max`. The separate free `opencode/space-bunny-free`
+route remains active. A discovery-only paid `opencode/space-bunny` entry is
+absent from the reviewed native Zen inventory and is not added; the existing
+Go Space Bunny route and historical rejected Go free ID are preserved.
+
+Cursor 2026.09.28's authenticated ACP `session/new` model list and model
+configuration options agree on five additional exact IDs:
+`gemini-3.7-flash[effort=high]`, `gemini-3.6-flash[effort=high]`,
+`kimi-k3[reasoning=max]`, `glm-5p3[reasoning=high]`, and
+`glm-5p3-flash[reasoning=high]`. These older models receive no New label.
+Independent reasoning remains unsupported for Cursor. Missing historical
+inventory entries alone do not justify withdrawing or replacing saved IDs.
+
+Provider-shaped captures are retained in
+`packages/schemas/tests/fixtures/opencode-model-catalog-2026.10.07.json` and
+`packages/schemas/tests/fixtures/cursor-model-catalog-2026.10.07.json`.
+The full freshness review retains New only for Exo Free, Mistral Large 4, and
+Fledge Alpha Free from the October 1–6 release batch. Older aliases and channel
+additions do not extend their underlying model's release date. The fixed CLI
+fallback already has no New labels and needs no change. Codex Sol/Luna retain
+their authenticated 0.155.1 compatibility floor; the bundled upstream 0.155.0
+minimum is a different evidence boundary, not a reason to lower that floor.
+
+Contract impact: this changes online catalog data and optional presentation
+metadata under the existing schema. No adapter, offline snapshot, transport,
+local component, database, default, or stored selection changes. Old and new
+CLI/Service/Skills remain compatible with old and new Core/Gateway/Web. No
+contract bump or deployment ordering dependency is required. Delivery selects
+Core only. Inventory, provider execution, and OpenMeld Wake acceptance remain
+separate evidence.
+
+Acceptance on October 7: Exo Free completed a native file-read probe and an
+OpenMeld Web-created Agent with explicit High reasoning returned the expected
+answer through a real Wake in the isolated PostgreSQL lane. The matching trace
+records one successful attempt, `reply_published`, and a delivered visible reply.
+The Web model list
+disabled Mistral on the Computer without Zen access. Qwen3.7 Plus exposed High
+and Max in the edit dialog and retained saved Max after reload. The Web listed
+all five Cursor additions and kept reasoning inside the exact model choice.
+Cursor's native named
+model probe was rejected because the review account is on a free plan that
+permits only Auto; this does not establish global unavailability.
+
 ### 5.9 Claude Opus 5.5
 
 The September 23 catalog adds `claude-opus-5-5` for Claude Code 2.1.280
