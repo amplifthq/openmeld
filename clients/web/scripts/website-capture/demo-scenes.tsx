@@ -5,16 +5,20 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { UsersThreeIcon } from "@phosphor-icons/react";
+import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
+import { useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useState } from "react";
 import { MessageResponse } from "../../src/components/ai/message-response";
 import type { DirectoryHumanProfileRow } from "../../src/components/directory/directory-human-profile-model";
-import { TeamHome } from "../../src/components/directory/team-home";
+import { TeamHeader } from "../../src/components/directory/team-header";
 import type { FileSystemItem } from "../../src/components/extend/file-system";
 import { SpaceDirectory as ProductSpaceDirectory } from "../../src/components/spaces/space-directory";
-import { SpaceWindowHeader } from "../../src/components/spaces/space-header";
-import { demoSkill, demoSpaces } from "./demo-data";
+import { demoSpaces } from "./demo-data";
+import { DemoPeople } from "./demo-people";
+
+const DemoAgents = lazy(() =>
+	import("./demo-team").then((m) => ({ default: m.DemoAgents }))
+);
 
 const FileSystem = lazy(() =>
 	import("../../src/components/extend/file-system").then((m) => ({
@@ -26,10 +30,20 @@ const RoutinesPage = lazy(() =>
 		default: m.RoutinesPage,
 	}))
 );
-const SkillDocument = lazy(() =>
+const SkillsList = lazy(() =>
 	import(
-		"../../src/components/organization-skills/organization-skill-document"
-	).then((m) => ({ default: m.OrganizationSkillDocument }))
+		"../../src/components/organization-skills/organization-skills-list-page"
+	).then((m) => ({ default: m.OrganizationSkillsListPage }))
+);
+const SkillDetail = lazy(() =>
+	import(
+		"../../src/components/organization-skills/organization-skill-detail-page"
+	).then((m) => ({ default: m.OrganizationSkillDetailPage }))
+);
+const Plugins = lazy(() =>
+	import("../../src/components/organizations/organization-plugins-page").then(
+		(m) => ({ default: m.OrganizationPluginsPage })
+	)
 );
 const documents: Record<string, string> = {
 	"Launch brief.md":
@@ -125,90 +139,85 @@ export function SpaceDirectory() {
 		</div>
 	);
 }
-export function DemoFiles() {
+export function DemoFiles({ team = false }: { team?: boolean }) {
 	const [file, setFile] = useState<string | null>(null);
+	const [scope, setScope] = useState("team");
 	return (
 		<Suspense fallback={null}>
 			<FileSystem
 				defaultView="icons"
 				embedded
-				items={files}
+				items={scope === "team" ? files : []}
 				onFileOpen={(item) =>
 					setFile(item.name ?? item.path.split("/").at(-1) ?? null)
 				}
+				reserveBreadcrumbSpace={team}
 				title="Team files"
+				toolbarStart={
+					team ? (
+						<Tabs onValueChange={setScope} value={scope}>
+							<TabsList className="w-fit">
+								<TabItem label="Team files" value="team" />
+								<TabItem label="My files" value="my" />
+								<TabItem label="Trash" value="trash" />
+							</TabsList>
+						</Tabs>
+					) : undefined
+				}
 			/>
 			<DocumentDialog name={file} onClose={() => setFile(null)} />
 		</Suspense>
 	);
 }
 export function TeamScene({
-	initial = "Files",
 	people,
+	selectedPerson,
+	onSelectPerson,
 }: {
-	initial?: string;
 	people: DirectoryHumanProfileRow[];
+	selectedPerson: string | null;
+	onSelectPerson: (id: string | null) => void;
 }) {
-	const [tab, setTab] = useState(initial);
-	const [file, setFile] = useState<string | null>(null);
-	const [bundle, setBundle] = useState(demoSkill.bundle);
+	const path = useRouterState({ select: (s) => s.location.pathname });
+	const tab = path.split("/")[3] as
+		| "people"
+		| "agents"
+		| "plugins"
+		| "skills"
+		| "files"
+		| "routines";
+	const detail = path.split("/")[4];
 	let content = <RoutinesPage />;
-	if (tab === "People") {
+	if (tab === "people") {
 		content = (
-			<TeamHome
-				activityNowMs={1_791_334_800_000}
-				computerGroups={[]}
-				members={people}
-				onSelect={(id) =>
-					setFile(people.find((p) => p.id === id)?.name ?? null)
-				}
+			<DemoPeople
+				onSelectPerson={onSelectPerson}
+				people={people}
+				selectedPerson={selectedPerson}
 			/>
 		);
 	}
-	if (tab === "Files") {
-		content = <DemoFiles />;
+	if (tab === "files") {
+		content = <DemoFiles team />;
 	}
-	if (tab === "Skills") {
+	if (tab === "agents") {
+		content = <DemoAgents />;
+	}
+	if (tab === "plugins") {
 		content = (
-			<div className="mx-auto grid max-w-3xl gap-6 py-3">
-				<SkillDocument
-					bundle={bundle}
-					contentGeneration={0}
-					onChange={setBundle}
-					saving={false}
-					skill={demoSkill}
-				/>
+			<div className="space-y-6">
+				<Plugins selectedService={detail ?? null} />
 			</div>
 		);
 	}
-	const tabs = ["People", "Agents", "Plugins", "Skills", "Files", "Routines"];
+	if (tab === "skills") {
+		content = detail ? <SkillDetail skillId={detail} /> : <SkillsList />;
+	}
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<SpaceWindowHeader
-				leadingControl={
-					<UsersThreeIcon className="size-4 text-muted-foreground" />
-				}
-				navigation={
-					<TabsSubtle
-						aria-label="Team view"
-						className="h-full shrink-0 gap-5"
-						onSelect={(index) => setTab(tabs[index])}
-						selectedIndex={tabs.indexOf(tab)}
-						variant="underline"
-					>
-						{tabs.map((name, index) => (
-							<TabsSubtleItem
-								disabled={index === 1 || index === 2}
-								index={index}
-								key={name}
-								label={name}
-								labelClassName="text-sm"
-							/>
-						))}
-					</TabsSubtle>
-				}
-				title="Team"
-			/>
+			<header className="h-[var(--space-conversation-header-height)] w-full shrink-0 border-border border-b bg-background">
+				<TeamHeader active={tab} />
+			</header>
 			<div className="min-h-0 flex-1 overflow-auto p-6">
 				<Suspense
 					fallback={
@@ -220,7 +229,6 @@ export function TeamScene({
 					{content}
 				</Suspense>
 			</div>
-			<DocumentDialog name={file} onClose={() => setFile(null)} />
 		</div>
 	);
 }

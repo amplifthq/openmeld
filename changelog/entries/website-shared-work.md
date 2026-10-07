@@ -8,8 +8,9 @@ audiences: ["users", "admins"]
 
 Explore OpenMeld from the homepage without creating an account. The demo uses
 real product components with fictional data. Open a shared Space, try the
-message editor, open the member panel, pin a conversation, browse files and
-Skills, or edit and pause a sample Routine.
+message editor, open the member panel, pin a conversation, filter the Inbox,
+mark updates as read, and explore all six Team tabs. Open People and Agent
+profiles, browse Plugins, files and Skills, or edit and pause a sample Routine.
 Changes stay in the page and reset on reload. The homepage also explains local
 agents, shared team context, Slack access, and cloud computers.
 

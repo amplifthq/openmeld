@@ -31,7 +31,8 @@ does not import Web-private modules or call App APIs. Website builds publish
 the checked-in artifact; they do not rebuild it when product code changes.
 
 The embedded demo supports a bounded set of interactions: Space navigation,
-local message composition, file browsing, Skill inspection, and sample Routine
+local message composition, Inbox read/filter actions, all six Team tabs,
+read-only People/Agent/Plugin details, file browsing, Skill inspection, and sample Routine
 editing, pause/resume, and history. It does not authenticate, execute agents,
 connect providers, or persist changes. Transport and preference adapters are
 replaced during compilation. A CSP blocks network connections and form

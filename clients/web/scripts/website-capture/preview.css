@@ -22,3 +22,14 @@ body {
 [aria-label="Create routine"] {
 	display: none;
 }
+/* Account setup and server-wide search are outside the local demo. */
+[aria-label="Organization actions"],
+[data-testid="plugin-detail-access"] button,
+[data-testid="plugin-detail-access"] input,
+[data-slot="app-rail-label"] {
+	display: none;
+}
+[data-app-rail-link],
+[data-app-rail-item] {
+	height: 2.75rem;
+}

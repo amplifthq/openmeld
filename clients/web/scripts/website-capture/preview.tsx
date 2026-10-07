@@ -13,6 +13,7 @@ import {
 	createRoute,
 	createRouter,
 	RouterProvider,
+	useNavigate,
 	useRouterState,
 } from "@tanstack/react-router";
 import { NuqsAdapter } from "nuqs/adapters/react";
@@ -53,7 +54,9 @@ import { SpaceMessageSurface } from "../../src/components/spaces/space-message-s
 import { SpaceMessageTime } from "../../src/components/spaces/space-message-time";
 import type { SpaceView } from "../../src/components/spaces/space-view";
 import { SpaceViewTabs } from "../../src/components/spaces/space-view-tabs";
-import { demoDirectory, demoSpaces } from "./demo-data";
+import { demoAgentProfiles, demoDirectory, demoSpaces } from "./demo-data";
+import { DemoInbox, useDemoInboxAttention } from "./demo-inbox";
+import { DemoOrganizationSwitcher, DemoUserFooter } from "./demo-rail";
 import {
 	DemoFiles,
 	DocumentDialog,
@@ -72,6 +75,9 @@ const client = new QueryClient({
 			refetchOnWindowFocus: false,
 		},
 	},
+});
+client.setQueryDefaults(["connector-connections", "org", "providers"], {
+	enabled: false,
 });
 // Disable account reads before mounting real presentation components. All sample
 // records live in this QueryClient, never in the public site's account state.
@@ -116,8 +122,22 @@ const people: DirectoryHumanProfileRow[] = [
 	profileStatus: "active",
 	role: "member",
 	presence: i === 0 ? "online" : "offline",
-	agentProfiles: [],
-	agentProfilesPath: "/o/test/people",
+	agentProfiles:
+		i === 0
+			? demoAgentProfiles.map((profile) => ({
+					id: profile.openMeldProfileId,
+					name: profile.profileName,
+					agentControllerRef:
+						profile.profileHandle === "codex"
+							? "builtin:codex"
+							: "builtin:claude-code",
+					avatarImageUrl: null,
+					modelSelection: null,
+					modelSelectionIsKnown: false,
+					path: "/o/test/agents",
+				}))
+			: [],
+	agentProfilesPath: "/o/test/agents",
 	computer: { count: 1, label: "Connected", path: null, state: "connected" },
 }));
 const sampleMessages = {
@@ -212,15 +232,21 @@ function TranscriptMessage({
 }
 
 function Preview() {
+	const inboxAttention = useDemoInboxAttention();
+	const navigate = useNavigate();
 	const path = useRouterState({ select: (s) => s.location.pathname });
 	const spaceId = path.split("/").at(-1) ?? "release";
-	const isTeam = path.includes("/people");
-	let scene = path.endsWith("/spaces") ? "Spaces" : "Conversation";
-	if (isTeam) {
-		scene = ["Files", "Skills", "Routines"].includes(initialScene)
-			? initialScene
-			: "Files";
-	}
+	const isInbox = path.includes("/inbox");
+	const isTeam = [
+		"people",
+		"agents",
+		"plugins",
+		"skills",
+		"files",
+		"routines",
+	].includes(path.split("/")[3]);
+	const scene = path.endsWith("/spaces") ? "Spaces" : "Conversation";
+	const activeDestination = isTeam ? "people" : "spaces";
 	const [file, setFile] = useState<string | null>(null);
 	const [person, setPerson] = useState<string | null>(null);
 	const [membersOpen, setMembersOpen] = useState(false);
@@ -308,7 +334,16 @@ function Preview() {
 	}
 	if (isTeam) {
 		title = "Team";
-		content = <TeamScene initial={scene} people={people} />;
+		content = (
+			<TeamScene
+				onSelectPerson={setPerson}
+				people={people}
+				selectedPerson={person}
+			/>
+		);
+	}
+	if (isInbox) {
+		content = <DemoInbox />;
 	}
 	return (
 		<QueryClientProvider client={client}>
@@ -318,7 +353,8 @@ function Preview() {
 						globalControls={null}
 						initialModuleSidebarState={{ tier: "expanded", width: "248px" }}
 						moduleNavigation={
-							isTeam ? (
+							!isInbox &&
+							(isTeam ? (
 								<TeamSidebarHeaderActionsProvider>
 									<TeamSidebarHeader />
 									<PeopleSidebar
@@ -328,57 +364,48 @@ function Preview() {
 										error={null}
 										loading={false}
 										members={people}
-										onChat={async () =>
-											setFile(
-												"This demo keeps conversations in the shared Spaces."
-											)
-										}
-										onSelect={setPerson}
+										onSelect={(id) => {
+											setPerson(id);
+											navigate({
+												to: "/o/$orgSlug/people",
+												params: { orgSlug: "test" },
+											}).catch(console.error);
+										}}
 										selectedProfileId={person}
 									/>
 								</TeamSidebarHeaderActionsProvider>
 							) : (
 								<ConversationsSidebar />
-							)
+							))
 						}
 						moduleNavigationKey={isTeam ? "people" : "conversations"}
 						moduleNavigationLabel={isTeam ? "Team" : "Spaces"}
 						outerRail={
 							<aside className={APP_APPLICATION_RAIL_CLASS_NAME}>
-								<div className="flex h-16 items-center justify-center">
-									<span
-										className="flex size-9 items-center justify-center rounded-md bg-background text-base text-foreground"
-										title="Atlas demo workspace"
-									>
-										A
-									</span>
-								</div>
+								<DemoOrganizationSwitcher />
 								<div className="flex-1 px-1">
 									{buildAppRailGroups({
+										inboxAttention,
 										orgSlug: "test",
 										centerAgentUnreadCount: 0,
 										spacesUnreadCount: 0,
 										prefetchCenterAgentConversation: () => undefined,
 									}).map((group, index) => (
 										<AppRailNavigationGroup
-											activeDestination={isTeam ? "people" : "spaces"}
-											group={{
-												...group,
-												destinations: group.destinations.filter(
-													(destination) => destination.id !== "inbox"
-												),
-											}}
+											activeDestination={isInbox ? "inbox" : activeDestination}
+											group={group}
 											key={group.id}
 											position={index}
 											tier="icon"
 										/>
 									))}
 								</div>
+								<DemoUserFooter />
 							</aside>
 						}
 					>
 						<section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-							{!isTeam && (
+							{!(isTeam || isInbox) && (
 								<SpaceWindowHeader
 									actions={
 										scene === "Conversation" ? (
@@ -533,7 +560,7 @@ if (initialScene === "Spaces") {
 	initialPath = "/o/test/spaces";
 }
 if (["Files", "Skills", "Routines"].includes(initialScene)) {
-	initialPath = "/o/test/people";
+	initialPath = `/o/test/${initialScene.toLowerCase()}`;
 }
 const router = createRouter({
 	history: createMemoryHistory({

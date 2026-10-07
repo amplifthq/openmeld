@@ -1,5 +1,19 @@
+import { readFileSync } from "node:fs";
 import { mergeConfig } from "vite";
 import config from "../conversation-preview/vite.config";
+
+// Keep the real API's named exports, but admit only explicitly implemented local
+// operations. Unused server actions fail closed rather than reaching an account.
+function demoApi(name: string, module: string, operations: string[]) {
+	const source = readFileSync(
+		`${import.meta.dirname}/../../src/lib/organizations/${name}.ts`,
+		"utf8"
+	);
+	const names = [...source.matchAll(/export (?:async )?function (\w+)/g)].map(
+		(match) => match[1]
+	);
+	return `import * as demo from ${JSON.stringify(`${import.meta.dirname}/${module}`)}; const unavailable=()=>{throw new Error('This action is unavailable in the demo');}; ${names.map((name) => `export const ${name}=${operations.includes(name) ? `demo.${name}` : "unavailable"};`).join("\n")}`;
+}
 
 const captureConfig = mergeConfig(
 	{
@@ -8,6 +22,24 @@ const captureConfig = mergeConfig(
 				name: "capture-server-boundary",
 				enforce: "pre",
 				resolveId(source: string) {
+					if (source.endsWith("/lib/organizations/organization-directory")) {
+						return "\0website-demo:directory-api";
+					}
+					if (source.endsWith("/lib/organizations/organization-skills")) {
+						return "\0website-demo:skills-api";
+					}
+					if (source.endsWith("/lib/organizations/connector-connections")) {
+						return "\0website-demo:plugins-api";
+					}
+					if (source.endsWith("/lib/organizations/inbox")) {
+						return "\0website-demo:inbox";
+					}
+					if (source.endsWith("/use-inbox-expansion")) {
+						return "\0website-demo:inbox-expansion";
+					}
+					if (source.endsWith("/account-organization-preference")) {
+						return "\0website-demo:organization-preference";
+					}
 					if (source.endsWith("/space-directory-preview")) {
 						return "\0website-demo:discovery-preview";
 					}
@@ -43,6 +75,44 @@ const captureConfig = mergeConfig(
 				},
 				load(id: string) {
 					const data = JSON.stringify(`${import.meta.dirname}/demo-data.ts`);
+					const inbox = JSON.stringify(`${import.meta.dirname}/demo-inbox.tsx`);
+					if (id === "\0website-demo:directory-api") {
+						return demoApi("organization-directory", "demo-catalogs.ts", [
+							"readCurrentOrganizationDirectory",
+							"readCurrentOrganizationProfileDirectory",
+							"readCurrentOrganizationAgentRuntimeOverview",
+						]);
+					}
+					if (id === "\0website-demo:inbox") {
+						return demoApi("inbox", "demo-inbox.tsx", [
+							"listCurrentInboxFeed",
+							"mutateCurrentInboxFeed",
+							"markCurrentInboxItemRead",
+							"getCurrentInboxItem",
+							"dismissCurrentInboxItem",
+						]);
+					}
+					if (id === "\0website-demo:skills-api") {
+						return demoApi("organization-skills", "demo-catalogs.ts", [
+							"listCurrentOrganizationSkills",
+							"getCurrentOrganizationSkill",
+						]);
+					}
+					if (id === "\0website-demo:plugins-api") {
+						return demoApi("connector-connections", "demo-catalogs.ts", [
+							"listCurrentOrganizationConnectorConnections",
+							"listCurrentOrganizationAppConnections",
+							"listCurrentOrganizationConnectorAppCatalog",
+							"listCurrentOrganizationConnectorAppRequests",
+							"listPluginAccess",
+						]);
+					}
+					if (id === "\0website-demo:inbox-expansion") {
+						return `export {useDemoInboxExpansion as useInboxExpansion} from ${inbox};`;
+					}
+					if (id === "\0website-demo:organization-preference") {
+						return "export const selectLastSelectedOrganization = async()=>{};";
+					}
 					if (id === "\0website-demo:discovery-preview") {
 						return "export const SpaceDirectoryPreview=()=>null;";
 					}
@@ -73,7 +143,7 @@ export const getSidebarState=async()=>SIDEBAR_DEFAULT_STATE,getAppSidebarStates=
 						return "export const useSpaceListIndicators = () => ({unreadBySpaceId:new Map(),activeWakeSummaryBySpaceId:new Map(),activityUnavailable:false,isPending:false});";
 					}
 					if (id === "\0conversation-preview:organization-context") {
-						return `export const useAppOrganization = () => ({storageScope:'demo',currentUserId:'preview',currentOrganization:{id:'org',slug:'test',name:'Atlas',isPersonal:false}}); export const useOptionalAppOrganization = useAppOrganization; export const useCurrentOrganizationSlug = () => 'test'; export const useOptionalCurrentOrganizationSlug = useCurrentOrganizationSlug; export const AppOrganizationProvider = ({children}) => children;`;
+						return `const organization={id:'org',slug:'test',name:'Atlas',isPersonal:false}; export const useAppOrganization = () => ({storageScope:'demo',currentUserId:'preview',currentOrganization:organization,organizations:[organization]}); export const useOptionalAppOrganization = useAppOrganization; export const useCurrentOrganizationSlug = () => 'test'; export const useOptionalCurrentOrganizationSlug = useCurrentOrganizationSlug; export const AppOrganizationProvider = ({children}) => children;`;
 					}
 					if (id.startsWith("\0website-demo:")) {
 						return "export const OfficeFileViewer = () => null; export const PdfViewer = () => null; export const CsvFilePreview = () => null; const unavailable = () => {throw new Error('No server in demo')}; export {unavailable as getRequest, unavailable as getRequestHeaders, unavailable as setCookie, unavailable as deleteCookie, unavailable as setResponseHeader};";

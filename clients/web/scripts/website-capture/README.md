@@ -29,18 +29,35 @@ files together to restore a prior version.
   `PeopleSidebar`, and `SpaceWindowHeader`. The harness composes their slots.
 - Spaces: `SpaceDirectory`, message primitives, `SpaceAttachmentFileCard`, and
   `SpaceComposer` with the real editor.
-- Team: `FileSystem`, `OrganizationSkillDocument`, and `RoutinesPage`.
+- Rail: `OrganizationSwitcher` with the shared pointer-reactive O avatar,
+  `SidebarUserFooter`, and `DitherProfileAvatar`.
+- Inbox: `InboxPage`, its feed, filters, item menus, and read-state mutations.
+- Team: `TeamHeader`, `TeamHome`, `DirectoryHumanProfileDetails`, `AgentList`,
+  `AgentProfileSidebarItem`, `AgentProfileWorkspaceDetail`,
+  `OrganizationPluginsPage`, `OrganizationSkillsListPage`,
+  `OrganizationSkillDetailPage`, `FileSystem`, and `RoutinesPage`.
 - Interaction primitives: existing `@openmeld/ui` Fluid and Base UI components.
 
 The demo supplies fictional content through real header slots. The Space member
 button opens the product's resizable member panel or mobile drawer. Sidebar
 pinning changes memory-only state. Team uses the shared header and the real
-People overview. Unsupported Team tabs are disabled. Account-changing and creation controls are omitted.
-The product's organization initial is used for the fictional team's rail icon.
+People overview. All six Team tabs use the memory router and remain interactive.
+People and Agent cards open the real read-only detail components. Plugins use the
+bundled product catalog, with local empty connection records. Search and category
+filters work; provider authorization and credential inputs are omitted. Files
+reuse the product browser and its toolbar slots for Team files, My files, and
+Trash. Skills open the real catalog and read-only detail page.
+
+Inbox supports category/filter changes, unread-only, item menus, bulk mark-read,
+and links back to sample Spaces. Its blue rail dot derives from the same local
+items. Workspace-wide message search is omitted because it requires live data.
+The organization menu contains the fictional Atlas organization; the user menu
+shows Maya's identity. Account-changing, chat-creation, and creation controls are
+omitted. Existing product consumers retain their default capabilities.
 
 ## Data boundary
 
-Memory adapters replace server functions, Routine API calls, organization
+Memory adapters replace server functions, Inbox/catalog/Routine API calls, organization
 context, sidebar preferences, cookies, and browser preferences. A memory router
 keeps product links inside the demo. The local composer appends a visitor's text
 without simulating an agent response. Reloading clears all edits.

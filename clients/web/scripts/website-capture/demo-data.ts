@@ -1,14 +1,37 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import {
+	organizationProfileDirectoryResponseSchema,
 	organizationSkillSchema,
 	routineManagementSchema,
 } from "@openmeld/schemas";
+import type { AuthProfileView } from "@openmeld/schemas/types";
 import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	fixtureSpace,
 	useConversationSidebarFixture,
 } from "../../src/test-support/conversation-sidebar-fixture";
+
+export const demoAgentProfiles: AuthProfileView[] = [
+	"Codex",
+	"Claude Code",
+].map((name, index) => ({
+	openMeldProfileId: `agt_${index ? "44444444-4444-4444-8444-444444444444" : "55555555-5555-4555-8555-555555555555"}`,
+	profileName: name,
+	profileKind: "agent",
+	profileHandle: index ? "claude" : "codex",
+	ownerName: "Maya Chen",
+	ownerUserId: "preview",
+	createdByUserId: "preview",
+	creatorProfileId: null,
+	isDefault: false,
+	lastUsedAt: null,
+	managedRole: null,
+	source: "web_create",
+	status: "active",
+	createdAt: "2026-10-01T00:00:00.000Z",
+	updatedAt: "2026-10-01T00:00:00.000Z",
+}));
 
 export const spaceNames = [
 	"Launch room",
@@ -254,8 +277,24 @@ export const demoSkill = organizationSkillSchema.parse({
 		],
 	},
 });
-export const demoDirectory = {
+export const demoDirectory = organizationProfileDirectoryResponseSchema.parse({
 	organizationId: "org",
-	members: [],
+	generatedAt: "2026-10-07T10:00:00.000Z",
+	members: [
+		{
+			userId: "preview",
+			memberId: "maya-member",
+			organizationId: "org",
+			joinedAt: "2026-10-01T10:00:00.000Z",
+			role: "member",
+			user: {
+				id: "preview",
+				name: "Maya Chen",
+				image: null,
+				email: "maya@example.com",
+			},
+			humanProfile: null,
+		},
+	],
 	agentProfiles: [],
-};
+});
