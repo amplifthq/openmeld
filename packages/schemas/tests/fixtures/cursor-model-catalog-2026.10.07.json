@@ -1,0 +1,62 @@
+{
+  "capture": {
+    "harnessVersion": "2026.09.28-64d2043",
+    "observedAt": "2026-10-07T05:37:04.135Z",
+    "commands": [
+      "cursor-agent acp: initialize, authenticate(cursor_login), session/new"
+    ],
+    "scope": "Authenticated inventory only; no inference claimed"
+  },
+  "nativeExecution": [
+    {
+      "modelId": "kimi-k3[reasoning=max]",
+      "command": "cursor-agent --trust --print --mode ask --model 'kimi-k3[reasoning=max]' --output-format json",
+      "error": "ActionRequiredError: Named models unavailable Free plans can only use Auto. Switch to Auto or upgrade plans to continue.",
+      "scope": "Review account free-plan entitlement; not global model withdrawal"
+    }
+  ],
+  "availableModels": [
+    {
+      "modelId": "gemini-3.7-flash[effort=high]",
+      "name": "gemini-3.7-flash"
+    },
+    {
+      "modelId": "gemini-3.6-flash[effort=high]",
+      "name": "gemini-3.6-flash"
+    },
+    {
+      "modelId": "kimi-k3[reasoning=max]",
+      "name": "kimi-k3"
+    },
+    {
+      "modelId": "glm-5p3[reasoning=high]",
+      "name": "glm-5p3"
+    },
+    {
+      "modelId": "glm-5p3-flash[reasoning=high]",
+      "name": "glm-5p3-flash"
+    }
+  ],
+  "configOptions": [
+    {
+      "value": "gemini-3.7-flash[effort=high]",
+      "name": "gemini-3.7-flash"
+    },
+    {
+      "value": "gemini-3.6-flash[effort=high]",
+      "name": "gemini-3.6-flash"
+    },
+    {
+      "value": "kimi-k3[reasoning=max]",
+      "name": "kimi-k3"
+    },
+    {
+      "value": "glm-5p3[reasoning=high]",
+      "name": "glm-5p3"
+    },
+    {
+      "value": "glm-5p3-flash[reasoning=high]",
+      "name": "glm-5p3-flash"
+    }
+  ]
+}

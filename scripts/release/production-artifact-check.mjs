@@ -19,10 +19,7 @@ import {
   checkProductionWeb,
   validateSsrPage,
 } from "./production-web-health.mjs";
-import {
-  buildProductionRenderer,
-  rendererBuildEnvironment,
-} from "./renderer-build.mjs";
+import { buildRenderer, rendererBuildEnvironment } from "./renderer-build.mjs";
 
 const ENV_FILE = /^\.env(?:\.|$)/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -411,7 +408,7 @@ export async function checkProductionArtifact({
   // Anonymous local SSR needs the cookie module to initialize, not a real
   // production signing key. Production secret readiness has its own guard.
   env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = randomBytes(32).toString("hex");
-  await buildProductionRenderer(root, env, { clientDirectory });
+  await buildRenderer(root, env, { clientDirectory });
 
   // Vite's Cloudflare preview consumes the generated output configuration and
   // runs that bundle in local Workerd, including SSR imports and asset modules.

@@ -958,7 +958,24 @@ describe("canonical Inbox attention feed", () => {
     }
   });
 
-  it("revokes only the transferred personal-Agent relationship even when another owned Agent remains in the Space", async () => {
+  it.each([
+    [
+      "transferred",
+      "UPDATE \"openmeld\".\"openmeld_profiles\" SET owner_user_id = 'other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+    ],
+    [
+      "removed",
+      "UPDATE \"openmeld\".\"space_index_memberships\" SET status = 'removed' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+    ],
+    [
+      "Organization-managed",
+      "UPDATE \"openmeld\".\"openmeld_profiles\" SET managed_role = 'center_agent', owner_user_id = NULL WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+    ],
+    [
+      "designated Center Agent",
+      "INSERT INTO \"openmeld\".\"center_agent_designations\" (organization_id, agent_profile_id) VALUES ('org', 'agt_11111111-1111-4111-8111-111111111111')",
+    ],
+  ])("revokes only the %s personal-Agent relationship even when another owned Agent remains in the Space", async (_change, mutation) => {
     const fixture = await createInboxFeedFixture();
     try {
       await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
@@ -991,7 +1008,7 @@ describe("canonical Inbox attention feed", () => {
       });
       const snapshot = await feed.list(fixture.identity);
       await fixture.query({
-        text: "UPDATE \"openmeld\".\"openmeld_profiles\" SET owner_user_id = 'other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+        text: mutation,
       });
       const result = await feed.list(fixture.identity, {
         category: "mentions",

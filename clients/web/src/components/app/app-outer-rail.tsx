@@ -17,7 +17,7 @@ import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { useMatches } from "@tanstack/react-router";
+import { useLocation, useMatches } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
@@ -27,6 +27,7 @@ import {
 	type SidebarDisplay,
 	useSidebarDisplayPreference,
 } from "#/lib/appearance/sidebar-preference";
+import { useSidebarShortcuts } from "#/lib/appearance/sidebar-shortcuts";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
@@ -41,6 +42,12 @@ import {
 	AppRailNavigationGroup,
 	buildAppRailGroups,
 } from "./app-rail-navigation";
+import {
+	AppRailShortcutsPopover,
+	buildPinnedRailDestinations,
+	resolveActiveSidebarShortcut,
+	visibleSidebarShortcuts,
+} from "./app-rail-shortcuts";
 import { AppSidebarFooter } from "./app-sidebar-footer";
 import { AppSidebarHeader } from "./app-sidebar-header";
 import type {
@@ -58,6 +65,21 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 		select: resolveAppOuterRailDestinationFromMatches,
 	});
 	const { currentOrganization } = useAppOrganization();
+	const shortcuts = useSidebarShortcuts();
+	const location = useLocation({ select: (location) => location });
+	const visiblePins = visibleSidebarShortcuts(
+		shortcuts.pinned,
+		currentOrganization.isPersonal === true
+	);
+	const activeShortcut = resolveActiveSidebarShortcut(
+		location.pathname,
+		currentOrganization.slug,
+		location.searchStr
+	);
+	const pinnedActive =
+		activeShortcut && visiblePins.includes(activeShortcut)
+			? activeShortcut
+			: undefined;
 	const inboxAttention = useInboxAttention(currentOrganization.id);
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const { data: currentAccountAvatar } = useAccountAvatar();
@@ -129,10 +151,25 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 						prefetchCenterAgentConversation,
 					}).map((group, index) => (
 						<AppRailNavigationGroup
-							activeDestination={activeDestination}
+							activeDestination={pinnedActive ?? activeDestination}
 							group={group}
 							key={group.id}
+							pinnedDestinations={buildPinnedRailDestinations(
+								visiblePins,
+								currentOrganization.slug
+							)}
 							position={index}
+							renderSectionTrigger={(section, trigger) => (
+								<AppRailShortcutsPopover
+									group={section}
+									isPersonal={currentOrganization.isPersonal === true}
+									orgSlug={currentOrganization.slug}
+									pinned={shortcuts.pinned}
+									toggle={shortcuts.toggle}
+									trigger={trigger}
+								/>
+							)}
+							standaloneSelection={Boolean(pinnedActive)}
 							tier={mode}
 						/>
 					))}
@@ -140,9 +177,7 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 				<AppSidebarFooter
 					account={{ ...account, image: accountAvatarImage }}
 					humanProfileAvatar={humanProfileAvatar}
-					isSettingsActive={activeDestination === "settings"}
 					mode={mode}
-					orgSlug={currentOrganization.slug}
 				/>
 			</SidebarDestinationActionsProvider>
 		</aside>

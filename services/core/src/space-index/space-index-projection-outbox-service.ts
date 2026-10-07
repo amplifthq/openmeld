@@ -83,6 +83,7 @@ async function projectSpaceIndexProjectionSnapshot(input: {
       spaceId: input.record.spaceId,
       revision: snapshot.revision,
       preview: snapshot.preview,
+      recentPreviews: snapshot.recentPreviews,
     });
     return { projectionEventId: input.record.projectionId };
   }
@@ -106,7 +107,7 @@ async function projectSpaceIndexProjectionSnapshot(input: {
     metaRecord: snapshot.metaRecord,
   });
   await input.db.query({
-    text: 'UPDATE "openmeld"."space_index_spaces" SET message_preview_json = NULL WHERE space_id = $1 AND status = \'deleted\'',
+    text: 'UPDATE "openmeld"."space_index_spaces" SET message_preview_json = NULL, recent_message_previews_json = NULL WHERE space_id = $1 AND status = \'deleted\'',
     values: [input.record.spaceId],
   });
   return { projectionEventId: result.projectionEventId };

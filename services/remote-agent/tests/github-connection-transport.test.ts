@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import type { ConnectorConnection } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { forwardGitConnectionRequest } from "../connectors/github-connection-transport";
@@ -123,7 +124,10 @@ describe("selected GitHub connection transport", () => {
     expect(f.transport).toHaveBeenCalledTimes(1);
   });
 
-  it("streams pack bytes and propagates cancellation", async () => {
+  it.each([
+    false,
+    true,
+  ])("streams pack bytes and propagates cancellation (gzip=%s)", async (compressed) => {
     const f = fixture();
     const controller = new AbortController();
     let finish: (() => void) | undefined;
@@ -144,15 +148,18 @@ describe("selected GitHub connection transport", () => {
         },
       })
     );
+    const requestBytes = new TextEncoder().encode("0012command=fetch\n0000");
+    const encodedRequest = compressed ? gzipSync(requestBytes) : requestBytes;
     const request = new Request(
       "https://git.openmeld.invalid/op/acme/private.git/git-upload-pack",
       {
         method: "POST",
-        body: "0000",
+        body: encodedRequest,
         signal: controller.signal,
         headers: {
           "content-type": "application/x-git-upload-pack-request",
           "git-protocol": "version=2",
+          ...(compressed ? { "content-encoding": "gzip" } : {}),
         },
       }
     );
@@ -163,6 +170,13 @@ describe("selected GitHub connection transport", () => {
     });
     expect(response.status).toBe(200);
     expect(f.transport.mock.calls[0]?.[1]?.body).toBe(request.body);
+    const forwarded = f.transport.mock.calls[0]?.[1];
+    expect(new Headers(forwarded?.headers).get("content-encoding")).toBe(
+      compressed ? "gzip" : null
+    );
+    expect(
+      new Uint8Array(await new Response(forwarded?.body).arrayBuffer())
+    ).toEqual(new Uint8Array(encodedRequest));
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error("Expected a pack stream");

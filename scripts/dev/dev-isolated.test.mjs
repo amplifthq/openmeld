@@ -131,7 +131,7 @@ test("does not trust an ambient Web component marker after supervisor scrubbing"
 test("uses the complete Remote Agent capability set by default", () => {
   assert.deepEqual(resolveIsolatedDevLaunchOptions([]), {
     devGuardArgs: [],
-    postgresqlEnabled: false,
+    postgresqlEnabled: true,
     remoteAgentSandboxEnabled: true,
     scheduledEventsEnabled: false,
   });
@@ -145,7 +145,7 @@ test("keeps the no-Sandbox flag out of Turbo arguments", () => {
     ]),
     {
       devGuardArgs: ["--filter=@openmeld/remote-agent"],
-      postgresqlEnabled: false,
+      postgresqlEnabled: true,
       remoteAgentSandboxEnabled: false,
       scheduledEventsEnabled: false,
     }
@@ -160,7 +160,7 @@ test("keeps the scheduled-test flag out of Turbo arguments", () => {
     ]),
     {
       devGuardArgs: ["--filter=@openmeld/auth-worker"],
-      postgresqlEnabled: false,
+      postgresqlEnabled: true,
       remoteAgentSandboxEnabled: true,
       scheduledEventsEnabled: true,
     }
@@ -193,9 +193,10 @@ test("keeps the PostgreSQL launcher flag out of Turbo arguments", () => {
       scheduledEventsEnabled: false,
     }
   );
-  assert.throws(
-    () => resolveIsolatedDevLaunchOptions([`--d1-snapshot=${snapshot}`]),
-    { message: "Use pnpm dev:postgresql with --d1-snapshot=<path>." }
+  assert.equal(
+    resolveIsolatedDevLaunchOptions([`--d1-snapshot=${snapshot}`])
+      .postgresqlSnapshot,
+    snapshot
   );
   assert.throws(
     () => resolveIsolatedDevLaunchOptions(["--postgresql", "--d1-snapshot="]),

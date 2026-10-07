@@ -359,6 +359,12 @@ function resolveRowIndicator(
 	item: InboxItem,
 	dot?: InboxFeedRow["dot"]
 ): ReturnType<typeof resolveInboxItemIndicator> {
+	if (
+		item.attention === "action_required" &&
+		item.resolutionStatus === "open"
+	) {
+		return "warning";
+	}
 	if (dot === undefined) {
 		return resolveInboxItemIndicator(item);
 	}

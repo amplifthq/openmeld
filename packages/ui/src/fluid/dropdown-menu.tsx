@@ -2,6 +2,7 @@
 
 import type * as React from "react";
 import {
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioItem,
@@ -102,6 +103,27 @@ function FluidDropdownMenuRadioItem({
   );
 }
 
+function FluidDropdownMenuCheckboxItem({
+  className,
+  index,
+  ...props
+}: Omit<
+  React.ComponentProps<typeof DropdownMenuCheckboxItem>,
+  "nativeButton" | "render"
+> & { index: number }) {
+  return (
+    <DropdownMenuCheckboxItem
+      {...props}
+      className={cn(
+        "w-full justify-start text-left focus:bg-transparent",
+        className
+      )}
+      nativeButton
+      render={<FluidActionListItem index={index} />}
+    />
+  );
+}
+
 function FluidDropdownMenuSubTrigger({
   index,
   className,
@@ -124,6 +146,7 @@ function FluidDropdownMenuSubTrigger({
 }
 
 export {
+  FluidDropdownMenuCheckboxItem,
   FluidDropdownMenuSubContent,
   FluidDropdownMenuGroup,
   FluidDropdownMenuSubTrigger,

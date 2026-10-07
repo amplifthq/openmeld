@@ -180,6 +180,13 @@ describe("SpaceMessageProgressStatus", () => {
 			name: "Working… · 3s",
 		});
 		expect(startingStatus.textContent).toBe("Working… · 3s");
+		view.rerender(
+			<SpaceMessageProgressStatus
+				entries={[]}
+				item={{ ...item, createdAtMs: 0 }}
+			/>
+		);
+		expect(screen.getByRole("status", { name: "Working…" })).toBeTruthy();
 		expect(
 			startingStatus.querySelector('[data-slot="agent-thinking-elapsed"]')
 		).toBeNull();

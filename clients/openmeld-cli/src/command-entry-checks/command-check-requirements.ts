@@ -56,6 +56,10 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
   root: buildCommandChecks(OPTIONAL_CLI_UPDATE),
   "plugins.list": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
   "plugins.connect": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
+  "plugins.connection": buildCommandChecks(
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
   "plugins.actions": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
   "plugins.call": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
   view: buildCommandChecks(OPTIONAL_CLI_UPDATE),

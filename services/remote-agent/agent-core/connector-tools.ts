@@ -38,6 +38,7 @@ import {
   runOpenConnectorAction,
   searchOpenConnectorActions,
 } from "../connectors/open-connector-runtime";
+import { describePluginConnection } from "../connectors/plugin-connection";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -68,6 +69,18 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 const GITHUB_DEDICATED_ACTION_INSTRUCTION =
   "This Plugins list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.";
+function knownConnectionUsability(
+  stored: boolean,
+  state?: string
+): boolean | null {
+  if (!stored || state === "reconnect_required") {
+    return false;
+  }
+  if (state === "ready") {
+    return true;
+  }
+  return null;
+}
 export const REMOTE_AGENT_CONNECTOR_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
@@ -97,7 +110,7 @@ type ConnectorToolContext = Awaited<
   >["pluginDelegations"];
 };
 
-async function buildConnectorToolContext(
+export async function buildConnectorToolContext(
   input: Parameters<typeof buildRemoteAgentToolContext>[0] & {
     coreWorker: RemoteAgentCoreWorkerBinding;
   }
@@ -215,8 +228,31 @@ export function getRemoteAgentConnectorToolDefinitions(
                 service,
                 toolContext,
               });
+              let descriptionUnavailable = false;
+              const description =
+                selection.connection && input.connectorExecution
+                  ? await describePluginConnection({
+                      service,
+                      connectionName: selection.connection.connectionName,
+                      connectorExecution: input.connectorExecution,
+                    }).catch(() => {
+                      descriptionUnavailable = true;
+                      return null;
+                    })
+                  : null;
               return {
-                connected: Boolean(selection.connection),
+                connected: knownConnectionUsability(
+                  Boolean(selection.connection),
+                  description?.connection?.health.state
+                ),
+                connectionStored: Boolean(selection.connection),
+                descriptionUnavailable,
+                health: description?.connection?.health ?? { state: "unknown" },
+                nativeHttp: description?.nativeHttp ?? null,
+                nextAction:
+                  description?.connection?.health.state === "reconnect_required"
+                    ? "Reconnect this same account in Plugins."
+                    : "Use Plugin actions, or computer_plugin_connection for the declared native reads. Unknown health is not a failed connection; execution verifies and refreshes credentials when supported.",
                 name: getConnectedAppDisplayName(service),
                 scope: selection.connection?.scope ?? null,
                 selection: selection.selection,
@@ -1035,7 +1071,7 @@ function delegatedConnectionPreference(
   return scopes.has("shared") ? "shared" : "requester";
 }
 
-async function requireAvailableConnectorConnection(
+export async function requireAvailableConnectorConnection(
   input: Parameters<typeof resolveConnectorConnection>[0] &
     Pick<ConnectorToolDependencies, "storage" | "submissionId">
 ) {
@@ -1063,7 +1099,7 @@ async function requireAvailableConnectorConnection(
   };
 }
 
-function resolveConnectorTurnRequester(
+export function resolveConnectorTurnRequester(
   context: ConnectorToolContext,
   requested?: "requester" | "shared"
 ): {

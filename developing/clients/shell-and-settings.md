@@ -32,9 +32,9 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 
 ## 1. Goal and current owner
 
-Current Web uses a 76px application rail (52px in **Icons only**), with a separate
+Current Web uses a 64px application rail (52px in **Icons only**), with a separate
 **New Agent** creation action and contextual lists in a collapsible middle column.
-**Settings** remains a separated utility. **Projects**, **Documents**, and **Agent
+**Settings** lives in the account menu. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
 from this rail. The bottom toolbar puts
 the signed-in member's current **Computer** at the far-left edge of the inset
@@ -49,8 +49,9 @@ the global App Settings destination, grouped under the current Organization
 
 The Web application rail places the Organization selector above compact history,
 search, and Inbox controls. The work-area header toggles the middle column. Its
-footer uses the Fluid user dropdown with account switching, Settings, and Log out entries,
-plus adjacent Settings and theme controls. Authentication, history, and theme
+footer uses the Fluid user dropdown with account switching, Search, Settings,
+theme selection, and Log out. Search has a separate divided section; theme
+selection follows Download Desktop App and reuses Appearance's compact selector. Authentication, history, and theme
 ownership remain in the existing Web hooks and router.
 
 One shell and one Settings framework let Web and the Electron GUI reuse shared
@@ -264,9 +265,8 @@ The Web shell is a stable two-layer composition built from the shared
   Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
-  future placement remains unsettled. Settings remains a bottom
-  utility that opens Account settings. The footer account dropdown offers a second
-  link to that same global Settings destination. The workspace switcher contains
+future placement remains unsettled. The footer account dropdown opens global
+Settings and contains Search and theme selection. The workspace switcher contains
   only organization selection and management actions. Send
   feedback lives in the Personal Settings group rather than as a second
   outer-rail utility. The rail has no
@@ -304,7 +304,13 @@ The Web shell is a stable two-layer composition built from the shared
   The middle column can be resized or collapsed while the application rail and
   current work remain mounted. Existing outer-sidebar persistence stores its
   geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal
-  behavior. The Spaces heading opens the Space directory, without a duplicate
+  behavior. Without an explicit visibility choice, overview pages start collapsed
+  and conversation, person, and Agent detail pages start expanded. These route
+  defaults are not saved as user choices, including when group collapse is saved.
+  Explicit expanded/hidden choices remain shared across the Spaces directory,
+  conversation details, and Team tabs, including People and Agents, and survive
+  reloads. Navigation never resets that choice; existing cookies remain valid.
+  The Spaces heading opens the Space directory, without a duplicate
   aggregate status dot. Direct messages is a tab after Your Spaces. Its plus
   menu offers New message and New Space. Browse spaces is visible in both views,
   and empty search results offer Find someone with the query prefilled in the
@@ -516,6 +522,21 @@ default Rounded appearance, and becomes square only when the user selects
 Square.
 
 ## 6. Shared Sidebar family and resize behavior
+
+The outer rail's Spaces and Team resource popovers open on hover or Arrow Down/Space.
+Clicking Spaces still opens Your Spaces; clicking Team opens People.
+Spaces offers Direct messages and Discover using the existing `view` search parameter.
+The pinned Direct messages label is DMs. Discover is hidden in personal workspaces,
+including saved pins, without deleting the browser preference.
+Agents, Plugins, Skills, Files, and Routines link to the existing
+Team destinations and each has a separate Pin to sidebar toggle. Pins start
+empty, persist in this browser in selection order, and resolve against the
+current Organization. A short divider separates pinned entries from the main
+navigation. A pinned current destination owns the selected state instead of
+also selecting Team. Compact rail tooltips open without a delay. Primary and
+pinned destinations share one Fluid hover scope across the visual divider.
+Tooltip visibility does not suspend hover; an open context menu does.
+
 
 Main Sidebar uses the Fluid Functionalism Base UI registry components in
 `packages/ui/src/fluid/sidebar*.tsx`. Its provider owns transient pointer,

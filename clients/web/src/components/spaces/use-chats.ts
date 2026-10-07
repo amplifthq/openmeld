@@ -86,6 +86,7 @@ export function useChats(input: {
 				item.spaceId,
 				{
 					messagePreview: item.messagePreview,
+					recentMessagePreviews: item.recentMessagePreviews,
 					spaceId: item.spaceId,
 					name: presentation.name,
 					profileKind: presentation.profileKind,
@@ -149,15 +150,19 @@ export function useChats(input: {
 			previews[index]?.data?.timestamp ?? 0,
 		])
 	);
-	const chatPath = (chat: Chat) =>
+	const chatPath = (chat: Chat, focusSignalId?: string) =>
 		chat.session
 			? buildOrganizationCenterAgentChatPath(org.slug, {
 					session: chat.spaceId,
+					focusSignalId,
 				})
 			: buildOrganizationDirectMessagePath({
 					orgSlug: org.slug,
 					spaceId: chat.spaceId,
-					search: { profileId: chat.viewerProfileId ?? profileId },
+					search: {
+						profileId: chat.viewerProfileId ?? profileId,
+						focusSignalId,
+					},
 				});
 	const inbox = useQuery(
 		spaceInboxSummaryQueryOptions({ organizationId: org.id })

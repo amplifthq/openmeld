@@ -14,6 +14,7 @@ import type {
 
 export function SpaceWindowShell(input: {
 	children: ReactNode;
+	defaultModuleSidebarOpen?: boolean;
 	sidebar?: ReactNode;
 	initialOuterSidebarState?: SidebarPersistedState;
 	/** SSR-resolved persisted sidebar state (no first-paint flash). */
@@ -24,6 +25,7 @@ export function SpaceWindowShell(input: {
 	const account = useAppShellAccount();
 	return (
 		<SpaceWindowFrame
+			defaultModuleSidebarOpen={input.defaultModuleSidebarOpen ?? true}
 			initialSidebarState={input.initialOuterSidebarState}
 			navigation={input.sidebar}
 			outerRail={<AppOuterRail account={account} />}
@@ -35,12 +37,14 @@ export function SpaceWindowShell(input: {
 
 export function SpaceWindowFrame(input: {
 	children: ReactNode;
+	defaultModuleSidebarOpen?: boolean;
 	outerRail: ReactNode;
 	navigation?: ReactNode;
 	initialSidebarState?: SidebarPersistedState;
 }) {
 	return (
 		<AppSurfaceLayout
+			defaultModuleSidebarOpen={input.defaultModuleSidebarOpen}
 			frameSlotName="space-window-frame"
 			globalControls={<AppGlobalControls />}
 			initialModuleSidebarState={input.initialSidebarState}
@@ -83,6 +87,7 @@ export function AppSpaceShell(input: AppSpaceShellProps) {
 			key={`${input.currentProfileId ?? ""}:${input.currentSpaceId ?? ""}`}
 		>
 			<SpaceWindowShell
+				defaultModuleSidebarOpen={!!input.currentSpaceId}
 				initialOuterSidebarState={input.initialOuterSidebarState}
 				initialSidebarState={input.initialSidebarState}
 				sidebar={

@@ -32,6 +32,7 @@ export function FluidContextMenuScope({
       <ContextMenuScope value={{ enabled: !disabled, open: open && !disabled }}>
         <ContextMenuTrigger
           className="select-auto"
+          data-context-menu-open={open && !disabled}
           onContextMenu={(event) => {
             const element =
               event.target instanceof Element ? event.target : null;
