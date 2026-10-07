@@ -14,4 +14,9 @@ profiles, browse Plugins, files and Skills, or edit and pause a sample Routine.
 Changes stay in the page and reset on reload. The homepage also explains local
 agents, shared team context, Slack access, and cloud computers.
 
+Choose a local or remote Agent in the focused creation preview. Explore
+Slack, Lark, and Feishu conversation examples, including expandable threads.
+The homepage now includes an open-source link, a metal Web badge, and a
+cloud-computer overview. Motion respects reduced-motion preferences.
+
 Open the Web app or choose a macOS or Windows download from the homepage.

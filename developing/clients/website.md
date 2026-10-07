@@ -40,6 +40,13 @@ submission. The iframe permits same-origin scripts so normal module loading
 works; it is trusted authored presentation, not an origin isolation boundary.
 Keep this boundary and the explicit refresh instructions in the builder README.
 
+The hero uses the full app shell. Later sections reuse focused Create Agent,
+Files/Skills, and Routine surfaces without repeated navigation chrome. Demo
+links stay in memory; the app-link capability hides Copy link actions because
+fictional objects have no public URL. Normal app surfaces retain that capability.
+The Web badge uses a lazy Metal effect with a static reduced-motion fallback.
+Hero pointer motion is limited to fine pointers and disabled for reduced motion.
+
 Navigation uses ordinary anchors. App links enter the existing App resolver,
 which alone chooses the viewer's Organization and checks access. Web's public
 page stubs redirect to the website. `/agent-interface` remains an interactive

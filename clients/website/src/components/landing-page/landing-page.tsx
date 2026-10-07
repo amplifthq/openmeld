@@ -36,6 +36,12 @@ import {
 import { MotionConfig } from "motion/react";
 import { type ReactNode, useRef } from "react";
 import { appUrl } from "#/lib/app-url";
+import {
+	ChannelShowcase,
+	ComputerBento,
+	HeroAgents,
+	WebMetalBadge,
+} from "./landing-showcases";
 import "./landing-page.css";
 
 const REPOSITORY_URL = "https://github.com/amplifthq/openmeld";
@@ -45,7 +51,7 @@ function OpenAppButton({ compact = false }: { compact?: boolean }) {
 			className={`meld-button meld-button-web ${compact ? "meld-button-compact" : ""}`}
 			href={appUrl("/")}
 		>
-			Open App <span className="meld-web-badge">Web</span>
+			Open App <WebMetalBadge />
 		</a>
 	);
 }
@@ -142,7 +148,9 @@ function ProductDemo({
 	hero?: boolean;
 }) {
 	return (
-		<div className={`meld-demo ${hero ? "meld-demo-hero" : ""}`}>
+		<div
+			className={`meld-demo meld-demo-${scene.toLowerCase()} ${hero ? "meld-demo-hero" : ""}`}
+		>
 			<iframe
 				loading={hero ? "eager" : "lazy"}
 				referrerPolicy="no-referrer"
@@ -192,6 +200,7 @@ export function LandingPage() {
 				</header>
 				<main id="main-content">
 					<section aria-labelledby="hero-title" className="meld-hero meld-wrap">
+						<HeroAgents />
 						<h1 id="hero-title">
 							Your team. Your agents.
 							<br />
@@ -202,53 +211,19 @@ export function LandingPage() {
 							conversation. Turn a brief into work your whole team can review.
 						</p>
 						<AppActions />
+						<div className="meld-open-source">
+							<a href={REPOSITORY_URL}>
+								Steal our code (legally){" "}
+								<ArrowUpRightIcon aria-hidden size={14} />
+							</a>
+							<span>100% open source. MIT licensed.</span>
+						</div>
 						<div id="product">
 							<ProductDemo
 								hero
 								scene="Conversation"
 								title="Interactive OpenMeld Space demo"
 							/>
-						</div>
-					</section>
-					<section
-						aria-labelledby="together-title"
-						className="meld-section meld-wrap"
-					>
-						<div className="meld-section-heading">
-							<h2 id="together-title">
-								The whole team.
-								<br />
-								<span>In on the work.</span>
-							</h2>
-							<p>
-								A teammate adds the brief. An agent prepares the draft. You open
-								the file and ask for a change. Everyone can follow the work in
-								the same Space.
-							</p>
-						</div>
-						<ProductDemo scene="Spaces" title="Explore OpenMeld Spaces" />
-						<div className="meld-details">
-							<article>
-								<h3>One conversation to build on.</h3>
-								<p>
-									People and agents share the thread. The next question starts
-									with the work already there.
-								</p>
-							</article>
-							<article>
-								<h3>Results you can use.</h3>
-								<p>
-									Open the document. Review the changes. Give the next
-									instruction where the result arrived.
-								</p>
-							</article>
-							<article>
-								<h3>A place for every project.</h3>
-								<p>
-									Keep the launch, customer research, and website work in their
-									own Spaces.
-								</p>
-							</article>
 						</div>
 					</section>
 					<section
@@ -275,6 +250,10 @@ export function LandingPage() {
 									</a>
 								</div>
 							</div>
+							<ProductDemo
+								scene="CreateAgent"
+								title="Choose a local or remote agent"
+							/>
 							<LandingLinks
 								axis="xy"
 								className="meld-agent-links"
@@ -314,7 +293,10 @@ export function LandingPage() {
 								ready to use again.
 							</p>
 						</div>
-						<ProductDemo scene="Files" title="Explore team files and Skills" />
+						<ProductDemo
+							scene="Knowledge"
+							title="Explore team files and Skills"
+						/>
 						<div className="meld-details meld-details-two">
 							<article>
 								<h3>The context is already here.</h3>
@@ -350,7 +332,7 @@ export function LandingPage() {
 							</p>
 						</div>
 						<ProductDemo
-							scene="Routines"
+							scene="Schedule"
 							title="Explore a scheduled project review"
 						/>
 					</section>
@@ -358,22 +340,8 @@ export function LandingPage() {
 						aria-labelledby="channel-title"
 						className="meld-section meld-channel-section"
 					>
-						<div className="meld-wrap meld-section-heading">
-							<h2 id="channel-title">
-								The next task starts
-								<br />
-								<span>in your team’s Slack.</span>
-							</h2>
-							<div>
-								<p>
-									Ask your Center Agent for help without leaving the channel.
-									Connect the tools it needs for the job. Slack, Lark, and
-									Feishu are supported.
-								</p>
-								<a className="meld-button" href={appUrl("/add-to-slack")}>
-									Add to Slack <ArrowUpRightIcon aria-hidden size={16} />
-								</a>
-							</div>
+						<div className="meld-wrap">
+							<ChannelShowcase />
 						</div>
 					</section>
 					<section
@@ -392,22 +360,7 @@ export function LandingPage() {
 								and bring back the result.
 							</p>
 						</div>
-						<div className="meld-details">
-							<article>
-								<h3>Files it can work on.</h3>
-								<p>Prepare documents and process data in a cloud workspace.</p>
-							</article>
-							<article>
-								<h3>Code it can run.</h3>
-								<p>Use a terminal, install dependencies, and test changes.</p>
-							</article>
-							<article>
-								<h3>Tools for the task.</h3>
-								<p>
-									Use connected apps and Skills within the access you grant.
-								</p>
-							</article>
-						</div>
+						<ComputerBento />
 						<a className="meld-link" href="https://docs.openmeld.ai">
 							Explore the docs <ArrowUpRightIcon aria-hidden size={16} />
 						</a>

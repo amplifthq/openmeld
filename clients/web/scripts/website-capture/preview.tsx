@@ -4,6 +4,7 @@ import {
 	createSpaceMemberHumanSnapshot,
 	createSpaceMembersSnapshot,
 } from "@openmeld/schemas/testing";
+import { Button } from "@openmeld/ui/components/button";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -20,6 +21,7 @@ import { NuqsAdapter } from "nuqs/adapters/react";
 import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MessageResponse } from "../../src/components/ai/message-response";
+import { AppLinkCapability } from "../../src/components/app/app-link-capability";
 import { APP_APPLICATION_RAIL_CLASS_NAME } from "../../src/components/app/app-nav-item-style";
 import {
 	AppRailNavigationGroup,
@@ -54,12 +56,14 @@ import { SpaceMessageSurface } from "../../src/components/spaces/space-message-s
 import { SpaceMessageTime } from "../../src/components/spaces/space-message-time";
 import type { SpaceView } from "../../src/components/spaces/space-view";
 import { SpaceViewTabs } from "../../src/components/spaces/space-view-tabs";
+import { DemoCreateAgent } from "./demo-create-agent";
 import { demoAgentProfiles, demoDirectory, demoSpaces } from "./demo-data";
 import { DemoInbox, useDemoInboxAttention } from "./demo-inbox";
 import { DemoOrganizationSwitcher, DemoUserFooter } from "./demo-rail";
 import {
 	DemoFiles,
 	DocumentDialog,
+	FocusedTeamScene,
 	SpaceDirectory,
 	TeamScene,
 } from "./demo-scenes";
@@ -157,6 +161,16 @@ const sampleMessages = {
 			"agent",
 			"Release notes are ready for review. I included the setup changes and next steps.",
 		],
+		[
+			"Claude Code",
+			"agent",
+			"I checked the setup guide against the code. The install commands are up to date.",
+		],
+		[
+			"Codex",
+			"agent",
+			"The setup checks pass. Maya, the launch brief is ready for your final review.",
+		],
 	],
 	research: [
 		["James Lee", "human", "What keeps coming up in our customer interviews?"],
@@ -196,21 +210,28 @@ function TranscriptMessage({
 	text: string;
 	index: number;
 }) {
+	const isCenterAgent = name === "Center Agent";
+	const localController =
+		name === "Codex" ? "builtin:codex" : "builtin:claude-code";
+	const agentController = isCenterAgent
+		? HOSTED_CENTER_AGENT_CONTROLLER_REF
+		: localController;
 	return (
 		<Message className="px-3 py-2">
 			<MessageContent className="w-full min-w-0 gap-0">
 				<MessageHeader className="items-center gap-2 px-0">
 					<SpaceMessageProfileAvatar
-						agentControllerRef={
-							kind === "agent" ? HOSTED_CENTER_AGENT_CONTROLLER_REF : null
-						}
-						avatarStyle={kind === "agent" ? "star" : undefined}
+						agentControllerRef={kind === "agent" ? agentController : null}
+						avatarStyle={isCenterAgent ? "star" : undefined}
 						displayName={name}
-						isCenterAgent={kind === "agent"}
+						isCenterAgent={isCenterAgent}
 						profileId={`demo-${name}`}
 						profileKind={kind}
 					/>
 					<span className="text-foreground">{name}</span>
+					{kind === "agent" && !isCenterAgent ? (
+						<span className="text-muted-foreground">· Maya Chen</span>
+					) : null}
 					<SpaceMessageTime
 						createdAtMs={1_791_334_800_000 + index * 120_000}
 						isDirectMessage={false}
@@ -249,7 +270,9 @@ function Preview() {
 	const activeDestination = isTeam ? "people" : "spaces";
 	const [file, setFile] = useState<string | null>(null);
 	const [person, setPerson] = useState<string | null>(null);
-	const [membersOpen, setMembersOpen] = useState(false);
+	const [membersOpen, setMembersOpen] = useState(
+		() => window.matchMedia("(min-width: 1024px)").matches
+	);
 	const [memberWidth, setMemberWidth] = useState("300px");
 	const [view, setView] = useState<SpaceView>("messages");
 	const wide = useMediaQuery("(min-width: 1024px)");
@@ -287,7 +310,7 @@ function Preview() {
 				createSpaceMemberAgentSnapshot({
 					profileId: "agt_33333333-3333-4333-8333-333333333333",
 					profileName: "Center Agent",
-					ownerName: "Atlas",
+					ownerName: "Amplift",
 					ownerUserId: null,
 					agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
 					avatarStyle: "star",
@@ -299,6 +322,14 @@ function Preview() {
 					ownerName: "Maya Chen",
 					ownerUserId: "preview",
 					agentControllerRef: "builtin:claude-code",
+					addedByDisplayName: "Maya Chen",
+				}),
+				createSpaceMemberAgentSnapshot({
+					profileId: "agt_55555555-5555-4555-8555-555555555555",
+					profileName: "Codex",
+					ownerName: "Maya Chen",
+					ownerUserId: "preview",
+					agentControllerRef: "builtin:codex",
 					addedByDisplayName: "Maya Chen",
 				}),
 			],
@@ -345,103 +376,110 @@ function Preview() {
 	if (isInbox) {
 		content = <DemoInbox />;
 	}
+
 	return (
 		<QueryClientProvider client={client}>
 			<NuqsAdapter>
 				<TooltipProvider>
-					<AppSurfaceLayout
-						globalControls={null}
-						initialModuleSidebarState={{ tier: "expanded", width: "248px" }}
-						moduleNavigation={
-							!isInbox &&
-							(isTeam ? (
-								<TeamSidebarHeaderActionsProvider>
-									<TeamSidebarHeader />
-									<PeopleSidebar
-										activityNowMs={1_791_334_800_000}
-										chatPending={false}
-										computerGroups={[]}
-										error={null}
-										loading={false}
-										members={people}
-										onSelect={(id) => {
-											setPerson(id);
-											navigate({
-												to: "/o/$orgSlug/people",
-												params: { orgSlug: "test" },
-											}).catch(console.error);
-										}}
-										selectedProfileId={person}
-									/>
-								</TeamSidebarHeaderActionsProvider>
-							) : (
-								<ConversationsSidebar />
-							))
-						}
-						moduleNavigationKey={isTeam ? "people" : "conversations"}
-						moduleNavigationLabel={isTeam ? "Team" : "Spaces"}
-						outerRail={
-							<aside className={APP_APPLICATION_RAIL_CLASS_NAME}>
-								<DemoOrganizationSwitcher />
-								<div className="flex-1 px-1">
-									{buildAppRailGroups({
-										inboxAttention,
-										orgSlug: "test",
-										centerAgentUnreadCount: 0,
-										spacesUnreadCount: 0,
-										prefetchCenterAgentConversation: () => undefined,
-									}).map((group, index) => (
-										<AppRailNavigationGroup
-											activeDestination={isInbox ? "inbox" : activeDestination}
-											group={group}
-											key={group.id}
-											position={index}
-											tier="icon"
+					<AppLinkCapability value={false}>
+						<AppSurfaceLayout
+							globalControls={null}
+							initialModuleSidebarState={{ tier: "expanded", width: "248px" }}
+							moduleNavigation={
+								!isInbox &&
+								(isTeam ? (
+									<TeamSidebarHeaderActionsProvider>
+										<TeamSidebarHeader />
+										<PeopleSidebar
+											activityNowMs={1_791_334_800_000}
+											chatPending={false}
+											computerGroups={[]}
+											error={null}
+											loading={false}
+											members={people}
+											onSelect={(id) => {
+												setPerson(id);
+												navigate({
+													to: "/o/$orgSlug/people",
+													params: { orgSlug: "test" },
+												}).catch(console.error);
+											}}
+											selectedProfileId={person}
 										/>
-									))}
-								</div>
-								<DemoUserFooter />
-							</aside>
-						}
-					>
-						<section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-							{!(isTeam || isInbox) && (
-								<SpaceWindowHeader
-									actions={
-										scene === "Conversation" ? (
-											<SpaceMembersToggleButton
-												controlsId={
-													wide ? "space-members-panel" : "space-members-drawer"
+									</TeamSidebarHeaderActionsProvider>
+								) : (
+									<ConversationsSidebar />
+								))
+							}
+							moduleNavigationKey={isTeam ? "people" : "conversations"}
+							moduleNavigationLabel={isTeam ? "Team" : "Spaces"}
+							outerRail={
+								<aside className={APP_APPLICATION_RAIL_CLASS_NAME}>
+									<DemoOrganizationSwitcher />
+									<div className="flex-1 px-1">
+										{buildAppRailGroups({
+											inboxAttention,
+											orgSlug: "test",
+											centerAgentUnreadCount: 0,
+											spacesUnreadCount: 0,
+											prefetchCenterAgentConversation: () => undefined,
+										}).map((group, index) => (
+											<AppRailNavigationGroup
+												activeDestination={
+													isInbox ? "inbox" : activeDestination
 												}
-												memberCount={4}
-												onOpenChange={setMembersOpen}
-												open={membersOpen}
+												group={group}
+												key={group.id}
+												position={index}
+												tier="icon"
 											/>
-										) : undefined
-									}
-									navigation={
-										scene === "Conversation" ? (
-											<SpaceViewTabs
-												activeView={view}
-												idPrefix="demo-space"
-												onViewChange={setView}
-												tasksEnabled={false}
-											/>
-										) : undefined
-									}
-									title={title}
-									titleAdornment={
-										scene === "Conversation" ? (
-											<span className="text-muted-foreground text-xs">
-												Invite only
-											</span>
-										) : undefined
-									}
-								/>
-							)}
-							{content}
-						</section>
-					</AppSurfaceLayout>
+										))}
+									</div>
+									<DemoUserFooter />
+								</aside>
+							}
+						>
+							<section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+								{!(isTeam || isInbox) && (
+									<SpaceWindowHeader
+										actions={
+											scene === "Conversation" ? (
+												<SpaceMembersToggleButton
+													controlsId={
+														wide
+															? "space-members-panel"
+															: "space-members-drawer"
+													}
+													memberCount={5}
+													onOpenChange={setMembersOpen}
+													open={membersOpen}
+												/>
+											) : undefined
+										}
+										navigation={
+											scene === "Conversation" ? (
+												<SpaceViewTabs
+													activeView={view}
+													idPrefix="demo-space"
+													onViewChange={setView}
+													tasksEnabled={false}
+												/>
+											) : undefined
+										}
+										title={title}
+										titleAdornment={
+											scene === "Conversation" ? (
+												<span className="text-muted-foreground text-xs">
+													Invite only
+												</span>
+											) : undefined
+										}
+									/>
+								)}
+								{content}
+							</section>
+						</AppSurfaceLayout>
+					</AppLinkCapability>
 					<DocumentDialog name={file} onClose={() => setFile(null)} />
 				</TooltipProvider>
 			</NuqsAdapter>
@@ -468,7 +506,7 @@ function Conversation({
 	return (
 		<>
 			<div className="min-h-0 flex-1 overflow-auto px-5 py-4" ref={scrollRef}>
-				<div className="mx-auto flex max-w-3xl flex-col gap-3">
+				<div className="flex w-full flex-col gap-3">
 					{(isReport
 						? [
 								[
@@ -510,7 +548,7 @@ function Conversation({
 					))}
 				</div>
 			</div>
-			<div className="mx-auto w-full max-w-3xl px-6 pb-6">
+			<div className="w-full px-6 pb-4">
 				<SpaceComposer
 					actions={{
 						onEditorChange: (change) => setText(change.text),
@@ -554,13 +592,67 @@ function Conversation({
 		</>
 	);
 }
-const route = createRootRoute({ component: Preview });
+function FocusedPreview() {
+	const path = useRouterState({ select: (state) => state.location.pathname });
+	const navigate = useNavigate();
+	const [file, setFile] = useState<string | null>(null);
+	const isSpace = initialScene === "Schedule" && path.includes("/spaces/");
+	return (
+		<QueryClientProvider client={client}>
+			<NuqsAdapter>
+				<TooltipProvider>
+					<AppLinkCapability value={false}>
+						<main className="flex h-dvh min-h-0 flex-col overflow-auto bg-background">
+							{isSpace && (
+								<>
+									<div className="flex items-center gap-4 border-b px-6 py-3">
+										<Button
+											onClick={() =>
+												navigate({
+													to: "/o/$orgSlug/routines",
+													params: { orgSlug: "test" },
+												})
+											}
+											variant="ghost"
+										>
+											Back to Routines
+										</Button>
+										<strong>Launch room</strong>
+									</div>
+									<Conversation onOpen={setFile} spaceId="release" />
+								</>
+							)}
+							{!isSpace &&
+								(initialScene === "CreateAgent" ? (
+									<DemoCreateAgent />
+								) : (
+									<FocusedTeamScene scene={initialScene} />
+								))}
+						</main>
+						<DocumentDialog name={file} onClose={() => setFile(null)} />
+					</AppLinkCapability>
+				</TooltipProvider>
+			</NuqsAdapter>
+		</QueryClientProvider>
+	);
+}
+const route = createRootRoute({
+	component: ["CreateAgent", "Knowledge", "Schedule"].includes(initialScene)
+		? FocusedPreview
+		: Preview,
+});
 let initialPath = "/o/test/spaces/release";
 if (initialScene === "Spaces") {
 	initialPath = "/o/test/spaces";
 }
 if (["Files", "Skills", "Routines"].includes(initialScene)) {
 	initialPath = `/o/test/${initialScene.toLowerCase()}`;
+}
+if (initialScene === "Knowledge") {
+	initialPath = "/o/test/files";
+}
+if (initialScene === "Schedule") {
+	initialPath = "/o/test/routines";
 }
 const router = createRouter({
 	history: createMemoryHistory({

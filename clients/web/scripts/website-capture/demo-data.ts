@@ -64,13 +64,19 @@ const memberPreviews = [
 		profileKind: "agent" as const,
 		agentControllerRef: "builtin:claude-code",
 	},
+	{
+		profileId: "codex",
+		profileName: "Codex",
+		profileKind: "agent" as const,
+		agentControllerRef: "builtin:codex",
+	},
 ];
 export const demoSpaces = spaceNames.map((name, index) => ({
 	...fixtureSpace(ids[index], name, index === 0),
 	memberPreviews,
-	activeMemberCount: 4,
+	activeMemberCount: 5,
 	activeHumanCount: 2,
-	activeAgentCount: 2,
+	activeAgentCount: 3,
 }));
 export function useDemoConversations() {
 	const fixture = useConversationSidebarFixture();

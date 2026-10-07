@@ -93,7 +93,9 @@ export function DocumentDialog({
 			<DialogContent className="max-h-[85vh] overflow-auto sm:max-w-2xl">
 				<DialogHeader>
 					<DialogTitle>{name}</DialogTitle>
-					<DialogDescription>Atlas demo workspace</DialogDescription>
+					<DialogDescription className="sr-only">
+						Amplift workspace document
+					</DialogDescription>
 				</DialogHeader>
 				<div className="px-2 py-4">
 					<MessageResponse variant="space-message">
@@ -145,6 +147,7 @@ export function DemoFiles({ team = false }: { team?: boolean }) {
 	return (
 		<Suspense fallback={null}>
 			<FileSystem
+				className="h-full min-h-0 flex-1"
 				defaultView="icons"
 				embedded
 				items={scope === "team" ? files : []}
@@ -218,7 +221,9 @@ export function TeamScene({
 			<header className="h-[var(--space-conversation-header-height)] w-full shrink-0 border-border border-b bg-background">
 				<TeamHeader active={tab} />
 			</header>
-			<div className="min-h-0 flex-1 overflow-auto p-6">
+			<div
+				className={`min-h-0 flex-1 overflow-auto p-6 ${tab === "files" ? "flex flex-col" : ""}`}
+			>
 				<Suspense
 					fallback={
 						<p className="text-muted-foreground text-sm">
@@ -229,6 +234,40 @@ export function TeamScene({
 					{content}
 				</Suspense>
 			</div>
+		</div>
+	);
+}
+
+export function FocusedTeamScene({ scene }: { scene: string }) {
+	const path = useRouterState({ select: (state) => state.location.pathname });
+	const [tab, setTab] = useState("files");
+	const detail = path.split("/")[4];
+	if (scene === "Schedule") {
+		return (
+			<div className="p-6">
+				<Suspense fallback={null}>
+					<RoutinesPage />
+				</Suspense>
+			</div>
+		);
+	}
+	return (
+		<div className="flex min-h-0 flex-1 flex-col p-6">
+			<Tabs onValueChange={setTab} value={tab}>
+				<TabsList aria-label="Shared knowledge" className="mb-5 w-fit">
+					<TabItem label="Files" value="files" />
+					<TabItem label="Skills" value="skills" />
+				</TabsList>
+			</Tabs>
+			<Suspense fallback={null}>
+				{tab === "files" ? (
+					<DemoFiles team />
+				) : (
+					<div className="min-h-0 flex-1 overflow-auto">
+						{detail ? <SkillDetail skillId={detail} /> : <SkillsList />}
+					</div>
+				)}
+			</Suspense>
 		</div>
 	);
 }

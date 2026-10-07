@@ -7,7 +7,7 @@ Website publishes the resulting static artifact, not a second product app.
 ## Provenance and refresh
 
 This revision starts from product UI at `c0732ec03` on origin/main. All sample
-people, messages, files, Skills, and Routine results belong to fictional Atlas.
+people, messages, files, Skills, and Routine results belong to fictional Amplift.
 No production account, captured conversation, or private asset is included.
 
 From the repository root:
@@ -18,7 +18,8 @@ pnpm -C clients/website dev
 ```
 
 Review `/product-demo/index.html?scene=Conversation`, `Spaces`, `Files`,
-`Skills`, and `Routines`, plus the embedded homepage at desktop and phone
+`Skills`, and `Routines`, plus focused `CreateAgent`, `Knowledge`, and
+`Schedule` scenes and the embedded homepage at desktop and phone
 widths. Commit the builder and regenerated `clients/website/public/product-demo`
 together. Ordinary Website builds never refresh this artifact. Revert those
 files together to restore a prior version.
@@ -37,9 +38,14 @@ files together to restore a prior version.
   `OrganizationPluginsPage`, `OrganizationSkillsListPage`,
   `OrganizationSkillDetailPage`, `FileSystem`, and `RoutinesPage`.
 - Interaction primitives: existing `@openmeld/ui` Fluid and Base UI components.
+- Create Agent: shared `AgentRuntimeChoice`, `LocalAgentSelector`,
+  `AgentNameEditor`, and `RemoteAgentAvatar`. Selection and naming are local;
+  there is no creation submission or connection to the visitor's computer.
 
 The demo supplies fictional content through real header slots. The Space member
-button opens the product's resizable member panel or mobile drawer. Sidebar
+button opens the product's resizable member panel or mobile drawer. The panel
+starts open on desktop. Claude Code and Codex messages show their human owner.
+The message column uses the available width. Sidebar
 pinning changes memory-only state. Team uses the shared header and the real
 People overview. All six Team tabs use the memory router and remain interactive.
 People and Agent cards open the real read-only detail components. Plugins use the
@@ -51,9 +57,11 @@ Trash. Skills open the real catalog and read-only detail page.
 Inbox supports category/filter changes, unread-only, item menus, bulk mark-read,
 and links back to sample Spaces. Its blue rail dot derives from the same local
 items. Workspace-wide message search is omitted because it requires live data.
-The organization menu contains the fictional Atlas organization; the user menu
+The organization menu contains the fictional Amplift organization; the user menu
 shows Maya's identity. Account-changing, chat-creation, and creation controls are
 omitted. Existing product consumers retain their default capabilities.
+The shared `AppLinkCapability` disables public-link actions in demo menus.
+Internal memory-router navigation remains available.
 
 ## Data boundary
 

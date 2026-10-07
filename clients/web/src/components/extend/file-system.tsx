@@ -4151,7 +4151,8 @@ function FileSystemColumnsView(props: FileSystemViewProps) {
           <InlineScrollArea2
             orientation="vertical"
             className="min-w-60 flex-1 contain-inline-size"
-            viewportClassName="flex justify-center p-4"
+            viewportClassName="p-4"
+            contentClassName="flex min-h-full items-center justify-center"
           >
             <div className="flex w-full max-w-lg flex-col items-stretch gap-3">
               {/* Width derives from the aspect ratio so the thumbnail grows

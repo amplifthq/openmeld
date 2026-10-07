@@ -143,7 +143,7 @@ export const getSidebarState=async()=>SIDEBAR_DEFAULT_STATE,getAppSidebarStates=
 						return "export const useSpaceListIndicators = () => ({unreadBySpaceId:new Map(),activeWakeSummaryBySpaceId:new Map(),activityUnavailable:false,isPending:false});";
 					}
 					if (id === "\0conversation-preview:organization-context") {
-						return `const organization={id:'org',slug:'test',name:'Atlas',isPersonal:false}; export const useAppOrganization = () => ({storageScope:'demo',currentUserId:'preview',currentOrganization:organization,organizations:[organization]}); export const useOptionalAppOrganization = useAppOrganization; export const useCurrentOrganizationSlug = () => 'test'; export const useOptionalCurrentOrganizationSlug = useCurrentOrganizationSlug; export const AppOrganizationProvider = ({children}) => children;`;
+						return `const organization={id:'org',slug:'test',name:'Amplift',isPersonal:false}; export const useAppOrganization = () => ({storageScope:'demo',currentUserId:'preview',currentOrganization:organization,organizations:[organization]}); export const useOptionalAppOrganization = useAppOrganization; export const useCurrentOrganizationSlug = () => 'test'; export const useOptionalCurrentOrganizationSlug = useCurrentOrganizationSlug; export const AppOrganizationProvider = ({children}) => children;`;
 					}
 					if (id.startsWith("\0website-demo:")) {
 						return "export const OfficeFileViewer = () => null; export const PdfViewer = () => null; export const CsvFilePreview = () => null; const unavailable = () => {throw new Error('No server in demo')}; export {unavailable as getRequest, unavailable as getRequestHeaders, unavailable as setCookie, unavailable as deleteCookie, unavailable as setResponseHeader};";
