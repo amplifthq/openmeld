@@ -23,20 +23,32 @@ import {
 	TableRow,
 } from "@openmeld/ui/components/table";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
+import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
+	SquaresFourIcon,
+	TableIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useDeferredValue, useLayoutEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useDeferredValue,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { buildProfilePath } from "#/lib/profile-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import { useBrowserPreference } from "#/lib/use-browser-preference";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { DirectoryRowActions } from "../app/directory-row-actions";
@@ -83,6 +95,10 @@ export function SpaceDirectory(input: {
 	savedViewWarning: { isRetrying: boolean; onRetry: () => void } | null;
 }) {
 	const { currentOrganization } = useAppOrganization();
+	const [savedLayout, setLayout] = useBrowserPreference(
+		`openmeld.spaces.layout:${input.profileId}:${currentOrganization.id}`
+	);
+	const layout = savedLayout === "table" ? "table" : "cards";
 	const sidebar = useSidebarPreferences(currentOrganization.id);
 	const preferences = sidebar.preferences;
 	const [searches, setSearches] = useState(["", ""]);
@@ -231,6 +247,27 @@ export function SpaceDirectory(input: {
 		>
 			<div className="flex h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)]">
 				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
+					{!discovering && (
+						<FluidNavMenu
+							activeValue={layout}
+							aria-label="Space view"
+							className="mr-2 [&_[data-sidebar=menu]]:flex-row"
+						>
+							{(["cards", "table"] as const).map((value, index) => (
+								<FluidNavMenuItem index={index} key={value} value={value}>
+									<Button
+										aria-pressed={layout === value}
+										onClick={() => setLayout(value)}
+										size="sm"
+										variant="ghost"
+									>
+										{value === "cards" ? <SquaresFourIcon /> : <TableIcon />}
+										{value === "cards" ? "Cards" : "Table"}
+									</Button>
+								</FluidNavMenuItem>
+							))}
+						</FluidNavMenu>
+					)}
 					<DirectorySearch
 						label="Search Spaces"
 						onChange={(next) =>
@@ -377,23 +414,25 @@ export function SpaceDirectory(input: {
 											: undefined
 									}
 								>
-									<Table className="w-full table-fixed">
-										<TableHeader>
-											<TableRow>
-												<TableHead className="w-auto">Space</TableHead>
-												<TableHead className="hidden w-48 lg:table-cell">
-													Status
-												</TableHead>
-												<TableHead className="hidden w-28 md:table-cell">
-													Members
-												</TableHead>
-												<TableHead className="w-28">Activity</TableHead>
-												<TableHead className="w-20">
-													<span className="sr-only">Actions</span>
-												</TableHead>
-											</TableRow>
-										</TableHeader>
-										<TableBody>
+									<DirectoryGroupLayout label={group.label} layout={layout}>
+										{layout === "table" && (
+											<TableHeader>
+												<TableRow>
+													<TableHead className="w-auto">Space</TableHead>
+													<TableHead className="hidden w-48 lg:table-cell">
+														Status
+													</TableHead>
+													<TableHead className="hidden w-28 md:table-cell">
+														Members
+													</TableHead>
+													<TableHead className="w-28">Activity</TableHead>
+													<TableHead className="w-20">
+														<span className="sr-only">Actions</span>
+													</TableHead>
+												</TableRow>
+											</TableHeader>
+										)}
+										<DirectoryGroupItems layout={layout}>
 											{group.items.map((item, index) => (
 												<JoinedRow
 													appearances={appearances}
@@ -402,6 +441,7 @@ export function SpaceDirectory(input: {
 													input={input}
 													item={item}
 													key={item.spaceId}
+													layout={layout}
 													preferences={preferences}
 													preview={previews.get(item.spaceId)}
 													save={sidebar.save}
@@ -418,13 +458,14 @@ export function SpaceDirectory(input: {
 												<UnindexedJoinedRow
 													index={group.items.length + index}
 													key={space.spaceId}
+													layout={layout}
 													orgSlug={input.orgSlug}
 													profileId={input.profileId}
 													space={space}
 												/>
 											))}
-										</TableBody>
-									</Table>
+										</DirectoryGroupItems>
+									</DirectoryGroupLayout>
 									{group.items.length + group.unindexed.length === 0 && (
 										<p className="px-3 py-6 text-muted-foreground text-sm">
 											{searchTerm ||
@@ -512,12 +553,77 @@ function DirectoryGroupActions({
 	);
 }
 
+type DirectoryLayout = "cards" | "table";
+
+function DirectoryGroupLayout(input: {
+	layout: DirectoryLayout;
+	label: string;
+	children: ReactNode;
+}) {
+	return input.layout === "table" ? (
+		<Table className="w-full table-fixed">{input.children}</Table>
+	) : (
+		<FluidCardGroup className="px-2">
+			<FluidNavMenu
+				activeValue={null}
+				aria-label={`${input.label} Spaces`}
+				className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] [&_[data-sidebar=menu]]:gap-3"
+			>
+				{input.children}
+			</FluidNavMenu>
+		</FluidCardGroup>
+	);
+}
+
+function DirectoryGroupItems(input: {
+	layout: DirectoryLayout;
+	children: ReactNode;
+}) {
+	return input.layout === "table" ? (
+		<TableBody>{input.children}</TableBody>
+	) : (
+		input.children
+	);
+}
+
 function UnindexedJoinedRow(input: {
+	layout: DirectoryLayout;
 	space: DirectorySpace;
 	index: number;
 	orgSlug: string;
 	profileId: string;
 }) {
+	if (input.layout === "cards") {
+		return (
+			<FluidNavMenuItem index={input.index} value={input.space.spaceId}>
+				<FluidCardItem
+					className="border border-border"
+					itemId={input.space.spaceId}
+				>
+					<Link
+						aria-label={`Open ${input.space.name}`}
+						className="flex min-h-52 flex-col justify-end gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						search={{ profileId: input.profileId }}
+						to={buildOrganizationSpacePath({
+							orgSlug: input.orgSlug,
+							spaceId: input.space.spaceId,
+						})}
+					>
+						<UsersThreeIcon className="mb-auto size-10 text-muted-foreground" />
+						<span className="line-clamp-2 font-medium text-sm">
+							{input.space.name}{" "}
+							<WelcomeSpaceLabel spaceId={input.space.spaceId} />
+						</span>
+						<span className="text-muted-foreground text-xs">
+							{input.space.activeMemberCount === null
+								? "Member count unavailable"
+								: `${input.space.activeMemberCount} members`}
+						</span>
+					</Link>
+				</FluidCardItem>
+			</FluidNavMenuItem>
+		);
+	}
 	return (
 		<TableRow className="border-0" index={input.index}>
 			<TableCell className="py-4">
@@ -547,6 +653,7 @@ function UnindexedJoinedRow(input: {
 
 type DirectoryInput = React.ComponentProps<typeof SpaceDirectory>;
 function JoinedRow(input: {
+	layout: DirectoryLayout;
 	item: AccountSpaceItem;
 	index: number;
 	preview: { text: string; timestamp: number } | null | undefined;
@@ -573,6 +680,63 @@ function JoinedRow(input: {
 		input.preview?.timestamp,
 		item.spaceCreatedAt
 	);
+	const actions = <JoinedSpaceActions {...input} />;
+	const statusContent = (
+		<RowStatus
+			route={route}
+			spaceId={item.spaceId}
+			status={status}
+			unread={input.unread}
+		/>
+	);
+	if (input.layout === "cards") {
+		return (
+			<FluidNavMenuItem index={input.index} value={item.spaceId}>
+				<FluidCardItem className="border border-border" itemId={item.spaceId}>
+					<FluidContextMenuScope
+						target={
+							<div
+								className="group/directory-row relative flex h-full min-h-56 flex-col gap-3 rounded-md p-4"
+								data-space-id={item.spaceId}
+							>
+								<div className="pointer-events-none absolute top-2 right-2 z-20 [&_button]:pointer-events-auto">
+									{actions}
+								</div>
+								<div className="relative z-10 w-fit">
+									<MemberPreview
+										appearances={input.appearances}
+										item={item}
+										layout="card"
+										orgSlug={input.input.orgSlug}
+									/>
+								</div>
+								<Link
+									aria-label={`Open ${item.spaceName}`}
+									className="block min-w-0 outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring"
+									{...route}
+								>
+									<SpaceDirectorySummary
+										item={item}
+										layout="card"
+										preview={input.preview}
+										unread={input.unread > 0}
+									/>
+								</Link>
+								<div className="mt-auto flex min-h-5 items-end justify-between gap-2">
+									<div className="relative z-10 min-w-0">{statusContent}</div>
+									<span className="shrink-0 text-muted-foreground text-xs">
+										{timestamp !== null && (
+											<SidebarConversationTime timestamp={timestamp} />
+										)}
+									</span>
+								</div>
+							</div>
+						}
+					/>
+				</FluidCardItem>
+			</FluidNavMenuItem>
+		);
+	}
 	return (
 		<TableRow
 			className="group/directory-row border-0"
@@ -621,46 +785,55 @@ function JoinedRow(input: {
 					<SidebarConversationTime timestamp={timestamp} />
 				)}
 			</TableCell>
-			<TableCell>
-				<DirectoryRowActions
-					disabled={input.disabled || input.input.pinActionsPending}
-					groupId={
-						input.preferences?.groups.find((group) =>
-							group.spaceIds.includes(item.spaceId)
-						)?.id ?? "spaces"
-					}
-					groups={[
-						{ id: "spaces", name: "Spaces" },
-						...(input.preferences?.groups ?? []),
-					]}
-					href={`${route.to}?profileId=${encodeURIComponent(route.search.profileId)}`}
-					moveDisabledReason={
-						item.pinnedAt !== null
-							? "Unpin this Space to move it to a group."
-							: undefined
-					}
-					name={item.spaceName}
-					onMove={(groupId) => {
-						const preferences = input.preferences;
-						if (!preferences) {
-							return;
-						}
-						input.save({
-							...preferences,
-							groups: preferences.groups.map((entry) => ({
-								...entry,
-								spaceIds: [
-									...entry.spaceIds.filter((id) => id !== item.spaceId),
-									...(entry.id === groupId ? [item.spaceId] : []),
-								],
-							})),
-						});
-					}}
-					onTogglePinned={() => input.input.onTogglePinned(item)}
-					pinned={item.pinnedAt !== null}
-				/>
-			</TableCell>
+			<TableCell>{actions}</TableCell>
 		</TableRow>
+	);
+}
+
+function JoinedSpaceActions(input: React.ComponentProps<typeof JoinedRow>) {
+	const item = input.item;
+	const url = buildOrganizationSpacePath({
+		orgSlug: input.input.orgSlug,
+		spaceId: item.spaceId,
+	});
+	return (
+		<DirectoryRowActions
+			disabled={input.disabled || input.input.pinActionsPending}
+			groupId={
+				input.preferences?.groups.find((group) =>
+					group.spaceIds.includes(item.spaceId)
+				)?.id ?? "spaces"
+			}
+			groups={[
+				{ id: "spaces", name: "Spaces" },
+				...(input.preferences?.groups ?? []),
+			]}
+			href={`${url}?profileId=${encodeURIComponent(item.openProfileId)}`}
+			moveDisabledReason={
+				item.pinnedAt !== null
+					? "Unpin this Space to move it to a group."
+					: undefined
+			}
+			name={item.spaceName}
+			onMove={(groupId) => {
+				const preferences = input.preferences;
+				if (!preferences) {
+					return;
+				}
+				input.save({
+					...preferences,
+					groups: preferences.groups.map((entry) => ({
+						...entry,
+						spaceIds: [
+							...entry.spaceIds.filter((id) => id !== item.spaceId),
+							...(entry.id === groupId ? [item.spaceId] : []),
+						],
+					})),
+				});
+			}}
+			onTogglePinned={() => input.input.onTogglePinned(item)}
+			pinned={item.pinnedAt !== null}
+		/>
 	);
 }
 
@@ -697,6 +870,7 @@ function RowStatus(input: {
 }
 
 function MemberPreview(input: {
+	layout?: "card";
 	item: AccountSpaceItem;
 	appearances: ReadonlyMap<string, SpaceMemberAppearance>;
 	orgSlug: string;
@@ -709,7 +883,11 @@ function MemberPreview(input: {
 				render={
 					<Button
 						aria-label={`Preview members of ${input.item.spaceName}`}
-						className="max-w-full gap-1 px-0"
+						className={
+							input.layout === "card"
+								? "h-auto max-w-full p-0 hover:bg-transparent"
+								: "max-w-full gap-1 px-0"
+						}
 						size="sm"
 						variant="ghost"
 					/>
@@ -718,7 +896,8 @@ function MemberPreview(input: {
 				{input.item.memberPreviews?.length ? (
 					<SpaceMemberAvatars
 						appearances={input.appearances}
-						layout="horizontal"
+						layout={input.layout === "card" ? "grid" : "horizontal"}
+						memberCount={input.item.activeMemberCount}
 						members={input.item.memberPreviews}
 					/>
 				) : (

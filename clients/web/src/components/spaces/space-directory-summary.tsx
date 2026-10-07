@@ -8,6 +8,7 @@ export function SpaceDirectorySummary(input: {
 	item: AccountSpaceItem;
 	preview: { text: string } | null | undefined;
 	unread?: boolean;
+	layout?: "card" | "row";
 }) {
 	return (
 		<>
@@ -17,11 +18,21 @@ export function SpaceDirectorySummary(input: {
 					input.unread ? "font-semibold text-foreground" : "font-medium"
 				)}
 			>
-				<ChatCircleTextIcon
-					aria-hidden
-					className="size-4 shrink-0 text-muted-foreground"
-				/>
-				<span className="truncate">{input.item.spaceName}</span>
+				{input.layout !== "card" && (
+					<ChatCircleTextIcon
+						aria-hidden
+						className="size-4 shrink-0 text-muted-foreground"
+					/>
+				)}
+				<span
+					className={
+						input.layout === "card"
+							? "line-clamp-2 min-w-0 break-words"
+							: "truncate"
+					}
+				>
+					{input.item.spaceName}
+				</span>
 				<WelcomeSpaceLabel spaceId={input.item.spaceId} />
 				{input.item.visibility === "private" && (
 					<LockKeyIcon
@@ -30,7 +41,12 @@ export function SpaceDirectorySummary(input: {
 					/>
 				)}
 			</span>
-			<span className="mt-1 block truncate pl-6 text-muted-foreground text-xs">
+			<span
+				className={cn(
+					"mt-1 block truncate text-muted-foreground text-xs",
+					input.layout !== "card" && "pl-6"
+				)}
+			>
 				{input.preview === undefined
 					? "Message preview unavailable"
 					: (input.preview?.text ??

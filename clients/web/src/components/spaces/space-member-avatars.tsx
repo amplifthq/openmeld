@@ -3,6 +3,7 @@ import type {
 	AccountSpaceIndexItem,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
+import { cn } from "@openmeld/ui/lib/utils";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 
@@ -51,15 +52,22 @@ export type SpaceMemberAppearance = {
 export function SpaceMemberAvatars(input: {
 	members: NonNullable<AccountSpaceIndexItem["memberPreviews"]>;
 	appearances?: ReadonlyMap<string, SpaceMemberAppearance>;
-	layout?: "compact" | "horizontal";
+	layout?: "compact" | "horizontal" | "grid";
+	memberCount?: number | null;
 	compactSize?: 20 | 24;
 }) {
 	const horizontal = input.layout === "horizontal";
+	const grid = input.layout === "grid";
 	const members = input.members.slice(0, horizontal ? 5 : 3);
+	const remaining = Math.max(
+		0,
+		(input.memberCount ?? members.length) - members.length
+	);
 	const compactSize = input.compactSize ?? 20;
 	const compactMemberSize =
 		members.length === 1 ? compactSize : Math.round(compactSize * 0.6);
-	const size = horizontal ? 20 : compactMemberSize;
+	const rowSize = horizontal ? 20 : compactMemberSize;
+	const size = grid ? 40 : rowSize;
 	let positions = ["inset-0"];
 	if (members.length === 3) {
 		positions = TRIANGLE_POSITIONS;
@@ -70,23 +78,30 @@ export function SpaceMemberAvatars(input: {
 	return (
 		<span
 			aria-hidden="true"
-			className={
-				horizontal
-					? "isolate inline-flex h-5 max-w-full shrink-0 items-center"
-					: "relative shrink-0"
-			}
+			className={cn(
+				"shrink-0",
+				grid && "grid size-24 place-items-center gap-2",
+				grid &&
+					(members.length === 1 && !remaining ? "grid-cols-1" : "grid-cols-2"),
+				horizontal && "isolate inline-flex h-5 max-w-full items-center",
+				!(grid || horizontal) && "relative"
+			)}
 			data-slot="space-member-avatars"
 			style={
-				horizontal ? undefined : { width: compactSize, height: compactSize }
+				horizontal || grid
+					? undefined
+					: { width: compactSize, height: compactSize }
 			}
 		>
 			{members.map((member, index) => (
 				<span
-					className={
-						horizontal
-							? "relative flex shrink-0 bg-background ring-1 ring-background"
-							: `absolute flex bg-sidebar ring-1 ring-sidebar ${positions[index]}`
-					}
+					className={cn(
+						"flex",
+						horizontal &&
+							"relative shrink-0 bg-background ring-1 ring-background",
+						!(grid || horizontal) &&
+							`absolute bg-sidebar ring-1 ring-sidebar ${positions[index]}`
+					)}
 					key={member.profileId}
 					style={{
 						borderRadius:
@@ -134,6 +149,11 @@ export function SpaceMemberAvatars(input: {
 					)}
 				</span>
 			))}
+			{grid && remaining > 0 && (
+				<span className="text-muted-foreground text-sm tabular-nums">
+					+{remaining}
+				</span>
+			)}
 		</span>
 	);
 }
