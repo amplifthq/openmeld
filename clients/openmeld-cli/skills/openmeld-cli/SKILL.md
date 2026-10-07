@@ -131,6 +131,8 @@ Live checks:
 For optional cloud execution, `openmeld computer cloud --view agent` reads the
 signed-in account's personal Computer identity. This is separate from the local
 workstation. Center and Remote Agents for the same owner share these files.
+For repository reuse, worktrees, storage checks and safe cleanup, read
+`playbooks/computer.md` before a large clone, dependency install or build.
 Use `--operation '<json>'` with `describe` to get the current official file-tool schemas and execution capabilities. Use `files` to invoke those tools, `command` to run Linux, worker-shell or worker-javascript, and `browser`/`preview` when available. Legacy `read`, `write`, `edit` and `list` remain supported.
 For example:
 

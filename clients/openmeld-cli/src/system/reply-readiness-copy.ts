@@ -68,10 +68,11 @@ const CLI_ONLY_GUIDANCE_COPY = {
 } as const satisfies Record<CliOnlyReplyReadinessReasonCode, string>;
 
 export const REPLY_READINESS_COPY = {
-  agentReadyReason: "This profile can reply from Space when mentioned",
-  canReplyLabel: "Can reply",
+  agentReadyReason:
+    "Local reply setup is ready. OpenMeld checks current access and Usage Limits when you wake this profile.",
+  localSetupReadyLabel: "Local setup ready",
   deviceReadyReason:
-    "This device is ready for Space replies from local agent profiles",
+    "Local reply setup is ready on this device. This does not confirm current Wake availability.",
   localAgentRecoveryTargetLabel: "A local agent",
   manualSpaceParticipation:
     "You can still join the space and send messages yourself.",

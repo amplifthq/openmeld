@@ -260,6 +260,7 @@ for (const mode of ["auto", "plan", "default", "bypassPermissions"]) {
       });
       assert.equal(options.permissionMode, mode);
       assert.equal(options.resume, "existing-native-session");
+      assert.equal(options.allowDangerouslySkipPermissions, true);
       assert.equal(options.tools, undefined);
       assert.equal(options.strictMcpConfig, undefined);
       assert.equal(options.extraArgs, undefined);
@@ -324,6 +325,7 @@ for (const mode of ["auto", "plan", "default"]) {
       });
       assert.equal(options.permissionMode, mode);
       assert.equal(options.forkSession, true);
+      assert.equal(options.allowDangerouslySkipPermissions, false);
       assert.equal(options.resume, "canonical-session");
       assert.deepEqual(options.tools, []);
       assert.equal(options.strictMcpConfig, true);

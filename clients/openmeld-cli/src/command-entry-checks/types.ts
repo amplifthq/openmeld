@@ -97,6 +97,7 @@ export type CommandEntryName =
   | "files.download"
   | "plugins.list"
   | "plugins.connect"
+  | "plugins.connection"
   | "plugins.actions"
   | "plugins.call"
   | "skills.ensure"

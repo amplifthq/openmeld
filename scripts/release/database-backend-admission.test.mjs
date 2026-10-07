@@ -28,8 +28,8 @@ import {
   parseProductionReleaseArgs,
 } from "./production-release.mjs";
 
-const CUTOVER_UNAVAILABLE_PATTERN =
-  /PostgreSQL product cutover is unavailable/u;
+const CUTOVER_UNAVAILABLE_PATTERN = /PostgreSQL/u;
+const LOCAL_LANE_PATTERN = /guarded local release lane/u;
 const MISSING_COMMAND_PATTERN = /ENOENT|not found/u;
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/u;
 const DEPLOYED_POSTGRESQL_CONTRACT_PATTERN = /deployed PostgreSQL contract/u;
@@ -232,6 +232,12 @@ test("the PostgreSQL candidate blocks unsupported release lanes before external 
       "remote-agent",
     ])
   );
+  for (const scope of ["db", "auth", "core"]) {
+    assert.throws(
+      () => assertHostedProductDatabaseReleaseSupported(root, [scope]),
+      LOCAL_LANE_PATTERN
+    );
+  }
   for (const args of [
     ["scripts/release/production-db.mjs"],
     ["scripts/release/staging-release.mjs", "deploy"],

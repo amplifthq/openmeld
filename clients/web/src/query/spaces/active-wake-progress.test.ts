@@ -421,6 +421,20 @@ describe("accepted Wake outcomes", () => {
 				(item) => item.dispatchId
 			)
 		).toEqual(["B"]);
+		expect(
+			readSpaceWakeProgressSummaryItems({
+				presentation,
+				summary: fresh,
+				isFetchedAfterMount: false,
+			}).map((item) => item.dispatchId)
+		).toEqual(["B"]);
+		expect(
+			readSpaceWakeProgressSummaryItems({
+				presentation,
+				summary: { ...fresh, responseReceivedAtMs: Date.now() - 30_001 },
+				isFetchedAfterMount: false,
+			})
+		).toEqual([]);
 		queryClient.clear();
 	});
 });

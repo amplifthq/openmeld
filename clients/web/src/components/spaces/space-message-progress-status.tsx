@@ -163,7 +163,7 @@ function resolveRequestStartedAtMs(input: {
 	) {
 		return progress.startedAtMs;
 	}
-	return source.createdAtMs;
+	return source.createdAtMs > 0 ? source.createdAtMs : progress?.startedAtMs;
 }
 
 function resolveActiveWakeEntries(

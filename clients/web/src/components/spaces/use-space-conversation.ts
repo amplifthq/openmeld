@@ -5,7 +5,8 @@ import type {
 	SpaceAgentStreamSnapshot,
 	SpaceAgentStreamTerminalFrame,
 } from "@openmeld/schemas/types";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
 	applySpaceConversationStreamFrame,
 	clearSpaceConversationTransientStreams,
@@ -13,6 +14,10 @@ import {
 	reconcileSpaceConversationStreamSnapshots,
 	type SpaceConversationStreamState,
 } from "#/lib/spaces/conversation-stream";
+import {
+	setSpaceConversationStreams,
+	spaceWakeProgressPresentationQueryOptions,
+} from "#/query/spaces/active-wake-progress";
 
 const AGENT_STREAM_RENDER_INTERVAL_MS = 100;
 
@@ -27,13 +32,24 @@ export function useSpaceConversation(input: {
 	spaceId: string;
 	openMeldProfileId: string;
 }) {
-	const [streamState, setStreamState] = useState<SpaceConversationStreamState>(
-		() =>
-			seedSpaceConversationStreams(
-				[],
-				input.initialAgentStreamPresences ?? [],
-				input.initialAgentStreams
-			)
+	const queryClient = useQueryClient();
+	const { data: presentation } = useQuery(
+		spaceWakeProgressPresentationQueryOptions(input)
+	);
+	const streamState = presentation.streams;
+	const setStreamState = useCallback(
+		(
+			update: (
+				current: SpaceConversationStreamState
+			) => SpaceConversationStreamState
+		) =>
+			setSpaceConversationStreams({
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.openMeldProfileId,
+				update,
+			}),
+		[queryClient, input.spaceId, input.openMeldProfileId]
 	);
 	const initialAgentStreamPresencesRef = useRef(
 		input.initialAgentStreamPresences ?? []
@@ -96,7 +112,7 @@ export function useSpaceConversation(input: {
 				return next;
 			});
 		});
-	}, []);
+	}, [setStreamState]);
 
 	const scheduleDeltaRender = useCallback(() => {
 		if (
@@ -160,7 +176,7 @@ export function useSpaceConversation(input: {
 				});
 			});
 		},
-		[scheduleDeltaRender]
+		[scheduleDeltaRender, setStreamState]
 	);
 
 	useEffect(() => {
@@ -177,23 +193,31 @@ export function useSpaceConversation(input: {
 			spaceId: input.spaceId,
 			openMeldProfileId: input.openMeldProfileId,
 		};
-		observedRevisionRef.current = 0;
+		observedRevisionRef.current = Math.max(
+			0,
+			...(
+				queryClient.getQueryData(
+					spaceWakeProgressPresentationQueryOptions({
+						spaceId: input.spaceId,
+						openMeldProfileId: input.openMeldProfileId,
+					}).queryKey
+				)?.streams ?? []
+			).map((stream) => stream.observedRevision)
+		);
 		pendingDeltaFramesRef.current.clear();
 		lastRenderAtMsRef.current = 0;
 		cancelScheduledRender();
-		setStreamState(
-			seedSpaceConversationStreams(
-				[],
-				initialAgentStreamPresencesRef.current,
-				initialAgentStreamsRef.current
-			)
-		);
 
 		return () => {
 			pendingDeltaFramesRef.current.clear();
 			cancelScheduledRender();
 		};
-	}, [cancelScheduledRender, input.spaceId, input.openMeldProfileId]);
+	}, [
+		cancelScheduledRender,
+		input.spaceId,
+		input.openMeldProfileId,
+		queryClient,
+	]);
 
 	const clearTransientStreams = useCallback(() => {
 		// Socket replacement does not change the conversation's identity. Only an
@@ -204,7 +228,7 @@ export function useSpaceConversation(input: {
 		setStreamState((current) =>
 			clearSpaceConversationTransientStreams(current)
 		);
-	}, [cancelScheduledRender]);
+	}, [cancelScheduledRender, setStreamState]);
 
 	const seededStreamState = useMemo(
 		() =>

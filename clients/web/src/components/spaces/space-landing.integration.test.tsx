@@ -16526,6 +16526,14 @@ describe("SpaceLanding", () => {
 			initialFocusThreadRootSignalId: rootSignal.id,
 		});
 		if (bootstrapPending) {
+			const pendingPanel = screen.getByRole("complementary", {
+				name: "Thread",
+			});
+			expect(within(pendingPanel).getByText("Loading messages…")).toBeTruthy();
+			expect(within(pendingPanel).queryByText("Exact linked reply")).toBeNull();
+			expect(
+				within(pendingPanel).getByRole("button", { name: "Close thread" })
+			).toBeTruthy();
 			expect(
 				useQueryMock.mock.calls.some(
 					([options]) =>

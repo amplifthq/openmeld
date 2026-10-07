@@ -16,7 +16,7 @@
     "favicon:generate": "node ./scripts/generate-favicon.mjs",
     "cf-typegen": "wrangler types --env-interface=CloudflareBindings && pnpm run typecheck",
     "preview": "vite preview",
-    "desktop:pilot": "pnpm run build && vite preview",
+    "desktop:pilot": "node ../../scripts/dev/desktop-renderer-build.mjs && vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
     "test:editor:browser": "playwright test --config playwright.editor.config.ts",

@@ -46,6 +46,17 @@ export type ProjectCommandHandlers = {
 };
 
 export type AgentActivityCommandHandlers = {
+  history: (
+    options: ProjectOutputOptions & {
+      view?: string;
+      device: string;
+      lane: string;
+      projectId: string;
+      session: string;
+      offset?: string;
+      limit?: string;
+    }
+  ) => Promise<void>;
   context: (options: ProjectOutputOptions & { path?: string }) => Promise<void>;
   health: (options: ProjectOutputOptions) => Promise<void>;
   hook: (options: { owner?: string; provider?: string }) => Promise<void>;
@@ -110,6 +121,21 @@ export function registerAgentActivityCommands(
       });
     };
   addActivityReadOptions(activity).action(runRead);
+  activity
+    .command("history")
+    .description(
+      "Read an authorized page of Codex messages from a connected Computer."
+    )
+    .requiredOption("--device <id>", "Source Computer device ID")
+    .requiredOption("--lane <lane>", "Source Computer environment")
+    .requiredOption("--project-id <id>", "Authorized Project ID")
+    .requiredOption("--session <id>", "Codex native session ID")
+    .option("--offset <number>", "Message offset", "0")
+    .option("--limit <number>", "Maximum messages (1–50)", "20")
+    .option("--json", "Print one machine-readable JSON envelope.", false)
+    .action(async (_options, command) =>
+      handlers.history(command.optsWithGlobals())
+    );
   activity
     .command("context")
     .description(

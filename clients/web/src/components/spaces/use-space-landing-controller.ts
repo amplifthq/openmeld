@@ -95,6 +95,8 @@ import type {
 	SpaceWakeStopRequestStatus,
 	SpaceWakeStopTargetResolution,
 } from "#/lib/spaces/wake-stop-target";
+import { inboxQueryKeys } from "#/query/organizations/inbox";
+import { optimisticallyRespondToSpaceInteraction } from "#/query/organizations/inbox-interaction-response";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import {
@@ -1805,6 +1807,7 @@ export function useSpaceLandingController(input: {
 	} = useSpaceLandingFeed({
 		openMeldProfileId: input.profileId,
 		participationEnabled: currentProfileIsActiveSpaceMember,
+		accessRejected: Boolean(currentAccessRejection),
 		readinessScope: {
 			organizationId: input.organizationId,
 			storageScope: input.ownerAccountId,
@@ -2516,6 +2519,18 @@ export function useSpaceLandingController(input: {
 	);
 	const handleAgentInteractionResponse = useCallback(
 		async (body: RespondToSpaceAgentInteractionBody): Promise<void> => {
+			if (input.organizationId) {
+				await queryClient.cancelQueries({
+					queryKey: inboxQueryKeys.spaceSummary(input.organizationId),
+				});
+			}
+			const rollback = input.organizationId
+				? optimisticallyRespondToSpaceInteraction({
+						organizationId: input.organizationId,
+						spaceId: input.spaceId,
+						queryClient,
+					})
+				: () => undefined;
 			try {
 				const response = await createUnscopedWebSpaceApi({
 					openMeldProfileId: input.profileId,
@@ -2528,8 +2543,15 @@ export function useSpaceLandingController(input: {
 					throw new Error(response.message);
 				}
 			} catch (error) {
+				rollback();
 				const failure = toStructuredApiClientFailure(error);
 				throw new Error(failure.message);
+			} finally {
+				if (input.organizationId) {
+					queryClient.invalidateQueries({
+						queryKey: inboxQueryKeys.organization(input.organizationId),
+					});
+				}
 			}
 
 			activeWakeProgressSummaryQuery.refetch().catch((error) => {
@@ -2540,7 +2562,13 @@ export function useSpaceLandingController(input: {
 				});
 			});
 		},
-		[activeWakeProgressSummaryQuery.refetch, input.profileId, input.spaceId]
+		[
+			activeWakeProgressSummaryQuery.refetch,
+			input.profileId,
+			input.spaceId,
+			input.organizationId,
+			queryClient,
+		]
 	);
 	useReconcilePendingOutgoingSignals(
 		pendingOutgoingSignals,

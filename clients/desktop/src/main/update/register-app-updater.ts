@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   type DesktopUpdaterState,
@@ -11,6 +12,7 @@ import {
   dialog,
   type IpcMainInvokeEvent,
   ipcMain,
+  shell,
 } from "electron";
 import { PILOT_IPC } from "../../shared/pilot-bridge";
 import { desktopUpdaterPresentation } from "../../shared/updater-presentation";
@@ -22,6 +24,7 @@ import {
   recordMacUpdateInstallRequested,
 } from "./mac-update-receipt";
 import { createNativeDesktopUpdater } from "./native-updater";
+import { recordUpdateFailure } from "./update-failure-diagnostic";
 
 const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -100,12 +103,18 @@ export function registerAppUpdater(input: {
       });
     }
   }
+  const failurePath = join(
+    app.getPath("userData"),
+    "diagnostics",
+    "desktop-update-failure.json"
+  );
   const native = readNativeUpdater(input.enabled);
   const controller = native
     ? createAppUpdater({
         ...native,
         currentVersion: app.getVersion(),
         currentAppBundle,
+        recordFailure: (record) => recordUpdateFailure(failurePath, record),
         recordMacInstallRequested: (targetVersion) => {
           if (!currentAppBundle) {
             throw new Error(
@@ -206,14 +215,22 @@ export function registerAppUpdater(input: {
         const state = controller?.snapshot() ?? unavailable;
         const { message, action, label } = desktopUpdaterPresentation(state);
         const actionable = action && action !== "check";
+        const buttons = actionable ? [label ?? "Update"] : [];
+        const detailsIndex = existsSync(failurePath) ? buttons.length : -1;
+        if (detailsIndex >= 0) {
+          buttons.push("Show update details");
+        }
+        buttons.push(actionable ? "Later" : "OK");
         const result = await dialog.showMessageBox({
           type: "info",
           message,
-          buttons: actionable ? [label ?? "Update", "Later"] : ["OK"],
-          cancelId: actionable ? 1 : 0,
+          buttons,
+          cancelId: buttons.length - 1,
           defaultId: 0,
         });
-        if (result.response === 0 && actionable) {
+        if (result.response === detailsIndex) {
+          shell.showItemInFolder(failurePath);
+        } else if (result.response === 0 && actionable) {
           await controller?.act(action);
         }
       } finally {

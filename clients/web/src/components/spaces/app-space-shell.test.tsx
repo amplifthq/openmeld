@@ -3,6 +3,10 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	OUTER_SIDEBAR_DEFAULT_STATE,
+	rememberClientSidebarState,
+} from "#/lib/sidebar-width-cookie";
+import {
 	AppDirectMessageShell,
 	AppSpaceShell,
 	SpaceWindowShell,
@@ -101,6 +105,20 @@ describe("SpaceWindowShell", () => {
 });
 
 describe("AppSpaceShell", () => {
+	it.each([
+		["", "hidden"],
+		["space-1", "expanded"],
+	])("uses the untouched sidebar default for Space %s", (spaceId, state) => {
+		rememberClientSidebarState("outer", OUTER_SIDEBAR_DEFAULT_STATE);
+		render(
+			<AppSpaceShell currentProfileId="human-1" currentSpaceId={spaceId}>
+				<div>Space</div>
+			</AppSpaceShell>
+		);
+		expect(
+			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+		).toBe(state);
+	});
 	beforeEach(() => {
 		appInnerSidebarSpy.mockReset();
 		appOuterRailSpy.mockReset();

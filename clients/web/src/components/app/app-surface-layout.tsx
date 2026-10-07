@@ -24,6 +24,7 @@ export function AppSurfaceLayout(input: {
 	moduleNavigationLabel?: string;
 	moduleNavigationKey?: string;
 	initialModuleSidebarState?: SidebarPersistedState;
+	defaultModuleSidebarOpen?: boolean;
 	sidebar?: ReactNode;
 	testId?: string;
 }) {
@@ -62,6 +63,7 @@ export function AppSurfaceLayout(input: {
 	return (
 		<AppModuleSidebarProvider
 			available={!!input.moduleNavigation}
+			defaultOpen={input.defaultModuleSidebarOpen}
 			initialState={input.initialModuleSidebarState}
 			preferenceKey={input.moduleNavigationKey ?? "conversations"}
 		>

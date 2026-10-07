@@ -10,6 +10,7 @@ export type CodexAppServerControlOperation =
   | "thread/resume"
   | "thread/start"
   | "turn/start"
+  | "turn/settings/update"
   | "turn/steer";
 
 const FAST_METADATA_ADMISSION_TIMEOUT_MS = 15_000;
@@ -35,6 +36,7 @@ const CONTROL_REQUEST_TIMEOUT_MS_BY_OPERATION: Record<
   "thread/resume": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "thread/start": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "turn/start": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
+  "turn/settings/update": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   "turn/steer": FAST_METADATA_ADMISSION_TIMEOUT_MS,
 };
 

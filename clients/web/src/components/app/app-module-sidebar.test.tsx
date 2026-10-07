@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { rememberClientSidebarState } from "#/lib/sidebar-width-cookie";
+import {
+	OUTER_SIDEBAR_DEFAULT_STATE,
+	rememberClientSidebarState,
+} from "#/lib/sidebar-width-cookie";
 import {
 	AppModuleSidebar,
 	AppModuleSidebarProvider,
@@ -36,14 +39,22 @@ afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
 });
-function mount(scope = "org:profile:conversations", onMount = vi.fn()) {
+function mount(
+	scope = "org:profile:conversations",
+	onMount = vi.fn(),
+	defaultOpen = false
+) {
 	function Conversation() {
 		useEffect(onMount, []);
 		return <textarea aria-label="Draft" defaultValue="Keep my draft" />;
 	}
 	return render(
 		<TooltipProvider>
-			<AppModuleSidebarProvider available preferenceKey="conversations">
+			<AppModuleSidebarProvider
+				available
+				defaultOpen={defaultOpen}
+				preferenceKey="conversations"
+			>
 				<aside aria-label="Applications">Spaces · Team</aside>
 				<AppModuleSidebar label="Spaces" scrollKey={scope}>
 					<AppModuleSidebarToggle placement="sidebar" />
@@ -57,6 +68,39 @@ function mount(scope = "org:profile:conversations", onMount = vi.fn()) {
 		</TooltipProvider>
 	);
 }
+it("uses route defaults until an explicit choice, then keeps that choice across surfaces", () => {
+	rememberClientSidebarState("outer", OUTER_SIDEBAR_DEFAULT_STATE);
+	let view = mount();
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+	view.unmount();
+	view = mount(undefined, undefined, true);
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("expanded");
+	view.unmount();
+	view = mount();
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+	fireEvent.click(
+		within(screen.getByRole("main")).getByRole("button", {
+			name: "Show sidebar",
+		})
+	);
+	view.unmount();
+	view = mount();
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("expanded");
+	fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+	view.unmount();
+	mount(undefined, undefined, true);
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+});
 it("collapses only the middle list, retaining application navigation and the mounted conversation draft", () => {
 	const mounted = vi.fn();
 	mount(undefined, mounted);

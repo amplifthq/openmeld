@@ -1,5 +1,10 @@
 import { Dialog } from "@openmeld/ui/components/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { ArrowClockwiseIcon, PaletteIcon } from "@phosphor-icons/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16,7 +21,7 @@ import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
-import { AppSettingsButton } from "#/components/app/app-settings-button";
+import { AppSettingsMenuItem } from "#/components/app/app-settings-menu-item";
 import {
 	DESKTOP_UPDATE_ATTENTION_LABEL,
 	DesktopUpdateIndicator,
@@ -91,11 +96,12 @@ function Fixture() {
 		<>
 			<DesktopUpdater />
 			<div className="flex items-center gap-4 border-border border-b px-6 py-3">
-				<AppSettingsButton
-					className="size-8 rounded-md hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-					isActive={open}
-					onClick={() => setOpen(true)}
-				/>
+				<DropdownMenu>
+					<DropdownMenuTrigger>Account</DropdownMenuTrigger>
+					<FluidDropdownMenuContent>
+						<AppSettingsMenuItem index={0} onClick={() => setOpen(true)} />
+					</FluidDropdownMenuContent>
+				</DropdownMenu>
 				<p
 					className="text-muted-foreground text-xs"
 					data-fixture-status={updater?.status ?? "unknown"}

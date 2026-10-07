@@ -61,6 +61,10 @@ export async function forwardGitConnectionRequest(
   }
   if (!advertise) {
     headers.set("content-type", "application/x-git-upload-pack-request");
+    const contentEncoding = request.headers.get("content-encoding");
+    if (contentEncoding) {
+      headers.set("content-encoding", contentEncoding);
+    }
   }
   let upstream: Response;
   try {

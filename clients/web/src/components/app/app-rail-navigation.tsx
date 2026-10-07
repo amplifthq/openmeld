@@ -3,6 +3,7 @@
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipProvider,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
@@ -42,6 +43,7 @@ import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
 import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
 import type { useInboxAttention } from "#/components/inbox/use-inbox-attention";
+import type { SidebarShortcutId } from "#/lib/appearance/sidebar-shortcuts";
 import {
 	resolveInboxAttentionLabel,
 	resolveInboxIndicatorClassName,
@@ -53,7 +55,7 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 
-type AppRailDestinationId = AppOuterRailDestination;
+type AppRailDestinationId = AppOuterRailDestination | SidebarShortcutId;
 
 type AppRailDestination = {
 	accessibleLabel?: string;
@@ -116,42 +118,74 @@ export function buildAppRailGroups(input: {
 }
 
 export function AppRailNavigationGroup(input: {
-	activeDestination: AppOuterRailDestination | null;
+	activeDestination: AppRailDestinationId | null;
 	group: AppRailGroup;
 	position: number;
+	standaloneSelection?: boolean;
+	pinnedDestinations?: readonly AppRailDestination[];
+	renderSectionTrigger?: (
+		section: "spaces" | "team",
+		trigger: ReactElement
+	) => ReactElement;
 	tier: SidebarMode;
 }) {
 	const { presentation } = useAppNavigationPresentation();
-	const links = input.group.destinations.map((destination) => (
+	const renderSectionTrigger = input.renderSectionTrigger;
+	const renderDestination = (destination: AppRailDestination) => (
 		<AppRailLink
 			active={
 				destination.id === input.activeDestination ||
 				(destination.id === "directMessages" &&
 					input.activeDestination === "spaces") ||
-				(destination.id === "people" && input.activeDestination === "agents")
+				(!input.standaloneSelection &&
+					destination.id === "people" &&
+					input.activeDestination === "agents")
 			}
 			destination={destination}
 			key={destination.id}
+			renderTrigger={
+				renderSectionTrigger &&
+				(destination.id === "people" || destination.id === "directMessages")
+					? (trigger) =>
+							renderSectionTrigger(
+								destination.id === "people" ? "team" : "spaces",
+								trigger
+							)
+					: undefined
+			}
 			tier={input.tier}
 		/>
-	));
+	);
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
 			<SidebarMenu
 				activeLayoutId={
 					input.tier === "expanded"
-						? `main-sidebar-selection-${presentation}`
+						? `main-sidebar-selection-${presentation}-${input.group.id}`
 						: undefined
 				}
 				className={cn(
-					input.tier === "icon" && "gap-1.5",
+					input.tier === "icon" && "gap-1",
 					presentation === "drawer" && "gap-2"
 				)}
 				indicatorTargetSelector={
 					input.tier === "icon" ? '[data-slot="app-rail-icon"]' : undefined
 				}
 			>
-				{links}
+				{input.group.destinations.map(renderDestination)}
+				{Boolean(input.pinnedDestinations?.length) && (
+					<li>
+						<div
+							aria-hidden="true"
+							className="mx-auto my-2 h-px w-5 bg-border"
+						/>
+						<nav aria-label="Pinned shortcuts">
+							<ul className="flex flex-col gap-1">
+								{input.pinnedDestinations?.map(renderDestination)}
+							</ul>
+						</nav>
+					</li>
+				)}
 			</SidebarMenu>
 		</nav>
 	);
@@ -170,22 +204,32 @@ export function AppRailNavigationGroup(input: {
 export function CollapsedRailTooltip(input: {
 	anchor?: RefObject<Element | null>;
 	children: ReactElement;
+	contextMenu?: ReactNode;
 	disabled?: boolean;
 	label: string;
 	side?: "top" | "right";
 }) {
 	return (
-		<Tooltip disabled={input.disabled}>
-			<TooltipTrigger render={input.children} />
-			<TooltipContent anchor={input.anchor} side={input.side ?? "right"}>
-				{input.label}
-			</TooltipContent>
-		</Tooltip>
+		<TooltipProvider delay={0}>
+			<Tooltip disabled={input.disabled}>
+				{input.contextMenu ? (
+					<FluidContextMenu target={<TooltipTrigger render={input.children} />}>
+						{input.contextMenu}
+					</FluidContextMenu>
+				) : (
+					<TooltipTrigger render={input.children} />
+				)}
+				<TooltipContent anchor={input.anchor} side={input.side ?? "right"}>
+					{input.label}
+				</TooltipContent>
+			</Tooltip>
+		</TooltipProvider>
 	);
 }
 
 export function AppRailLink(input: {
 	active: boolean;
+	renderTrigger?: (trigger: ReactElement) => ReactElement;
 	destination: AppRailDestination;
 	tier: SidebarMode;
 }) {
@@ -263,6 +307,9 @@ export function AppRailLink(input: {
 		isDrawer && "h-12 w-full gap-3 px-3 text-[15px]",
 		input.active && "text-sidebar-accent-foreground"
 	);
+	const prefetch = input.active
+		? undefined
+		: input.destination.onIntentPrefetch;
 	const link = (
 		<Link
 			activeOptions={{ exact: true }}
@@ -277,32 +324,45 @@ export function AppRailLink(input: {
 					dismiss();
 				}
 			}}
-			onFocus={input.active ? undefined : input.destination.onIntentPrefetch}
-			onPointerEnter={
-				input.active ? undefined : input.destination.onIntentPrefetch
-			}
+			onFocus={prefetch}
+			onPointerEnter={prefetch}
 			to={input.destination.to}
 		>
 			{children}
 		</Link>
 	);
 
+	if (input.renderTrigger) {
+		return (
+			<SidebarMenuItem
+				className={
+					isIcon ? "mx-auto h-[3.25rem] w-full" : "group/destination relative"
+				}
+				data-app-rail-item
+			>
+				{input.renderTrigger(
+					<SidebarMenuButton isActive={input.active} render={link}>
+						{children}
+					</SidebarMenuButton>
+				)}
+				<RailDestinationActions {...input} />
+			</SidebarMenuItem>
+		);
+	}
 	if (isIcon) {
 		return (
 			<SidebarMenuItem
 				className="mx-auto h-[3.25rem] w-full"
 				data-app-rail-item
 			>
-				<CollapsedRailTooltip anchor={iconRef} label={accessibleLabel}>
-					<FluidContextMenu
-						target={
-							<SidebarMenuButton isActive={input.active} render={link}>
-								{children}
-							</SidebarMenuButton>
-						}
-					>
-						<ObjectMenuItems href={input.destination.to} />
-					</FluidContextMenu>
+				<CollapsedRailTooltip
+					anchor={iconRef}
+					contextMenu={<ObjectMenuItems href={input.destination.to} />}
+					label={accessibleLabel}
+				>
+					<SidebarMenuButton isActive={input.active} render={link}>
+						{children}
+					</SidebarMenuButton>
 				</CollapsedRailTooltip>
 			</SidebarMenuItem>
 		);
@@ -319,17 +379,31 @@ export function AppRailLink(input: {
 			>
 				<ObjectMenuItems href={input.destination.to} />
 			</FluidContextMenu>
-			{(input.destination.id === "directMessages" ||
-				input.destination.id === "home" ||
-				input.destination.id === "people" ||
-				input.destination.id === "spaces" ||
-				input.destination.id === "agents") && (
-				<SidebarDestinationActionSlot
-					active={input.active}
-					destination={input.destination.id}
-				/>
-			)}
+			<RailDestinationActions {...input} />
 		</SidebarMenuItem>
+	);
+}
+
+function RailDestinationActions(input: {
+	active: boolean;
+	destination: AppRailDestination;
+	tier: SidebarMode;
+}) {
+	const id = input.destination.id;
+	if (
+		input.tier !== "expanded" ||
+		!(
+			id === "directMessages" ||
+			id === "home" ||
+			id === "people" ||
+			id === "spaces" ||
+			id === "agents"
+		)
+	) {
+		return null;
+	}
+	return (
+		<SidebarDestinationActionSlot active={input.active} destination={id} />
 	);
 }
 

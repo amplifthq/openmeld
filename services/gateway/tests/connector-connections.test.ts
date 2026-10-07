@@ -43,6 +43,58 @@ afterEach(() => {
 });
 
 describe("Gateway connector connection routes", () => {
+  it("projects expired credential health only to opted-in clients without changing account ownership", async () => {
+    const health = {
+      state: "reconnect_required",
+      observedAt: new Date().toISOString(),
+      expiresAt: null,
+      reason: "oauth_token_expired",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json([
+          {
+            service: "linear",
+            configured: true,
+            connectionName: LINEAR_CONNECTION.connectionName,
+            health,
+          },
+        ])
+      )
+    );
+    const environment = makeEnv({
+      reconcileCurrentOrganizationConnectorConnections: async () => ({
+        connections: [
+          { ...LINEAR_CONNECTION, status: "active", scope: "member" },
+        ],
+        currentUserId: "user-1",
+        organizationId: "org-1",
+      }),
+    });
+    for (const optedIn of [false, true]) {
+      const response = await app.fetch(
+        new Request(
+          `http://local/v1/organizations/current/connectors/linear/connections?expectedOrganizationId=org-1${optedIn ? "&includeConnectionHealth=true" : ""}`
+        ),
+        environment,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        connections: Array<{
+          health?: unknown;
+          status: string;
+          connectionName: string;
+        }>;
+      };
+      expect(body.connections[0]?.status).toBe("active");
+      expect(body.connections[0]?.connectionName).toBe(
+        LINEAR_CONNECTION.connectionName
+      );
+      expect(body.connections[0]?.health).toEqual(optedIn ? health : undefined);
+    }
+  });
   it("routes only typed JSON Plugin decisions to the current account's Core owner", async () => {
     const requestId = "00000000-0000-4000-8000-000000000001";
     const pluginActionRequest = vi.fn(async () => ({

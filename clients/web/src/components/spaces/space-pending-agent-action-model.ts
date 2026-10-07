@@ -1,12 +1,13 @@
 import {
 	listAgentControllerPermissionModeOptions,
 	parseAgentControllerRef,
+	resolveAgentProfileEditApplicationTiming,
 } from "@openmeld/agent-runtime";
 import type {
 	AgentControllerPermissionMode,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
-import type { SpaceAgentPermissionModeShortcut } from "./space-agent-interaction-card";
+import type { SpaceAgentPermissionModeOption } from "./space-agent-interaction-card";
 
 const LOW_INTERRUPTION_PERMISSION_MODE_BY_CONTROLLER_ID: Readonly<
 	Record<string, AgentControllerPermissionMode>
@@ -63,31 +64,37 @@ export function partitionSpacePendingAgentActions(
 	return { conversation, thread };
 }
 
-export function resolveSpacePermissionModeShortcut(input: {
+export function resolveSpacePermissionModeOptions(input: {
 	agentControllerPermissionMode?: AgentControllerPermissionMode | null;
 	agentControllerRef: string | null;
-}): SpaceAgentPermissionModeShortcut | null {
+}): SpaceAgentPermissionModeOption[] {
 	const controller = parseAgentControllerRef(input.agentControllerRef);
 	if (controller?.kind !== "builtin") {
-		return null;
+		return [];
 	}
 	const permissionMode =
 		LOW_INTERRUPTION_PERMISSION_MODE_BY_CONTROLLER_ID[controller.id];
-	if (
-		!permissionMode ||
-		input.agentControllerPermissionMode === permissionMode
-	) {
-		return null;
-	}
-	const option = listAgentControllerPermissionModeOptions({
+	const options = listAgentControllerPermissionModeOptions({
 		agentControllerRef: controller.ref,
-	}).find((candidate) => candidate.value === permissionMode);
-	if (!option || option.requiresExplicitConfirmation) {
-		return null;
-	}
-	return {
-		description: option.description,
-		label: option.label,
-		permissionMode,
-	};
+	}).filter(
+		(option) =>
+			option.value !== input.agentControllerPermissionMode &&
+			(controller.id === "codex" ||
+				(option.value === permissionMode &&
+					!option.requiresExplicitConfirmation))
+	);
+	return options.map((option) => {
+		const timing = resolveAgentProfileEditApplicationTiming({
+			agentControllerRef: controller.ref,
+			field: "permission_mode",
+			currentPermissionMode: input.agentControllerPermissionMode,
+			nextPermissionMode: option.value,
+		});
+		return {
+			description: `${option.description} ${timing === "applies_now" ? "OpenMeld will try to apply this to later actions in the current task." : "Applies to the next task. This task keeps its current permissions."}`,
+			label: option.label,
+			permissionMode: option.value,
+			requiresExplicitConfirmation: option.requiresExplicitConfirmation,
+		};
+	});
 }
