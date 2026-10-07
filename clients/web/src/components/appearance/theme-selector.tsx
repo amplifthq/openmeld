@@ -1,24 +1,11 @@
 "use client";
 
 import { DropdownMenuRadioGroup } from "@openmeld/ui/components/dropdown-menu";
-import {
-	ToggleGroup,
-	ToggleGroupItem,
-} from "@openmeld/ui/components/toggle-group";
-import {
-	FluidActionList,
-	FluidActionListItem,
-} from "@openmeld/ui/fluid/action-list";
+import { FluidActionList } from "@openmeld/ui/fluid/action-list";
 import { FluidDropdownMenuRadioItem } from "@openmeld/ui/fluid/dropdown-menu";
-import { DesktopIcon, MoonIcon, SunDimIcon } from "@phosphor-icons/react";
 import { useTheme } from "next-themes";
 import { useSyncExternalStore } from "react";
-
-const THEME_CHOICES = [
-	{ value: "light", label: "Light", icon: SunDimIcon },
-	{ value: "dark", label: "Dark", icon: MoonIcon },
-	{ value: "system", label: "System", icon: DesktopIcon },
-] as const;
+import { THEME_CHOICES } from "./theme-choices";
 
 const subscribe = () => () => undefined;
 const clientSnapshot = () => true;
@@ -26,10 +13,10 @@ const serverSnapshot = () => false;
 const groupClassName =
 	"flex w-fit flex-row gap-0 rounded-full border border-border p-px";
 const itemClassName =
-	"size-5 min-w-5 justify-center rounded-full! p-0! text-muted-foreground hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-interaction-active data-checked:text-foreground aria-pressed:bg-interaction-active aria-pressed:text-foreground transition-none [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden";
+	"size-5 min-w-5 justify-center rounded-full! p-0! text-muted-foreground hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-interaction-active data-checked:text-foreground transition-none [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden";
 
-/** One appearance preference and icon set, with the owning surface's keyboard semantics. */
-export function ThemeSelector({ inMenu = false }: { inMenu?: boolean }) {
+/** Compact account-menu control; Appearance uses full-size theme cards. */
+export function ThemeSelector() {
 	const { theme, setTheme } = useTheme();
 	const mounted = useSyncExternalStore(
 		subscribe,
@@ -46,54 +33,25 @@ export function ThemeSelector({ inMenu = false }: { inMenu?: boolean }) {
 		/>
 	);
 
-	if (inMenu) {
-		return (
-			<DropdownMenuRadioGroup
-				aria-label="Theme"
-				onValueChange={setTheme}
-				render={hover}
-				value={value ?? ""}
-			>
-				{THEME_CHOICES.map(({ value: choice, label, icon: Icon }, index) => (
-					<FluidDropdownMenuRadioItem
-						aria-label={label}
-						className={itemClassName}
-						closeOnClick={false}
-						index={index}
-						key={choice}
-						value={choice}
-					>
-						<Icon aria-hidden="true" className="size-3" />
-					</FluidDropdownMenuRadioItem>
-				))}
-			</DropdownMenuRadioGroup>
-		);
-	}
-
 	return (
-		<ToggleGroup
+		<DropdownMenuRadioGroup
 			aria-label="Theme"
-			className={groupClassName}
-			onValueChange={(values) => {
-				if (values[0]) {
-					setTheme(values[0]);
-				}
-			}}
+			onValueChange={setTheme}
 			render={hover}
-			spacing={0}
-			value={value ? [value] : []}
+			value={value ?? ""}
 		>
 			{THEME_CHOICES.map(({ value: choice, label, icon: Icon }, index) => (
-				<ToggleGroupItem
+				<FluidDropdownMenuRadioItem
 					aria-label={label}
 					className={itemClassName}
+					closeOnClick={false}
+					index={index}
 					key={choice}
-					render={<FluidActionListItem index={index} />}
 					value={choice}
 				>
 					<Icon aria-hidden="true" className="size-3" />
-				</ToggleGroupItem>
+				</FluidDropdownMenuRadioItem>
 			))}
-		</ToggleGroup>
+		</DropdownMenuRadioGroup>
 	);
 }

@@ -1602,7 +1602,19 @@ computerCmd
   )
   .option(
     "--operation <json>",
-    "Computer operation: read, write, edit, list, or command. Commands require a stable invocationId and key."
+    "Computer operation: describe, browser, preview, files, read, write, edit, list, or command. Use describe to discover capabilities."
+  )
+  .addHelpText(
+    "after",
+    `
+Without --operation, show your personal cloud Computer.
+
+Examples:
+  openmeld computer cloud --operation '{"action":"describe"}'
+  openmeld computer cloud --operation '{"action":"read","path":"/computer/home/example.txt"}'
+
+Use describe before running commands to inspect the operation schemas.
+Commands require a stable invocationId and key; poll the same invocation to read its result.`
   )
   .action(async (opts: { operation?: string }) => {
     const view = getGlobalViewOption();

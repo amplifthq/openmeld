@@ -255,9 +255,7 @@ export function SpaceDirectory(input: {
 		>
 			<div className="flex min-h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)] py-3">
 				<div className="flex min-h-10 min-w-0 flex-wrap items-center justify-end gap-1">
-					{!discovering && (
-						<SpaceLayoutSwitch layout={layout} setLayout={setLayout} />
-					)}
+					<SpaceLayoutSwitch layout={layout} setLayout={setLayout} />
 					<DirectorySearch
 						label="Search Spaces"
 						onChange={(next) =>
@@ -365,6 +363,7 @@ export function SpaceDirectory(input: {
 				{discovering && (
 					<DiscoverList
 						input={input}
+						layout={layout}
 						onPreview={setPreview}
 						searching={Boolean(searchTerm)}
 						spaces={discoverable}
@@ -1015,11 +1014,13 @@ function MemberPreview(input: {
 function DiscoverList({
 	spaces,
 	input,
+	layout,
 	onPreview,
 	searching,
 }: {
 	spaces: readonly DirectorySpace[];
 	input: DirectoryInput;
+	layout: DirectoryLayout;
 	onPreview: (space: DirectorySpace) => void;
 	searching: boolean;
 }) {
@@ -1030,6 +1031,48 @@ function DiscoverList({
 					? "No Spaces match your search."
 					: "No public Spaces to discover right now."}
 			</p>
+		);
+	}
+	if (layout === "cards") {
+		return (
+			<DirectoryGroupLayout label="Discover" layout="cards">
+				{spaces.map((space) => (
+					<DirectoryCardItem
+						className="border border-border"
+						itemId={space.spaceId}
+						key={space.spaceId}
+					>
+						<div className="flex min-h-52 flex-col gap-3 p-4">
+							<button
+								aria-label={space.name}
+								className="flex flex-1 flex-col items-start gap-3 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								onClick={() => onPreview(space)}
+								type="button"
+							>
+								<ChatCircleTextIcon className="mb-auto size-10 text-muted-foreground" />
+								<span className="line-clamp-2 font-medium text-sm">
+									{space.name}
+								</span>
+								<span className="text-muted-foreground text-xs">
+									{space.activeMemberCount === null
+										? "Member count unavailable"
+										: `${space.activeMemberCount} ${space.activeMemberCount === 1 ? "member" : "members"}`}
+								</span>
+							</button>
+							<DiscoverActions
+								input={input}
+								onPreview={onPreview}
+								space={space}
+							/>
+							{input.joinError?.spaceId === space.spaceId && (
+								<p className="text-destructive text-xs" role="alert">
+									{input.joinError.message}
+								</p>
+							)}
+						</div>
+					</DirectoryCardItem>
+				))}
+			</DirectoryGroupLayout>
 		);
 	}
 	return (
@@ -1073,34 +1116,49 @@ function DiscoverList({
 							)}
 						</TableCell>
 						<TableCell>
-							<div className="flex items-center gap-2">
-								<Button
-									aria-label={`Preview ${space.name}`}
-									onClick={() => onPreview(space)}
-									size="sm"
-									variant="ghost"
-								>
-									Preview
-								</Button>
-								<Button
-									aria-label={`Join ${space.name}`}
-									disabled={
-										!input.canJoinSpaces ||
-										input.pendingJoinSpaceId === space.spaceId
-									}
-									onClick={() => input.onJoinSpace(space.spaceId)}
-									size="sm"
-									variant="outline"
-								>
-									{input.pendingJoinSpaceId === space.spaceId
-										? "Joining…"
-										: "Join"}
-								</Button>
-							</div>
+							<DiscoverActions
+								input={input}
+								onPreview={onPreview}
+								space={space}
+							/>
 						</TableCell>
 					</TableRow>
 				))}
 			</TableBody>
 		</Table>
+	);
+}
+
+function DiscoverActions({
+	input,
+	space,
+	onPreview,
+}: {
+	input: DirectoryInput;
+	space: DirectorySpace;
+	onPreview: (space: DirectorySpace) => void;
+}) {
+	return (
+		<div className="flex items-center gap-2">
+			<Button
+				aria-label={`Preview ${space.name}`}
+				onClick={() => onPreview(space)}
+				size="sm"
+				variant="ghost"
+			>
+				Preview
+			</Button>
+			<Button
+				aria-label={`Join ${space.name}`}
+				disabled={
+					!input.canJoinSpaces || input.pendingJoinSpaceId === space.spaceId
+				}
+				onClick={() => input.onJoinSpace(space.spaceId)}
+				size="sm"
+				variant="outline"
+			>
+				{input.pendingJoinSpaceId === space.spaceId ? "Joining…" : "Join"}
+			</Button>
+		</div>
 	);
 }

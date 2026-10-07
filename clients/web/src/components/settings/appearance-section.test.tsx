@@ -89,22 +89,25 @@ describe("AppearanceSection", () => {
 
 	it("keeps the history slider setting across Appearance mounts", () => {
 		renderAppearance();
-		const toggle = screen.getByRole("switch", { name: "Show history slider" });
-		expect(toggle.getAttribute("aria-checked")).toBe("true");
-		fireEvent.click(toggle);
+		expect(
+			screen.getByRole("radio", { name: "Show" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Hide" }));
 		expect(
 			document.documentElement.getAttribute("data-space-history-slider")
 		).toBe("off");
 		cleanup();
 		renderAppearance();
 		expect(
-			screen
-				.getByRole("switch", { name: "Show history slider" })
-				.getAttribute("aria-checked")
-		).toBe("false");
+			screen.getByRole("radio", { name: "Hide" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Show" }));
+		expect(
+			document.documentElement.getAttribute("data-space-history-slider")
+		).toBe("on");
 	});
 
-	it("shows the saved theme and changes it from the compact selector", () => {
+	it("shows the saved theme and changes it from the theme cards", () => {
 		const view = renderAppearance();
 
 		expect(
@@ -112,20 +115,20 @@ describe("AppearanceSection", () => {
 		).toBeTruthy();
 		expect(screen.getByText("Personal")).toBeTruthy();
 		expect(
-			screen
-				.getByRole("button", { name: "System" })
-				.getAttribute("aria-pressed")
+			screen.getByRole("radio", { name: "System" }).getAttribute("aria-checked")
 		).toBe("true");
 
-		fireEvent.click(screen.getByRole("button", { name: "Light" }));
-		fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Light" }));
+		fireEvent.keyDown(screen.getByRole("radio", { name: "Light" }), {
+			key: "ArrowRight",
+		});
 		themeState.theme = "dark";
 		view.rerender(
 			<ShapeProvider>
 				<AppearanceSection />
 			</ShapeProvider>
 		);
-		fireEvent.click(screen.getByRole("button", { name: "System" }));
+		fireEvent.click(screen.getByRole("radio", { name: "System" }));
 
 		expect(themeState.setTheme.mock.calls).toEqual([
 			["light"],

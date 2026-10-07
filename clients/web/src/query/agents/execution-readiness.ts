@@ -316,9 +316,18 @@ async function refreshAgentRuntimeOverviewReadiness(input: {
 					.filter((profile) => profile.ownerUserId === input.storageScope)
 					.map((profile) => profile.profileId)
 			);
-			// The batch endpoint is owner-only. Shared Agents must use the existing
-			// organization-authorized overview, never an owner request with foreign IDs.
-			if (ids.some((id) => !ownIds.has(id))) {
+			const hasPausedWork = input.queryClient
+				.getQueryData<OrganizationAgentRuntimeOverviewResponse>(
+					input.overviewQueryKey
+				)
+				?.agentProfiles.some(
+					(profile) =>
+						ids.includes(profile.profileId) &&
+						profile.operationalContext?.status === "paused"
+				);
+			// Readiness-only updates cannot clear a completed recovery action.
+			// Shared Agents also require the organization-authorized overview.
+			if (hasPausedWork || ids.some((id) => !ownIds.has(id))) {
 				const wasFetching = overview.state.fetchStatus === "fetching";
 				await input.queryClient.invalidateQueries(
 					{

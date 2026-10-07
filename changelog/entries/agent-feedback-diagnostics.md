@@ -1,10 +1,12 @@
 ---
 id: agent-feedback-diagnostics
+publishedAt: 2026-10-07
+release: v0.3.247
 title: Clearer Agent status and Space diagnostics
 kind: fixed
 areas: ["cli", "agents", "spaces"]
 audiences: ["users", "agents"]
-evidence: ["pr:1558"]
+evidence: ["pr:1558", "pr:1568", "workflow:37607115073"]
 ---
 
 Space progress, Stop, and result commands accept copied Space links. Missing

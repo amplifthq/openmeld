@@ -6,7 +6,7 @@ import {
   remoteAgentStreamPartCallbackBodySchema,
 } from "@openmeld/schemas";
 import type {
-  AgentStreamToolPart,
+  AgentStreamPart,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
@@ -64,7 +64,7 @@ type RemoteAgentStreamPushInput = RemoteAgentStreamPublishInput & {
 };
 
 type RemoteAgentStreamPartPushInput = RemoteAgentStreamPublishInput & {
-  part: AgentStreamToolPart;
+  part: AgentStreamPart;
 };
 
 type RemoteAgentStreamPublishResult =
@@ -73,7 +73,7 @@ type RemoteAgentStreamPublishResult =
       status: "published" | "dropped";
       sequence: number;
       streamId: string;
-      contentKind: RemoteAgentStreamDeltaKind | "tool";
+      contentKind: RemoteAgentStreamDeltaKind | AgentStreamPart["type"];
       deltaLength?: number;
       response?: RemoteAgentStreamDeltaCallbackResponse;
     };
@@ -133,7 +133,7 @@ export function buildRemoteAgentStreamDeltaCallbackBody(input: {
 export function buildRemoteAgentStreamPartCallbackBody(input: {
   context: RemoteAgentCallbackContext;
   observedAtMs: number;
-  part: AgentStreamToolPart;
+  part: AgentStreamPart;
   sequence: number;
 }): RemoteAgentStreamPartCallbackBody {
   return remoteAgentStreamPartCallbackBodySchema.parse({
@@ -145,7 +145,8 @@ export function buildRemoteAgentStreamPartCallbackBody(input: {
     organizationId: input.context.organizationId,
     part: input.part,
     sequence: input.sequence,
-    source: "flue.tool",
+    source:
+      input.part.type === "recovery" ? "flue.model_recovery" : "flue.tool",
     spaceId: input.context.spaceId,
     streamId: buildRemoteAgentStreamId(input.context.submissionId),
     submissionId: input.context.submissionId,
@@ -519,7 +520,7 @@ export function createRemoteAgentStreamPublisher(
         });
         if (!response) {
           return {
-            contentKind: "tool",
+            contentKind: input.part.type,
             status: "dropped",
             sequence: state.sequence,
             streamId: state.streamId,
@@ -532,7 +533,7 @@ export function createRemoteAgentStreamPublisher(
         }
         await persistRemoteAgentStreamState(input.storage, state);
         return {
-          contentKind: "tool",
+          contentKind: input.part.type,
           status: "published",
           sequence: state.sequence,
           streamId: state.streamId,

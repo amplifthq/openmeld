@@ -1,0 +1,1 @@
+ALTER TABLE "openmeld"."first_work_experiences" ALTER COLUMN "run_id" SET DEFAULT gen_random_uuid()::text;

@@ -146,6 +146,51 @@ function fixture() {
 }
 
 describe("permission response ordering", () => {
+  it.each([
+    true,
+    false,
+  ])("acknowledges redelivery without reporting another local resume (initial lease=%s)", async (hasInitialLease) => {
+    const test = fixture();
+    test.publishRoute();
+    if (hasInitialLease) {
+      test.input.leasesByProfileId.set("profile-1", 1);
+    }
+    test.updatePermissionMode.mockResolvedValue({
+      taskId: "task-1",
+      status: "applied",
+      effectiveFrom: "subsequent_tool_requests",
+    });
+    handleExecutionHostFrame(test.input);
+    await expect(test.response).resolves.toMatchObject({ optionId: "accept" });
+    expect(test.input.socket.send).toHaveBeenCalledTimes(
+      hasInitialLease ? 1 : 0
+    );
+    expect(test.input.presenter.line).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "daemon.run.interaction_resolved" })
+    );
+
+    test.input.leasesByProfileId.set("profile-1", 1);
+    handleExecutionHostFrame(test.input);
+    await vi.waitFor(() =>
+      expect(test.input.socket.send).toHaveBeenCalledTimes(
+        hasInitialLease ? 2 : 1
+      )
+    );
+    for (const [frame] of vi.mocked(test.input.socket.send).mock.calls) {
+      expect(JSON.parse(String(frame))).toMatchObject({
+        code: "daemon.dispatch.interaction_delivered",
+        payload: { interactionId: "interaction-1" },
+      });
+    }
+    expect(test.updatePermissionMode).toHaveBeenCalledOnce();
+    const resumes = vi
+      .mocked(test.input.presenter.line)
+      .mock.calls.filter(
+        ([line]) => line.code === "daemon.run.interaction_resolved"
+      );
+    expect(resumes).toHaveLength(1);
+  });
+
   it("waits for the canonical route and native acknowledgement before releasing approval", async () => {
     const test = fixture();
     let acknowledge!: () => void;

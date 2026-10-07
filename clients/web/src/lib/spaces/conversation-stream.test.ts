@@ -16,6 +16,110 @@ import {
 } from "./conversation-stream";
 
 describe("space conversation stream state", () => {
+	it("restores recovery beside a replayed text snapshot without accepting stale recovery", () => {
+		const text = createDeltaFrame({
+			sequence: 4,
+			textSnapshot: "Saved progress.",
+		});
+		const current = applySpaceConversationStreamFrame({
+			current: [],
+			frame: text,
+			observedRevision: 1,
+		});
+		const recovery = {
+			...createPartFrame({ sequence: 4, state: "output-available" }),
+			part: {
+				type: "recovery",
+				state: "waiting",
+				attempt: 3,
+				maxAttempts: 5,
+				nextRetryAtMs: 30_000,
+			},
+		} as const;
+		const restored = applySpaceConversationStreamFrame({
+			current,
+			frame: recovery,
+			observedRevision: 2,
+		});
+		expect(restored[0]).toMatchObject({
+			text: "Saved progress.",
+			recovery: recovery.part,
+		});
+		expect(
+			applySpaceConversationStreamFrame({
+				current: restored,
+				frame: {
+					...recovery,
+					sequence: 3,
+					part: { ...recovery.part, attempt: 2 },
+				},
+				observedRevision: 3,
+			})
+		).toBe(restored);
+	});
+	it("keeps completed work during recovery and never reopens a stopped execution", () => {
+		const completed = createPartFrame({
+			sequence: 1,
+			state: "output-available",
+		});
+		let state = applySpaceConversationStreamFrame({
+			current: [],
+			frame: completed,
+			observedRevision: 1,
+		});
+		const waiting = {
+			...completed,
+			sequence: 2,
+			part: {
+				type: "recovery",
+				state: "waiting",
+				attempt: 5,
+				maxAttempts: 5,
+				nextRetryAtMs: 30_000,
+			},
+		} as const;
+		state = applySpaceConversationStreamFrame({
+			current: state,
+			frame: waiting,
+			observedRevision: 2,
+		});
+		expect(state[0]).toMatchObject({
+			recovery: waiting.part,
+			toolParts: [completed.part],
+			status: "streaming",
+		});
+		state = applySpaceConversationStreamFrame({
+			current: state,
+			frame: {
+				...waiting,
+				sequence: 3,
+				part: { ...waiting.part, state: "recovered", nextRetryAtMs: 0 },
+			},
+			observedRevision: 3,
+		});
+		expect(state[0]).toMatchObject({
+			recovery: { state: "recovered" },
+			toolParts: [completed.part],
+		});
+		state = applySpaceConversationStreamFrame({
+			current: state,
+			frame: createTerminalFrame({
+				sequence: 4,
+				terminal: {
+					kind: "stopped",
+					reasonCode: "agent_stopped",
+					noticeText: "Stopped.",
+				},
+			}),
+			observedRevision: 4,
+		});
+		state = applySpaceConversationStreamFrame({
+			current: state,
+			frame: { ...waiting, sequence: 10 },
+			observedRevision: 5,
+		});
+		expect(state[0]?.status).toBe("stopped");
+	});
 	it("shows hosted progress live and clears it with the transient stream", () => {
 		const streaming = applySpaceConversationStreamFrame({
 			current: [],

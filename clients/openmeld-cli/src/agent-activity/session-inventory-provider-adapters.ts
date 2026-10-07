@@ -126,29 +126,21 @@ export async function discoverCodexThreads(input: {
   if (!input.launchContract) {
     throw new Error("Codex launch contract is unavailable.");
   }
-  const pages = await listAllCodexThreads(input.launchContract);
+  const threads = await listAllCodexThreads(input.launchContract);
   const openMeldCreatedSessionKeys =
     await readOpenMeldCreatedLocalAgentSessionKeys(input);
   const result: BoundObservedLocalAgentSession[] = [];
-  const identityKeys = new Set<string>();
-  for (const page of pages) {
-    for (const thread of page.data) {
-      const mapped = await mapCodexThread({
-        archived: page.archived,
-        bindings: input.bindings,
-        openMeldCreatedSessionKeys,
-        thread,
-      });
-      if (!mapped) {
-        continue;
-      }
-      const identityKey = `${mapped.binding.organizationId}\0${mapped.session.nativeSessionId}`;
-      if (identityKeys.has(identityKey)) {
-        throw new Error("Codex returned a duplicate native Session identity.");
-      }
-      identityKeys.add(identityKey);
-      result.push(mapped);
+  for (const { archived, thread } of threads) {
+    const mapped = await mapCodexThread({
+      archived,
+      bindings: input.bindings,
+      openMeldCreatedSessionKeys,
+      thread,
+    });
+    if (!mapped) {
+      continue;
     }
+    result.push(mapped);
   }
   return stableSessions(result);
 }
@@ -161,9 +153,9 @@ async function mapCodexThread(input: {
 }): Promise<BoundObservedLocalAgentSession | null> {
   const nativeSessionId = text(input.thread.id);
   const cwd = text(input.thread.cwd);
-  const lastActiveAtMs = secondsTimestamp(
-    input.thread.recencyAt ?? input.thread.updatedAt
-  );
+  // recencyAt is a provider sorting key and can precede createdAt. The
+  // thread/list contract defines updatedAt as the thread's update time.
+  const lastActiveAtMs = secondsTimestamp(input.thread.updatedAt);
   if (!(nativeSessionId && cwd && lastActiveAtMs !== null)) {
     throw new Error("Codex returned a malformed retained thread record.");
   }
@@ -202,9 +194,59 @@ type CodexThreadPage = {
   data: Record<string, unknown>[];
 };
 
+async function resolveCodexInventoryThreads(
+  pages: CodexThreadPage[],
+  client: ReturnType<typeof createCodexJsonRpcClient>
+) {
+  const threads = new Map<
+    string,
+    { archived: boolean; thread: Record<string, unknown> }
+  >();
+  const repeatedIds = new Set<string>();
+  for (const page of pages) {
+    for (const thread of page.data) {
+      const id = text(thread.id);
+      if (!id) {
+        throw new Error("Codex returned a malformed retained thread record.");
+      }
+      const prior = threads.get(id);
+      if (prior) {
+        repeatedIds.add(id);
+      }
+      threads.set(id, {
+        archived: page.archived || prior?.archived === true,
+        thread,
+      });
+    }
+  }
+  // Native filesystem reconciliation can list older copies of the same thread.
+  // Resolve ambiguity through the provider's metadata read, never merge copies
+  // or load their conversation turns. An archived observation disables resume.
+  for (const id of repeatedIds) {
+    const response = await client.request("thread/read", {
+      threadId: id,
+      includeTurns: false,
+    });
+    if (
+      !(
+        isRecord(response) &&
+        isRecord(response.thread) &&
+        response.thread.id === id
+      )
+    ) {
+      throw new Error("Codex thread/read metadata response is invalid.");
+    }
+    const entry = threads.get(id);
+    if (entry) {
+      entry.thread = response.thread;
+    }
+  }
+  return [...threads.values()];
+}
+
 async function listAllCodexThreads(
   launchContract: RuntimeAgentControllerLaunchContract
-): Promise<CodexThreadPage[]> {
+) {
   const client = createCodexJsonRpcClient(launchContract);
   try {
     await client.request("initialize", {
@@ -220,6 +262,7 @@ async function listAllCodexThreads(
           archived,
           cursor,
           limit: 100,
+          modelProviders: [],
           sortDirection: "desc",
           sortKey: "updated_at",
           sourceKinds: CODEX_THREAD_SOURCE_KINDS,
@@ -241,7 +284,7 @@ async function listAllCodexThreads(
         cursor = parseCodexNextCursor(response.nextCursor);
       } while (cursor !== null);
     }
-    return pages;
+    return await resolveCodexInventoryThreads(pages, client);
   } finally {
     await client.close();
   }

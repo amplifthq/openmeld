@@ -127,6 +127,39 @@ afterEach(() => {
 });
 
 describe("canonical Inbox attention page", () => {
+	it("marks a single item read immediately from its visible quick action and restores a failed save", async () => {
+		const message = item({ title: "Standalone update" });
+		let rejectRead: (error: Error) => void = () => undefined;
+		mocks.read.mockImplementation(
+			() =>
+				new Promise((_resolve, reject) => {
+					rejectRead = reject;
+				})
+		);
+		renderPage({ rows: [row(message)] });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Mark Standalone update as read" })
+		);
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("button", { name: "Standalone update: Read" })
+					.hasAttribute("disabled")
+			).toBe(true)
+		);
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		act(() => {
+			rejectRead(new Error("Save failed"));
+		});
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("button", { name: "Mark Standalone update as read" })
+					.hasAttribute("disabled")
+			).toBe(false)
+		);
+	});
+
 	it("reads installed system updates in place without navigating to a selected update", async () => {
 		const update = item({
 			id: "installed",

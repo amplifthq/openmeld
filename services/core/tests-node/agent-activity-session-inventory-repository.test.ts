@@ -72,6 +72,24 @@ describe("Agent Activity Session Inventory repository", () => {
       secondPage.sessions.map((session) => session.nativeSessionId)
     ).toEqual(["native-3"]);
     expect(secondPage.nextCursor).toBeNull();
+    const computerPage = await read(harness.db, {
+      computerId: AUTHORITY.connectedComputerId,
+      limit: 2,
+    });
+    expect(computerPage.sessions).toEqual(firstPage.sessions);
+    expect(computerPage.coverage).toEqual(firstPage.coverage);
+    const otherComputer = await read(harness.db, {
+      computerId: "computer-other",
+    });
+    expect(otherComputer.sessions).toEqual([]);
+    expect(otherComputer.coverage).toEqual([]);
+    await expect(
+      read(harness.db, {
+        computerId: "computer-other",
+        limit: 2,
+        cursor: computerPage.nextCursor ?? undefined,
+      })
+    ).rejects.toThrow("Agent Activity Session cursor is invalid.");
   });
 
   it("enumerates several live inventory pages and rejects a changed filter", async () => {
