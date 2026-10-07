@@ -1,5 +1,9 @@
 import { memberRoleHasOrganizationPermission } from "@openmeld/auth/organization-policy";
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
   type SpaceInvitation,
   type SpaceInvitationRpcInput,
@@ -8,7 +12,7 @@ import {
 } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { readResolvedOrganizationOwnerHumanSpaceMember } from "../center-agent/center-agent-repository";
-import { type CoreBindings, identityDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveSpaceStub } from "../rpc/space-ref";
 import {
   readOrganizationPersonalClassification,
@@ -30,13 +34,11 @@ type InvitationRow = {
   space_name: string | null;
   inviter_name: string;
 };
-
 const SELECT = `SELECT i.*, o.name AS organization_name, s.space_name, u.name AS inviter_name
-  FROM space_invitations i JOIN organizations o ON o.id = i.organization_id
-  JOIN users u ON u.id = i.inviter_user_id
-  LEFT JOIN space_index_spaces s ON s.space_id = i.space_id`;
+  FROM "openmeld"."space_invitations" i JOIN "openmeld"."organizations" o ON o.id = i.organization_id
+  JOIN "openmeld"."users" u ON u.id = i.inviter_user_id
+  LEFT JOIN "openmeld"."space_index_spaces" s ON s.space_id = i.space_id`;
 const LIFETIME_MS = ORGANIZATION_INVITATION_LIFETIME_SECONDS * 1000;
-
 export class InvitationError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
@@ -64,7 +66,6 @@ function view(row: InvitationRow): SpaceInvitation {
         : row.status,
   };
 }
-
 export async function spaceInvitation(
   env: CoreBindings,
   raw: SpaceInvitationRpcInput
@@ -90,28 +91,27 @@ export async function spaceInvitation(
     throw error;
   }
 }
-
 async function execute(
   env: CoreBindings,
   input: SpaceInvitationRpcInput
 ): Promise<SpaceInvitationRpcResult> {
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("Space invitation database is unavailable");
   }
   const request = input.request;
   if (request.action === "create_approved") {
     const approved = await db
-      .prepare(
-        "SELECT organization_id, space_id, email, requested_by_user_id FROM organization_join_requests WHERE id = ? AND status = 'approved'"
-      )
-      .bind(request.requestId)
-      .first<{
+      .query<{
         organization_id: string;
         space_id: string | null;
         email: string;
         requested_by_user_id: string;
-      }>();
+      }>({
+        text: 'SELECT organization_id, space_id, email, requested_by_user_id FROM "openmeld"."organization_join_requests" WHERE id = $1 AND status = \'approved\'',
+        values: [request.requestId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!approved?.space_id) {
       fail(
         "forbidden",
@@ -127,17 +127,17 @@ async function execute(
       approved.requested_by_user_id
     );
     const completed = await db
-      .prepare(`${SELECT} WHERE i.id = ? AND i.status = 'accepted'`)
-      .bind(request.requestId)
-      .first<InvitationRow>();
+      .query<InvitationRow>({
+        text: `${SELECT} WHERE i.id = $1 AND i.status = 'accepted'`,
+        values: [request.requestId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (completed) {
       return success([completed]);
     }
-    await db
-      .prepare(
-        "INSERT INTO space_invitations (id, organization_id, space_id, email, inviter_user_id, sponsor_user_id, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT DO NOTHING"
-      )
-      .bind(
+    await db.query({
+      text: 'INSERT INTO "openmeld"."space_invitations" (id, organization_id, space_id, email, inviter_user_id, sponsor_user_id, status, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, \'pending\', $7, $8) ON CONFLICT DO NOTHING',
+      values: [
         request.requestId,
         approved.organization_id,
         approved.space_id,
@@ -145,15 +145,15 @@ async function execute(
         input.userId,
         approved.requested_by_user_id,
         Date.now(),
-        Date.now() + LIFETIME_MS
-      )
-      .run();
+        Date.now() + LIFETIME_MS,
+      ],
+    });
     const invitation = await db
-      .prepare(
-        `${SELECT} WHERE i.organization_id = ? AND i.space_id = ? AND i.email = ? AND i.status IN ('pending', 'accepting') LIMIT 1`
-      )
-      .bind(approved.organization_id, approved.space_id, approved.email)
-      .first<InvitationRow>();
+      .query<InvitationRow>({
+        text: `${SELECT} WHERE i.organization_id = $1 AND i.space_id = $2 AND i.email = $3 AND i.status IN ('pending', 'accepting') LIMIT 1`,
+        values: [approved.organization_id, approved.space_id, approved.email],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!invitation) {
       fail(
         "inactive",
@@ -181,15 +181,13 @@ async function execute(
   }
   return await acceptInvitation(env, db, input, row);
 }
-
 async function readInvitation(
-  db: D1Database,
+  db: PostgresDatabase,
   id: string
 ): Promise<InvitationRow> {
   const row = await db
-    .prepare(`${SELECT} WHERE i.id = ?`)
-    .bind(id)
-    .first<InvitationRow>();
+    .query<InvitationRow>({ text: `${SELECT} WHERE i.id = $1`, values: [id] })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     fail(
       "unavailable",
@@ -202,7 +200,7 @@ const success = (rows: InvitationRow[]): SpaceInvitationRpcResult => ({
   result: { ok: true, invitations: rows.map(view) },
 });
 async function listPendingInvitations(
-  db: D1Database,
+  db: PostgresDatabase,
   input: SpaceInvitationRpcInput
 ): Promise<SpaceInvitationRpcResult> {
   if (!input.emailVerified) {
@@ -211,21 +209,21 @@ async function listPendingInvitations(
       "Verify your email to view your invitations."
     );
   }
-  const rows = await db
-    .prepare(
-      `${SELECT} WHERE i.email = ? AND i.status IN ('pending', 'accepting') AND (i.expires_at > ? OR i.status = 'accepting') ORDER BY i.created_at DESC LIMIT 100`
-    )
-    .bind(input.email.toLowerCase(), Date.now())
-    .all<InvitationRow>();
-  return success(rows.results);
+  const rows = await db.query<InvitationRow>({
+    text: `${SELECT} WHERE i.email = $1 AND i.status IN ('pending', 'accepting') AND (i.expires_at > $2 OR i.status = 'accepting') ORDER BY i.created_at DESC NULLS LAST LIMIT 100`,
+    values: [input.email.toLowerCase(), Date.now()],
+  });
+  return success(rows.rows);
 }
 async function createOrListInvitations(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   userId: string,
   request: Extract<
     SpaceInvitationRpcInput["request"],
-    { action: "create" | "list" }
+    {
+      action: "create" | "list";
+    }
   >
 ): Promise<SpaceInvitationRpcResult> {
   await authorizeManager(
@@ -239,24 +237,22 @@ async function createOrListInvitations(
     request.action === "list" ? "manage" : "invite"
   );
   if (request.action === "list") {
-    const rows = await db
-      .prepare(
-        `${SELECT} WHERE i.space_id = ? AND i.organization_id = ? AND i.audience = ? AND i.status IN ('pending', 'accepting') ORDER BY i.created_at DESC LIMIT 100`
-      )
-      .bind(
+    const rows = await db.query<InvitationRow>({
+      text: `${SELECT} WHERE i.space_id = $1 AND i.organization_id = $2 AND i.audience = $3 AND i.status IN ('pending', 'accepting') ORDER BY i.created_at DESC NULLS LAST LIMIT 100`,
+      values: [
         request.spaceId,
         request.organizationId,
-        request.audience ?? "organization"
-      )
-      .all<InvitationRow>();
-    return success(rows.results);
+        request.audience ?? "organization",
+      ],
+    });
+    return success(rows.rows);
   }
   const existing = await db
-    .prepare(
-      `${SELECT} WHERE i.space_id = ? AND i.email = ? AND i.status IN ('pending', 'accepting') ORDER BY i.created_at DESC LIMIT 1`
-    )
-    .bind(request.spaceId, request.email)
-    .first<InvitationRow>();
+    .query<InvitationRow>({
+      text: `${SELECT} WHERE i.space_id = $1 AND i.email = $2 AND i.status IN ('pending', 'accepting') ORDER BY i.created_at DESC NULLS LAST LIMIT 1`,
+      values: [request.spaceId, request.email],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (existing) {
     if (existing.audience !== (request.audience ?? "organization")) {
       fail(
@@ -270,11 +266,9 @@ async function createOrListInvitations(
     });
   }
   const id = crypto.randomUUID();
-  await db
-    .prepare(
-      `INSERT INTO space_invitations (id, organization_id, space_id, email, inviter_user_id, audience, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT DO NOTHING`
-    )
-    .bind(
+  await db.query({
+    text: `INSERT INTO "openmeld"."space_invitations" (id, organization_id, space_id, email, inviter_user_id, audience, status, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8) ON CONFLICT DO NOTHING`,
+    values: [
       id,
       request.organizationId,
       request.spaceId,
@@ -282,15 +276,15 @@ async function createOrListInvitations(
       userId,
       request.audience ?? "organization",
       Date.now(),
-      Date.now() + LIFETIME_MS
-    )
-    .run();
+      Date.now() + LIFETIME_MS,
+    ],
+  });
   const created = await db
-    .prepare(
-      `${SELECT} WHERE i.space_id = ? AND i.email = ? AND i.status IN ('pending', 'accepting') LIMIT 1`
-    )
-    .bind(request.spaceId, request.email)
-    .first<InvitationRow>();
+    .query<InvitationRow>({
+      text: `${SELECT} WHERE i.space_id = $1 AND i.email = $2 AND i.status IN ('pending', 'accepting') LIMIT 1`,
+      values: [request.spaceId, request.email],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!created) {
     fail("create_failed", "The invitation could not be saved. Try again.");
   }
@@ -298,12 +292,14 @@ async function createOrListInvitations(
 }
 async function manageInvitation(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   userId: string,
   row: InvitationRow,
   request: Extract<
     SpaceInvitationRpcInput["request"],
-    { action: "revoke" | "resend" | "bind" }
+    {
+      action: "revoke" | "resend" | "bind";
+    }
   >
 ): Promise<SpaceInvitationRpcResult> {
   const managerContext = await authorizeManager(
@@ -337,46 +333,44 @@ async function manageInvitation(
       invitationId: row.id,
       audience: row.audience,
     });
-    await db
-      .prepare(
-        "UPDATE space_invitations SET status = ? WHERE id = ? AND status IN ('pending', 'accepting')"
-      )
-      .bind(status, row.id)
-      .run();
+    await db.query({
+      text: "UPDATE \"openmeld\".\"space_invitations\" SET status = $1 WHERE id = $2 AND status IN ('pending', 'accepting')",
+      values: [status, row.id],
+    });
   } else if (request.action === "resend") {
-    await db
-      .prepare(
-        "UPDATE space_invitations SET expires_at = ?, inviter_user_id = ? WHERE id = ? AND status IN ('pending', 'accepting')"
-      )
-      .bind(Date.now() + LIFETIME_MS, userId, row.id)
-      .run();
+    await db.query({
+      text: "UPDATE \"openmeld\".\"space_invitations\" SET expires_at = $1, inviter_user_id = $2 WHERE id = $3 AND status IN ('pending', 'accepting')",
+      values: [Date.now() + LIFETIME_MS, userId, row.id],
+    });
   } else if (request.action === "bind") {
     // The native invitation is checked independently, not trusted from an
     // email callback or client-supplied identifier.
     const native = await db
-      .prepare(
-        "SELECT id FROM invitations WHERE id = ? AND organization_id = ? AND lower(email) = ? AND status = 'pending' AND role = 'member'"
-      )
-      .bind(request.organizationInvitationId, row.organization_id, row.email)
-      .first();
+      .query({
+        text: "SELECT id FROM \"openmeld\".\"invitations\" WHERE id = $1 AND organization_id = $2 AND lower(email) = $3 AND status = 'pending' AND role = 'member'",
+        values: [
+          request.organizationInvitationId,
+          row.organization_id,
+          row.email,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!native) {
       fail(
         "organization_invitation_invalid",
         "The organization invitation is unavailable. Resend this invitation."
       );
     }
-    await db
-      .prepare(
-        "UPDATE space_invitations SET organization_invitation_owned = CASE WHEN organization_invitation_id = ? THEN MAX(organization_invitation_owned, ?) ELSE ? END, organization_invitation_id = ? WHERE id = ? AND status IN ('pending', 'accepting')"
-      )
-      .bind(
+    await db.query({
+      text: "UPDATE \"openmeld\".\"space_invitations\" SET organization_invitation_owned = CASE WHEN organization_invitation_id = $1 THEN GREATEST(organization_invitation_owned, $2) ELSE $3 END, organization_invitation_id = $4 WHERE id = $5 AND status IN ('pending', 'accepting')",
+      values: [
         request.organizationInvitationId,
         Number(request.organizationInvitationOwned),
         Number(request.organizationInvitationOwned),
         request.organizationInvitationId,
-        row.id
-      )
-      .run();
+        row.id,
+      ],
+    });
   }
   const current = await readInvitation(db, row.id);
   if (
@@ -386,17 +380,17 @@ async function manageInvitation(
   ) {
     const nativeId = current.organization_invitation_id;
     const owned = await db
-      .prepare(
-        "SELECT id FROM space_invitations WHERE organization_invitation_id = ? AND organization_invitation_owned = 1 LIMIT 1"
-      )
-      .bind(nativeId)
-      .first();
+      .query({
+        text: 'SELECT id FROM "openmeld"."space_invitations" WHERE organization_invitation_id = $1 AND organization_invitation_owned = 1 LIMIT 1',
+        values: [nativeId],
+      })
+      .then((result) => result.rows[0] ?? null);
     const needed = await db
-      .prepare(
-        "SELECT id FROM space_invitations WHERE organization_invitation_id = ? AND status IN ('pending', 'accepting') LIMIT 1"
-      )
-      .bind(nativeId)
-      .first();
+      .query({
+        text: "SELECT id FROM \"openmeld\".\"space_invitations\" WHERE organization_invitation_id = $1 AND status IN ('pending', 'accepting') LIMIT 1",
+        values: [nativeId],
+      })
+      .then((result) => result.rows[0] ?? null);
     return {
       ...success([current]),
       organizationInvitationId: nativeId,
@@ -407,7 +401,7 @@ async function manageInvitation(
 }
 async function acceptInvitation(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   input: SpaceInvitationRpcInput,
   row: InvitationRow
 ): Promise<SpaceInvitationRpcResult> {
@@ -458,12 +452,10 @@ async function acceptInvitation(
     row.audience
   );
   if (request.action === "claim") {
-    await db
-      .prepare(
-        "UPDATE space_invitations SET status = 'accepting' WHERE id = ? AND status = 'pending' AND expires_at > ?"
-      )
-      .bind(row.id, Date.now())
-      .run();
+    await db.query({
+      text: "UPDATE \"openmeld\".\"space_invitations\" SET status = 'accepting' WHERE id = $1 AND status = 'pending' AND expires_at > $2",
+      values: [row.id, Date.now()],
+    });
     const current = await readInvitation(db, row.id);
     if (current.status !== "accepting" && current.status !== "accepted") {
       fail("inactive", "This invitation is no longer available.");
@@ -508,12 +500,10 @@ async function acceptInvitation(
     member,
     audience: row.audience,
   });
-  await db
-    .prepare(
-      "UPDATE space_invitations SET status = ? WHERE id = ? AND status IN ('pending', 'accepting')"
-    )
-    .bind(status, row.id)
-    .run();
+  await db.query({
+    text: "UPDATE \"openmeld\".\"space_invitations\" SET status = $1 WHERE id = $2 AND status IN ('pending', 'accepting')",
+    values: [status, row.id],
+  });
   if (status === "revoked") {
     fail(
       "inactive",
@@ -522,7 +512,6 @@ async function acceptInvitation(
   }
   return success([await readInvitation(db, row.id)]);
 }
-
 async function authorizeManager(
   env: CoreBindings,
   organizationId: string,
@@ -573,7 +562,7 @@ async function authorizeManager(
       );
     }
   }
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("Space invitation database is unavailable");
   }
@@ -611,19 +600,20 @@ async function authorizeManager(
   }
   return context;
 }
-
-async function readGuestHumanProfile(db: D1Database, userId: string) {
+async function readGuestHumanProfile(db: PostgresDatabase, userId: string) {
   const row = await db
-    .prepare(`SELECT p.profile_id, p.profile_name, p.owner_user_id, u.name AS owner_name
-    FROM openmeld_profiles p JOIN users u ON u.id = p.owner_user_id
-    WHERE p.owner_user_id = ? AND p.profile_kind = 'human' AND p.is_default = 1 AND p.status = 'active' LIMIT 1`)
-    .bind(userId)
-    .first<{
+    .query<{
       profile_id: string;
       profile_name: string;
       owner_user_id: string;
       owner_name: string | null;
-    }>();
+    }>({
+      text: `SELECT p.profile_id, p.profile_name, p.owner_user_id, u.name AS owner_name
+    FROM "openmeld"."openmeld_profiles" p JOIN "openmeld"."users" u ON u.id = p.owner_user_id
+    WHERE p.owner_user_id = $1 AND p.profile_kind = 'human' AND p.is_default = 1 AND p.status = 'active' LIMIT 1`,
+      values: [userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row
     ? {
         profileId: row.profile_id,
@@ -635,7 +625,6 @@ async function readGuestHumanProfile(db: D1Database, userId: string) {
       }
     : null;
 }
-
 // A member can propose adding someone, but cannot authorize Organization entry.
 // The request owner checks reviewer authority separately before fulfillment.
 export function authorizeSpaceInvitationSponsor(

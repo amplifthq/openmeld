@@ -46,6 +46,7 @@ import {
 } from "./claude-agent-interactions.js";
 import { classifyClaudeFailure } from "./claude-cli-transport.js";
 import { resolveClaudeConversationPolicyOptions } from "./claude-conversation-policy.js";
+import { createClaudeLiveInput } from "./claude-live-input.js";
 import { resolveClaudePermissionMode } from "./claude-permission-policy.js";
 import { createClaudePreviewEmitter } from "./claude-preview-emitter.js";
 import {
@@ -212,6 +213,7 @@ export type ClaudeAgentSdkActiveQuery = Pick<
 >;
 
 export type ClaudeAgentSdkQueryRegistration = (input: {
+  liveInput?: ReturnType<typeof createClaudeLiveInput>;
   permissionModeUpdatesAllowed: boolean;
   query: ClaudeAgentSdkActiveQuery;
   taskId: string;
@@ -357,6 +359,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   let queryRuntime: ClaudeAgentQuery | null = null;
   let unregisterQuery: (() => void) | undefined;
+  let liveInput: ReturnType<typeof createClaudeLiveInput> | undefined;
   const toolActivityTracker = createClaudeAgentSdkToolActivityTracker();
 
   if (input.claudeTimeoutMs !== null) {
@@ -402,22 +405,23 @@ export async function invokeClaudeAgentSdkTransport(input: {
       options,
       spaceActionTools: input.spaceActionTools,
     });
+    const userPrompt = [
+      input.instructionPrompt?.userPrompt ?? prompt,
+      ...(input.spaceActionTools?.deliveryOnly
+        ? [
+            "Use only the supplied delivery tools. Do not repeat the user's work or change permission mode. After the final tool call, return the required small delivery report: recorded is true only after verifying a proposal_saved_locally receipt. This report is not a public reply and never authorizes publication.",
+          ]
+        : []),
+    ].join("\n\n");
+    liveInput = createInvocationLiveInput(input, userPrompt, options);
     queryRuntime = createQuery({
       options,
-      prompt: createSinglePrompt(
-        [
-          input.instructionPrompt?.userPrompt ?? prompt,
-          ...(input.spaceActionTools?.deliveryOnly
-            ? [
-                "Use only the supplied delivery tools. Do not repeat the user's work or change permission mode. After the final tool call, return the required small delivery report: recorded is true only after verifying a proposal_saved_locally receipt. This report is not a public reply and never authorizes publication.",
-              ]
-            : []),
-        ].join("\n\n")
-      ),
+      prompt: liveInput?.prompt() ?? createSinglePrompt(userPrompt),
     });
 
     if (input.taskId) {
       unregisterQuery = input.registerQuery?.({
+        liveInput,
         permissionModeUpdatesAllowed: input.executionMode !== "repair",
         query: queryRuntime,
         taskId: input.taskId,
@@ -429,6 +433,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
       input.spaceActionTools
     );
     for await (const message of queryRuntime) {
+      liveInput?.observe(message);
       await observeConnection(message, queryRuntime);
       reasoningMessageId = await observeClaudeReasoning(
         message,
@@ -488,6 +493,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
       clearTimeout(timeoutHandle);
     }
     unregisterQuery?.();
+    liveInput?.close();
     queryRuntime?.close();
     await resources.cleanup();
   }
@@ -913,6 +919,7 @@ function buildClaudeAgentSdkOptions(input: {
   Object.assign(options, buildClaudeSpaceToolOptions(input));
   if (
     input.executionContext?.access === "workspace" &&
+    input.executionContext.permissionSource !== "agent_settings" &&
     input.executionMode !== "repair" &&
     !deliveryOnly
   ) {
@@ -954,7 +961,9 @@ function isSupportedClaudeExecutionContext(
   return (
     !context ||
     context.access === "space_context" ||
-    (context.access === "workspace" && context.workspace === "isolated")
+    (context.access === "workspace" &&
+      (context.permissionSource === "agent_settings" ||
+        context.workspace === "isolated"))
   );
 }
 
@@ -997,6 +1006,22 @@ async function readLatestClaudePlanDocument(
   }
   const content = await readFile(latestPlanFile.path, "utf8");
   return normalizeOptionalText(content.slice(0, 64_000));
+}
+
+function createInvocationLiveInput(
+  input: Parameters<typeof invokeClaudeAgentSdkTransport>[0],
+  prompt: string,
+  options: ClaudeAgentOptions
+) {
+  if (
+    !(input.taskId && input.registerQuery) ||
+    input.executionMode === "repair" ||
+    input.spaceActionTools?.deliveryOnly
+  ) {
+    return undefined;
+  }
+  options.extraArgs = { ...options.extraArgs, "replay-user-messages": null };
+  return createClaudeLiveInput(input.taskId, prompt);
 }
 
 function createDefaultClaudeAgentSdkQuery(input: {

@@ -260,7 +260,7 @@ function createActiveWakePlaceholder(input: {
 		attachments: [],
 		clientMessageId: null,
 		createdAtMs: source?.createdAtMs ?? progress.startedAtMs ?? 0,
-		deliveryState: source?.deliveryState ?? "sent",
+		deliveryState: "sent",
 		id: `active-wake:${identity}:${progress.targetProfileId}`,
 		isAgentFinalReply: true,
 		newMessagesDuringComposition: null,

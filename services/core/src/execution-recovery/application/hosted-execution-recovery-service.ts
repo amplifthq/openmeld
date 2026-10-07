@@ -1,4 +1,5 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   ExecuteExecutionRecoveryBody,
   ExecuteExecutionRecoveryResponse,
@@ -13,7 +14,7 @@ import {
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { resolveExecutionRecoveryCompletionReasonCode } from "./execution-recovery-completion";
 import {
   assertExecutionRecoveryDestinationMatchesDelivery,
@@ -35,7 +36,6 @@ const REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE =
   "remote_agent.execution_cancelled";
 const RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE =
   "runtime_coordinator.pre_agent_stop_requested";
-
 export async function projectHostedExecutionRecovery(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -115,10 +115,9 @@ export async function projectHostedExecutionRecovery(input: {
     updatedAtMs: input.nowMs,
   });
 }
-
 export async function replayHostedRetainedExecutionResult(input: {
   command: ExecuteExecutionRecoveryBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   markEffectStarted: () => Promise<void>;
@@ -173,10 +172,9 @@ export async function replayHostedRetainedExecutionResult(input: {
         : "completed",
   };
 }
-
 export async function submitHostedExecutionRecovery(input: {
   action: "resume_controller_conversation" | "retry_as_new_execution";
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   markEffectStarted: () => Promise<void>;
@@ -218,11 +216,10 @@ export async function submitHostedExecutionRecovery(input: {
         status: "new_execution_requested",
       };
 }
-
 export async function resolveAuthoritativeHostedExecutionRecovery(input: {
   claimStorageKey: string;
   command: ExecuteExecutionRecoveryBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   projection: ExecutionRecoveryProjection;
@@ -329,7 +326,6 @@ export async function resolveAuthoritativeHostedExecutionRecovery(input: {
     status: "new_execution_requested",
   };
 }
-
 function resolveRecoveredPublicationId(
   delivery: RemoteAgentNativeDeliveryRecord
 ): string | null {

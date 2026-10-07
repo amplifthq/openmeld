@@ -55,6 +55,11 @@ export const baseQueryOptions = {
 // visit from falling off the default five-minute garbage-collection cliff.
 export const ROUTE_REVISIT_GC_TIME_MS = 30 * 60 * 1000;
 
+// Keep frequently revisited lists through an overnight pause in the same tab.
+// This is memory retention, not freshness or disk persistence. Current reads
+// still run on return; live readiness queries keep their shorter lifetime.
+export const DISPLAY_REVISIT_GC_TIME_MS = 24 * 60 * 60 * 1000;
+
 // Persisted display snapshots may survive a browser restart for up to seven
 // days. Their query-specific staleTime still forces current server reads; this
 // longer gcTime only keeps restored data alive long enough to be useful.

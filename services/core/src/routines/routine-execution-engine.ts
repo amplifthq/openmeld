@@ -1,6 +1,10 @@
 import type { CoreBindings } from "../lib/bindings";
 
-export const ROUTINE_EXECUTION_ENGINES = ["legacy", "workflow"] as const;
+export const ROUTINE_EXECUTION_ENGINES = [
+  "legacy",
+  "workflow",
+  "local",
+] as const;
 
 export type RoutineExecutionEngine = (typeof ROUTINE_EXECUTION_ENGINES)[number];
 

@@ -1,0 +1,12 @@
+{
+  "title": "Settings and help",
+  "defaultOpen": false,
+  "pages": [
+    "troubleshooting",
+    "agent-not-replying",
+    "computer",
+    "desktop",
+    "account",
+    "notifications"
+  ]
+}

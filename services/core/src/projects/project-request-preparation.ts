@@ -1,12 +1,15 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { openMeldRequestContextSchema } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
-import { agentActivityDb, type CoreBindings } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { parseProjectPayload } from "./project-rpc-contract";
 import { createProjectService } from "./project-service";
-
 export async function prepareHumanProjectRequest(
   env: CoreBindings,
   contextInput: OpenMeldRequestContext | undefined
@@ -29,7 +32,7 @@ export async function prepareHumanProjectRequest(
   if (context.actorContext.profileKind !== "human") {
     throw memberActorRequiredError();
   }
-  const db = agentActivityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "project.store_unavailable",
@@ -51,7 +54,6 @@ export async function prepareHumanProjectRequest(
     service: createProjectService({ db }),
   };
 }
-
 export async function prepareExpectedHumanProjectRequest(
   env: CoreBindings,
   input: {
@@ -67,31 +69,31 @@ export async function prepareExpectedHumanProjectRequest(
   });
   return prepared;
 }
-
 async function requireHumanProfileAuthority(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   profileId: string;
   userId: string;
 }): Promise<void> {
   const profile = await input.db
-    .prepare(
-      `
+    .query<{
+      present: number;
+    }>({
+      text: `
         SELECT 1 AS present
-        FROM openmeld_profiles
-        WHERE profile_id = ?
-          AND owner_user_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
+          AND owner_user_id = $2
           AND profile_kind = 'human'
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(input.profileId, input.userId)
-    .first<{ present: number }>();
+      `,
+      values: [input.profileId, input.userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (profile?.present !== 1) {
     throw memberActorRequiredError();
   }
 }
-
 function memberActorRequiredError(): Error {
   return createCoreRpcHttpError({
     code: "project.member_actor_required",

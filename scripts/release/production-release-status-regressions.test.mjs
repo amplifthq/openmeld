@@ -7,15 +7,18 @@ import {
   buildProductionReleaseImpact,
   buildProductionReleasePlan,
 } from "./production-release.mjs";
+import { RELEASE_SCOPES } from "./production-release-history.mjs";
 import {
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
 } from "./production-release-status.mjs";
+import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const TARGET = "a".repeat(40),
   OLD = "b".repeat(40),
   BASE = "c".repeat(40),
   WEB = "d".repeat(40);
+const UNRESOLVED = /unresolved/u;
 const run = (id) => ({
   databaseId: id,
   createdAt: `2026-09-18T0${id}:00:00Z`,
@@ -89,6 +92,65 @@ async function report(overrides = {}) {
 }
 
 const HISTORICAL_ORDER_CONFLICT = /Incompatible release dependencies/u;
+for (const scenario of [
+  "complete",
+  "listing-failure",
+  "unknown-time-jobs-failure",
+]) {
+  test(`uses verified local history bounds without hiding ${scenario}`, async () => {
+    const jobsRead = [];
+    const { code, result } = await report({
+      readLocalReleaseSources: async () =>
+        new Map(
+          RELEASE_SCOPES.map((scope) => [
+            scope,
+            {
+              sha: OLD,
+              source: "guarded-local",
+              recordedAt: "2026-09-18T12:00:00Z",
+              receipt: { status: "verified", application: "applied" },
+            },
+          ])
+        ),
+      readReleaseRuns: () => {
+        if (scenario === "listing-failure") {
+          throw new Error("workflow listing unavailable");
+        }
+        return [
+          { ...run(1), status: "completed", updatedAt: "2026-09-18T11:00:00Z" },
+          { ...run(2), status: "completed", updatedAt: "2026-09-18T13:00:00Z" },
+          {
+            ...run(3),
+            status: "in_progress",
+            updatedAt: "2026-09-18T08:00:00Z",
+          },
+          { ...run(4), status: "completed", updatedAt: undefined },
+        ];
+      },
+      readReleaseJobs: (id) => {
+        jobsRead.push(id);
+        if (
+          id === 1 ||
+          (id === 4 && scenario === "unknown-time-jobs-failure")
+        ) {
+          throw new Error("job history unavailable");
+        }
+        return id === 2 ? [job("Deploy Web", WEB, "2026-09-18T13:00:00Z")] : [];
+      },
+      buildPlan: () => ({ scopes: ["web"], changedPaths: [] }),
+    });
+    const web = result.components.find(
+      (component) => component.scope === "web"
+    );
+    assert.equal(code, scenario === "complete" ? 0 : 1);
+    assert.equal(web.state, scenario === "complete" ? "pending" : "unknown");
+    assert.equal(web.sha, scenario === "listing-failure" ? OLD : WEB);
+    assert.deepEqual(
+      jobsRead.sort(),
+      scenario === "listing-failure" ? [] : [2, 3, 4]
+    );
+  });
+}
 test("classifies verified component receipts without ordering an unrelated historical release train", async () => {
   // Captured from the actual production/merge sources. No historical Git
   // objects or network fetch are required in a shallow test checkout.
@@ -318,6 +380,11 @@ test("unverified local deployment replaces older hosted success without appearin
             recordedAt: "2026-09-18T13:00:00Z",
             source: "guarded-local",
             receipt: { status: "failed" },
+            verifiedHistoryBaseline: {
+              evidenceSha: "5".repeat(40),
+              recordedAt: "2026-09-18T12:00:00Z",
+              sha: OLD,
+            },
           },
         ],
       ]),
@@ -376,5 +443,91 @@ test("reports only exact applied Worker receipts as guarded health resume candid
   assert.deepEqual(
     result.blockers.find((blocker) => blocker.scope === "web").scopes,
     ["web"]
+  );
+});
+
+test("Core upload recovery passes status and stage admission without claiming deployment success", async () => {
+  const receipt = {
+    application: "unknown",
+    attemptId: "00000000-0000-4000-8000-000000000005",
+    componentIndex: 0,
+    operationKey: "4".repeat(64),
+    startedAt: "2026-09-18T12:59:00.000Z",
+    status: "failed",
+  };
+  const source = {
+    sha: TARGET,
+    source: "guarded-local",
+    recordedAt: "2026-09-18T13:00:00Z",
+    receipt,
+    verifiedHistoryBaseline: {
+      sha: OLD,
+      recordedAt: "2026-09-18T12:00:00Z",
+      receipt: {
+        ...receipt,
+        status: "verified",
+        application: "applied",
+        identity: {
+          deploymentId: "prior-deployment",
+          environment: "prod",
+          kind: "worker-deployment",
+          proof: "command-output",
+          sourceSha: OLD,
+          versionId: "prior-version",
+          workerName: "openmeld-core-prod",
+        },
+      },
+    },
+  };
+  const adapters = {
+    buildPlan: () => ({ scopes: ["core"], changedPaths: [] }),
+    readLocalReleaseSources: async () => new Map([["core", source]]),
+  };
+  const { code, result } = await report(adapters);
+  assert.equal(code, 1);
+  const core = result.components.find((c) => c.scope === "core");
+  assert.equal(core.state, "unknown");
+  assert.equal(core.recovery.kind, "guarded-core-upload-retry");
+  const input = {
+    scope: "core",
+    sourceSha: TARGET,
+    collectStatus: async () => result,
+    write: () => undefined,
+  };
+  await runProductionStageAdmission(input);
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, sourceSha: OLD }),
+    UNRESOLVED
+  );
+  source.verifiedHistoryBaseline = undefined;
+  const unresolved = await report(adapters);
+  await assert.rejects(
+    runProductionStageAdmission({
+      ...input,
+      collectStatus: async () => unresolved.result,
+    }),
+    UNRESOLVED
+  );
+});
+
+test("keeps verified history when current impact analysis is unavailable", async () => {
+  const { result } = await report({
+    buildImpact: () => {
+      throw new Error("impact unavailable");
+    },
+  });
+  const web = result.components.find((entry) => entry.scope === "web");
+  assert.equal(web.state, "unknown");
+  assert.equal(web.sha, WEB);
+  assert.ok(
+    result.globalBlockers.some((entry) =>
+      entry.detail.includes("impact unavailable")
+    )
+  );
+  assert.ok(
+    !result.globalBlockers.some(
+      (entry) =>
+        entry.name === "Deployment history" && entry.scopes.includes("web")
+    )
   );
 });

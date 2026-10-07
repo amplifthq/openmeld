@@ -3,14 +3,14 @@ import {
   resolveAgentControllerUsageLimitSupport,
   resolveAgentControllerUsageProviderId,
 } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS } from "@openmeld/schemas";
 import type { AgentControllerUsageLimits } from "@openmeld/schemas/types";
 import type { AgentExecutionReadinessReads } from "./agent-execution-readiness-reads";
 import type { CoreAgentExecutionReadiness } from "./agent-execution-readiness-service";
-
 /** Share only provider usage from this Profile's exact bound Runtime and Controller. */
 export async function readAgentProfileUsage(input: {
-  db: D1Database | undefined;
+  db: PostgresDatabase | undefined;
   binding: Pick<
     NonNullable<CoreAgentExecutionReadiness["primaryBinding"]>,
     "executionTarget" | "modelSelection"

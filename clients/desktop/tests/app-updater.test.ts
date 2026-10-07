@@ -1,10 +1,14 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { DesktopReleasePlatform } from "@openmeld/schemas";
 import type { AutoUpdater } from "electron";
 import type { MacUpdater, UpdateCheckResult } from "electron-updater";
 import { describe, expect, it, vi } from "vitest";
 import { createAppUpdater } from "../src/main/update/app-updater";
+import { recordUpdateFailure } from "../src/main/update/update-failure-diagnostic";
 
 function fixture(
   url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`,
@@ -40,6 +44,10 @@ function fixture(
   const prepareRestart = vi.fn(async () => true);
   const setInstalling = vi.fn();
   const recordMacInstallRequested = vi.fn();
+  const recordFailure =
+    vi.fn<
+      NonNullable<Parameters<typeof createAppUpdater>[0]["recordFailure"]>
+    >();
   const controller = createAppUpdater({
     updater: driver as unknown as MacUpdater,
     platform,
@@ -47,6 +55,7 @@ function fixture(
     currentAppBundle:
       platform === "macos-arm64" ? "/Applications/OpenMeld.app" : null,
     recordMacInstallRequested,
+    recordFailure,
     publish: vi.fn(),
     prepareRestart,
     setInstalling,
@@ -57,9 +66,57 @@ function fixture(
     prepareRestart,
     setInstalling,
     recordMacInstallRequested,
+    recordFailure,
   };
 }
 describe("Desktop update consent", () => {
+  it("retains safe download failure evidence through a successful retry", async () => {
+    const directory = mkdtempSync(
+      join(tmpdir(), "openmeld-update-diagnostic-")
+    );
+    const path = join(directory, "diagnostics", "desktop-update-failure.json");
+    try {
+      const { controller, driver, recordFailure } = fixture();
+      recordFailure.mockImplementation((record) =>
+        recordUpdateFailure(path, record)
+      );
+      await controller.act("check");
+      driver.downloadUpdate.mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            "socket failed https://user:secret@example.test/update?token=private /Users/private/path"
+          ),
+          { code: "ECONNRESET" }
+        )
+      );
+      await controller.act("download");
+      const contents = readFileSync(path, "utf8");
+      expect(JSON.parse(contents)).toMatchObject({
+        format: 1,
+        stage: "download",
+        currentVersion: "0.1.1",
+        targetVersion: "0.1.2",
+        code: "ECONNRESET",
+      });
+      expect(contents).not.toContain("secret");
+      expect(contents).not.toContain("private");
+      if (process.platform !== "win32") {
+        expect(statSync(path).mode % 0o1000).toBe(0o600);
+      }
+      await controller.act("download");
+      expect(controller.snapshot().status).toBe("downloaded");
+      expect(readFileSync(path, "utf8")).toBe(contents);
+      recordFailure.mockImplementation(() => {
+        throw new Error("disk full");
+      });
+      driver.emit("error", new Error("unrecognized private response body"));
+      expect(controller.snapshot().status).toBe("error");
+      expect(readFileSync(path, "utf8")).toBe(contents);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     "windows-x64",
     "windows-arm64",

@@ -4,7 +4,6 @@ import { resolveRuntimeTransportOwnerShard } from "../../dispatch/infrastructure
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../../organizations/organization-context";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-
 export async function reasoningPreferences(
   env: CoreBindings,
   input: LocalAgentReasoningPreferencesRpc

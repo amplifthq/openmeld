@@ -1,26 +1,20 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, primaryKey, text } from "drizzle-orm/pg-core";
 import { organizations } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
 // Core owns this rebuildable, Organization-scoped weekly read projection.
 // RuntimeCoordinator and Space ledgers remain the source facts.
-export const evalReports = sqliteTable(
+export const evalReports = applicationTable(
   "eval_reports",
   {
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    periodStartMs: integer("period_start").notNull(),
-    periodEndMs: integer("period_end").notNull(),
+    periodStartMs: bigint("period_start", { mode: "number" }).notNull(),
+    periodEndMs: bigint("period_end", { mode: "number" }).notNull(),
     metricsJson: text("metrics_json").notNull(),
-    createdAtMs: integer("created_at").notNull(),
+    createdAtMs: bigint("created_at", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({

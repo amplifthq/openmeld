@@ -3,7 +3,7 @@ import {
   assertExecutionRecoveryDestinationMatchesDelivery,
   resolveExecutionRecoveryDestination,
 } from "../execution-recovery/application/execution-recovery-destination";
-import type { RemoteAgentNativeDeliveryRecord } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 
 const baseDelivery = {
   conversationKind: "space",

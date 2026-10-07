@@ -248,7 +248,7 @@ invitation summary, not its discussion history, before acceptance.
 
 Better Auth remains the Organization invitation and membership writer. Core
 owns the Space invitation intent and policy; the Space owns the membership
-grant and an atomic accepted-or-revoked receipt. D1 status projects that receipt.
+grant and an atomic accepted-or-revoked receipt. PostgreSQL status projects that receipt.
 Acceptance can retry after Organization joining or an acknowledgement failure;
 it cannot use an old accepted invitation to re-add a removed Space member.
 Acceptance rechecks the sender's current authority. Revoke never removes an
@@ -424,8 +424,14 @@ never evidence that a running Agent is stuck.
 Local Agent reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
 search input, notification, export, transcript, execution journal, or diagnostic
 body. OpenMeld retains no reasoning text in storage or browser persistence.
-The live tail is cleared on disconnect, navigation, privacy disable, and terminal
-outcome. Provider-owned local session retention is outside this OpenMeld promise.
+The mounted conversation retains already received live work across transport
+reconnection so a brief interruption does not collapse the reader's work view.
+This is in-memory presentation only, not evidence of continued execution or a
+durable transcript. Navigation, profile changes, access revocation, an observed
+privacy-disable frame, and terminal outcomes clear the tail. During lost
+connectivity, privacy and outcome updates take effect when received; the existing
+stale-updates notice covers prolonged interruptions. Provider-owned local session
+retention is outside this OpenMeld promise.
 
 An ambient `Working` indicator identifies current Wake activity in that Space,
 not the author of an older reply or a historical **Work summary**. When Core has
@@ -1064,6 +1070,20 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
+Leaving or removing a member preserves shared history and files. Permanent Space
+deletion is a separate, human-owner-confirmed action affecting everyone. It must
+reject with `space.wakes_pending` while dispatch handoff/recovery, a workstation
+execution, a native delivery (including Routine runs and uncertain publication),
+an admitted Routine awaiting delivery or failure publication, a task continuation,
+or a stopped-outcome publication is unsettled. Users stop work through the existing
+Stop action or wait for its outcome, then retry deletion. Deletion does not invent
+an execution timeout or a second cancellation mechanism. The Space serializes the
+check and deletion through its existing concurrency gate; the runtime owners retain
+their execution authority. An unavailable owner store must not permit deletion.
+PostgreSQL checks share one repeatable-read snapshot so a continuation-to-delivery
+handoff cannot fall between independently read states. Rejected deletion logs the
+pending owner categories and request ID without message contents.
+
 Share or invite and Settings compose different task-focused views from one
 canonical snapshot and one local draft. Link reading, Organization visibility,
 joining, and guest access commit together so the UI never reports a partially
@@ -1560,6 +1580,15 @@ If OpenMeld stops a Wake before it reaches the agent, the visible outcome is sti
 explicit stopped Space system notice. It is not an Agent reply, and it must not
 be rendered as silent disappearance from progress.
 
+Web presents a stopped outcome in the target Agent's reply position with the
+label `(Request stopped)` and the original request context, not as a conversation-wide
+notice. This presentation does not change the system notice's authorship or
+claim a successful Agent reply. Each target of a multi-Agent request retains
+its own outcome. Public reply text already accepted by Space stays visible,
+including after refresh; private thinking and transient work are not retained.
+An empty stopped response shows the target identity and `(Request stopped)` alone. Stop
+does not imply that earlier actions were undone.
+
 For ordinary account-owned Profiles, only the account that authored the Wake's
 source message or the target Agent Profile's owner may stop that Wake, and they
 must still have writable Space access. Space membership, Space creation, or
@@ -1689,7 +1718,7 @@ stopped notice, failure notice, or ended Wake presentation removes it.
 
 Stop is one click for one target. Multiple targets use the shared picker with
 per-Agent Stop and Stop all. Clicking immediately shows `Stopping…` and freezes
-the current partial answer; only a confirmed terminal outcome says `Stopped`.
+the current partial answer; only a confirmed terminal outcome says `(Request stopped)`.
 Completed work remains visible and Stop does not imply rollback. A completed
 reply wins a race with a later Stop acknowledgement. A failed connection keeps
 the command intent with an explicit retry action. Receipts survive navigation
@@ -1803,6 +1832,10 @@ When a final Agent Profile reply was composed while newer public text messages
 arrived, the persisted reply may carry a server-derived count and clients may
 show a quiet `written before N newer messages` marker. The count is timeline
 context, not a failure, execution state, or claim that the reply is wrong.
+The count excludes queued messages with a confirmed native steering receipt
+for that exact dispatch and target Agent Profile. Those messages reached the
+running execution. Enqueue, uncertain delivery, and another execution's receipt
+do not establish that the Agent received a message.
 Agents and clients must not author or infer this metadata themselves.
 
 Agent-authored final communication has two choices: `reply` (`post_message`)

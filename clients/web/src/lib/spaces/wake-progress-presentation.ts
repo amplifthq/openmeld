@@ -198,21 +198,21 @@ function resolveWakeStopFallbackStep(
 		case "active":
 			return {
 				description: "The Agent is processing your request.",
-				kind: "starting",
-				label: "Thinking…",
+				kind: "working",
+				label: "Working…",
 				status: "active",
 			};
 		case "stopping":
 			return {
 				description: "Waiting for the Agent to confirm it has stopped.",
-				kind: "retrying",
+				kind: "working",
 				label: "Stopping…",
 				status: "active",
 			};
 		case "retry_later":
 			return {
 				description: "Check your connection and try stopping again.",
-				kind: "retrying",
+				kind: "working",
 				label: "Stop not confirmed",
 				status: "pending",
 			};
@@ -312,13 +312,17 @@ export function resolveSpaceMessageStopFeedback(
 export function resolveWakeProgressThinkingEntry(input: {
 	item: WakeProgressItem;
 	showElapsedTime: boolean;
+	showTargetName?: boolean;
+	requestStartedAtMs?: number;
 }): SpaceMessageWakeThinkingEntry[] {
 	const item = input.item;
 	if (isProblemWakeProgressItem(item) || item.terminal) {
 		return [];
 	}
 
-	const step = resolveWakeProgressStatus(item);
+	const step = resolveWakeProgressStatus(item, {
+		showTargetName: input.showTargetName,
+	});
 	if (!step) {
 		return [];
 	}
@@ -328,10 +332,10 @@ export function resolveWakeProgressThinkingEntry(input: {
 		{
 			elapsedStartedAtMs:
 				input.showElapsedTime &&
-				item.phase === "running" &&
+				step.status === "active" &&
 				!awaitingConfirmation &&
 				!item.pendingInteraction
-					? (item.startedAtMs ?? null)
+					? (input.requestStartedAtMs ?? item.startedAtMs ?? null)
 					: null,
 			key: resolveWakeProgressKey(item),
 			kind: item.previewText && !awaitingConfirmation ? "preview" : "progress",

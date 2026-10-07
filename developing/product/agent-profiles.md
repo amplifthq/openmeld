@@ -565,7 +565,7 @@ and can interrupt an accepted Wake. Every maintenance surface must read the
 owner-sharded RuntimeCoordinator execution state, independent of the current
 Space. That read is advisory: before committing one of these changes, the writer
 must acquire a short-lived owner-shard execution-target mutation admission and
-hold it across the D1 or local Service mutation. RuntimeCoordinator serializes
+hold it across the PostgreSQL or local Service mutation. RuntimeCoordinator serializes
 that admission with new Wake-head acceptance in the same Durable Object storage
 transaction, so a Wake that arrives after admission waits instead of racing the
 execution-target change. An active execution blocks only the disruptive
@@ -601,7 +601,7 @@ implicitly or guess identity from a computer name. A runtime reconnect preserves
 the Binding settings that are current when Core
 accepts the write. Reconnect clients must omit controller settings instead of
 replaying a previously read Binding snapshot; only an explicit settings edit
-may carry those fields and its expected `configurationRevision`. The D1 writer
+may carry those fields and its expected `configurationRevision`. The PostgreSQL writer
 uses that revision as a compare-and-set fence and re-reads before a bounded
 retry when a settings write wins the race. Reconnecting must never overwrite a
 newer permission, model, reasoning, collaboration, conversation, or OpenCode
@@ -609,7 +609,7 @@ permission choice.
 
 An explicit settings edit is successful only when the fresh Binding projection
 contains the requested value. A changed value must be fenced by both the
-Binding id and `configurationRevision` that the writer read, and the D1 update
+Binding id and `configurationRevision` that the writer read, and the PostgreSQL update
 must change that row. If a Service reconnect or another settings edit replaces
 that write target, Core returns a settings conflict instead of accepting the
 new Binding's unchanged value. Web clients also compare an accepted response
@@ -624,9 +624,9 @@ within the Profile's canonical Organization remains the action and audit actor
 and must not become a second Binding owner. A personal Agent Profile write that
 discovers an older enabled Binding under another owner must acquire mutation admission from
 every affected owner shard before changing the Binding. Disabling admitted
-legacy Bindings and installing the Profile owner's target are one atomic D1
+legacy Bindings and installing the Profile owner's target are one atomic PostgreSQL
 write; any failed step leaves the previous enabled Bindings intact. Unavailable
-admission or an incomplete reconciliation fails closed. The D1 write boundary
+admission or an incomplete reconciliation fails closed. The PostgreSQL write boundary
 rejects a new or re-enabled primary Binding when its owner is not the Profile
 owner or another enabled primary Binding already exists for that Profile. The
 migration keeps pre-existing noncanonical rows available for explicit
@@ -717,6 +717,15 @@ controller-native permission mode. Neither setting can widen the other. Agent
 Profile UI must not copy the Computer policy or offer a profile-level override;
 the current Computer detail is its one management home. Direct user-launched
 controller sessions remain governed by the controller's own settings.
+
+Starting a new Codex task for its owner does not add a single-folder restriction.
+The same rule applies to a currently verified Center delegation from that owner.
+With no explicit task access choice, the new task uses the current Profile
+permission mode and Computer policy. The Task menu's **New task** starts a
+separate conversation without choosing a narrower file scope. Explicit project,
+read-only, and Space-only tasks keep their selected restrictions. Continuing or
+forking an older restricted task does not reinterpret that restriction as a
+default; the owner can start a new task to use their current settings.
 
 Grok Build's current controller sandbox is too coarse to prove
 `only_selected_folders` or `block_selected_folders`. Its adapter therefore
@@ -1096,13 +1105,15 @@ them; a thread alone does not opt an unsupported harness into the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 
-In parallel mode, an ordinary Claude Code Wake starts a new isolated Space-only
-context when no retained context has been selected. It does not require a Git
-repository or container engine. A Wake continuing a retained context keeps that
-context's access; select a new project task to work in a repository. Space-only
-tasks have no local code tools. Forks inherit the source context's access unless an
-explicit supported choice changes it. An ordinary Codex Wake with no retained
-context uses the Profile's effective working folder. Explicit task choices may
+New Codex and Claude tasks keep the Agent's native tools and permission mode,
+whether requested by the owner, a teammate, or another Agent. Projects select
+the starting folder; they do not restrict the Agent to that folder. In parallel
+mode, an ordinary Claude Wake starts an independent native context when no
+retained context has been selected. It needs neither Git nor a container engine.
+A Wake continuing a retained context keeps its existing access. Forks preserve
+the source restriction unless an explicit supported choice changes it.
+The Task menu makes New task the default choice and groups optional restrictions
+under Limit task access. Explicit task choices may
 instead select Space-only access, an independent project worktree, or read-only
 current-folder access. Codex App Server also supports independent
 project worktrees or read-only/current-folder access. The CLI options
@@ -1120,7 +1131,7 @@ commit; it does not discover a source by searching the computer.
 
 The task boundary confines project files and Git metadata. Codex retains its
 native runtime's platform temporary-directory rules; that is not a promise of
-complete temporary-directory isolation. Claude Code project tasks require a
+complete temporary-directory isolation. Explicit isolated Claude project tasks require a
 running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
 The Service mounts only the task-owned repository and worktree, disables
 container networking, runs as a non-root user, and gives Claude restricted file

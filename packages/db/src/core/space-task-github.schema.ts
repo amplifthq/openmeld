@@ -1,15 +1,9 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, primaryKey, text } from "drizzle-orm/pg-core";
 import { organizations } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const spaceTaskGitHubIssueLinks = sqliteTable(
+export const spaceTaskGitHubIssueLinks = applicationTable(
   "space_task_github_issue_links",
   {
     spaceId: text("space_id").notNull(),
@@ -17,16 +11,16 @@ export const spaceTaskGitHubIssueLinks = sqliteTable(
     provider: text("provider").notNull(),
     ownerLogin: text("owner_login").notNull(),
     repo: text("repo").notNull(),
-    number: integer("number").notNull(),
+    number: bigint("number", { mode: "number" }).notNull(),
     url: text("url").notNull(),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    attachedAtMs: integer("attached_at_ms").notNull(),
-    detachedAtMs: integer("detached_at_ms"),
+    attachedAtMs: bigint("attached_at_ms", { mode: "number" }).notNull(),
+    detachedAtMs: bigint("detached_at_ms", { mode: "number" }),
     lastObservedState: text("last_observed_state"),
-    lastObservedAtMs: integer("last_observed_at_ms"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    lastObservedAtMs: bigint("last_observed_at_ms", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -52,7 +46,7 @@ export const spaceTaskGitHubIssueLinks = sqliteTable(
     ),
     check(
       "space_task_github_issue_links_ids_check",
-      sql`length(trim("space_id")) > 0 and "task_id" glob 'tsk_*' and length(trim("owner_login")) > 0 and length(trim("repo")) > 0 and "number" > 0`
+      sql`length(trim("space_id")) > 0 and "task_id" ~ '^tsk_.*$' and length(trim("owner_login")) > 0 and length(trim("repo")) > 0 and "number" > 0`
     ),
     check(
       "space_task_github_issue_links_url_check",
@@ -69,7 +63,7 @@ export const spaceTaskGitHubIssueLinks = sqliteTable(
   ]
 );
 
-export const githubAppWebhookDeliveries = sqliteTable(
+export const githubAppWebhookDeliveries = applicationTable(
   "github_app_webhook_deliveries",
   {
     deliveryId: text("delivery_id").primaryKey(),
@@ -77,17 +71,21 @@ export const githubAppWebhookDeliveries = sqliteTable(
     action: text("action"),
     ownerLogin: text("owner_login"),
     repo: text("repo"),
-    number: integer("number"),
+    number: bigint("number", { mode: "number" }),
     issueState: text("issue_state"),
     gatewayRequestId: text("gateway_request_id").notNull(),
     state: text("state").notNull(),
     claimId: text("claim_id"),
-    claimExpiresAtMs: integer("claim_expires_at_ms"),
-    firstReceivedAtMs: integer("first_received_at_ms").notNull(),
-    lastReceivedAtMs: integer("last_received_at_ms").notNull(),
-    completedAtMs: integer("completed_at_ms"),
+    claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
+    firstReceivedAtMs: bigint("first_received_at_ms", {
+      mode: "number",
+    }).notNull(),
+    lastReceivedAtMs: bigint("last_received_at_ms", {
+      mode: "number",
+    }).notNull(),
+    completedAtMs: bigint("completed_at_ms", { mode: "number" }),
     failureCode: text("failure_code"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("github_app_webhook_deliveries_state_idx").on(

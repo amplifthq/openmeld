@@ -4,6 +4,11 @@
 
 **Date:** 2026-07-18
 
+Storage update: production shared relational persistence moved to PostgreSQL on
+2026-10-04. Use the current
+[PostgreSQL workflow](../developing/engineering/postgresql.md) for migrations.
+This dated plan does not replace the current product and release owners.
+
 **Scope:** OpenMeld Organization Message Channels, hosted Center Agent, Feishu,
 Lark, and coexistence with Slack
 
@@ -107,7 +112,7 @@ The main provider-specific seams that still require generalization are:
 - `services/core/src/remote-agent/application/native-delivery-service.ts`,
   which branches directly on the Slack conversation kind and publication
   surface;
-- `services/core/src/remote-agent/infrastructure/d1/native-delivery-ledger-repo.ts`,
+- `services/core/src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo.ts`,
   whose locator projection includes Slack-specific columns;
 - `clients/web/src/components/organizations/organization-message-channels-page.tsx`,
   whose current user experience is effectively a Slack connection surface.
@@ -622,7 +627,7 @@ It stores:
 - credential format version;
 - created and updated timestamps.
 
-The connection and credential write is one D1 batch. A failed credential write
+The connection and credential write is one PostgreSQL transaction. A failed credential write
 must not create a connected projection.
 
 Do not persist tenant access tokens. Mint and cache them only within their
@@ -951,7 +956,7 @@ Development and production must never share:
 - App ID or App Secret;
 - verification token or encrypt key;
 - connection row or connection id;
-- Queue, D1 database, callback URL, or feature-flag scope;
+- Queue, shared database, callback URL, or feature-flag scope;
 - captured user or tenant authorization material.
 
 Tunnel URLs are never written into production app configuration. Real-provider
@@ -1886,7 +1891,7 @@ The command fails before provider mutation unless it can prove:
 
 - the target is an OpenMeld development tenant and app;
 - provider and effective callback host are explicit;
-- no App ID, credential fingerprint, connection id, D1 database, Queue, or
+- no App ID, credential fingerprint, connection id, shared database, Queue, or
   callback host matches production;
 - Gate 0 evidence is written to the development evidence owner with secrets
   and message content redacted.
@@ -1940,7 +1945,7 @@ disabled until the two services are current.
 
 ### Release 2 — Database and infrastructure
 
-- apply D1 migrations;
+- apply native PostgreSQL migrations;
 - create generic Message Channel Queue;
 - add Wrangler bindings, secrets, and generated types;
 - verify physical schema;
@@ -2009,7 +2014,7 @@ Rollback order is producer-first:
 2. disable new event producers or return retryable provider responses;
 3. stop generic Slack producer if affected;
 4. keep Core consumers and generic schema readers deployed;
-5. keep D1 migrations and historical rows;
+5. keep immutable historical migrations and rows;
 6. restore the previous Slack path if required;
 7. never roll back by deleting connection or ledger evidence.
 

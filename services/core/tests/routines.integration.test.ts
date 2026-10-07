@@ -1,4 +1,6 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase, type QueryConfig } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type { CenterAgentRoutineRun } from "@openmeld/schemas/types";
 import { buildDirectMessagePairKey } from "@openmeld/space";
@@ -8,7 +10,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   rpcCenterAgentCreateRoutine,
   rpcCenterAgentDeleteRoutine,
@@ -17,10 +19,16 @@ import {
   rpcCenterAgentResumeRoutine,
   rpcCenterAgentUpdateRoutine,
 } from "../src/routines/routine-center-agent-rpc";
+import {
+  recoverLocalRoutineRuns,
+  submitLocalRoutineDelivery,
+} from "../src/routines/routine-local-delivery";
 import { listDueRoutineRecords } from "../src/routines/routine-repository";
 import { runRoutineSchedulerTick } from "../src/routines/routine-scheduler";
 import {
+  rpcAddSpaceMembers,
   rpcCreateRoutine,
+  rpcCreateSpace,
   rpcDeleteRoutine,
   rpcListCenterAgentAuditJournal,
   rpcListRoutineRuns,
@@ -33,7 +41,6 @@ import {
 
 const FIXED_NOW_MS = Date.parse("2026-03-07T14:00:00.000Z");
 const ownedRoutineOrganizationIds = new Set<string>();
-
 afterEach(async () => {
   try {
     await cleanupOwnedRoutineRows();
@@ -41,8 +48,273 @@ afterEach(async () => {
     vi.restoreAllMocks();
   }
 });
-
 describe("Core Center Agent Routines", () => {
+  it("admits a Local Agent run through the Space Wake owner and recovers the same occurrence after definition deletion", async () => {
+    const fixture = await seedRoutineFixture();
+    const db = getPostgresDatabase(env);
+    const nowMs = FIXED_NOW_MS;
+    vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    const bindingId = `binding_${crypto.randomUUID()}`;
+    const runtimeId = `runtime_${crypto.randomUUID()}`;
+    const owner = fixture.users.owner;
+    await db.query({
+      text: `INSERT INTO openmeld.openmeld_profiles
+        (profile_id, profile_name, profile_handle, profile_kind, is_default, status,
+         organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)
+        VALUES ($1,'Routine Local Agent',$1,'agent',0,'active',$2,$3,$3,'auth_bootstrap',$4,$4)`,
+      values: [agentProfileId, fixture.organizationId, owner.userId, nowMs],
+    });
+    await db.query({
+      text: `INSERT INTO openmeld."openMeldDaemon_agent_profile_bindings"
+        (binding_id,owner_kind,owner_id,agent_profile_id,openmeld_service_runtime_id,
+         runtime_kind,agent_controller_ref,binding_state,created_at_ms,updated_at_ms)
+        VALUES ($1,'owner_account',$2,$3,$4,'openmeld_service','builtin:codex','enabled_primary',$5,$5)`,
+      values: [bindingId, owner.userId, agentProfileId, runtimeId, nowMs],
+    });
+    const context = fixture.contextFor("owner");
+    const space = await rpcCreateSpace(env as CoreBindings, {
+      context,
+      name: "Scheduled local work",
+      visibility: "public",
+    });
+    await rpcAddSpaceMembers(env as CoreBindings, {
+      context,
+      spaceId: space.spaceId,
+      members: [
+        {
+          profileId: agentProfileId,
+          profileKind: "agent",
+          profileName: "Routine Local Agent",
+          ownerUserId: owner.userId,
+          ownerName: "owner user",
+          agentControllerRef: "builtin:codex",
+        },
+      ],
+    });
+    const routine = await createRoutineFor(fixture, "owner", {
+      scope: "personal",
+      agentProfileId,
+      targetSpaceId: space.spaceId,
+      cronExpression: "0 14 * * *",
+    });
+    await db.query({
+      text: "UPDATE openmeld.routines SET next_due_at=$1 WHERE id=$2",
+      values: [nowMs, routine.id],
+    });
+    const tick = await runRoutineSchedulerTick({
+      db,
+      nowMs,
+      resolveExecutionEngine: () => "local",
+      submitRoutineDelivery: (input) =>
+        submitLocalRoutineDelivery({ ...input, env: env as CoreBindings }),
+    });
+    expect(tick).toMatchObject({ claimed: 1, submitted: 1, errors: 0 });
+    const before = (
+      await db.query<{
+        id: string;
+        source_signal_id: string;
+        local_submission_json: string;
+        status: string;
+      }>({
+        text: "SELECT id,source_signal_id,local_submission_json,status FROM openmeld.routine_runs WHERE routine_id=$1",
+        values: [routine.id],
+      })
+    ).rows[0];
+    if (!before) {
+      throw new Error("Expected one claimed local run.");
+    }
+    expect(before.source_signal_id).toEqual(expect.any(String));
+    expect(JSON.parse(before.local_submission_json)).toMatchObject({
+      targetProfileId: agentProfileId,
+      spaceId: space.spaceId,
+      deviceWait: {
+        bindingId,
+        openMeldServiceRuntimeId: runtimeId,
+        targetProfileId: agentProfileId,
+      },
+    });
+    // Model a lost response after Space acceptance. The durable occurrence key
+    // must recover that receipt; deletion cannot cause a duplicate Wake.
+    await db.query({
+      text: "UPDATE openmeld.routine_runs SET status='claimed',source_signal_id=NULL WHERE id=$1",
+      values: [before.id],
+    });
+    await rpcDeleteRoutine(env as CoreBindings, {
+      context,
+      routineId: routine.id,
+      contract: "practical-v2",
+    });
+    await recoverLocalRoutineRuns({
+      db,
+      env: env as CoreBindings,
+      nowMs: nowMs + 60_000,
+    });
+    const after = (
+      await db.query({
+        text: "SELECT source_signal_id,status FROM openmeld.routine_runs WHERE id=$1",
+        values: [before.id],
+      })
+    ).rows[0];
+    expect(after).toEqual({
+      source_signal_id: before.source_signal_id,
+      status: "submitted",
+    });
+  });
+  it("keeps personal definitions and retained runs private even from Organization admins", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    const fixture = await seedRoutineFixture();
+    const routine = await createRoutineFor(fixture, "member", {
+      scope: "personal",
+      cronExpression: "0 14 * * *",
+    });
+    const db = getPostgresDatabase(env);
+    await db.query({
+      text: "UPDATE openmeld.routines SET next_due_at=$1 WHERE id=$2",
+      values: [FIXED_NOW_MS, routine.id],
+    });
+    await runRoutineSchedulerTick({
+      db,
+      nowMs: FIXED_NOW_MS,
+      submitRoutineDelivery: async () => ({ status: "pending" }),
+    });
+    for (const role of ["owner", "admin"] as const) {
+      await expect(
+        rpcListRoutines(env as CoreBindings, {
+          context: fixture.contextFor(role),
+          contract: "routines-v3",
+        })
+      ).resolves.toMatchObject({ routines: [] });
+      await expect(
+        rpcPauseRoutine(env as CoreBindings, {
+          context: fixture.contextFor(role),
+          routineId: routine.id,
+          contract: "practical-v2",
+        })
+      ).rejects.toThrow("routine.not_found");
+      await expect(
+        rpcListRoutineRuns(env as CoreBindings, {
+          context: fixture.contextFor(role),
+          routineId: routine.id,
+        })
+      ).rejects.toThrow("routine.not_found");
+    }
+    await expect(
+      rpcListRoutines(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        contract: "routines-v3",
+      })
+    ).resolves.toMatchObject({
+      routines: [
+        { id: routine.id, scope: "personal", executorKind: "center_agent" },
+      ],
+    });
+    await rpcDeleteRoutine(env as CoreBindings, {
+      context: fixture.contextFor("member"),
+      routineId: routine.id,
+      contract: "practical-v2",
+    });
+    await expect(
+      rpcListRoutineRuns(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        routineId: routine.id,
+      })
+    ).resolves.toMatchObject({ runs: [{ routineId: routine.id }] });
+    await expect(
+      rpcListRoutineRuns(env as CoreBindings, {
+        context: fixture.contextFor("admin"),
+        routineId: routine.id,
+      })
+    ).rejects.toThrow("routine.not_found");
+  });
+  it("does not reveal old private destinations after a team routine moves to a public Space", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    const fixture = await seedRoutineFixture();
+    const privateSpaceId = `space_private_${crypto.randomUUID()}`;
+    await seedRoutineTargetSpaces(fixture, [
+      {
+        spaceId: privateSpaceId,
+        name: "Private planning",
+        visibility: "private",
+        memberships: [
+          {
+            profileId: fixture.users.owner.humanProfileId,
+            profileKind: "human",
+            ownerUserId: fixture.users.owner.userId,
+          },
+          { profileId: fixture.centerAgentProfileId, profileKind: "agent" },
+        ],
+      },
+    ]);
+    const routine = await createRoutineFor(fixture, "owner", {
+      scope: "team",
+      targetSpaceId: privateSpaceId,
+    });
+    const db = getPostgresDatabase(env);
+    await db.query({
+      text: "UPDATE openmeld.routines SET next_due_at=$1 WHERE id=$2",
+      values: [FIXED_NOW_MS, routine.id],
+    });
+    await runRoutineSchedulerTick({
+      db,
+      nowMs: FIXED_NOW_MS,
+      submitRoutineDelivery: async () => ({ status: "pending" }),
+    });
+    await rpcUpdateRoutine(env as CoreBindings, {
+      context: fixture.contextFor("owner"),
+      routineId: routine.id,
+      targetSpaceId: fixture.targetSpaceId,
+      contract: "practical-v2",
+    });
+    await expect(
+      rpcListRoutineRuns(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        routineId: routine.id,
+      })
+    ).resolves.toMatchObject({ runs: [] });
+    await expect(
+      rpcListRoutines(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        contract: "routines-v3",
+      })
+    ).resolves.toMatchObject({ routines: [{ id: routine.id, lastRun: null }] });
+  });
+  it("edits a completed one-time routine without creating another occurrence", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    const fixture = await seedRoutineFixture();
+    const created = await rpcCreateRoutine(env as CoreBindings, {
+      context: fixture.contextFor("owner"),
+      ...cronSpaceRoutineInput(fixture.targetSpaceId, "0 9 * * *", "UTC"),
+      name: "Once",
+      contract: "practical-v2",
+      instructions: "Read the current queue.",
+      scheduleKind: "once",
+      runAtMs: FIXED_NOW_MS + 60_000,
+      cronExpression: null,
+      timezone: null,
+    });
+    await runRoutineSchedulerTick({
+      db: getPostgresDatabase(env),
+      nowMs: FIXED_NOW_MS + 60_000,
+      submitRoutineDelivery: async () => ({ status: "pending" }),
+    });
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS + 120_000);
+    await expect(
+      rpcUpdateRoutine(env as CoreBindings, {
+        context: fixture.contextFor("owner"),
+        routineId: created.routine.id,
+        name: "Reviewed once",
+        contract: "practical-v2",
+      })
+    ).resolves.toMatchObject({
+      routine: {
+        name: "Reviewed once",
+        status: "completed",
+        nextDueAt: null,
+        runAtMs: FIXED_NOW_MS + 60_000,
+      },
+    });
+  });
   it("claims a one-time Routine exactly once and marks its schedule completed", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -83,20 +355,19 @@ describe("Core Center Agent Routines", () => {
         routineId: created.routine.id,
       })
     ).rejects.toThrow("routine.client_update_required");
-
     const submitRoutineDelivery = vi.fn(async () => ({
       status: "submitted" as const,
     }));
     await expect(
       runRoutineSchedulerTick({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: runAtMs,
         submitRoutineDelivery,
       })
     ).resolves.toMatchObject({ claimed: 1, scanned: 1, submitted: 1 });
     await expect(
       runRoutineSchedulerTick({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: runAtMs + 60_000,
         submitRoutineDelivery,
       })
@@ -117,12 +388,10 @@ describe("Core Center Agent Routines", () => {
       ],
     });
   });
-
   it("lets an Organization owner manage a Routine through its full lifecycle", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
     const context = fixture.contextFor("owner");
-
     const created = await rpcCreateRoutine(env as CoreBindings, {
       authorizedActions: [
         "organization_documents.save_approved_knowledge" as const,
@@ -146,14 +415,18 @@ describe("Core Center Agent Routines", () => {
     });
     expect(created.routine).not.toHaveProperty("authorizedActions");
     await expect(
-      env.OPENMELD_DB.prepare(
-        "SELECT authorized_actions_json, external_action_policy FROM routines WHERE id = ?"
-      )
-        .bind(created.routine.id)
-        .first<{
+      getPostgresDatabase(env)
+        .query<{
           authorized_actions_json: string;
           external_action_policy: string;
-        }>()
+        }>({
+          ...{
+            text: 'SELECT authorized_actions_json, external_action_policy FROM "openmeld"."routines" WHERE id = $1',
+            values: [],
+          },
+          values: [created.routine.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       authorized_actions_json: JSON.stringify([
         "organization_documents.save_approved_knowledge",
@@ -193,14 +466,12 @@ describe("Core Center Agent Routines", () => {
         },
       ],
     });
-
     await expect(
       rpcListRoutines(env as CoreBindings, { context })
     ).resolves.toMatchObject({
       organizationId: fixture.organizationId,
       routines: [{ id: created.routine.id, canManage: true }],
     });
-
     const updated = await rpcUpdateRoutine(env as CoreBindings, {
       authorizedActions: [],
       context,
@@ -214,19 +485,22 @@ describe("Core Center Agent Routines", () => {
       updatedByUserId: fixture.users.owner.userId,
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        "SELECT authorized_actions_json, external_action_policy FROM routines WHERE id = ?"
-      )
-        .bind(created.routine.id)
-        .first<{
+      getPostgresDatabase(env)
+        .query<{
           authorized_actions_json: string;
           external_action_policy: string;
-        }>()
+        }>({
+          ...{
+            text: 'SELECT authorized_actions_json, external_action_policy FROM "openmeld"."routines" WHERE id = $1',
+            values: [],
+          },
+          values: [created.routine.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       authorized_actions_json: "[]",
       external_action_policy: "read_only",
     });
-
     const paused = await rpcPauseRoutine(env as CoreBindings, {
       context,
       routineId: created.routine.id,
@@ -235,7 +509,6 @@ describe("Core Center Agent Routines", () => {
       nextDueAt: null,
       status: "paused",
     });
-
     const resumed = await rpcResumeRoutine(env as CoreBindings, {
       context,
       routineId: created.routine.id,
@@ -244,7 +517,6 @@ describe("Core Center Agent Routines", () => {
       nextDueAt: Date.parse("2026-03-07T14:30:00.000Z"),
       status: "enabled",
     });
-
     await expect(
       rpcDeleteRoutine(env as CoreBindings, {
         context,
@@ -258,18 +530,21 @@ describe("Core Center Agent Routines", () => {
     await expect(
       rpcListRoutines(env as CoreBindings, { context })
     ).resolves.toMatchObject({ routines: [] });
-
-    const audit = await env.OPENMELD_DB.prepare(
-      `
+    const audit = await getPostgresDatabase(env).query<{
+      action: string;
+    }>({
+      ...{
+        text: `
         SELECT action
-        FROM center_agent_audit_journal
-        WHERE organization_id = ? AND resource_id = ?
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE organization_id = $1 AND resource_id = $2
         ORDER BY created_at, id
-      `
-    )
-      .bind(fixture.organizationId, created.routine.id)
-      .all<{ action: string }>();
-    expect((audit.results ?? []).map((row) => row.action).sort()).toEqual([
+      `,
+        values: [],
+      },
+      values: [fixture.organizationId, created.routine.id],
+    });
+    expect((audit.rows ?? []).map((row) => row.action).sort()).toEqual([
       "create_routine",
       "delete_routine",
       "pause_routine",
@@ -310,7 +585,6 @@ describe("Core Center Agent Routines", () => {
       )
     ).toBe(true);
   });
-
   it("lets the designated Center Agent manage Routines on behalf of the verified member", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -322,7 +596,6 @@ describe("Core Center Agent Routines", () => {
       fixture,
       role: "member",
     });
-
     const created = await rpcCenterAgentCreateRoutine(env as CoreBindings, {
       context,
       ...cronSpaceRoutineInput(
@@ -348,7 +621,6 @@ describe("Core Center Agent Routines", () => {
       currentUserId: fixture.users.member.userId,
       routines: [{ id: created.routine.id, canManage: true }],
     });
-
     await rpcCenterAgentUpdateRoutine(env as CoreBindings, {
       context,
       name: "Morning feedback review",
@@ -370,9 +642,16 @@ describe("Core Center Agent Routines", () => {
       routineId: created.routine.id,
       speakerMember,
     });
-
-    const audit = await env.OPENMELD_DB.prepare(
-      `
+    const audit = await getPostgresDatabase(env).query<{
+      action: string;
+      actor_profile_id: string;
+      on_behalf_of_display_name: string;
+      on_behalf_of_profile_id: string;
+      on_behalf_of_user_id: string;
+      source_native_delivery_id: string;
+    }>({
+      ...{
+        text: `
         SELECT
           action,
           actor_profile_id,
@@ -380,29 +659,23 @@ describe("Core Center Agent Routines", () => {
           on_behalf_of_user_id,
           on_behalf_of_display_name,
           source_native_delivery_id
-        FROM center_agent_audit_journal
-        WHERE organization_id = ? AND resource_id = ?
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE organization_id = $1 AND resource_id = $2
         ORDER BY action
-      `
-    )
-      .bind(fixture.organizationId, created.routine.id)
-      .all<{
-        action: string;
-        actor_profile_id: string;
-        on_behalf_of_display_name: string;
-        on_behalf_of_profile_id: string;
-        on_behalf_of_user_id: string;
-        source_native_delivery_id: string;
-      }>();
-    expect(audit.results).toHaveLength(5);
-    expect((audit.results ?? []).map((row) => row.action)).toEqual([
+      `,
+        values: [],
+      },
+      values: [fixture.organizationId, created.routine.id],
+    });
+    expect(audit.rows).toHaveLength(5);
+    expect((audit.rows ?? []).map((row) => row.action)).toEqual([
       "create_routine",
       "delete_routine",
       "pause_routine",
       "resume_routine",
       "update_routine",
     ]);
-    for (const row of audit.results ?? []) {
+    for (const row of audit.rows ?? []) {
       expect(row).toMatchObject({
         actor_profile_id: fixture.centerAgentProfileId,
         on_behalf_of_display_name: "member user",
@@ -426,7 +699,6 @@ describe("Core Center Agent Routines", () => {
       });
     }
   });
-
   it("does not borrow Local Agent provenance from another represented member", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -437,7 +709,6 @@ describe("Core Center Agent Routines", () => {
       fixture,
       role: "owner",
     });
-
     const created = await rpcCenterAgentCreateRoutine(env as CoreBindings, {
       context,
       ...cronSpaceRoutineInput(fixture.targetSpaceId, "0 9 * * *", "UTC"),
@@ -445,22 +716,26 @@ describe("Core Center Agent Routines", () => {
       name: "Member queue review",
       speakerMember: fixture.speakerFor("member"),
     });
-
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query<{
+          source_native_delivery_id: string | null;
+        }>({
+          ...{
+            text: `
           SELECT source_native_delivery_id
-          FROM center_agent_audit_journal
-          WHERE organization_id = ?
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE organization_id = $1
             AND action = 'create_routine'
-            AND resource_id = ?
+            AND resource_id = $2
           LIMIT 1
-        `
-      )
-        .bind(fixture.organizationId, created.routine.id)
-        .first<{ source_native_delivery_id: string | null }>()
+        `,
+            values: [],
+          },
+          values: [fixture.organizationId, created.routine.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({ source_native_delivery_id: null });
-
     const audit = await rpcListCenterAgentAuditJournal(env as CoreBindings, {
       actionSet: "v17",
       context: fixture.contextFor("owner"),
@@ -493,7 +768,6 @@ describe("Core Center Agent Routines", () => {
       "creationAttribution.interactionSource"
     );
   });
-
   it("freezes direct creator identity instead of following later profile changes", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -503,13 +777,13 @@ describe("Core Center Agent Routines", () => {
       instructions: "Review the member's current work queue.",
       name: "Member queue review",
     });
-
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openmeld_profiles SET profile_name = 'Renamed member' WHERE profile_id = ?"
-    )
-      .bind(fixture.users.member.humanProfileId)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openmeld_profiles" SET profile_name = \'Renamed member\' WHERE profile_id = $1',
+        values: [],
+      },
+      values: [fixture.users.member.humanProfileId],
+    });
     await expect(
       rpcListRoutines(env as CoreBindings, {
         context: fixture.contextFor("owner"),
@@ -525,7 +799,6 @@ describe("Core Center Agent Routines", () => {
       ],
     });
   });
-
   it("keeps Routine creation source after the Center Agent and audit evidence are removed", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -543,26 +816,32 @@ describe("Core Center Agent Routines", () => {
       name: "Member queue review",
       speakerMember: fixture.speakerFor("member"),
     });
-
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM openmeld_profiles WHERE profile_id = ?"
-    )
-      .bind(fixture.centerAgentProfileId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."openmeld_profiles" WHERE profile_id = $1',
+        values: [],
+      },
+      values: [fixture.centerAgentProfileId],
+    });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: `
           SELECT COUNT(*) AS count
-          FROM center_agent_audit_journal
-          WHERE organization_id = ?
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE organization_id = $1
             AND resource_type = 'routine'
-            AND resource_id = ?
-        `
-      )
-        .bind(fixture.organizationId, created.routine.id)
-        .first<{ count: number }>()
+            AND resource_id = $2
+        `,
+            values: [],
+          },
+          values: [fixture.organizationId, created.routine.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({ count: 0 });
-
     await expect(
       rpcListRoutines(env as CoreBindings, {
         context: fixture.contextFor("member"),
@@ -583,53 +862,67 @@ describe("Core Center Agent Routines", () => {
       ],
     });
   });
-
   it("lets the designated Center Agent read only the verified speaker's Organization activity snapshot", async () => {
     const fixture = await seedRoutineFixture();
     const projectId = `project_${crypto.randomUUID()}`;
     const sessionId = `activity_session_${crypto.randomUUID()}`;
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO projects (
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."projects" (
             id, organization_id, name, slug, repository_fingerprint,
             created_by_user_id, created_at_ms, updated_at_ms, archived_at_ms
-          ) VALUES (?, ?, 'OpenMeld', 'openmeld', NULL, ?, ?, ?, NULL)
-        `
-      ).bind(
-        projectId,
-        fixture.organizationId,
-        fixture.users.member.userId,
-        FIXED_NOW_MS,
-        FIXED_NOW_MS
-      ),
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO agent_activity_sessions (
+          ) VALUES ($1, $2, 'OpenMeld', 'openmeld', NULL, $3, $4, $5, NULL)
+        `,
+              values: [],
+            },
+            values: [
+              projectId,
+              fixture.organizationId,
+              fixture.users.member.userId,
+              FIXED_NOW_MS,
+              FIXED_NOW_MS,
+            ],
+          },
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."agent_activity_sessions" (
             id, organization_id, project_id, member_user_id, device_id,
             openmeld_service_runtime_id, provider, client_kind,
             provider_session_id, title, model, status, git_branch, git_commit,
             repository_fingerprint, started_at_ms, last_observed_at_ms,
             expires_at_ms, provider_metadata_json, last_event_id,
             last_accepted_sequence, created_at_ms, updated_at_ms
-          ) VALUES (?, ?, ?, ?, 'private-device', 'private-runtime', 'codex',
+          ) VALUES ($1, $2, $3, $4, 'private-device', 'private-runtime', 'codex',
             'codex-app', 'private-provider-session', 'Implement Agent Activity',
-            'gpt-5.6-sol', 'active', 'main', NULL, NULL, ?, ?, ?, '{}',
-            'event-visible', 1, ?, ?)
-        `
-      ).bind(
-        sessionId,
-        fixture.organizationId,
-        projectId,
-        fixture.users.member.userId,
-        FIXED_NOW_MS - 1000,
-        FIXED_NOW_MS,
-        FIXED_NOW_MS + 60_000,
-        FIXED_NOW_MS,
-        FIXED_NOW_MS
-      ),
-    ]);
-
+            'gpt-5.6-sol', 'active', 'main', NULL, NULL, $5, $6, $7, '{}',
+            'event-visible', 1, $8, $9)
+        `,
+              values: [],
+            },
+            values: [
+              sessionId,
+              fixture.organizationId,
+              projectId,
+              fixture.users.member.userId,
+              FIXED_NOW_MS - 1000,
+              FIXED_NOW_MS,
+              FIXED_NOW_MS + 60_000,
+              FIXED_NOW_MS,
+              FIXED_NOW_MS,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const snapshot = await rpcCenterAgentReadAgentActivity(
       env as CoreBindings,
       {
@@ -650,7 +943,6 @@ describe("Core Center Agent Routines", () => {
     expect(JSON.stringify(snapshot)).not.toContain("private-device");
     expect(JSON.stringify(snapshot)).not.toContain("private-provider-session");
   });
-
   it("projects capability repair authority from the same grant policy", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -664,7 +956,6 @@ describe("Core Center Agent Routines", () => {
       instructions: "Review current Organization knowledge.",
       name: "Knowledge review",
     });
-
     await expect(
       rpcListRoutines(env as CoreBindings, {
         context: fixture.contextFor("member"),
@@ -699,7 +990,6 @@ describe("Core Center Agent Routines", () => {
       ],
     });
   });
-
   it("uses the represented member's authority for every Center Agent Routine mutation", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -751,7 +1041,6 @@ describe("Core Center Agent Routines", () => {
     await expect(
       countOrganizationAuditEntries(fixture.organizationId)
     ).resolves.toBe(auditBefore);
-
     for (const role of ["owner", "admin"] as const) {
       const speakerMember = fixture.speakerFor(role);
       const updateRoutine = await createRoutineFor(fixture, "member", {
@@ -770,7 +1059,6 @@ describe("Core Center Agent Routines", () => {
         context: fixture.contextFor("member"),
         routineId: resumeRoutine.id,
       });
-
       await expect(
         rpcCenterAgentUpdateRoutine(env as CoreBindings, {
           context,
@@ -802,7 +1090,6 @@ describe("Core Center Agent Routines", () => {
       ).resolves.toMatchObject({ routine: { status: "enabled" } });
     }
   });
-
   it("computes Center Agent Routine canManage from the represented member", async () => {
     const fixture = await seedRoutineFixture();
     const ownerRoutine = await createRoutineFor(fixture, "owner", {
@@ -821,20 +1108,17 @@ describe("Core Center Agent Routines", () => {
     expect(memberList.currentUserId).toBe(fixture.users.member.userId);
     expect(memberCanManage.get(ownerRoutine.id)).toBe(false);
     expect(memberCanManage.get(memberRoutine.id)).toBe(true);
-
     const adminList = await rpcCenterAgentListRoutines(env as CoreBindings, {
       context: fixture.centerAgentContext(),
       speakerMember: fixture.speakerFor("admin"),
     });
     expect(adminList.routines.every((routine) => routine.canManage)).toBe(true);
   });
-
   it("lets only an owner or admin add an approved-knowledge grant to a Routine", async () => {
     const fixture = await seedRoutineFixture();
     const authorizedActions = [
       "organization_documents.save_approved_knowledge" as const,
     ];
-
     await expect(
       rpcCreateRoutine(env as CoreBindings, {
         authorizedActions,
@@ -864,7 +1148,6 @@ describe("Core Center Agent Routines", () => {
         status: 403,
       },
     });
-
     const routine = await createRoutineFor(fixture, "member", {
       name: "Member-owned Routine",
     });
@@ -880,7 +1163,6 @@ describe("Core Center Agent Routines", () => {
         status: 403,
       },
     });
-
     await expect(
       rpcUpdateRoutine(env as CoreBindings, {
         authorizedActions,
@@ -889,15 +1171,20 @@ describe("Core Center Agent Routines", () => {
       })
     ).resolves.toMatchObject({ routine: { id: routine.id } });
     await expect(
-      env.OPENMELD_DB.prepare(
-        "SELECT authorized_actions_json FROM routines WHERE id = ?"
-      )
-        .bind(routine.id)
-        .first<{ authorized_actions_json: string }>()
+      getPostgresDatabase(env)
+        .query<{
+          authorized_actions_json: string;
+        }>({
+          ...{
+            text: 'SELECT authorized_actions_json FROM "openmeld"."routines" WHERE id = $1',
+            values: [],
+          },
+          values: [routine.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       authorized_actions_json: JSON.stringify(authorizedActions),
     });
-
     await expect(
       rpcUpdateRoutine(env as CoreBindings, {
         authorizedActions: [],
@@ -906,14 +1193,19 @@ describe("Core Center Agent Routines", () => {
       })
     ).resolves.toMatchObject({ routine: { id: routine.id } });
     await expect(
-      env.OPENMELD_DB.prepare(
-        "SELECT authorized_actions_json FROM routines WHERE id = ?"
-      )
-        .bind(routine.id)
-        .first<{ authorized_actions_json: string }>()
+      getPostgresDatabase(env)
+        .query<{
+          authorized_actions_json: string;
+        }>({
+          ...{
+            text: 'SELECT authorized_actions_json FROM "openmeld"."routines" WHERE id = $1',
+            values: [],
+          },
+          values: [routine.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({ authorized_actions_json: "[]" });
   });
-
   it("fails closed for invalid represented members and invalid Center Agent actors", async () => {
     const nonmemberFixture = await seedRoutineFixture();
     await expect(
@@ -928,7 +1220,6 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(nonmemberFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const mismatchFixture = await seedRoutineFixture();
     await expect(
       rpcCenterAgentListRoutines(env as CoreBindings, {
@@ -942,7 +1233,6 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(mismatchFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const crossOrganizationFixture = await seedRoutineFixture();
     const foreignFixture = await seedRoutineFixture();
     await expect(
@@ -954,13 +1244,14 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(crossOrganizationFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const inactiveFixture = await seedRoutineFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openmeld_profiles SET status = 'disabled' WHERE profile_id = ?"
-    )
-      .bind(inactiveFixture.users.member.humanProfileId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openmeld_profiles" SET status = \'disabled\' WHERE profile_id = $1',
+        values: [],
+      },
+      values: [inactiveFixture.users.member.humanProfileId],
+    });
     await expect(
       rpcCenterAgentListRoutines(env as CoreBindings, {
         context: inactiveFixture.centerAgentContext(),
@@ -970,16 +1261,18 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(inactiveFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const nonhumanFixture = await seedRoutineFixture();
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM openmeld_profiles WHERE profile_id = ?"
-    )
-      .bind(nonhumanFixture.users.member.humanProfileId)
-      .run();
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."openmeld_profiles" WHERE profile_id = $1',
+        values: [],
+      },
+      values: [nonhumanFixture.users.member.humanProfileId],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id,
           profile_name,
           profile_handle,
@@ -992,19 +1285,20 @@ describe("Core Center Agent Routines", () => {
           source,
           created_at,
           updated_at
-        ) VALUES (?, 'Member Agent Profile', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', ?, ?)
-      `
-    )
-      .bind(
+        ) VALUES ($1, 'Member Agent Profile', $2, 'agent', 0, 'active', $3, $4, $5, 'auth_bootstrap', $6, $7)
+      `,
+        values: [],
+      },
+      values: [
         `agt_${crypto.randomUUID()}`,
         `member-agent-${crypto.randomUUID()}`,
         nonhumanFixture.organizationId,
         nonhumanFixture.users.member.userId,
         nonhumanFixture.users.member.userId,
         FIXED_NOW_MS,
-        FIXED_NOW_MS
-      )
-      .run();
+        FIXED_NOW_MS,
+      ],
+    });
     await expect(
       rpcCenterAgentListRoutines(env as CoreBindings, {
         context: nonhumanFixture.centerAgentContext(),
@@ -1014,7 +1308,6 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(nonhumanFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const wrongActorFixture = await seedRoutineFixture();
     await expect(
       rpcCenterAgentListRoutines(env as CoreBindings, {
@@ -1031,13 +1324,14 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(wrongActorFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const revokedFixture = await seedRoutineFixture();
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM center_agent_designations WHERE organization_id = ?"
-    )
-      .bind(revokedFixture.organizationId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."center_agent_designations" WHERE organization_id = $1',
+        values: [],
+      },
+      values: [revokedFixture.organizationId],
+    });
     await expect(
       rpcCenterAgentListRoutines(env as CoreBindings, {
         context: revokedFixture.centerAgentContext(),
@@ -1048,7 +1342,6 @@ describe("Core Center Agent Routines", () => {
       readRoutineSideEffects(revokedFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
   });
-
   it("reuses canonical represented-human target eligibility for Center Agent create, update, and resume", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -1087,7 +1380,6 @@ describe("Core Center Agent Routines", () => {
         visibility: "public",
       },
     ]);
-
     await expect(
       createRoutineForCenterAgent(fixture, "member", {
         targetSpaceId: invisiblePrivateSpaceId,
@@ -1107,11 +1399,13 @@ describe("Core Center Agent Routines", () => {
       routineId: routine.id,
       speakerMember,
     });
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM space_index_memberships WHERE space_id = ? AND profile_id = ?"
-    )
-      .bind(fixture.targetSpaceId, fixture.centerAgentProfileId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."space_index_memberships" WHERE space_id = $1 AND profile_id = $2',
+        values: [],
+      },
+      values: [fixture.targetSpaceId, fixture.centerAgentProfileId],
+    });
     await expect(
       rpcCenterAgentResumeRoutine(env as CoreBindings, {
         context,
@@ -1119,7 +1413,6 @@ describe("Core Center Agent Routines", () => {
         speakerMember,
       })
     ).rejects.toThrow("routine.target_space_publication_unavailable");
-
     await expect(
       rpcCenterAgentListRoutines(env as CoreBindings, {
         context,
@@ -1138,7 +1431,6 @@ describe("Core Center Agent Routines", () => {
       countRoutineAuditActions(fixture.organizationId, routine.id)
     ).resolves.toEqual({ create_routine: 1, pause_routine: 1 });
   });
-
   it("rejects unknown Center Agent Routine RPC fields before mutation or audit", async () => {
     const fixture = await seedRoutineFixture();
     const context = fixture.centerAgentContext();
@@ -1206,7 +1498,6 @@ describe("Core Center Agent Routines", () => {
           } as Parameters<typeof rpcCenterAgentResumeRoutine>[1]
         ),
     ];
-
     for (const operation of invalidOperations) {
       await expect(operation()).rejects.toThrow("invalid_payload");
     }
@@ -1217,7 +1508,6 @@ describe("Core Center Agent Routines", () => {
       countOrganizationRoutines(fixture.organizationId)
     ).resolves.toBe(1);
   });
-
   it("returns the canonical schedule and quota errors through Center Agent Routine RPC", async () => {
     const scheduleFixture = await seedRoutineFixture();
     await expect(
@@ -1228,7 +1518,6 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(scheduleFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const quotaFixture = await seedRoutineFixture();
     await seedRoutineRows(quotaFixture, 50, "enabled");
     await expect(
@@ -1240,7 +1529,6 @@ describe("Core Center Agent Routines", () => {
       readRoutineSideEffects(quotaFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 50 });
   });
-
   it("lists each Routine with its latest Run summary", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -1258,51 +1546,57 @@ describe("Core Center Agent Routines", () => {
     const skippedLatestRunId = `run_skipped_${crypto.randomUUID()}`;
     const failedScheduledFor = FIXED_NOW_MS - 300_000;
     const skippedScheduledFor = FIXED_NOW_MS - 120_000;
-
-    await env.OPENMELD_DB.batch([
-      buildRoutineRunStatement({
-        id: `run_older_${crypto.randomUUID()}`,
-        organizationId: fixture.organizationId,
-        publishedSignalId: "signal-older",
-        routineId: failedRoutine.id,
-        scheduledFor: FIXED_NOW_MS - 600_000,
-        status: "completed",
-      }),
-      buildRoutineRunStatement({
-        failureCode: "routine.execution_failed",
-        failureDetail: "The hosted turn failed before publication.",
-        finishedAtMs: failedScheduledFor + 60_000,
-        id: failedLatestRunId,
-        nativeDeliveryId: "native-delivery-internal",
-        organizationId: fixture.organizationId,
-        publishedSignalId: "signal-failure",
-        routineId: failedRoutine.id,
-        scheduledFor: failedScheduledFor,
-        startedAtMs: failedScheduledFor + 1000,
-        status: "failed",
-      }),
-      buildRoutineRunStatement({
-        failureCode: "routine.execution_failed",
-        failureDetail: "This older failure must not be projected.",
-        id: `run_older_${crypto.randomUUID()}`,
-        organizationId: fixture.organizationId,
-        routineId: skippedRoutine.id,
-        scheduledFor: FIXED_NOW_MS - 420_000,
-        status: "failed",
-      }),
-      buildRoutineRunStatement({
-        failureCode: "routine.missed_occurrences",
-        failureDetail:
-          "Skipped 12 occurrences from 2026-03-07T12:00:00Z to 2026-03-07T13:00:00Z.",
-        finishedAtMs: skippedScheduledFor + 1000,
-        id: skippedLatestRunId,
-        organizationId: fixture.organizationId,
-        routineId: skippedRoutine.id,
-        scheduledFor: skippedScheduledFor,
-        status: "skipped",
-      }),
-    ]);
-
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          buildRoutineRunStatement({
+            id: `run_older_${crypto.randomUUID()}`,
+            organizationId: fixture.organizationId,
+            publishedSignalId: "signal-older",
+            routineId: failedRoutine.id,
+            scheduledFor: FIXED_NOW_MS - 600_000,
+            status: "completed",
+          }),
+          buildRoutineRunStatement({
+            failureCode: "routine.execution_failed",
+            failureDetail: "The hosted turn failed before publication.",
+            finishedAtMs: failedScheduledFor + 60_000,
+            id: failedLatestRunId,
+            nativeDeliveryId: "native-delivery-internal",
+            organizationId: fixture.organizationId,
+            publishedSignalId: "signal-failure",
+            routineId: failedRoutine.id,
+            scheduledFor: failedScheduledFor,
+            startedAtMs: failedScheduledFor + 1000,
+            status: "failed",
+          }),
+          buildRoutineRunStatement({
+            failureCode: "routine.execution_failed",
+            failureDetail: "This older failure must not be projected.",
+            id: `run_older_${crypto.randomUUID()}`,
+            organizationId: fixture.organizationId,
+            routineId: skippedRoutine.id,
+            scheduledFor: FIXED_NOW_MS - 420_000,
+            status: "failed",
+          }),
+          buildRoutineRunStatement({
+            failureCode: "routine.missed_occurrences",
+            failureDetail:
+              "Skipped 12 occurrences from 2026-03-07T12:00:00Z to 2026-03-07T13:00:00Z.",
+            finishedAtMs: skippedScheduledFor + 1000,
+            id: skippedLatestRunId,
+            organizationId: fixture.organizationId,
+            routineId: skippedRoutine.id,
+            scheduledFor: skippedScheduledFor,
+            status: "skipped",
+          }),
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const listed = await rpcListRoutines(env as CoreBindings, { context });
     const routinesById = new Map(
       listed.routines.map((routine) => [routine.id, routine])
@@ -1330,7 +1624,6 @@ describe("Core Center Agent Routines", () => {
       status: "skipped",
     });
   });
-
   it("keeps due Routine records aligned with the strict latest Run projection", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -1342,32 +1635,41 @@ describe("Core Center Agent Routines", () => {
     });
     const completedRunId = `run_completed_${crypto.randomUUID()}`;
     const scheduledFor = FIXED_NOW_MS - 300_000;
-
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "UPDATE routines SET next_due_at = ? WHERE id IN (?, ?)"
-      ).bind(FIXED_NOW_MS, noRunRoutine.id, completedRoutine.id),
-      buildRoutineRunStatement({
-        finishedAtMs: scheduledFor + 60_000,
-        id: completedRunId,
-        organizationId: fixture.organizationId,
-        publishedSignalId: "signal-completed",
-        routineId: completedRoutine.id,
-        scheduledFor,
-        startedAtMs: scheduledFor + 1000,
-        status: "completed",
-      }),
-    ]);
-
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'UPDATE "openmeld"."routines" SET next_due_at = $1 WHERE id IN ($2, $3)',
+              values: [],
+            },
+            values: [FIXED_NOW_MS, noRunRoutine.id, completedRoutine.id],
+          },
+          buildRoutineRunStatement({
+            finishedAtMs: scheduledFor + 60_000,
+            id: completedRunId,
+            organizationId: fixture.organizationId,
+            publishedSignalId: "signal-completed",
+            routineId: completedRoutine.id,
+            scheduledFor,
+            startedAtMs: scheduledFor + 1000,
+            status: "completed",
+          }),
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const dueRoutines = await listDueRoutineRecords({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       limit: 10,
       nowMs: FIXED_NOW_MS,
     });
     const routinesById = new Map(
       dueRoutines.map((routine) => [routine.id, routine])
     );
-
     expect(routinesById.get(noRunRoutine.id)?.lastRun).toBeNull();
     expect(routinesById.get(completedRoutine.id)?.lastRun).toEqual({
       failureCode: null,
@@ -1380,7 +1682,6 @@ describe("Core Center Agent Routines", () => {
       status: "completed",
     });
   });
-
   it("lists only Spaces available to the represented human and current Center Agent", async () => {
     const fixture = await seedRoutineFixture();
     const member = fixture.users.member;
@@ -1401,7 +1702,6 @@ describe("Core Center Agent Routines", () => {
       .split(":")
       .reverse()
       .join(":");
-
     await seedRoutineTargetSpaces(fixture, [
       {
         memberships: [centerAgentMembership(fixture)],
@@ -1546,7 +1846,6 @@ describe("Core Center Agent Routines", () => {
         visibility: "public",
       },
     ]);
-
     await expect(
       rpcListRoutineTargetSpaces(env as CoreBindings, {
         context: fixture.contextFor("member"),
@@ -1591,12 +1890,13 @@ describe("Core Center Agent Routines", () => {
         },
       ],
     });
-
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openmeld_profiles SET status = 'disabled' WHERE profile_id = ?"
-    )
-      .bind(fixture.centerAgentProfileId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openmeld_profiles" SET status = \'disabled\' WHERE profile_id = $1',
+        values: [],
+      },
+      values: [fixture.centerAgentProfileId],
+    });
     await expect(
       rpcListRoutineTargetSpaces(env as CoreBindings, {
         context: fixture.contextFor("member"),
@@ -1606,7 +1906,6 @@ describe("Core Center Agent Routines", () => {
       spaces: [],
     });
   });
-
   it.each([
     {
       buildLatestMemberships: (fixture: RoutineFixture) => [
@@ -1674,7 +1973,6 @@ describe("Core Center Agent Routines", () => {
       fixture.users.member.humanProfileId,
       fixture.centerAgentProfileId
     );
-
     await seedRoutineTargetSpaces(fixture, [
       {
         activeAgentCount: 1,
@@ -1704,7 +2002,6 @@ describe("Core Center Agent Routines", () => {
         visibility: "public",
       },
     ]);
-
     await expect(
       rpcListRoutineTargetSpaces(env as CoreBindings, {
         context: fixture.contextFor("member"),
@@ -1720,11 +2017,9 @@ describe("Core Center Agent Routines", () => {
       ],
     });
   });
-
   it("keeps Routine target Space reads strict and member-only", async () => {
     const fixture = await seedRoutineFixture();
     const context = fixture.contextFor("member");
-
     await expect(
       rpcListRoutineTargetSpaces(
         env as CoreBindings,
@@ -1741,22 +2036,21 @@ describe("Core Center Agent Routines", () => {
         },
       })
     ).rejects.toThrow("routine.member_actor_required");
-
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationId, fixture.users.member.userId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationId, fixture.users.member.userId],
+    });
     await expect(
       rpcListRoutineTargetSpaces(env as CoreBindings, { context })
     ).rejects.toThrow("organization.membership_required");
   });
-
   it("lets admins manage every Routine and members manage only their own", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
     const memberRoutine = await createRoutineFor(fixture, "member");
-
     await expect(
       rpcUpdateRoutine(env as CoreBindings, {
         context: fixture.contextFor("member"),
@@ -1793,7 +2087,6 @@ describe("Core Center Agent Routines", () => {
       resume_routine: 1,
       update_routine: 1,
     });
-
     const ownerRoutine = await createRoutineFor(fixture, "owner", {
       name: "Owner routine",
     });
@@ -1829,7 +2122,6 @@ describe("Core Center Agent Routines", () => {
       ownerRoutine.id
     );
     expect(ownerAuditAfterRejections).toBe(1);
-
     const adminManagedRoutine = await createRoutineFor(fixture, "member", {
       name: "Admin-managed member Routine",
     });
@@ -1861,23 +2153,22 @@ describe("Core Center Agent Routines", () => {
         routineId: adminManagedRoutine.id,
       })
     ).resolves.toMatchObject({ deleted: true });
-
     await expect(
       rpcListRoutines(env as CoreBindings, { context: memberContext })
     ).resolves.toMatchObject({
       routines: [{ id: ownerRoutine.id, canManage: false }],
     });
   });
-
   it("fails closed when the caller is not an Organization member", async () => {
     const fixture = await seedRoutineFixture();
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationId, fixture.users.member.userId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationId, fixture.users.member.userId],
+    });
     const context = fixture.contextFor("member");
-
     await expect(
       rpcListRoutines(env as CoreBindings, { context })
     ).rejects.toThrow("organization.membership_required");
@@ -1902,7 +2193,6 @@ describe("Core Center Agent Routines", () => {
       countOrganizationAuditEntries(fixture.organizationId)
     ).resolves.toBe(0);
   });
-
   it("rejects unknown fields at every direct Routine mutation RPC boundary", async () => {
     const fixture = await seedRoutineFixture();
     const context = fixture.contextFor("owner");
@@ -1961,7 +2251,6 @@ describe("Core Center Agent Routines", () => {
           } as Parameters<typeof rpcDeleteRoutine>[1]
         ),
     ];
-
     for (const operation of invalidOperations) {
       await expect(operation()).rejects.toThrow("invalid_payload");
     }
@@ -1972,7 +2261,6 @@ describe("Core Center Agent Routines", () => {
       countOrganizationRoutines(fixture.organizationId)
     ).resolves.toBe(1);
   });
-
   it("allows all 50 Routines to be enabled and enforces one definition limit", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const activeFixture = await seedRoutineFixture();
@@ -1981,7 +2269,6 @@ describe("Core Center Agent Routines", () => {
       49,
       "enabled"
     );
-
     const fiftieth = await createRoutineFor(activeFixture, "owner", {
       name: "Fiftieth enabled Routine",
     });
@@ -2002,7 +2289,6 @@ describe("Core Center Agent Routines", () => {
         activeRoutineIds[0] ?? "missing"
       )
     ).resolves.toBe(2);
-
     const totalFixture = await seedRoutineFixture();
     await seedRoutineRows(totalFixture, 50, "paused");
     await expect(
@@ -2015,13 +2301,11 @@ describe("Core Center Agent Routines", () => {
       countOrganizationAuditEntries(totalFixture.organizationId)
     ).resolves.toBe(0);
   });
-
   it("records only the winning Routine status mutation when requests race", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
     const context = fixture.contextFor("owner");
     const routine = await createRoutineFor(fixture, "owner");
-
     const pauseResults = await Promise.allSettled([
       rpcPauseRoutine(env as CoreBindings, { context, routineId: routine.id }),
       rpcPauseRoutine(env as CoreBindings, { context, routineId: routine.id }),
@@ -2033,7 +2317,6 @@ describe("Core Center Agent Routines", () => {
     await expect(
       countRoutineAuditActions(fixture.organizationId, routine.id)
     ).resolves.toMatchObject({ create_routine: 1, pause_routine: 1 });
-
     const resumeResults = await Promise.allSettled([
       rpcResumeRoutine(env as CoreBindings, { context, routineId: routine.id }),
       rpcResumeRoutine(env as CoreBindings, { context, routineId: routine.id }),
@@ -2050,14 +2333,12 @@ describe("Core Center Agent Routines", () => {
       resume_routine: 1,
     });
   });
-
   it("allows paused definitions to resume concurrently up to all 50 enabled", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
     await seedRoutineRows(fixture, 48, "enabled");
     const pausedRoutineIds = await seedRoutineRows(fixture, 2, "paused");
     const context = fixture.contextFor("owner");
-
     const results = await Promise.allSettled(
       pausedRoutineIds.map((routineId) =>
         rpcResumeRoutine(env as CoreBindings, { context, routineId })
@@ -2067,7 +2348,6 @@ describe("Core Center Agent Routines", () => {
       fulfilled: 2,
       rejected: [],
     });
-
     const auditActions = await Promise.all(
       pausedRoutineIds.map((routineId) =>
         countRoutineAuditActions(fixture.organizationId, routineId)
@@ -2080,7 +2360,6 @@ describe("Core Center Agent Routines", () => {
       )
     ).toBe(2);
   });
-
   it("accepts the same public, visible private, and healthy Center Agent DM targets that it lists", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -2088,7 +2367,6 @@ describe("Core Center Agent Routines", () => {
     const publicTargetSpaceId = `space_public_${crypto.randomUUID()}`;
     const visiblePrivateTargetSpaceId = `space_private_${crypto.randomUUID()}`;
     const centerAgentDirectMessageSpaceId = `space_ca_dm_${crypto.randomUUID()}`;
-
     await seedRoutineTargetSpaces(fixture, [
       {
         memberships: [centerAgentMembership(fixture)],
@@ -2127,7 +2405,6 @@ describe("Core Center Agent Routines", () => {
         visibility: "private",
       },
     ]);
-
     const availableTargets = await rpcListRoutineTargetSpaces(
       env as CoreBindings,
       { context: fixture.contextFor("member") }
@@ -2151,7 +2428,6 @@ describe("Core Center Agent Routines", () => {
         },
       ])
     );
-
     const routine = await createRoutineFor(fixture, "member", {
       targetSpaceId: publicTargetSpaceId,
     });
@@ -2177,22 +2453,24 @@ describe("Core Center Agent Routines", () => {
       countRoutineAuditActions(fixture.organizationId, routine.id)
     ).resolves.toEqual({ create_routine: 1, update_routine: 2 });
   });
-
   it("validates a target-scoped Space beyond the bounded Routine target list", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
     const bulkSpacePrefix = `bulk${crypto.randomUUID().replaceAll("-", "")}`;
     const targetSpaceId = `${bulkSpacePrefix}501`;
-
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        `
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: `
           WITH RECURSIVE sequence(value) AS (
             SELECT 1
             UNION ALL
             SELECT value + 1 FROM sequence WHERE value < 501
           )
-          INSERT INTO space_index_spaces (
+          INSERT INTO "openmeld"."space_index_spaces" (
             space_id,
             organization_id,
             organization_visibility,
@@ -2203,26 +2481,30 @@ describe("Core Center Agent Routines", () => {
             projection_event_id
           )
           SELECT
-            ? || printf('%03d', value),
-            ?,
+            $1 || lpad(value::text, 3, '0'),
+            $2,
             'public',
             'active',
-            'Bulk Routine target ' || printf('%03d', value),
-            ?,
-            ?,
-            ? || printf('%03d', value)
+            'Bulk Routine target ' || lpad(value::text, 3, '0'),
+            $3,
+            $4,
+            $5 || lpad(value::text, 3, '0')
           FROM sequence
-        `
-      ).bind(
-        bulkSpacePrefix,
-        fixture.organizationId,
-        FIXED_NOW_MS,
-        FIXED_NOW_MS,
-        `projection_${crypto.randomUUID()}_`
-      ),
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO space_index_memberships (
+        `,
+              values: [],
+            },
+            values: [
+              bulkSpacePrefix,
+              fixture.organizationId,
+              FIXED_NOW_MS,
+              FIXED_NOW_MS,
+              `projection_${crypto.randomUUID()}_`,
+            ],
+          },
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."space_index_memberships" (
             space_id,
             profile_id,
             profile_kind_snapshot,
@@ -2237,29 +2519,36 @@ describe("Core Center Agent Routines", () => {
           )
           SELECT
             space_id,
-            ?,
+            $1,
             'agent',
             'Center Agent',
-            ?,
+            $2,
             'active',
             'member_add',
-            ?,
-            ?,
-            ?,
+            $3,
+            $4,
+            $5,
             'membership_' || space_id
-          FROM space_index_spaces
-          WHERE space_id GLOB ?
-        `
-      ).bind(
-        fixture.centerAgentProfileId,
-        fixture.users.owner.userId,
-        FIXED_NOW_MS,
-        FIXED_NOW_MS,
-        FIXED_NOW_MS,
-        `${bulkSpacePrefix}*`
-      ),
-    ]);
-
+          FROM "openmeld"."space_index_spaces"
+          WHERE space_id LIKE $6
+        `,
+              values: [],
+            },
+            values: [
+              fixture.centerAgentProfileId,
+              fixture.users.owner.userId,
+              FIXED_NOW_MS,
+              FIXED_NOW_MS,
+              FIXED_NOW_MS,
+              `${bulkSpacePrefix}%`,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const listed = await rpcListRoutineTargetSpaces(env as CoreBindings, {
       context: fixture.contextFor("member"),
     });
@@ -2267,12 +2556,10 @@ describe("Core Center Agent Routines", () => {
     expect(listed.spaces.some((space) => space.spaceId === targetSpaceId)).toBe(
       false
     );
-
     await expect(
       createRoutineFor(fixture, "member", { targetSpaceId })
     ).resolves.toMatchObject({ targetSpaceId });
   });
-
   it("does not reveal an invisible private target when the Center Agent designation is missing", async () => {
     const fixture = await seedRoutineFixture();
     const invisiblePrivateSpaceId = `space_invisible_${crypto.randomUUID()}`;
@@ -2284,12 +2571,13 @@ describe("Core Center Agent Routines", () => {
         visibility: "private",
       },
     ]);
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM center_agent_designations WHERE organization_id = ?"
-    )
-      .bind(fixture.organizationId)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."center_agent_designations" WHERE organization_id = $1',
+        values: [],
+      },
+      values: [fixture.organizationId],
+    });
     await expect(
       createRoutineFor(fixture, "member", {
         targetSpaceId: invisiblePrivateSpaceId,
@@ -2302,7 +2590,6 @@ describe("Core Center Agent Routines", () => {
       readRoutineSideEffects(fixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
   });
-
   it.each([
     "member",
     "owner",
@@ -2316,7 +2603,6 @@ describe("Core Center Agent Routines", () => {
     const otherDirectMessageSpaceId = `space_other_dm_${crypto.randomUUID()}`;
     const degradedDirectMessageSpaceId = `space_degraded_dm_${crypto.randomUUID()}`;
     const otherHumanProfileId = `human_other_${crypto.randomUUID()}`;
-
     await seedRoutineTargetSpaces(fixture, [
       {
         memberships: [centerAgentMembership(fixture)],
@@ -2377,7 +2663,6 @@ describe("Core Center Agent Routines", () => {
         visibility: "public",
       },
     ]);
-
     const routine = await createRoutineFor(fixture, role);
     for (const targetSpaceId of [
       invisiblePrivateSpaceId,
@@ -2399,7 +2684,6 @@ describe("Core Center Agent Routines", () => {
         })
       ).rejects.toThrow("routine.target_space_not_found");
     }
-
     await expect(
       rpcListRoutines(env as CoreBindings, {
         context: fixture.contextFor(role),
@@ -2417,7 +2701,6 @@ describe("Core Center Agent Routines", () => {
       countRoutineAuditActions(fixture.organizationId, routine.id)
     ).resolves.toEqual({ create_routine: 1 });
   });
-
   it("rejects missing, cross-Organization, and unpublishable target Spaces without persistence", async () => {
     const missingFixture = await seedRoutineFixture();
     const missingTargetInput = {
@@ -2442,20 +2725,31 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(missingFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const crossOrganizationFixture = await seedRoutineFixture();
     const foreignOrganizationId = `org_foreign_${crypto.randomUUID()}`;
     const foreignSpaceId = `space_foreign_${crypto.randomUUID()}`;
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Foreign Organization', ?, ?)"
-      ).bind(
-        foreignOrganizationId,
-        `foreign-${crypto.randomUUID()}`,
-        FIXED_NOW_MS
-      ),
-      buildSpaceProjectionStatement(foreignSpaceId, foreignOrganizationId),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Foreign Organization\', $2, $3)',
+              values: [],
+            },
+            values: [
+              foreignOrganizationId,
+              `foreign-${crypto.randomUUID()}`,
+              FIXED_NOW_MS,
+            ],
+          },
+          buildSpaceProjectionStatement(foreignSpaceId, foreignOrganizationId),
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     await expect(
       createRoutineFor(crossOrganizationFixture, "owner", {
         targetSpaceId: foreignSpaceId,
@@ -2464,16 +2758,17 @@ describe("Core Center Agent Routines", () => {
     await expect(
       readRoutineSideEffects(crossOrganizationFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
-
     const unpublishableFixture = await seedRoutineFixture();
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM space_index_memberships WHERE space_id = ? AND profile_id = ?"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."space_index_memberships" WHERE space_id = $1 AND profile_id = $2',
+        values: [],
+      },
+      values: [
         unpublishableFixture.targetSpaceId,
-        unpublishableFixture.centerAgentProfileId
-      )
-      .run();
+        unpublishableFixture.centerAgentProfileId,
+      ],
+    });
     await expect(
       createRoutineFor(unpublishableFixture, "owner")
     ).rejects.toThrow("routine.target_space_publication_unavailable");
@@ -2481,7 +2776,6 @@ describe("Core Center Agent Routines", () => {
       readRoutineSideEffects(unpublishableFixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
   });
-
   it("rejects invalid cron, schedules under five minutes, and invalid timezones without persistence", async () => {
     const fixture = await seedRoutineFixture();
     const invalidSchedules = [
@@ -2501,7 +2795,6 @@ describe("Core Center Agent Routines", () => {
         timezone: "PST",
       },
     ];
-
     for (const invalid of invalidSchedules) {
       await expect(createRoutineFor(fixture, "owner", invalid)).rejects.toThrow(
         invalid.expectedCode
@@ -2511,25 +2804,32 @@ describe("Core Center Agent Routines", () => {
       readRoutineSideEffects(fixture.organizationId)
     ).resolves.toEqual({ audit: 0, routines: 0 });
   });
-
   it("keeps Routine run history readable by Organization members after deletion", async () => {
     const fixture = await seedRoutineFixture();
     const routine = await createRoutineFor(fixture, "owner");
     const runId = `routine_run_${crypto.randomUUID()}`;
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO routine_runs (
-          id, routine_id, organization_id, scheduled_for, status
-        ) VALUES (?, ?, ?, ?, 'completed')
-      `
-    )
-      .bind(runId, routine.id, fixture.organizationId, FIXED_NOW_MS)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."routine_runs" (
+          id, routine_id, organization_id, scheduled_for, status, scope_snapshot, created_by_user_id_snapshot, target_space_id_snapshot
+        ) VALUES ($1, $2, $3, $4, 'completed', 'team', $5, $6)
+      `,
+        values: [],
+      },
+      values: [
+        runId,
+        routine.id,
+        fixture.organizationId,
+        FIXED_NOW_MS,
+        fixture.users.owner.userId,
+        fixture.targetSpaceId,
+      ],
+    });
     await rpcDeleteRoutine(env as CoreBindings, {
       context: fixture.contextFor("owner"),
       routineId: routine.id,
     });
-
     await expect(
       rpcListRoutineRuns(env as CoreBindings, {
         context: fixture.contextFor("member"),
@@ -2542,16 +2842,13 @@ describe("Core Center Agent Routines", () => {
     });
   });
 });
-
 type FixtureRole = "owner" | "admin" | "member";
-
 type FixtureUser = {
   humanProfileId: string;
   memberId: string;
   role: FixtureRole;
   userId: string;
 };
-
 async function seedRoutineFixture() {
   const suffix = crypto.randomUUID();
   const organizationId = `org_routine_${suffix}`;
@@ -2564,25 +2861,32 @@ async function seedRoutineFixture() {
     member: buildFixtureUser("member"),
   };
   ownedRoutineOrganizationIds.add(organizationId);
-
   for (const user of Object.values(users)) {
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO users (
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."users" (
             id, name, email, email_verified, created_at, updated_at
-          ) VALUES (?, ?, ?, 1, ?, ?)
-        `
-      ).bind(
-        user.userId,
-        `${user.role} user`,
-        `${user.userId}@example.com`,
-        nowMs,
-        nowMs
-      ),
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO openmeld_profiles (
+          ) VALUES ($1, $2, $3, 1, $4, $5)
+        `,
+              values: [],
+            },
+            values: [
+              user.userId,
+              `${user.role} user`,
+              `${user.userId}@example.com`,
+              nowMs,
+              nowMs,
+            ],
+          },
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."openmeld_profiles" (
             profile_id,
             profile_name,
             profile_handle,
@@ -2595,44 +2899,57 @@ async function seedRoutineFixture() {
             source,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, 'human', 1, 'active', NULL, ?, ?, 'auth_bootstrap', ?, ?)
-        `
-      ).bind(
-        user.humanProfileId,
-        `${user.role} user`,
-        `${user.role}-${suffix}`,
-        user.userId,
-        user.userId,
-        nowMs,
-        nowMs
-      ),
-    ]);
+          ) VALUES ($1, $2, $3, 'human', 1, 'active', NULL, $4, $5, 'auth_bootstrap', $6, $7)
+        `,
+              values: [],
+            },
+            values: [
+              user.humanProfileId,
+              `${user.role} user`,
+              `${user.role}-${suffix}`,
+              user.userId,
+              user.userId,
+              nowMs,
+              nowMs,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
   }
-
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO organizations (id, name, slug, created_at)
-      VALUES (?, 'Routine Test Organization', ?, ?)
-    `
-  )
-    .bind(organizationId, `routine-${suffix}`, nowMs)
-    .run();
-
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+      VALUES ($1, 'Routine Test Organization', $2, $3)
+    `,
+      values: [],
+    },
+    values: [organizationId, `routine-${suffix}`, nowMs],
+  });
   for (const user of Object.values(users)) {
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO members (id, organization_id, user_id, role, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `
-    )
-      .bind(user.memberId, organizationId, user.userId, user.role, nowMs)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+        values: [],
+      },
+      values: [user.memberId, organizationId, user.userId, user.role, nowMs],
+    });
   }
-
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id,
           profile_name,
           profile_handle,
@@ -2646,26 +2963,39 @@ async function seedRoutineFixture() {
           managed_role,
           created_at,
           updated_at
-        ) VALUES (?, 'Routine Test Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
-      `
-    ).bind(
-      centerAgentProfileId,
-      `routine-center-agent-${suffix}`,
-      organizationId,
-      users.owner.userId,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO center_agent_designations (
+        ) VALUES ($1, 'Routine Test Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4, 'auth_bootstrap', 'center_agent', $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            centerAgentProfileId,
+            `routine-center-agent-${suffix}`,
+            organizationId,
+            users.owner.userId,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."center_agent_designations" (
           organization_id, agent_profile_id, duty, designated_by, created_at
-        ) VALUES (?, ?, NULL, ?, ?)
-      `
-    ).bind(organizationId, centerAgentProfileId, users.owner.userId, nowMs),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO space_index_spaces (
+        ) VALUES ($1, $2, NULL, $3, $4)
+      `,
+            values: [],
+          },
+          values: [
+            organizationId,
+            centerAgentProfileId,
+            users.owner.userId,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."space_index_spaces" (
           space_id,
           organization_id,
           organization_visibility,
@@ -2673,18 +3003,22 @@ async function seedRoutineFixture() {
           source_updated_at_ms,
           projected_at_ms,
           projection_event_id
-        ) VALUES (?, ?, 'public', 'active', ?, ?, ?)
-      `
-    ).bind(
-      targetSpaceId,
-      organizationId,
-      nowMs,
-      nowMs,
-      `projection_${crypto.randomUUID()}`
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO space_index_memberships (
+        ) VALUES ($1, $2, 'public', 'active', $3, $4, $5)
+      `,
+            values: [],
+          },
+          values: [
+            targetSpaceId,
+            organizationId,
+            nowMs,
+            nowMs,
+            `projection_${crypto.randomUUID()}`,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."space_index_memberships" (
           space_id,
           profile_id,
           profile_kind_snapshot,
@@ -2695,18 +3029,25 @@ async function seedRoutineFixture() {
           source_updated_at_ms,
           projected_at_ms,
           projection_event_id
-        ) VALUES (?, ?, 'agent', 'Routine Test Center Agent', 'active', 'member_add', ?, ?, ?, ?)
-      `
-    ).bind(
-      targetSpaceId,
-      centerAgentProfileId,
-      nowMs,
-      nowMs,
-      nowMs,
-      `projection_${crypto.randomUUID()}`
-    ),
-  ]);
-
+        ) VALUES ($1, $2, 'agent', 'Routine Test Center Agent', 'active', 'member_add', $3, $4, $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            targetSpaceId,
+            centerAgentProfileId,
+            nowMs,
+            nowMs,
+            nowMs,
+            `projection_${crypto.randomUUID()}`,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return {
     centerAgentProfileId,
     centerAgentContext: () => ({
@@ -2731,16 +3072,13 @@ async function seedRoutineFixture() {
     users,
   };
 }
-
 type RoutineFixture = Awaited<ReturnType<typeof seedRoutineFixture>>;
-
 type RoutineTargetSpaceMembershipFixture = {
   ownerUserId?: string | null;
   profileId: string;
   profileKind: "agent" | "human";
   status?: "active" | "removed";
 };
-
 type RoutineTargetSpaceFixture = {
   activeAgentCount?: number | null;
   activeHumanCount?: number | null;
@@ -2755,18 +3093,17 @@ type RoutineTargetSpaceFixture = {
   status?: "active" | "deleted";
   visibility: "private" | "public";
 };
-
 async function seedRoutineTargetSpaces(
   fixture: RoutineFixture,
   spaces: RoutineTargetSpaceFixture[]
 ): Promise<void> {
-  const statements: D1PreparedStatement[] = [];
+  const statements: QueryConfig[] = [];
   for (const space of spaces) {
     const projectionEventId = `projection_${crypto.randomUUID()}`;
-    statements.push(
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO space_index_spaces (
+    statements.push({
+      ...{
+        text: `
+          INSERT INTO "openmeld"."space_index_spaces" (
             space_id,
             organization_id,
             organization_visibility,
@@ -2781,9 +3118,11 @@ async function seedRoutineTargetSpaces(
             source_updated_at_ms,
             projected_at_ms,
             projection_event_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `
-      ).bind(
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        `,
+        values: [],
+      },
+      values: [
         space.spaceId,
         space.organizationId ?? fixture.organizationId,
         space.visibility,
@@ -2797,14 +3136,14 @@ async function seedRoutineTargetSpaces(
         space.spaceCreatedAtMs ?? null,
         FIXED_NOW_MS,
         FIXED_NOW_MS,
-        projectionEventId
-      )
-    );
+        projectionEventId,
+      ],
+    });
     for (const membership of space.memberships) {
-      statements.push(
-        env.OPENMELD_DB.prepare(
-          `
-            INSERT INTO space_index_memberships (
+      statements.push({
+        ...{
+          text: `
+            INSERT INTO "openmeld"."space_index_memberships" (
               space_id,
               profile_id,
               profile_kind_snapshot,
@@ -2816,9 +3155,11 @@ async function seedRoutineTargetSpaces(
               source_updated_at_ms,
               projected_at_ms,
               projection_event_id
-            ) VALUES (?, ?, ?, ?, ?, ?, 'member_add', ?, ?, ?, ?)
-          `
-        ).bind(
+            ) VALUES ($1, $2, $3, $4, $5, $6, 'member_add', $7, $8, $9, $10)
+          `,
+          values: [],
+        },
+        values: [
           space.spaceId,
           membership.profileId,
           membership.profileKind,
@@ -2828,14 +3169,21 @@ async function seedRoutineTargetSpaces(
           FIXED_NOW_MS,
           FIXED_NOW_MS,
           FIXED_NOW_MS,
-          projectionEventId
-        )
-      );
+          projectionEventId,
+        ],
+      });
     }
   }
-  await env.OPENMELD_DB.batch(statements);
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of statements) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
 }
-
 function centerAgentMembership(
   fixture: RoutineFixture
 ): RoutineTargetSpaceMembershipFixture {
@@ -2845,7 +3193,6 @@ function centerAgentMembership(
     profileKind: "agent",
   };
 }
-
 function humanMembership(
   user: FixtureUser,
   profileId = user.humanProfileId
@@ -2856,11 +3203,12 @@ function humanMembership(
     profileKind: "human",
   };
 }
-
 async function createRoutineFor(
   fixture: RoutineFixture,
   role: FixtureRole,
   overrides: Partial<{
+    scope: "personal" | "team";
+    agentProfileId: string;
     cronExpression: string;
     instructions: string;
     name: string;
@@ -2870,6 +3218,8 @@ async function createRoutineFor(
 ) {
   const response = await rpcCreateRoutine(env as CoreBindings, {
     context: fixture.contextFor(role),
+    scope: overrides.scope,
+    agentProfileId: overrides.agentProfileId,
     ...cronSpaceRoutineInput(
       overrides.targetSpaceId ?? fixture.targetSpaceId,
       overrides.cronExpression ?? "0 9 * * *",
@@ -2880,7 +3230,6 @@ async function createRoutineFor(
   });
   return response.routine;
 }
-
 async function createRoutineForCenterAgent(
   fixture: RoutineFixture,
   role: FixtureRole,
@@ -2905,7 +3254,6 @@ async function createRoutineForCenterAgent(
   });
   return response.routine;
 }
-
 async function seedAcceptedLocalAgentDelivery(input: {
   client: string;
   context: ReturnType<RoutineFixture["centerAgentContext"]>;
@@ -2918,7 +3266,7 @@ async function seedAcceptedLocalAgentDelivery(input: {
   const delivery = await upsertRemoteAgentNativeDeliveryRecord({
     attemptId: null,
     bindingId: `binding_${suffix}`,
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     dispatchId: idempotencyKey,
     idempotencyKey,
     nowMs: FIXED_NOW_MS - 2,
@@ -2933,14 +3281,15 @@ async function seedAcceptedLocalAgentDelivery(input: {
   });
   await markRemoteAgentNativeDeliveryAck({
     accepted: true,
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     idempotencyKey,
     nowMs: FIXED_NOW_MS - 1,
     submissionId: input.context.agentControllerConversationId,
   });
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO center_agent_audit_journal (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."center_agent_audit_journal" (
         id,
         organization_id,
         actor_profile_id,
@@ -2952,10 +3301,11 @@ async function seedAcceptedLocalAgentDelivery(input: {
         resource_id,
         source_native_delivery_id,
         created_at
-      ) VALUES (?, ?, ?, 'receive_local_agent_request', ?, ?, ?, 'local_agent_client', ?, ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, $3, 'receive_local_agent_request', $4, $5, $6, 'local_agent_client', $7, $8, $9)
+    `,
+      values: [],
+    },
+    values: [
       `audit_local_agent_${suffix}`,
       input.fixture.organizationId,
       input.fixture.centerAgentProfileId,
@@ -2964,12 +3314,11 @@ async function seedAcceptedLocalAgentDelivery(input: {
       `${input.role} user`,
       input.client,
       delivery.deliveryId,
-      FIXED_NOW_MS - 1
-    )
-    .run();
+      FIXED_NOW_MS - 1,
+    ],
+  });
   return delivery;
 }
-
 function cronSpaceRoutineInput(
   targetSpaceId: string,
   cronExpression: string,
@@ -2989,7 +3338,6 @@ function cronSpaceRoutineInput(
     timezone,
   };
 }
-
 async function seedRoutineRows(
   fixture: RoutineFixture,
   count: number,
@@ -2999,10 +3347,10 @@ async function seedRoutineRows(
     { length: count },
     () => `routine_${crypto.randomUUID()}`
   );
-  const statements = routineIds.map((routineId, index) =>
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO routines (
+  const statements = routineIds.map((routineId, index) => ({
+    ...{
+      text: `
+        INSERT INTO "openmeld"."routines" (
           id,
           organization_id,
           name,
@@ -3017,9 +3365,11 @@ async function seedRoutineRows(
           updated_by_user_id,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, 'Review the work queue.', 'cron', '0 9 * * *', 'UTC', ?, ?, ?, ?, ?, ?, ?)
-      `
-    ).bind(
+        ) VALUES ($1, $2, $3, 'Review the work queue.', 'cron', '0 9 * * *', 'UTC', $4, $5, $6, $7, $8, $9, $10)
+      `,
+      values: [],
+    },
+    values: [
       routineId,
       fixture.organizationId,
       `Seeded Routine ${index + 1}`,
@@ -3029,20 +3379,28 @@ async function seedRoutineRows(
       fixture.users.owner.userId,
       fixture.users.owner.userId,
       FIXED_NOW_MS,
-      FIXED_NOW_MS
-    )
+      FIXED_NOW_MS,
+    ],
+  }));
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of statements) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
   );
-  await env.OPENMELD_DB.batch(statements);
   return routineIds;
 }
-
 function buildSpaceProjectionStatement(
   spaceId: string,
   organizationId: string
-): D1PreparedStatement {
-  return env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO space_index_spaces (
+): QueryConfig {
+  return {
+    ...{
+      text: `
+      INSERT INTO "openmeld"."space_index_spaces" (
         space_id,
         organization_id,
         organization_visibility,
@@ -3050,17 +3408,19 @@ function buildSpaceProjectionStatement(
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, 'private', 'active', ?, ?, ?)
-    `
-  ).bind(
-    spaceId,
-    organizationId,
-    FIXED_NOW_MS,
-    FIXED_NOW_MS,
-    `projection_${crypto.randomUUID()}`
-  );
+      ) VALUES ($1, $2, 'private', 'active', $3, $4, $5)
+    `,
+      values: [],
+    },
+    values: [
+      spaceId,
+      organizationId,
+      FIXED_NOW_MS,
+      FIXED_NOW_MS,
+      `projection_${crypto.randomUUID()}`,
+    ],
+  };
 }
-
 function buildRoutineRunStatement(input: {
   failureCode?: string | null;
   failureDetail?: string | null;
@@ -3073,10 +3433,11 @@ function buildRoutineRunStatement(input: {
   scheduledFor: number;
   startedAtMs?: number | null;
   status: CenterAgentRoutineRun["status"];
-}): D1PreparedStatement {
-  return env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO routine_runs (
+}): QueryConfig {
+  return {
+    ...{
+      text: `
+      INSERT INTO "openmeld"."routine_runs" (
         id,
         routine_id,
         organization_id,
@@ -3087,135 +3448,180 @@ function buildRoutineRunStatement(input: {
         native_delivery_id,
         published_signal_id,
         started_at_ms,
-        finished_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-  ).bind(
-    input.id,
-    input.routineId,
-    input.organizationId,
-    input.scheduledFor,
-    input.status,
-    input.failureCode ?? null,
-    input.failureDetail ?? null,
-    input.nativeDeliveryId ?? null,
-    input.publishedSignalId ?? null,
-    input.startedAtMs ?? null,
-    input.finishedAtMs ?? null
-  );
+        finished_at_ms, scope_snapshot, created_by_user_id_snapshot,
+        target_space_id_snapshot
+      ) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+        scope, created_by_user_id, target_space_id
+        FROM openmeld.routines WHERE id=$2
+    `,
+      values: [],
+    },
+    values: [
+      input.id,
+      input.routineId,
+      input.organizationId,
+      input.scheduledFor,
+      input.status,
+      input.failureCode ?? null,
+      input.failureDetail ?? null,
+      input.nativeDeliveryId ?? null,
+      input.publishedSignalId ?? null,
+      input.startedAtMs ?? null,
+      input.finishedAtMs ?? null,
+    ],
+  };
 }
-
 async function countRoutineAuditEntries(
   organizationId: string,
   routineId: string
 ): Promise<number> {
-  const row = await env.OPENMELD_DB.prepare(
-    `
+  const row = await getPostgresDatabase(env)
+    .query<{
+      count: number;
+    }>({
+      ...{
+        text: `
       SELECT COUNT(*) AS count
-      FROM center_agent_audit_journal
-      WHERE organization_id = ? AND resource_id = ?
-    `
-  )
-    .bind(organizationId, routineId)
-    .first<{ count: number }>();
+      FROM "openmeld"."center_agent_audit_journal"
+      WHERE organization_id = $1 AND resource_id = $2
+    `,
+        values: [],
+      },
+      values: [organizationId, routineId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return Number(row?.count ?? 0);
 }
-
 async function countRoutineAuditActions(
   organizationId: string,
   routineId: string
 ): Promise<Record<string, number>> {
-  const result = await env.OPENMELD_DB.prepare(
-    `
+  const result = await getPostgresDatabase(env).query<{
+    action: string;
+    count: number;
+  }>({
+    ...{
+      text: `
       SELECT action, COUNT(*) AS count
-      FROM center_agent_audit_journal
-      WHERE organization_id = ? AND resource_id = ?
+      FROM "openmeld"."center_agent_audit_journal"
+      WHERE organization_id = $1 AND resource_id = $2
       GROUP BY action
-    `
-  )
-    .bind(organizationId, routineId)
-    .all<{ action: string; count: number }>();
+    `,
+      values: [],
+    },
+    values: [organizationId, routineId],
+  });
   return Object.fromEntries(
-    (result.results ?? []).map((row) => [row.action, Number(row.count)])
+    (result.rows ?? []).map((row) => [row.action, Number(row.count)])
   );
 }
-
 async function countOrganizationAuditEntries(
   organizationId: string
 ): Promise<number> {
-  const row = await env.OPENMELD_DB.prepare(
-    `
+  const row = await getPostgresDatabase(env)
+    .query<{
+      count: number;
+    }>({
+      ...{
+        text: `
       SELECT COUNT(*) AS count
-      FROM center_agent_audit_journal
-      WHERE organization_id = ?
-    `
-  )
-    .bind(organizationId)
-    .first<{ count: number }>();
+      FROM "openmeld"."center_agent_audit_journal"
+      WHERE organization_id = $1
+    `,
+        values: [],
+      },
+      values: [organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return Number(row?.count ?? 0);
 }
-
 async function countOrganizationRoutines(
   organizationId: string
 ): Promise<number> {
-  const row = await env.OPENMELD_DB.prepare(
-    "SELECT COUNT(*) AS count FROM routines WHERE organization_id = ?"
-  )
-    .bind(organizationId)
-    .first<{ count: number }>();
+  const row = await getPostgresDatabase(env)
+    .query<{
+      count: number;
+    }>({
+      ...{
+        text: 'SELECT COUNT(*) AS count FROM "openmeld"."routines" WHERE organization_id = $1',
+        values: [],
+      },
+      values: [organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return Number(row?.count ?? 0);
 }
-
-async function readRoutineSideEffects(
-  organizationId: string
-): Promise<{ audit: number; routines: number }> {
+async function readRoutineSideEffects(organizationId: string): Promise<{
+  audit: number;
+  routines: number;
+}> {
   const [audit, routines] = await Promise.all([
     countOrganizationAuditEntries(organizationId),
     countOrganizationRoutines(organizationId),
   ]);
   return { audit, routines };
 }
-
 async function cleanupOwnedRoutineRows(): Promise<void> {
   const cleanupErrors: Error[] = [];
-
   for (const organizationId of ownedRoutineOrganizationIds) {
     const cleanupSteps = [
       [
         "Agent Activity session rows",
-        env.OPENMELD_DB.prepare(
-          "DELETE FROM agent_activity_sessions WHERE organization_id = ?"
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."agent_activity_sessions" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "Agent Activity Project rows",
-        env.OPENMELD_DB.prepare(
-          "DELETE FROM projects WHERE organization_id = ?"
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."projects" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "native delivery rows",
-        env.OPENMELD_DB.prepare(
-          'DELETE FROM "openMeldRemoteAgent_native_delivery_ledger" WHERE organization_id = ?'
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "Routine Run rows",
-        env.OPENMELD_DB.prepare(
-          "DELETE FROM routine_runs WHERE organization_id = ?"
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."routine_runs" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "Routine rows",
-        env.OPENMELD_DB.prepare(
-          "DELETE FROM routines WHERE organization_id = ?"
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."routines" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
     ] as const;
-
     for (const [description, statement] of cleanupSteps) {
       try {
-        await statement.run();
+        await getPostgresDatabase(env).query({
+          text: statement.text,
+          values: [...statement.values],
+        });
       } catch (cause) {
         cleanupErrors.push(
           new Error(
@@ -3226,17 +3632,14 @@ async function cleanupOwnedRoutineRows(): Promise<void> {
       }
     }
   }
-
   if (cleanupErrors.length > 0) {
     throw new AggregateError(
       cleanupErrors,
       "Failed to clean owned Routine integration test rows."
     );
   }
-
   ownedRoutineOrganizationIds.clear();
 }
-
 function buildFixtureUser(role: FixtureRole): FixtureUser {
   return {
     humanProfileId: crypto.randomUUID(),
@@ -3245,7 +3648,6 @@ function buildFixtureUser(role: FixtureRole): FixtureUser {
     userId: `user_${crypto.randomUUID()}`,
   };
 }
-
 function buildContext(organizationId: string, user: FixtureUser) {
   return {
     activeOrganizationId: organizationId,
@@ -3259,7 +3661,6 @@ function buildContext(organizationId: string, user: FixtureUser) {
     },
   };
 }
-
 function summarizeMutationRace<T>(results: PromiseSettledResult<T>[]): {
   fulfilled: number;
   rejected: string[];

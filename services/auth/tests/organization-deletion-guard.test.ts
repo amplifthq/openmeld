@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { AuthBindings } from "../src/lib/bindings";
-import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-  type SqliteD1Harness,
-} from "./support/sqlite-d1-harness";
+  createPostgresHarness,
+  type PostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
+import type { AuthBindings } from "../src/lib/bindings";
+import { createAuthWorkerTestApp } from "./support/auth-worker-entrypoint.test-support";
 
 const AUTH_BASE_URL = "http://localhost:8788";
 const WEB_APP_URL = "http://localhost:3000";
@@ -18,24 +18,24 @@ const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
 } as unknown as ExecutionContext;
 
-type TestContext = ReturnType<typeof createTestContext>;
+type TestContext = Awaited<ReturnType<typeof createTestContext>>;
 
 const contexts: TestContext[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const context of contexts.splice(0)) {
-    context.harness.close();
+    await context.harness.close();
   }
 });
 
 describe("organization deletion guard", () => {
   it("rejects deleting a personal organization with the stable error code", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
     });
-    const personalOrganizationId = readPersonalOrganizationId(
+    const personalOrganizationId = await readPersonalOrganizationId(
       context.harness,
       owner.userId
     );
@@ -51,15 +51,15 @@ describe("organization deletion guard", () => {
       message: "Personal organizations can’t be deleted.",
     });
     expect(
-      context.harness.queryFirst({
-        params: [personalOrganizationId],
-        sql: "select id from organizations where id = ?",
+      await context.harness.queryFirst({
+        values: [personalOrganizationId],
+        text: 'select id from "openmeld"."organizations" where id = $1',
       })
     ).not.toBeNull();
   });
 
   it("allows an ordinary organization created through the public API to be deleted", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -77,26 +77,26 @@ describe("organization deletion guard", () => {
 
     expect(response.status).toBe(200);
     expect(
-      context.harness.queryFirst({
-        params: [organizationId],
-        sql: "select id from organizations where id = ?",
+      await context.harness.queryFirst({
+        values: [organizationId],
+        text: 'select id from "openmeld"."organizations" where id = $1',
       })
     ).toBeNull();
   });
 
   it("rejects deletion when organization metadata cannot be parsed", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
     });
-    const personalOrganizationId = readPersonalOrganizationId(
+    const personalOrganizationId = await readPersonalOrganizationId(
       context.harness,
       owner.userId
     );
-    context.harness.run({
-      params: ["{broken", personalOrganizationId],
-      sql: "update organizations set metadata = ? where id = ?",
+    await context.harness.query({
+      values: ["{broken", personalOrganizationId],
+      text: 'update "openmeld"."organizations" set metadata = $1 where id = $2',
     });
 
     const response = await deleteOrganization(context, {
@@ -109,17 +109,17 @@ describe("organization deletion guard", () => {
       code: "organization.deletion_guard_failed",
     });
     expect(
-      context.harness.queryFirst({
-        params: [personalOrganizationId],
-        sql: "select id from organizations where id = ?",
+      await context.harness.queryFirst({
+        values: [personalOrganizationId],
+        text: 'select id from "openmeld"."organizations" where id = $1',
       })
     ).not.toBeNull();
   });
 });
 
-function createTestContext() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrations(harness.database);
+async function createTestContext() {
+  const harness = await createPostgresHarness();
+
   const env = {
     AUTH_BRAND_NAME: "OpenMeld",
     AUTH_COOKIE_DOMAIN: "localhost",
@@ -134,11 +134,11 @@ function createTestContext() {
     BETTER_AUTH_URL: AUTH_BASE_URL,
     PASSKEY_RP_ID: "localhost",
     OPENMELD_AUTH_KV: {},
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     WEB_APP_URL,
   } as unknown as AuthBindings;
   const context = {
-    app: createHonoApp(),
+    app: createAuthWorkerTestApp(),
     env,
     harness,
   };
@@ -161,9 +161,9 @@ async function createSignedInUser(
     );
   }
 
-  context.harness.run({
-    params: [input.email],
-    sql: "update users set email_verified = 1 where email = ?",
+  await context.harness.query({
+    values: [input.email],
+    text: 'update "openmeld"."users" set email_verified = 1 where email = $1',
   });
   const signInResponse = await postJson(context, "/api/auth/sign-in/email", {
     email: input.email,
@@ -175,9 +175,9 @@ async function createSignedInUser(
     );
   }
 
-  const user = context.harness.queryFirst<{ id: string }>({
-    params: [input.email],
-    sql: "select id from users where email = ?",
+  const user = await context.harness.queryFirst<{ id: string }>({
+    values: [input.email],
+    text: 'select id from "openmeld"."users" where email = $1',
   });
   if (!user) {
     throw new Error(`Expected user row for ${input.email}`);
@@ -189,18 +189,18 @@ async function createSignedInUser(
   };
 }
 
-function readPersonalOrganizationId(
-  harness: SqliteD1Harness,
+async function readPersonalOrganizationId(
+  harness: PostgresHarness,
   userId: string
-): string {
-  const organization = harness.queryFirst<{ id: string }>({
-    params: [userId],
-    sql: `
+): Promise<string> {
+  const organization = await harness.queryFirst<{ id: string }>({
+    values: [userId],
+    text: `
       select organizations.id
-      from organizations
-      inner join members on members.organization_id = organizations.id
-      where members.user_id = ?
-        and json_extract(organizations.metadata, '$.personal') = 1
+      from "openmeld"."organizations"
+      inner join "openmeld"."members" on members.organization_id = organizations.id
+      where members.user_id = $1
+        and ((organizations.metadata)::jsonb #>> '{personal}') = 'true'
     `,
   });
   if (!organization) {

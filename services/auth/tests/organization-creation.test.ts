@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { AuthBindings } from "../src/lib/bindings";
-import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-} from "./support/sqlite-d1-harness";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
+import type { AuthBindings } from "../src/lib/bindings";
+import { createAuthWorkerTestApp } from "./support/auth-worker-entrypoint.test-support";
 
 const AUTH_BASE_URL = "http://localhost:8788";
 const WEB_APP_URL = "http://localhost:3000";
@@ -19,32 +19,32 @@ const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
 } as unknown as ExecutionContext;
 
-type TestContext = ReturnType<typeof createTestContext>;
+type TestContext = Awaited<ReturnType<typeof createTestContext>>;
 
 const contexts: TestContext[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const context of contexts.splice(0)) {
-    context.harness.close();
+    await context.harness.close();
   }
 });
 
 describe("Organization creation", () => {
   it("creates same-named Organizations with distinct opaque URL slugs", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const headers = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
     });
-    const initialSession = context.harness.queryFirst<{
+    const initialSession = await context.harness.queryFirst<{
       activeOrganizationId: string;
     }>({
-      params: ["owner@example.com"],
-      sql: `
-        select sessions.active_organization_id as activeOrganizationId
-        from sessions
-        inner join users on users.id = sessions.user_id
-        where users.email = ?
+      values: ["owner@example.com"],
+      text: `
+        select sessions.active_organization_id AS "activeOrganizationId"
+        from "openmeld"."sessions"
+        inner join "openmeld"."users" on users.id = sessions.user_id
+        where users.email = $1
       `,
     });
 
@@ -88,22 +88,22 @@ describe("Organization creation", () => {
     expect(secondOrganization.slug).not.toMatch(ORDINAL_TWO_SLUG_PATTERN);
     expect(initialSession?.activeOrganizationId).toBeTruthy();
     expect(
-      context.harness.queryFirst({
-        params: ["owner@example.com"],
-        sql: `
-          select sessions.active_organization_id as activeOrganizationId
-          from sessions
-          inner join users on users.id = sessions.user_id
-          where users.email = ?
+      await context.harness.queryFirst({
+        values: ["owner@example.com"],
+        text: `
+          select sessions.active_organization_id AS "activeOrganizationId"
+          from "openmeld"."sessions"
+          inner join "openmeld"."users" on users.id = sessions.user_id
+          where users.email = $1
         `,
       })
     ).toEqual(initialSession);
   });
 });
 
-function createTestContext() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrations(harness.database);
+async function createTestContext() {
+  const harness = await createPostgresHarness();
+
   const env = {
     AUTH_BRAND_NAME: "OpenMeld",
     AUTH_COOKIE_DOMAIN: "localhost",
@@ -117,12 +117,12 @@ function createTestContext() {
       "1234567890123456789012345678901234567890123456789012345678901234",
     BETTER_AUTH_URL: AUTH_BASE_URL,
     OPENMELD_AUTH_KV: {},
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     PASSKEY_RP_ID: "localhost",
     WEB_APP_URL,
   } as unknown as AuthBindings;
   const context = {
-    app: createHonoApp(),
+    app: createAuthWorkerTestApp(),
     env,
     harness,
   };
@@ -145,9 +145,9 @@ async function createSignedInUser(
     );
   }
 
-  context.harness.run({
-    params: [input.email],
-    sql: "update users set email_verified = 1 where email = ?",
+  await context.harness.query({
+    values: [input.email],
+    text: 'update "openmeld"."users" set email_verified = 1 where email = $1',
   });
   const signInResponse = await postJson(context, "/api/auth/sign-in/email", {
     email: input.email,

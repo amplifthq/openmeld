@@ -42,7 +42,7 @@ content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
-Graph / Files / Routines / Channels / Memory** live in its header. Chat
+Graph / Files / Channels / Memory** live in its header. Chat
 settings remain in the compact menu on conversation surfaces only. Center Agent settings live in
 the global App Settings destination, grouped under the current Organization
 (or Personal in a Personal Workspace).
@@ -162,6 +162,13 @@ Collapse the overloaded concepts (Account Profile / Agent Profile / Local Agent 
 Computer / OpenMeld Service / Service Profile) into stable user-facing nouns keyed to
 mental verbs:
 
+Account deletion lives below Sessions in Web Settings > Account. Its shared
+Dialog identifies the signed-in email and lists deleted assets, retained team
+work, and required ownership handoffs. Confirm the current password (or a recent
+passwordless sign-in), then type DELETE. Recheck the inventory on submission.
+Cancel clears both inputs. Desktop opens the same Web owner through its existing
+account-settings handoff. The signed-out result states that cleanup continues.
+
 1. **Account** — "who I am to the cloud": identity, sign-in/providers, sessions,
    CLI tokens. (= today's `account.tsx`, moved under Settings, largely unchanged.)
 2. **Computers** — "my machines": Computer cards live inside the owning Human
@@ -210,7 +217,7 @@ Each domain is a **real route**, not a scroll anchor. Current Web uses the fixed
 ten-destination product rail, separated Settings utility, and **Personal /
 current Organization name** Settings groups from `developing/clients/web.md`.
 App management exists once under **Plugins** in both personal and
-multi-member workspaces. Routines is a Center Agent use-and-creation surface,
+multi-member workspaces. Routines is a Team use-and-creation surface for personal and shared work,
 not a global Settings page or root product peer.
 
 `/app/settings/service` remains a real leaf route for future hosts with
@@ -274,8 +281,8 @@ The Web shell is a stable two-layer composition built from the shared
   outer rail. Center Agent and Inbox remain adjacent at the far-right edge.
   Computer opens the current device detail directly and carries its actionable
   status tone; it never opens a Computer picker.
-  Inbox opens its responsive attention preview and maximizes to the canonical
-  full Inbox page. Center Agent opens a compact synchronized view of the same
+  Inbox opens its responsive grouped preview with a fixed **Open full Inbox**
+  link to the canonical page. Center Agent opens a compact synchronized view of the same
   canonical Chat or Task and maximizes to that exact route; it never creates a
   new session or conversation store. An unavailable control must not leave a
   placeholder or dead action.
@@ -405,6 +412,15 @@ The Web shell is a stable two-layer composition built from the shared
   content region's upper-left edge instead of restoring a cross-page header.
 - **`aside`** — optional right drawer inside the inset app surface (Space
   members panel).
+
+### Bot appearance preferences
+
+Appearance owns browser-local Bot avatar preferences. Fabric is the default
+material; Fabric and Plastic radio choices include matching live previews and
+apply through the shared Agent avatar presentation across the app. The existing
+animation switch keeps its storage key and disables working and interaction
+motion, including the material previews. Reduced motion takes precedence.
+These preferences do not change the Organization's saved Agent identity or shape.
 
 ### Responsive shell presentation
 

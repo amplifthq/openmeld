@@ -4,10 +4,7 @@ import {
   resolveCenterAgentAttentionRequestsForReply,
 } from "../src/center-agent/application/center-agent-attention-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Center Agent attention service", () => {
   it.each([
@@ -15,7 +12,7 @@ describe("Center Agent attention service", () => {
     ["work_blocked", "urgent", 1],
     ["material_failure_risk", "urgent", 1],
   ] as const)("projects %s as a %s Inbox request and resolves it on the member's next reply", async (impact, importance, expectedEmailCount) => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await createCenterAgentAttentionRequest({
         db: harness.db,
@@ -59,9 +56,11 @@ describe("Center Agent attention service", () => {
         ],
       });
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_email_deliveries",
-        })?.count
+        (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT count(*) AS count FROM "openmeld"."inbox_email_deliveries"',
+          })
+        )?.count
       ).toBe(expectedEmailCount);
 
       await expect(
@@ -81,49 +80,24 @@ describe("Center Agent attention service", () => {
         })
       ).resolves.toMatchObject({ items: [] });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function createHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: `CREATE TABLE organizations (
-      id TEXT PRIMARY KEY NOT NULL,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    )`,
+async function createHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    values: ["org-one", "One", "one", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
-  harness.run({
-    sql: `CREATE TABLE users (
-      id TEXT PRIMARY KEY NOT NULL,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL
-    )`,
+  await harness.query({
+    values: ["user-one", "One", "one@example.com"],
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
   });
-  applyDrizzleMigrationsForTables(harness, [
-    "openmeld_profiles",
-    "center_agent_designations",
-    "center_agent_attention_requests",
-    "center_agent_tasks",
-    "inbox_items",
-    "inbox_email_deliveries",
-    "inbox_center_agent_read_watermarks",
-    "space_index_spaces",
-    "space_index_memberships",
-  ]);
-  harness.run({
-    params: ["org-one", "One", "one", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
-  });
-  harness.run({
-    params: ["user-one", "One", "one@example.com"],
-    sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
-  });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "space-center-agent",
       "org-one",
       "private",
@@ -132,13 +106,13 @@ function createHarness() {
       1000,
       "space-projection",
     ],
-    sql: `INSERT INTO space_index_spaces (
+    text: `INSERT INTO "openmeld"."space_index_spaces" (
       space_id, organization_id, organization_visibility, status,
       source_updated_at_ms, projected_at_ms, projection_event_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "space-center-agent",
       "human-profile",
       "Human",
@@ -148,11 +122,11 @@ function createHarness() {
       1000,
       "member-projection",
     ],
-    sql: `INSERT INTO space_index_memberships (
+    text: `INSERT INTO "openmeld"."space_index_memberships" (
       space_id, profile_id, profile_kind_snapshot, profile_name_snapshot,
       owner_user_id_snapshot, status, member_source, added_at_ms,
       source_updated_at_ms, projected_at_ms, projection_event_id
-    ) VALUES (?, ?, 'human', ?, ?, 'active', 'joined_directly', ?, ?, ?, ?)`,
+    ) VALUES ($1, $2, 'human', $3, $4, 'active', 'joined_directly', $5, $6, $7, $8)`,
   });
   return harness;
 }

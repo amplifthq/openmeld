@@ -88,21 +88,10 @@
     "PASSKEY_RP_ID": "localhost",
     "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS": "300"
   },
-  "d1_databases": [
+  "hyperdrive": [
     {
-      "binding": "OPENMELD_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
-      "migrations_dir": "../../packages/db/drizzle"
-    },
-    // OPENMELD_IDENTITY_DB, ALIASED to the OpenMeld production DB (single physical DB). The physical
-    // DB split was attempted and REVERTED 2026-06-14 (physical-db-split.md
-    // "DIRECTION CHANGE"). No auth code reads this binding; it stays aliased — do
-    // NOT flip it. (A future split would isolate only wake-evidence, not identity.)
-    {
-      "binding": "OPENMELD_IDENTITY_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+      "binding": "OPENMELD_POSTGRESQL",
+      "id": "dba7d43fe644409c8e1cc24c5260f289"
     }
   ],
   "kv_namespaces": [
@@ -263,22 +252,10 @@
         "PASSKEY_RP_ID": "openmeld.ai",
         "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS": "300"
       },
-      "d1_databases": [
+      "hyperdrive": [
         {
-          "binding": "OPENMELD_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
-          "migrations_dir": "../../packages/db/drizzle"
-        },
-        // OPENMELD_IDENTITY_DB, ALIASED to the OpenMeld production DB (single physical DB). The
-        // physical DB split was attempted and REVERTED 2026-06-14
-        // (physical-db-split.md "DIRECTION CHANGE"). No auth code reads this
-        // binding; it stays aliased — do NOT flip it. (A future split would
-        // isolate only wake-evidence, not identity.)
-        {
-          "binding": "OPENMELD_IDENTITY_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+          "binding": "OPENMELD_POSTGRESQL",
+          "id": "dba7d43fe644409c8e1cc24c5260f289"
         }
       ],
       "kv_namespaces": [

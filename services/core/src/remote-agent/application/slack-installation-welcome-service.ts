@@ -1,16 +1,16 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   claimSlackInstallationWelcomeDelivery,
   completeSlackInstallationWelcomeDelivery,
   SLACK_INSTALLATION_WELCOME_VERSION,
   type SlackInstallationWelcomeMessageKind,
-} from "../infrastructure/d1/slack-installation-welcome-repo";
+} from "../infrastructure/postgresql/slack-installation-welcome-repo";
 import { persistConfirmedPublicationCheckpoint } from "./confirmed-publication-checkpoint";
 import {
   postSlackDirectMessage,
   type SlackBlockKitBlock,
   SlackMessagePublicationError,
 } from "./slack-client";
-
 export async function deliverSlackInstallationWelcome(input: {
   allowCreate: boolean;
   allowRetry: boolean;
@@ -19,7 +19,7 @@ export async function deliverSlackInstallationWelcome(input: {
     message: string
   ) => Promise<readonly SlackBlockKitBlock[] | undefined>;
   connectionCreatedAtMs: number;
-  db: D1Database;
+  db: PostgresDatabase;
   messages: Record<SlackInstallationWelcomeMessageKind, string>;
   messageKind: SlackInstallationWelcomeMessageKind;
   nowMs: number;
@@ -45,8 +45,9 @@ export async function deliverSlackInstallationWelcome(input: {
   if (!claim) {
     return "skipped";
   }
-
-  let publication: { id: string };
+  let publication: {
+    id: string;
+  };
   try {
     const message = input.messages[claim.messageKind];
     const blocks = await input.buildBlocks(message);
@@ -77,7 +78,6 @@ export async function deliverSlackInstallationWelcome(input: {
     }
     throw error;
   }
-
   const checkpoint = await persistConfirmedPublicationCheckpoint(async () => {
     await completeSlackInstallationWelcomeDelivery({
       claim,
@@ -98,7 +98,6 @@ export async function deliverSlackInstallationWelcome(input: {
   }
   return "delivered";
 }
-
 function classifySlackInstallationWelcomeFailure(error: unknown): {
   failureCode: string;
   status: "failed" | "outcome_unknown";
@@ -120,8 +119,10 @@ function classifySlackInstallationWelcomeFailure(error: unknown): {
     status: "failed",
   };
 }
-
-function serializeError(error: unknown): { message: string; name: string } {
+function serializeError(error: unknown): {
+  message: string;
+  name: string;
+} {
   if (error instanceof Error) {
     return {
       message: error.message,

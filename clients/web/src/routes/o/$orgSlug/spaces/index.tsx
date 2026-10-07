@@ -11,6 +11,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQueryState } from "nuqs";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { appShellStaticData } from "#/components/app/shell-layout";
@@ -47,6 +48,7 @@ import {
 	type OrganizationSpacesFailure,
 } from "#/lib/organizations/organization-spaces";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { spacesViewParser } from "#/lib/page-tab-search";
 import {
 	APP_SIDEBAR_DEFAULT_STATES,
 	type AppSidebarPersistedStates,
@@ -76,10 +78,10 @@ import {
 export const Route = createFileRoute("/o/$orgSlug/spaces/")({
 	validateSearch: (
 		search: Record<string, unknown>
-	): { view?: "discover" | "messages" } => ({
+	): { view?: "spaces" | "discover" | "messages" } => ({
 		view:
-			search.view === "discover" || search.view === "messages"
-				? search.view
+			typeof search.view === "string"
+				? (spacesViewParser.parse(search.view) ?? undefined)
 				: undefined,
 	}),
 	staticData: appShellStaticData.space,
@@ -125,14 +127,12 @@ function AppSpacesIndexRoute() {
 	return (
 		<AppSpacesIndexContent
 			initialSidebarStates={sidebarStates}
-			initialView={view}
 			orgSlug={orgSlug}
 		/>
 	);
 }
 
 export function AppSpacesIndexContent(input: {
-	initialView?: "discover";
 	initialSidebarStates?: AppSidebarPersistedStates;
 	orgSlug: string;
 }) {
@@ -327,7 +327,6 @@ export function AppSpacesIndexContent(input: {
 				activeOrganization={activeOrganization}
 				canJoinSpaces={savedViewState.canJoinSpaces}
 				errorMessage={errorMessage}
-				initialView={input.initialView}
 				isMembershipError={savedViewState.isMembershipError}
 				isPending={
 					organizationSpacesQuery.isPending ||
@@ -499,7 +498,6 @@ function AppSpacesIndexEntryShell(input: {
 }
 
 type SpaceIndexContentStateInput = {
-	initialView?: "discover";
 	accountProfiles: readonly AuthProfileView[];
 	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
 	activeOrganization: OrganizationSummary | null;
@@ -523,14 +521,8 @@ type SpaceIndexContentStateInput = {
 };
 
 function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
-	const [tab, setTab] = useState(
-		input.initialView === "discover" && !input.isPersonalContext ? 1 : 0
-	);
-	useEffect(() => {
-		setTab(
-			input.initialView === "discover" && !input.isPersonalContext ? 1 : 0
-		);
-	}, [input.initialView, input.isPersonalContext]);
+	const [view] = useQueryState("view", spacesViewParser);
+	const tab = view === "discover" && !input.isPersonalContext ? 1 : 0;
 	const body = resolveSpaceIndexBody(input, tab);
 
 	return (
@@ -549,12 +541,7 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 					leadingControl={
 						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
 					}
-					navigation={
-						<SpacesDirectoryNavigation
-							onSpaceViewChange={(view) => setTab(view === "discover" ? 1 : 0)}
-							view={tab === 1 ? "discover" : undefined}
-						/>
-					}
+					navigation={<SpacesDirectoryNavigation />}
 					renderFrame={false}
 					title="Spaces"
 				/>

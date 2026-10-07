@@ -1,3 +1,7 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import {
   pluginConnectionContinuationBindingSchema,
@@ -10,14 +14,14 @@ import type {
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
-import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { listConnectorOperationReceiptsForContinuation } from "../center-agent/connector-action-operation-repository";
-import { type CoreBindings, identityDb, wakeEvidenceDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import {
   readOrganizationRouteSlug,
   resolveActiveOrganizationMembership,
 } from "../organizations/organization-context";
-import { readRemoteAgentNativeDeliveryByExecution } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryByExecution } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   rpcGetSpaceMemberDirectory,
@@ -35,7 +39,6 @@ import {
   requireRemotePluginConnection,
 } from "./plugin-access";
 import { requirePluginProfile } from "./plugin-local-caller";
-
 /** Provider callbacks never call this. The authenticated human explicitly
  * requests one new continuation Message; existing Wake and operation owners
  * retain scheduling, permission checks, receipts, and idempotency. */
@@ -63,8 +66,8 @@ export async function continuePluginConnection(
   if (!member.ok) {
     throw denied(member.code, member.message, member.status);
   }
-  const db = identityDb(env);
-  const evidence = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
+  const evidence = getPostgresDatabase(env);
   if (!(db && evidence)) {
     throw denied(
       "plugin.continue.state_unavailable",
@@ -208,7 +211,6 @@ export async function continuePluginConnection(
     threadId: task.threadContext?.threadId ?? null,
   });
 }
-
 function requireSettledContinuationReceipts(
   receipts: Awaited<
     ReturnType<typeof listConnectorOperationReceiptsForContinuation>
@@ -228,10 +230,11 @@ function requireSettledContinuationReceipts(
     );
   }
 }
-
 async function readOriginalRequestGuard(
   env: CoreBindings,
-  input: Parameters<typeof rpcListSignals>[1] & { signalId: string }
+  input: Parameters<typeof rpcListSignals>[1] & {
+    signalId: string;
+  }
 ) {
   const signals = await rpcListSignals(env, {
     ...input,
@@ -251,7 +254,6 @@ async function readOriginalRequestGuard(
     fingerprint: pluginContinuationMessageFingerprint(original),
   };
 }
-
 async function requireConnectionIntent(
   env: CoreBindings,
   organizationId: string,
@@ -286,12 +288,14 @@ async function requireConnectionIntent(
     );
   }
 }
-
 async function readContinuationSource(
   env: CoreBindings,
-  evidence: D1Database,
+  evidence: PostgresDatabase,
   input: ReturnType<typeof pluginConnectionContinuationRpcInputSchema.parse>,
-  member: { organizationId: string; userId: string }
+  member: {
+    organizationId: string;
+    userId: string;
+  }
 ) {
   const signals = await rpcListSignals(env, {
     context: input.context,
@@ -391,12 +395,19 @@ async function readContinuationSource(
     },
   };
 }
-
 async function readLocalContinuationSource(
   env: CoreBindings,
   input: ReturnType<typeof pluginConnectionContinuationRpcInputSchema.parse>,
-  member: { organizationId: string; userId: string },
-  reply: Extract<SignalEnvelope, { type: "signal.text" }>
+  member: {
+    organizationId: string;
+    userId: string;
+  },
+  reply: Extract<
+    SignalEnvelope,
+    {
+      type: "signal.text";
+    }
+  >
 ) {
   const source = await rpcReadPluginConnectionLocalSource(env, input);
   const agent = await requirePluginProfile(env, source.targetProfileId);
@@ -411,7 +422,7 @@ async function readLocalContinuationSource(
       409
     );
   }
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   const binding =
     db &&
     (await readPrimaryAgentProfileBindingRecord({
@@ -448,12 +459,17 @@ async function readLocalContinuationSource(
     consumer: { kind: "local" as const, ownerUserId: agent.ownerUserId },
   };
 }
-
 type ContinuationConsumer =
-  | { kind: "local"; ownerUserId: string }
-  | { kind: "hosted"; remoteOwnerUserId?: string | null };
+  | {
+      kind: "local";
+      ownerUserId: string;
+    }
+  | {
+      kind: "hosted";
+      remoteOwnerUserId?: string | null;
+    };
 async function authorizeContinuationConnection(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   requesterUserId: string;
   connection: import("./connector-connection-repository").ConnectorConnectionRecord;
@@ -486,7 +502,6 @@ async function authorizeContinuationConnection(input: {
     effect: "read",
   });
 }
-
 function denied(code: string, reason: string, status = 403) {
   return createCoreRpcHttpError({ code, reason, status });
 }

@@ -1,13 +1,14 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   remoteAgentCoreAdmissionCallbackSchema,
   remoteAgentCoreCallbackResponseSchema,
 } from "@openmeld/schemas";
-import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
   markRemoteAgentNativeDeliveryAck,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { ensureRemoteAgentAcceptedDeliveryProbe } from "./native-delivery-accepted-probe";
 import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
@@ -20,7 +21,7 @@ export async function acknowledgeRemoteAgentAdmission(
   value: unknown
 ) {
   const body = remoteAgentCoreAdmissionCallbackSchema.parse(value);
-  const db = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("remote_agent.execution_store_unavailable");
   }

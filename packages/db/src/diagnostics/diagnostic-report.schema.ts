@@ -1,13 +1,8 @@
 import { desc } from "drizzle-orm";
-import {
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, index, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const openMeldDaemonSpaceDiagnosticReports = sqliteTable(
+export const openMeldDaemonSpaceDiagnosticReports = applicationTable(
   "openMeldDaemon_space_diagnostic_reports",
   {
     diagnosticReportId: text("diagnostic_report_id").primaryKey(),
@@ -21,7 +16,7 @@ export const openMeldDaemonSpaceDiagnosticReports = sqliteTable(
       "wake_pointer_derivation_status"
     ).notNull(),
     reasonCodesJson: text("reason_codes_json").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_openMeldDaemon_space_diagnostic_reports_space_created").on(
@@ -39,16 +34,18 @@ export const openMeldDaemonSpaceDiagnosticReports = sqliteTable(
   ]
 );
 
-export const openMeldDaemonSpaceDiagnosticReportWakePointers = sqliteTable(
+export const openMeldDaemonSpaceDiagnosticReportWakePointers = applicationTable(
   "openMeldDaemon_space_diagnostic_report_wake_pointers",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: bigint("id", { mode: "number" })
+      .generatedByDefaultAsIdentity()
+      .primaryKey(),
     diagnosticReportId: text("diagnostic_report_id").notNull(),
     spaceId: text("space_id").notNull(),
     clientMessageId: text("client_message_id"),
     sourceSignalId: text("source_signal_id").notNull(),
     targetProfileId: text("target_profile_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex(

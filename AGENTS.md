@@ -44,7 +44,7 @@ OpenMeld Web Space Wake -> RuntimeCoordinator -> current-account local OpenMeld 
 - A running execution must not be failed by a fixed total wall-clock timeout
   while RuntimeCoordinator receives fresh accepted/running lifecycle or progress
   evidence.
-- D1 dispatch records are a durable ledger and query projection. They record
+- PostgreSQL dispatch records are a durable ledger and query projection. They record
   what happened; they do not decide in-flight execution truth.
 - The Space durable dispatch outbox is the reliable workstation Wake conveyor.
   Queue is scoped to hosted recovery and other Queue message families; neither
@@ -81,7 +81,7 @@ Use these owner documents:
 | Organization tenancy, Center Agent identity/designation/delegation policy, Channels and Apps product semantics, Organization Documents and draft review, Information Protection, session sync, MVP scope and red lines | `developing/product/organizations-and-center-agent.md` |
 | Projects: Organization-scoped identity, permissions, local connections, discovery, repository fingerprints, Default Project resolution, and Project-aware Wake failures | `developing/product/projects.md` |
 | Agent Activity, local session observation, metadata privacy, presence, digests, retention, snapshots, canonical Project references, and Center Agent awareness | `developing/product/agent-activity.md` |
-| Center Agent Routines: Routine/Run semantics, authority, scheduling, target Space, native delivery, tool policy, and client surfaces | `developing/product/center-agent-routines.md` |
+| Routines: personal/team visibility, executors, scheduling, history, target Space, tool policy, and client surfaces | `developing/product/routines.md` |
 | Files: Team, member-private, and Space roots; audience, authorization, revisions, copies, and managed content boundaries | `developing/product/files.md` |
 | Organization Skills: portable Agent Skills bundles, permissions, immutable releases, GitHub import, Center Agent/Flue use, Web management, CLI loading, and local-agent delegation | `developing/product/organization-skills.md` |
 | Feedback Inbox, Feedback Issue, submission privacy, delivery modes, handling boundaries | `developing/product/feedback-loop.md` |
@@ -91,11 +91,13 @@ Use these owner documents:
 | Remote/hosted agent execution: runtime families (workstation vs native), native delivery, Message Channel ingress/publication, model-visible tools, App actions, guardrails, expansion path | `developing/product/remote-agent-runtime.md` |
 | Wake execution, Wakeability, RuntimeCoordinator, Runtime Transport boundaries, local Agent human interaction, final outcome, dispatch trace baseline | `developing/architecture/agent-transport-contract.md` |
 | OpenMeld Service / daemon lifecycle, RuntimeTransportHub fast paths and current-device Project operations, account/device/lane alignment, Prepare, service health, Agent Controller Interface instruction delivery, reporting, task callbacks, and update states | `developing/architecture/local-openmeld-service.md` |
-| Data ownership, D1 projections, Opportunities, Agent Task Coordination, Dispatch Ledger, evaluation reports, native delivery and Message Channel ledgers, App connection ownership, trace selectors, Diagnostic Reports, Cloudflare evidence | `developing/architecture/data-and-observability.md` |
-| Current D1 binding topology and future observability-only split direction | `developing/architecture/physical-db-split.md` |
+| Data ownership, relational projections, Opportunities, Agent Task Coordination, Dispatch Ledger, evaluation reports, native delivery and Message Channel ledgers, App connection ownership, trace selectors, Diagnostic Reports, Cloudflare evidence | `developing/architecture/data-and-observability.md` |
+| Production Hyperdrive + PlanetScale PostgreSQL ownership, frozen D1 source, and shared-staging boundary | `developing/architecture/physical-db-split.md` |
+| PostgreSQL planning, Amplift organization, migrations, cloud acceptance, backup and cutover | `.agents/skills/postgresql-planning/SKILL.md`, `developing/engineering/postgresql.md` |
 | Shared schemas, Opportunity RPC contracts, live invalidation frames, Agent Controller Interface snapshots, Agent Task Coordination, Message Channel and App connection contracts, Prepare `setupBootstrap.facts`, shared packages, cross-client reuse, Space password contract | `developing/architecture/shared-contracts.md` |
 | Shared UI primitives, design tokens, Fluid components, and cross-client UI package ownership | `developing/clients/shared-ui.md` |
 | Public website, shared brand assets, website/App origins and retained root protocols | `developing/clients/website.md` |
+| Independent public documentation client, Fumadocs content source and presentation | `developing/clients/docs.md` |
 | Cross-client app shell, unified Settings IA, shell/sidebar terminology, Settings capability gating | `developing/clients/shell-and-settings.md` |
 | OpenMeld Web navigation topology and route placement, Organization-switch preservation, browser read-cache persistence, Center Agent Channels/Apps, Space UX, Wake details, setup handoff, and diagnostic surfaces | `developing/clients/web.md` |
 | OpenMeld CLI command boundaries, Human View / Agent View, setup handoff, trace, lane safety | `developing/clients/cli.md` |
@@ -103,7 +105,7 @@ Use these owner documents:
 | Desktop preview download page, R2 artifact binding, and production Web download/update routes | `developing/clients/desktop.md`, `developing/clients/web.md`, `developing/engineering/development-workflow.md` |
 | CLI binary release, R2 manifest, Web download route, and setup `dist=` distribution switch | `developing/engineering/cli-binary-release.md`, `developing/clients/cli.md`, `developing/clients/web.md` |
 | Agent-native development, Final Candidate validation, Actions-unavailable fallback, optional review support, merge, release concurrency, health, smoke, evidence, and failure recovery | `developing/engineering/agent-native-delivery.md` |
-| Production release lane selection, scoped local/GitHub deploys, D1 and CLI rollout, Desktop impact assessment, health checks, and release reporting | `developing/engineering/production-release.md` |
+| Production release lane selection, scoped local/GitHub deploys, database and CLI rollout, Desktop impact assessment, health checks, and release reporting | `developing/engineering/production-release.md` |
 | OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |
 | Internal staging scope, isolation, guarded deployment, and staging evidence | `developing/engineering/staging-environment.md` |
@@ -329,7 +331,7 @@ change must leave those signals cleaner and less ambiguous.
 - Real-user smoke must use user-accessible entry points such as OpenMeld Web UI,
   published OpenMeld CLI, `openmeld-dev`, `openmeld-canary`, installed OpenMeld Service commands,
   or product-supported trace/diagnostic commands.
-- Internal HTTP/RPC calls, D1 SQL, Durable Object inspection, Queue inspection,
+- Internal HTTP/RPC calls, database SQL, Durable Object inspection, Queue inspection,
   admin scripts, manual cookie/localStorage edits, DB row edits, and direct
   projection edits are internal diagnostics only. They do not count as real-user
   smoke by themselves.

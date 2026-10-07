@@ -1122,7 +1122,9 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  if (message.method === 'config/read') { write({ id: message.id, result: { config: { mcp_servers: { openmeld_internal_dispatch_space_action: JSON.parse(process.env.OPENMELD_FAKE_CODEX_SPACE_POLICY ?? '{}') } }, origins: {}, layers: null } }); return; }",
       "  if (message.method === 'configRequirements/read') { write({ id: message.id, result: { requirements: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS ?? 'null') } }); return; }",
       "  if (message.method === 'command/exec') { write({ jsonrpc: '2.0', id: message.id, result: { exitCode: 0, stdout: 'denied:denied:allowed:denied', stderr: '' } }); return; }",
-      "  if (message.method === 'mcpServerStatus/list') { write({ jsonrpc: '2.0', id: message.id, result: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MCP_INVENTORY ?? '{\"data\":[],\"nextCursor\":null}') }); return; }",
+      // A real 0.150.1 server with a responsive tools/list and stalled
+      // resources/list returns toolsAndAuthOnly while full remains pending.
+      "  if (message.method === 'mcpServerStatus/list') { if (message.params.detail === 'full' && process.env.OPENMELD_FAKE_CODEX_HANG_RESOURCES === '1') return; write({ jsonrpc: '2.0', id: message.id, result: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MCP_INVENTORY ?? '{\"data\":[],\"nextCursor\":null}') }); return; }",
       "  if (message.method === 'collaborationMode/list') {",
       "    write({ jsonrpc: '2.0', id: message.id, result: { data: [",
       "      { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },",
@@ -1288,6 +1290,12 @@ for (const scenario of [
     native: true,
     inventory: { data: [], nextCursor: "1" },
     error: "context.space_tool_carrier_unverified",
+  },
+  {
+    name: "native tools with a stalled ambient resource catalog",
+    version: "0.150.1",
+    native: true,
+    hangResources: true,
   },
   {
     name: "bundled prerelease resumes the native conversation",
@@ -1514,6 +1522,9 @@ for (const scenario of [
           OPENMELD_FAKE_CODEX_MCP_INVENTORY: scenario.inventory
             ? JSON.stringify(scenario.inventory)
             : undefined,
+          OPENMELD_FAKE_CODEX_HANG_RESOURCES: scenario.hangResources
+            ? "1"
+            : "0",
           OPENMELD_FAKE_CODEX_MISSING_METHOD: scenario.missingMethod,
           ...(scenario.deliveryOnly
             ? { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" }
@@ -1579,6 +1590,11 @@ for (const scenario of [
             : {}),
           limit: 100,
         });
+        assert.equal(
+          messages.find((message) => message.method === "mcpServerStatus/list")
+            .params.detail,
+          scenario.deliveryOnly ? "full" : "toolsAndAuthOnly"
+        );
         assert.equal(
           scenario.deliveryOnly
             ? thread.params.config.mcp_servers
@@ -4204,8 +4220,8 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
   }
 });
 
-test("invokeCodexAppServerTransport reports a missing rollout as missing context", async () => {
-  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+test("an inherited-permission task reports missing history without starting replacement work", async () => {
+  const { invokeCodexAppServer } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-no-rollout-"));
   const dispatchDir = await mkdtemp(
     join(tmpdir(), "codex-app-no-rollout-dir-")
@@ -4217,7 +4233,23 @@ test("invokeCodexAppServerTransport reports a missing rollout as missing context
 
   try {
     await assert.rejects(
-      invokeCodexAppServerTransport({
+      invokeCodexAppServer({
+        executionContext: {
+          version: 1,
+          id: "11111111-1111-4111-8111-111111111111",
+          access: "workspace",
+          workspace: "current",
+          permissionSource: "agent_settings",
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: "space",
+            targetProfileId: "agent",
+            threadId: null,
+          },
+          nativeConversationId: "thread-missing-rollout",
+          runtimeWorkspaceFingerprint: null,
+        },
         launchContract: createNodeScriptLaunchContract(fixturePath),
         codexTimeoutMs: 5000,
         codexWorkdir: dispatchDir,

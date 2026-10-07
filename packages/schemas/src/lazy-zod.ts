@@ -326,6 +326,7 @@ export const email = lazyFactory(zod.email);
 const enumFactory = lazyFactory(zod.enum);
 export { enumFactory as enum };
 export const int = lazyFactory(zod.int);
+export const json = lazyFactory(zod.json);
 export const literal = lazyFactory(zod.literal);
 const neverFactory = lazyFactory(zod.never);
 export { neverFactory as never };

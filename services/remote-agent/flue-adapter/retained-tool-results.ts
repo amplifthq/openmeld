@@ -299,9 +299,9 @@ export function createRemoteAgentReadToolResultDefinition(
   return {
     name: "openmeld_read_tool_result",
     description:
-      "Read or search the exact retained JSON from a previous tool result in this same execution. Use the resultId returned in presentation.continuation. offset/nextOffset count UTF-16 code units; limit is at most 12000 characters. Set query for a literal search with bounded surrounding excerpts. This does not rerun the original action. References expire after one hour and remain subject to current execution and connection permissions; an expired, foreign or revoked result is not recoverable by repeating a write.",
+      "Recover previous tool results in this same execution without rerunning their actions. Omit all fields to list recoverable result IDs after compaction. With resultId, read bounded pages or set query for literal search. offset/nextOffset count UTF-16 code units; limit is at most 12000 characters. References expire after one hour and remain subject to current execution and connection permissions; an expired, foreign or revoked result is not recoverable by repeating a write.",
     input: strictObject({
-      resultId: pipe(string(), regex(RESULT_ID)),
+      resultId: optional(pipe(string(), regex(RESULT_ID))),
       offset: optional(pipe(number(), integer(), minValue(0))),
       limit: optional(
         pipe(
@@ -316,6 +316,9 @@ export function createRemoteAgentReadToolResultDefinition(
     execute: async (value, options) => {
       options?.signal?.throwIfAborted();
       const request = remoteAgentReadToolResultRequestSchema.parse(value);
+      if (!request.resultId) {
+        return await listRetainedToolResults(input, options?.signal);
+      }
       const metadata = snapshotSchema.safeParse(
         await input.storage.get(
           `${PREFIX}meta:${input.submissionId}:${request.resultId}`
@@ -404,6 +407,74 @@ export function createRemoteAgentReadToolResultDefinition(
       );
     },
   };
+}
+
+async function listRetainedToolResults(
+  input: ResultDependencies,
+  signal?: AbortSignal
+) {
+  const context = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.submissionId
+  );
+  if (!(context && input.coreWorker)) {
+    throw new Error("remote_agent.execution_access_unavailable");
+  }
+  const scopeKey = remoteAgentExecutionScopeKey(
+    resolveRemoteAgentExecutionScope(context)
+  );
+  await requireRemoteAgentExecutionAccess({
+    context,
+    coreWorker: input.coreWorker,
+    sources: [],
+  });
+  // Read existing bounded metadata, never result chunks or a copied index.
+  const rows = await input.storage.list({
+    prefix: `${PREFIX}meta:${input.submissionId}:`,
+    limit: REMOTE_AGENT_RETAINED_RESULT_MAX_PER_EXECUTION,
+  });
+  const results: Array<{
+    resultId: string;
+    toolName: string;
+    totalChars: number;
+    expiresAtMs: number;
+  }> = [];
+  const sources: RemoteAgentResultSource[] = [];
+  for (const row of rows.values()) {
+    signal?.throwIfAborted();
+    const parsed = snapshotSchema.safeParse(row);
+    if (!parsed.success || parsed.data.expiresAtMs <= Date.now()) {
+      continue;
+    }
+    const snapshot = parsed.data;
+    if (
+      snapshot.submissionId !== input.submissionId ||
+      snapshot.scopeKey !== scopeKey
+    ) {
+      throw new Error("remote_agent.tool_result_audience_mismatch");
+    }
+    await requireRemoteAgentExecutionAccess({
+      context,
+      coreWorker: input.coreWorker,
+      sources: snapshot.sources,
+    });
+    sources.push(...snapshot.sources);
+    results.push({
+      resultId: snapshot.resultId,
+      toolName: snapshot.toolName,
+      totalChars: snapshot.totalChars,
+      expiresAtMs: snapshot.expiresAtMs,
+    });
+  }
+  await requireRemoteAgentExecutionAccess({
+    context,
+    coreWorker: input.coreWorker,
+    sources: mergeRemoteAgentResultSources(sources),
+  });
+  return tagRemoteAgentResultSources(
+    remoteAgentReadToolResultResponseSchema.parse({ kind: "list", results }),
+    mergeRemoteAgentResultSources(sources)
+  );
 }
 
 async function searchSnapshot(
@@ -539,14 +610,20 @@ async function reserveSnapshotSlot(
       }
       continue;
     }
-    if (
-      await storage.compareAndSetExpiring(
-        key,
-        previous,
-        reservation,
-        reservation.expiresAtMs
-      )
-    ) {
+    const reserved =
+      previous === undefined
+        ? await storage.putIfAbsentExpiring(
+            key,
+            reservation,
+            reservation.expiresAtMs
+          )
+        : await storage.compareAndSetExpiring(
+            key,
+            previous,
+            reservation,
+            reservation.expiresAtMs
+          );
+    if (reserved) {
       return key;
     }
   }

@@ -1,3 +1,4 @@
+import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
 import type {
   CenterAgentAction,
   CenterAgentAttribution,
@@ -17,7 +18,6 @@ type CenterAgentDesignationRow = {
   paused_by_user_id: string | null;
   created_at: number;
 };
-
 type CenterAgentAuditJournalRow = {
   id: string;
   organization_id: string;
@@ -39,7 +39,6 @@ type CenterAgentAuditJournalRow = {
   context_load_manifest_id: string | null;
   created_at: number;
 };
-
 type CenterAgentAttributionProfileRow = {
   profile_id: string;
   profile_kind: "agent" | "human" | "system";
@@ -52,7 +51,6 @@ type CenterAgentAttributionProfileRow = {
   member_user_id: string | null;
   is_default: number | boolean;
 };
-
 export type CenterAgentDesignationRecord = {
   organizationId: string;
   agentProfileId: string;
@@ -63,7 +61,6 @@ export type CenterAgentDesignationRecord = {
   pausedByUserId: string | null;
   createdAtMs: number;
 };
-
 export type CenterAgentAuditJournalEntryRecord = {
   id: string;
   organizationId: string;
@@ -85,52 +82,45 @@ export type CenterAgentAuditJournalEntryRecord = {
   contextLoadManifestId: string | null;
   createdAtMs: number;
 };
-
 export type ResolvedCenterAgentAttribution = CenterAgentAttribution;
-
 export type CenterAgentProfileIdentity = {
   profileHandle: string;
   profileName: string;
 };
-
 type CenterAgentProfileIdentityRow = {
   profile_handle: string;
   profile_name: string;
 };
-
 export async function readCenterAgentProfileIdentity(input: {
   agentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
 }): Promise<CenterAgentProfileIdentity | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentProfileIdentityRow>({
+      text: `
         SELECT profile_name, profile_handle
-        FROM openmeld_profiles
-        WHERE profile_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.agentProfileId)
-    .first<CenterAgentProfileIdentityRow>();
-
+      `,
+      values: [input.agentProfileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
-
   return {
     profileHandle: row.profile_handle,
     profileName: row.profile_name,
   };
 }
-
 export async function readCenterAgentDesignationRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<CenterAgentDesignationRecord | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentDesignationRow>({
+      text: `
         SELECT
           organization_id,
           agent_profile_id,
@@ -140,20 +130,18 @@ export async function readCenterAgentDesignationRecord(input: {
           paused_at,
           paused_by_user_id,
           created_at
-        FROM center_agent_designations
-        WHERE organization_id = ?
+        FROM "openmeld"."center_agent_designations"
+        WHERE organization_id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<CenterAgentDesignationRow>();
-
+      `,
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapDesignationRow(row) : null;
 }
-
 export async function upsertCenterAgentDesignationRecord(input: {
   agentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   designatedBy: string;
   nowMs: number;
   organizationId: string;
@@ -163,32 +151,29 @@ export async function upsertCenterAgentDesignationRecord(input: {
   status: "designated" | "replaced" | "unchanged";
 }> {
   const previous = await readCenterAgentDesignationRecord(input);
-  await input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_designations (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."center_agent_designations" (
           organization_id,
           agent_profile_id,
           duty,
           designated_by,
           created_at
         )
-        VALUES (?, ?, NULL, ?, ?)
+        VALUES ($1, $2, NULL, $3, $4)
         ON CONFLICT(organization_id) DO UPDATE SET
           agent_profile_id = excluded.agent_profile_id,
           duty = NULL,
           designated_by = excluded.designated_by,
           created_at = excluded.created_at
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.organizationId,
       input.agentProfileId,
       input.designatedBy,
-      input.nowMs
-    )
-    .run();
-
+      input.nowMs,
+    ],
+  });
   const designation = await readCenterAgentDesignationRecord(input);
   if (!designation) {
     throw new Error("Center Agent designation write did not produce a row");
@@ -200,16 +185,14 @@ export async function upsertCenterAgentDesignationRecord(input: {
         ? "unchanged"
         : "replaced";
   }
-
   return {
     designation,
     previousAgentProfileId: previous?.agentProfileId ?? null,
     status,
   };
 }
-
 export async function updateCenterAgentOperatingStateRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   operatingState: CenterAgentOperatingState;
   organizationId: string;
   updatedByUserId: string;
@@ -228,26 +211,22 @@ export async function updateCenterAgentOperatingStateRecord(input: {
   if (previous.operatingState === input.operatingState) {
     return { changed: false, designation: previous };
   }
-
-  await input.db
-    .prepare(
-      `
-        UPDATE center_agent_designations
+  await input.db.query({
+    text: `
+        UPDATE "openmeld"."center_agent_designations"
         SET
-          operating_state = ?,
-          paused_at = ?,
-          paused_by_user_id = ?
-        WHERE organization_id = ?
-      `
-    )
-    .bind(
+          operating_state = $1,
+          paused_at = $2,
+          paused_by_user_id = $3
+        WHERE organization_id = $4
+      `,
+    values: [
       input.operatingState,
       input.operatingState === "paused" ? input.nowMs : null,
       input.operatingState === "paused" ? input.updatedByUserId : null,
-      input.organizationId
-    )
-    .run();
-
+      input.organizationId,
+    ],
+  });
   const designation = await readCenterAgentDesignationRecord(input);
   if (!designation || designation.operatingState !== input.operatingState) {
     throw new Error("Center Agent operating state write did not produce a row");
@@ -257,52 +236,53 @@ export async function updateCenterAgentOperatingStateRecord(input: {
     designation,
   };
 }
-
 export function isCenterAgentDesignationActive(
   designation: CenterAgentDesignationRecord | null
-): designation is CenterAgentDesignationRecord & { operatingState: "active" } {
+): designation is CenterAgentDesignationRecord & {
+  operatingState: "active";
+} {
   return designation?.operatingState === "active";
 }
-
 type CenterAgentAuditJournalEntryInput = {
   action: CenterAgentAction;
   actorProfileId: string;
   attribution: ResolvedCenterAgentAttribution;
-  db: D1Database;
+  db: PostgresDatabase;
   id: string;
   nowMs: number;
   organizationId: string;
-  resource?: { id: string; type: string } | null;
+  resource?: {
+    id: string;
+    type: string;
+  } | null;
   sourceNativeDeliveryId?: string | null;
   sourceSpaceId?: string | null;
 };
-
 export function prepareCenterAgentAuditJournalEntryStatement(
   input: CenterAgentAuditJournalEntryInput
-): D1PreparedStatement {
+): QueryConfig {
   return prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy({
     ...input,
     ignoreConflict: false,
   });
 }
-
 export function prepareCenterAgentAuditJournalEntryIfMissingStatement(
   input: CenterAgentAuditJournalEntryInput
-): D1PreparedStatement {
+): QueryConfig {
   return prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy({
     ...input,
     ignoreConflict: true,
   });
 }
-
 function prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy(
-  input: CenterAgentAuditJournalEntryInput & { ignoreConflict: boolean }
-): D1PreparedStatement {
+  input: CenterAgentAuditJournalEntryInput & {
+    ignoreConflict: boolean;
+  }
+): QueryConfig {
   const onBehalfOf = input.attribution.onBehalfOf;
-  return input.db
-    .prepare(
-      `
-        INSERT ${input.ignoreConflict ? "OR IGNORE " : ""}INTO center_agent_audit_journal (
+  return {
+    text: `
+        INSERT INTO "openmeld"."center_agent_audit_journal" (
           id,
           organization_id,
           actor_profile_id,
@@ -316,10 +296,10 @@ function prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy(
           source_space_id,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ${input.ignoreConflict ? "ON CONFLICT DO NOTHING" : ""}
+      `,
+    values: [
       input.id,
       input.organizationId,
       input.actorProfileId,
@@ -331,16 +311,15 @@ function prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy(
       input.resource?.id ?? null,
       input.sourceNativeDeliveryId ?? null,
       input.sourceSpaceId ?? null,
-      input.nowMs
-    );
+      input.nowMs,
+    ],
+  };
 }
-
 export async function insertCenterAgentAuditJournalEntry(
   input: CenterAgentAuditJournalEntryInput
 ): Promise<CenterAgentAuditJournalEntryRecord> {
   const onBehalfOf = input.attribution.onBehalfOf;
-  await prepareCenterAgentAuditJournalEntryStatement(input).run();
-
+  await input.db.query(prepareCenterAgentAuditJournalEntryStatement(input));
   return {
     id: input.id,
     organizationId: input.organizationId,
@@ -363,40 +342,36 @@ export async function insertCenterAgentAuditJournalEntry(
     createdAtMs: input.nowMs,
   };
 }
-
 /** Exact, Core-written provenance for one Center Agent-authored Space Wake. */
 export async function readCenterAgentWakeAuditAttribution(input: {
   clientMessageId: string;
-  db: D1Database;
+  db: PostgresDatabase;
 }): Promise<CenterAgentAuditJournalEntryRecord | null> {
   const row = await input.db
-    .prepare(
-      `SELECT * FROM center_agent_audit_journal
-       WHERE id = ? AND action = 'wake_agent_profiles_in_space'
-       LIMIT 1`
-    )
-    .bind(`center-agent-wake:${input.clientMessageId}`)
-    .first<CenterAgentAuditJournalRow>();
+    .query<CenterAgentAuditJournalRow>({
+      text: `SELECT * FROM "openmeld"."center_agent_audit_journal"
+       WHERE id = $1 AND action = 'wake_agent_profiles_in_space'
+       LIMIT 1`,
+      values: [`center-agent-wake:${input.clientMessageId}`],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapAuditJournalRow(row) : null;
 }
-
 export async function insertCenterAgentAuditJournalEntryIfMissing(
   input: CenterAgentAuditJournalEntryInput
 ): Promise<void> {
-  await prepareCenterAgentAuditJournalEntryIfMissingStatement(input).run();
+  await input.db.query(
+    prepareCenterAgentAuditJournalEntryIfMissingStatement(input)
+  );
 }
-
 export async function listCenterAgentAuditJournalEntries(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   excludedActions?: readonly CenterAgentAction[];
   limit: number;
   organizationId: string;
 }): Promise<CenterAgentAuditJournalEntryRecord[]> {
-  const excludedActionPlaceholders = input.excludedActions
-    ?.map(() => "?")
-    .join(", ");
-  const statement = input.db.prepare(
-    `
+  const statement = {
+    text: `
         SELECT
           journal.id,
           journal.organization_id,
@@ -419,13 +394,13 @@ export async function listCenterAgentAuditJournalEntries(input: {
               THEN journal.resource_id
               ELSE (
                 SELECT source_request.resource_id
-                FROM center_agent_audit_journal AS source_request
+                FROM "openmeld"."center_agent_audit_journal" AS source_request
                 WHERE source_request.organization_id = journal.organization_id
                   AND journal.source_native_delivery_id IS NOT NULL
                   AND source_request.source_native_delivery_id = journal.source_native_delivery_id
                   AND source_request.action = 'receive_local_agent_request'
                   AND source_request.resource_type = 'local_agent_client'
-                ORDER BY source_request.created_at ASC, source_request.id ASC
+                ORDER BY source_request.created_at ASC NULLS FIRST, source_request.id ASC NULLS FIRST
                 LIMIT 1
               )
             END
@@ -436,27 +411,27 @@ export async function listCenterAgentAuditJournalEntries(input: {
           load_receipt.estimated_token_count AS context_load_estimated_token_count,
           load_receipt.included_message_count AS context_load_included_message_count,
           load_receipt.manifest_id AS context_load_manifest_id
-        FROM center_agent_audit_journal AS journal
-        LEFT JOIN center_agent_context_manifests AS manifest
+        FROM "openmeld"."center_agent_audit_journal" AS journal
+        LEFT JOIN "openmeld"."center_agent_context_manifests" AS manifest
           ON manifest.audit_entry_id = journal.id
-        LEFT JOIN center_agent_context_load_receipts AS load_receipt
+        LEFT JOIN "openmeld"."center_agent_context_load_receipts" AS load_receipt
           ON load_receipt.audit_entry_id = journal.id
-        WHERE journal.organization_id = ?
-          ${excludedActionPlaceholders ? `AND journal.action NOT IN (${excludedActionPlaceholders})` : ""}
-        ORDER BY journal.created_at DESC, journal.id DESC
-        LIMIT ?
-      `
-  );
-  const result = await statement
-    .bind(input.organizationId, ...(input.excludedActions ?? []), input.limit)
-    .all<CenterAgentAuditJournalRow>();
-
-  return (result.results ?? []).map(mapAuditJournalRow);
+        WHERE journal.organization_id = $1
+          AND NOT (journal.action = ANY($2::text[]))
+        ORDER BY journal.created_at DESC NULLS LAST, journal.id DESC NULLS LAST
+        LIMIT $3
+      `,
+    values: [],
+  };
+  const result = await input.db.query<CenterAgentAuditJournalRow>({
+    ...statement,
+    values: [input.organizationId, input.excludedActions ?? [], input.limit],
+  });
+  return (result.rows ?? []).map(mapAuditJournalRow);
 }
-
 export async function resolveCenterAgentAttribution(input: {
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   onBehalfOfProfileId?: string | null;
   organizationId: string;
 }): Promise<ResolvedCenterAgentAttribution> {
@@ -466,7 +441,6 @@ export async function resolveCenterAgentAttribution(input: {
       onBehalfOf: null,
     };
   }
-
   const profile = await readOrganizationScopedAttributionProfile({
     db: input.db,
     organizationId: input.organizationId,
@@ -475,7 +449,6 @@ export async function resolveCenterAgentAttribution(input: {
   if (!profile?.ownerUserId) {
     throw new Error("onBehalfOf profile is not part of this Organization");
   }
-
   return {
     actorProfileId: input.actorProfileId,
     onBehalfOf: {
@@ -485,9 +458,8 @@ export async function resolveCenterAgentAttribution(input: {
     },
   };
 }
-
 export async function readResolvedOrganizationSpaceMember(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileId: string;
 }): Promise<ResolvedSpaceMemberProfile | null> {
@@ -508,9 +480,8 @@ export async function readResolvedOrganizationSpaceMember(input: {
     agentControllerRef: null,
   };
 }
-
 export async function readResolvedOrganizationDirectorySpaceMember(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileId: string;
 }): Promise<ResolvedSpaceMemberProfile | null> {
@@ -532,15 +503,21 @@ export async function readResolvedOrganizationDirectorySpaceMember(input: {
     agentControllerRef: null,
   };
 }
-
 export async function readResolvedOrganizationOwnerHumanSpaceMember(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   ownerUserId: string;
 }): Promise<ResolvedSpaceMemberProfile | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      member_user_id: string | null;
+      owner_name: string | null;
+      owner_user_id: string;
+      profile_id: string;
+      profile_name: string;
+      profile_status: string;
+    }>({
+      text: `
         SELECT
           profiles.profile_id,
           profiles.profile_name,
@@ -548,27 +525,20 @@ export async function readResolvedOrganizationOwnerHumanSpaceMember(input: {
           profiles.owner_user_id,
           users.name AS owner_name,
           members.user_id AS member_user_id
-        FROM openmeld_profiles AS profiles
-        LEFT JOIN users
+        FROM "openmeld"."openmeld_profiles" AS profiles
+        LEFT JOIN "openmeld"."users"
           ON users.id = profiles.owner_user_id
-        LEFT JOIN members
+        LEFT JOIN "openmeld"."members"
           ON members.user_id = profiles.owner_user_id
-          AND members.organization_id = ?
-        WHERE profiles.owner_user_id = ?
+          AND members.organization_id = $1
+        WHERE profiles.owner_user_id = $2
           AND profiles.profile_kind = 'human'
           AND profiles.is_default = 1
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.ownerUserId)
-    .first<{
-      member_user_id: string | null;
-      owner_name: string | null;
-      owner_user_id: string;
-      profile_id: string;
-      profile_name: string;
-      profile_status: string;
-    }>();
+      `,
+      values: [input.organizationId, input.ownerUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!(row && row.profile_status === "active" && row.member_user_id)) {
     return null;
   }
@@ -581,9 +551,8 @@ export async function readResolvedOrganizationOwnerHumanSpaceMember(input: {
     profileName: row.profile_name,
   };
 }
-
 async function readOrganizationScopedAttributionProfile(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileId: string;
   requireDefaultHumanProfile?: boolean;
@@ -595,8 +564,8 @@ async function readOrganizationScopedAttributionProfile(input: {
   profileKind: "agent" | "human" | "system";
 } | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentAttributionProfileRow>({
+      text: `
         SELECT
           profiles.profile_id,
           profiles.profile_kind,
@@ -608,19 +577,18 @@ async function readOrganizationScopedAttributionProfile(input: {
           profiles.owner_user_id,
           users.name AS owner_name,
           members.user_id AS member_user_id
-        FROM openmeld_profiles AS profiles
-        LEFT JOIN users
+        FROM "openmeld"."openmeld_profiles" AS profiles
+        LEFT JOIN "openmeld"."users"
           ON users.id = profiles.owner_user_id
-        LEFT JOIN members
+        LEFT JOIN "openmeld"."members"
           ON members.user_id = profiles.owner_user_id
-          AND members.organization_id = ?
-        WHERE profiles.profile_id = ?
+          AND members.organization_id = $1
+        WHERE profiles.profile_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.profileId)
-    .first<CenterAgentAttributionProfileRow>();
-
+      `,
+      values: [input.organizationId, input.profileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (row?.profile_status !== "active") {
     return null;
   }
@@ -649,7 +617,6 @@ async function readOrganizationScopedAttributionProfile(input: {
   if (profileKind === "system") {
     return null;
   }
-
   return {
     displayName: row.profile_name,
     ownerName: normalizeNullableText(row.owner_name),
@@ -658,7 +625,6 @@ async function readOrganizationScopedAttributionProfile(input: {
     profileKind,
   };
 }
-
 export function toCenterAgentDesignationDto(
   record: CenterAgentDesignationRecord
 ): CenterAgentDesignation {
@@ -670,7 +636,6 @@ export function toCenterAgentDesignationDto(
     createdAt: toIsoDateTime(record.createdAtMs),
   };
 }
-
 export function toCenterAgentAuditJournalEntryDto(
   record: CenterAgentAuditJournalEntryRecord,
   input: {
@@ -737,7 +702,6 @@ export function toCenterAgentAuditJournalEntryDto(
     createdAt: toIsoDateTime(record.createdAtMs),
   };
 }
-
 function mapDesignationRow(
   row: CenterAgentDesignationRow
 ): CenterAgentDesignationRecord {
@@ -755,7 +719,6 @@ function mapDesignationRow(
     createdAtMs: row.created_at,
   };
 }
-
 function mapAuditJournalRow(
   row: CenterAgentAuditJournalRow
 ): CenterAgentAuditJournalEntryRecord {
@@ -786,12 +749,10 @@ function mapAuditJournalRow(
     createdAtMs: row.created_at,
   };
 }
-
 function normalizeNullableText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function toIsoDateTime(value: number): string {
   return new Date(value).toISOString();
 }

@@ -3,6 +3,7 @@ import {
   resolveAgentWakeAdmissionBlockReasonCode,
   resolveAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceSnapshot,
@@ -11,25 +12,26 @@ import type {
   LocalComponentsStatus,
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import { createAgentExecutionReadinessReads } from "../agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadinessForProfile as resolveCoreAgentExecutionReadinessForProfileWithoutOrganizationFixture } from "../agent-execution/application/agent-execution-readiness-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as readinessImpactRepo from "../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
-import { readFreshAgentExecutionReadinessImpactForBinding } from "../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
+import * as readinessImpactRepo from "../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
+import { readFreshAgentExecutionReadinessImpactForBinding } from "../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as providerAccessEvidenceRepo from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
-import { readFreshProviderAccessEvidenceForBinding } from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
+import * as providerAccessEvidenceRepo from "../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
+import { readFreshProviderAccessEvidenceForBinding } from "../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as providerConversationProofRepo from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
-import { readFreshProviderConversationProofForBinding } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
+import * as providerConversationProofRepo from "../agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
+import { readFreshProviderConversationProofForBinding } from "../agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as localRuntimeExpectedRoutesService from "../agent-profile-binding/application/local-runtime-expected-routes-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as agentProfileBindingRepo from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import * as agentProfileBindingRepo from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
-} from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+} from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { resolveCurrentAgentModelAvailability } from "../config/agent-model-availability";
 // biome-ignore lint/performance/noNamespaceImport: Spy on the reviewed catalog, not execution policy.
 import * as modelCatalogSource from "../config/model-catalog";
@@ -43,21 +45,21 @@ import type { CoreBindings } from "../lib/bindings";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as localComponentsUpdateProjection from "../local-components/update-projection";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as runtimeAgentControllerReportRepo from "../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
-import { readCurrentRuntimeAgentControllerReports } from "../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+import * as runtimeAgentControllerReportRepo from "../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
+import { readCurrentRuntimeAgentControllerReports } from "../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as runtimeRegistryRepo from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import * as runtimeRegistryRepo from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import {
   listOwnedDeviceExecutionTargetRecords,
   readRuntimeRegistryRecord,
   readRuntimeRegistryRecordByRuntimeId,
-} from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+} from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as currentDeviceDerivationRepo from "../start/infrastructure/d1/current-device-derivation-repo";
-import { resolveCurrentDeviceFromBindings } from "../start/infrastructure/d1/current-device-derivation-repo";
+import * as currentDeviceDerivationRepo from "../start/infrastructure/postgresql/current-device-derivation-repo";
+import { resolveCurrentDeviceFromBindings } from "../start/infrastructure/postgresql/current-device-derivation-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as ownedDeviceRegistryRepo from "../start/infrastructure/d1/owned-device-registry-repo";
-import { listOwnedDeviceRegistryRecords } from "../start/infrastructure/d1/owned-device-registry-repo";
+import * as ownedDeviceRegistryRepo from "../start/infrastructure/postgresql/owned-device-registry-repo";
+import { listOwnedDeviceRegistryRecords } from "../start/infrastructure/postgresql/owned-device-registry-repo";
 import { REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST } from "./local-components-release-manifest-fixture";
 
 const GENERATED_AT = "2026-05-13T00:00:00.000Z";
@@ -558,6 +560,7 @@ describe("Core Agent Execution Readiness", () => {
           reasonCodes: [
             "service.update_required",
             "service.version_not_reported",
+            "service.release_target_unavailable",
           ],
           source: "runtime_transport",
         },
@@ -1402,7 +1405,10 @@ describe("Core Agent Execution Readiness", () => {
     mockOnlineRoute("device-1");
     const binding = await readPrimaryAgentProfileBindingRecord({
       agentProfileId: profileId,
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       owner: { kind: "owner_account", id: "owner-1" },
     });
     if (!binding) {
@@ -2623,7 +2629,7 @@ function createCoreEnv(input: {
     OPENMELD_AUTH_WORKER: {
       resolveProfileById: input.resolveProfileById,
     },
-    OPENMELD_DB: createAgentProfileOrganizationDb(),
+    OPENMELD_POSTGRESQL: createAgentProfileOrganizationBinding(),
     OPENMELD_SPACES: {} as DurableObjectNamespace,
   } as unknown as CoreBindings;
 }
@@ -2641,25 +2647,21 @@ function resolveCoreAgentExecutionReadinessForProfile(
   );
 }
 
-function createAgentProfileOrganizationDb(): D1Database {
-  return {
-    prepare: vi.fn((query: string) => {
-      if (!query.includes("FROM openmeld_profiles")) {
-        throw new Error(`Unexpected readiness test query: ${query}`);
-      }
-      return {
-        bind: vi.fn(() => ({
-          first: vi.fn().mockResolvedValue({
-            managed_role: null,
-            organization_id: TEST_ORGANIZATION_ID,
-            owner_user_id: "owner-1",
-            profile_kind: "agent",
-            profile_name: "Readiness Test Agent",
-          }),
-        })),
-      };
-    }),
-  } as unknown as D1Database;
+function createAgentProfileOrganizationBinding() {
+  return createProjectionPostgresBinding(({ text }) => {
+    if (!text.includes('FROM "openmeld"."openmeld_profiles"')) {
+      throw new Error(`Unexpected readiness test query: ${text}`);
+    }
+    return [
+      {
+        managed_role: null,
+        organization_id: TEST_ORGANIZATION_ID,
+        owner_user_id: "owner-1",
+        profile_kind: "agent",
+        profile_name: "Readiness Test Agent",
+      },
+    ];
+  });
 }
 
 function mockReadyBindingAndRuntime(

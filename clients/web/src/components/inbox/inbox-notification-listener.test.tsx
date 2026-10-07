@@ -2,6 +2,8 @@ import type { InboxItem } from "@openmeld/schemas/types";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// biome-ignore lint/performance/noNamespaceImport: Spy on the owned transport boundary, while retaining its default implementation in other cases.
+import * as accountStream from "#/lib/inbox/account-invalidation-transport";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
@@ -1136,6 +1138,105 @@ describe("InboxNotificationListener", () => {
 			expect.objectContaining({ enabled: true })
 		);
 		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
+	});
+
+	it("uses push while connected, drains pending observations and resumes polling on disconnect", () => {
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		const socket = Object.assign(new EventTarget(), {
+			send: vi.fn(),
+			close: vi.fn(),
+		});
+		vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		).mockReturnValue(socket);
+		renderListener();
+		const interval = (hasMore = false) =>
+			itemsQueryMock.mock.lastCall?.[0].refetchInterval({
+				state: { data: { hasMore } },
+			});
+		expect(interval()).toBe(1000);
+		act(() => socket.dispatchEvent(new Event("open")));
+		expect(interval()).toBe(30_000);
+		expect(interval(true)).toBe(1000);
+		const reads = itemsRefetch.mock.calls.length;
+		act(() =>
+			socket.dispatchEvent(
+				new MessageEvent("message", {
+					data: JSON.stringify({ type: "inbox.changed" }),
+				})
+			)
+		);
+		expect(itemsRefetch.mock.calls.length).toBeGreaterThan(reads);
+		act(() => socket.dispatchEvent(new Event("close")));
+		expect(interval()).toBe(1000);
+	});
+	it("backs off short-lived connections until a keepalive succeeds", async () => {
+		vi.useFakeTimers();
+		const sockets = Array.from({ length: 4 }, () =>
+			Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
+		);
+		const connect = vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		);
+		for (const socket of sockets) {
+			connect.mockReturnValueOnce(socket);
+		}
+		renderListener();
+		act(() => sockets[0]?.dispatchEvent(new Event("open")));
+		const reads = itemsRefetch.mock.calls.length;
+		act(() => sockets[0]?.dispatchEvent(new Event("close")));
+		// Polling already repairs missed changes while disconnected.
+		expect(itemsRefetch).toHaveBeenCalledTimes(reads);
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(2);
+		act(() => sockets[1]?.dispatchEvent(new Event("open")));
+		act(() => sockets[1]?.dispatchEvent(new Event("close")));
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(2);
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(3);
+		act(() => sockets[2]?.dispatchEvent(new Event("open")));
+		await act(() => vi.advanceTimersByTimeAsync(25_000));
+		expect(sockets[2]?.send).toHaveBeenCalledWith("ping");
+		act(() =>
+			sockets[2]?.dispatchEvent(new MessageEvent("message", { data: "pong" }))
+		);
+		act(() => sockets[2]?.dispatchEvent(new Event("close")));
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(4);
+	});
+
+	it("refreshes unopened Space membership from account push without waiting for a poll", async () => {
+		vi.useFakeTimers();
+		notificationSettingsByUserId.set("user-123", false);
+		const socket = Object.assign(new EventTarget(), {
+			send: vi.fn(),
+			close: vi.fn(),
+		});
+		vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		).mockReturnValue(socket);
+		renderListener();
+		act(() => socket.dispatchEvent(new Event("open")));
+		queryClientMock.invalidateQueries.mockClear();
+		act(() =>
+			socket.dispatchEvent(
+				new MessageEvent("message", {
+					data: JSON.stringify({ type: "space_index.changed" }),
+				})
+			)
+		);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(100);
+		});
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({
+				queryKey: ["spaces", "account-spaces"],
+			})
+		);
 	});
 
 	it("refreshes an active Space directory from a new Inbox message even when notifications are off", () => {

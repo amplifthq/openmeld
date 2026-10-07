@@ -1,4 +1,5 @@
 import {
+  type RemoteAgentExecutionAccessResponse,
   type RemoteAgentResultSource,
   remoteAgentExecutionAccessResponseSchema,
   remoteAgentExecutionScopeKey,
@@ -17,11 +18,12 @@ export async function readRemoteAgentExecutionAccess(input: {
   sources?: RemoteAgentResultSource[];
   effect?: "read" | "write";
   includeDelegatedRequester?: true;
+  includePluginDelegations?: true;
+  includeComputer?: true;
 }) {
   const includeDelegatedRequester =
     input.includeDelegatedRequester ||
-    (isDelegatedGitHubTurn(input.context) &&
-      input.sources?.some((source) => source.service === "github"));
+    (isDelegatedGitHubTurn(input.context) && Boolean(input.sources?.length));
   const authorize = input.coreWorker.authorizeRemoteAgentExecutionAccess;
   if (!authorize) {
     throw new Error(
@@ -36,7 +38,11 @@ export async function readRemoteAgentExecutionAccess(input: {
         `execution-access:${input.context.submissionId}`
       ),
       submissionId: input.context.submissionId,
+      ...(input.includeComputer ? { includeComputer: true } : {}),
       ...(includeDelegatedRequester ? { includeDelegatedRequester: true } : {}),
+      ...(input.includePluginDelegations
+        ? { includePluginDelegations: true }
+        : {}),
       ...(input.effect ? { effect: input.effect } : {}),
       ...(input.sources?.length ? { sources: input.sources } : {}),
     });
@@ -56,6 +62,10 @@ export async function readRemoteAgentExecutionAccess(input: {
     throw error;
   }
   const response = remoteAgentExecutionAccessResponseSchema.parse(rawResponse);
+  requireComputerCapability(input.includeComputer, response);
+  if (input.includePluginDelegations && !response.pluginDelegations) {
+    throw new Error("remote_agent.plugin_delegation_capability_unavailable");
+  }
   const scope = resolveRemoteAgentExecutionScope(input.context);
   if (
     response.submissionId !== input.context.submissionId ||
@@ -80,6 +90,17 @@ export function isDelegatedGitHubTurn(context: RemoteAgentCallbackContext) {
     context.conversationIdentity?.kind === "personal_agent" &&
     context.turnEnvelope?.sender.kind === "agent_profile"
   );
+}
+
+function requireComputerCapability(
+  requested: boolean | undefined,
+  response: RemoteAgentExecutionAccessResponse
+) {
+  if (requested && response.computer === undefined) {
+    throw new Error(
+      "computer.identity_unavailable: Update Core before using a personal Computer."
+    );
+  }
 }
 
 export async function requireRemoteAgentExecutionAccess(

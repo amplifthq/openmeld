@@ -13,14 +13,12 @@ type CenterAgentConversationView = Exclude<SpaceView, "tasks">;
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import {
 	buildOrganizationCenterAgentChatPath,
-	buildOrganizationCenterAgentRoutinesPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationMemoryPath,
 } from "#/lib/organizations/organization-routes";
 
-const ROUTINES_TAB_INDEX = 3;
-const CHANNELS_TAB_INDEX = 4;
-const MEMORY_TAB_INDEX = 5;
+const CHANNELS_TAB_INDEX = 3;
+const MEMORY_TAB_INDEX = 4;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
@@ -93,9 +91,8 @@ export function CenterAgentHeaderTabs(input: {
 			<TabsSubtleItem index={1} label="Graph" labelClassName="text-sm" />
 			<TabsSubtleItem index={2} label="Files" labelClassName="text-sm" />
 
-			<TabsSubtleItem index={3} label="Routines" labelClassName="text-sm" />
-			<TabsSubtleItem index={4} label="Channels" labelClassName="text-sm" />
-			<TabsSubtleItem index={5} label="Memory" labelClassName="text-sm" />
+			<TabsSubtleItem index={3} label="Channels" labelClassName="text-sm" />
+			<TabsSubtleItem index={4} label="Memory" labelClassName="text-sm" />
 		</TabsSubtle>
 	);
 }
@@ -104,9 +101,6 @@ function resolveCenterAgentHeaderTabIndex(input: {
 	activeSectionId: CenterAgentSectionId;
 	activeSpaceView?: CenterAgentConversationView;
 }): number {
-	if (input.activeSectionId === "routines") {
-		return ROUTINES_TAB_INDEX;
-	}
 	if (input.activeSectionId === "channels") {
 		return CHANNELS_TAB_INDEX;
 	}
@@ -128,8 +122,6 @@ function resolveCenterAgentHeaderDestination(input: {
 			return buildOrganizationMemoryPath(input.organizationSlug);
 		case CHANNELS_TAB_INDEX:
 			return buildOrganizationChannelsPath(input.organizationSlug);
-		case ROUTINES_TAB_INDEX:
-			return buildOrganizationCenterAgentRoutinesPath(input.organizationSlug);
 		default:
 			throw new Error(`Unknown Center Agent header tab index: ${input.index}`);
 	}

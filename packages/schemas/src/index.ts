@@ -1,6 +1,30 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes stable public entrypoints.
 
 export {
+  type AccountDeletionCleanupInput,
+  type AccountDeletionCleanupResult,
+  type AccountDeletionComputer,
+  type AccountDeletionConnection,
+  type AccountDeletionConversation,
+  type AccountDeletionFileRoot,
+  type AccountDeletionPlan,
+  type AccountDeletionPreview,
+  type AccountDeletionSpace,
+  accountDeletionAcceptedSchema,
+  accountDeletionCleanupInputSchema,
+  accountDeletionCleanupResultSchema,
+  accountDeletionComputerSchema,
+  accountDeletionConnectionCleanupSchema,
+  accountDeletionConnectionSchema,
+  accountDeletionConversationSchema,
+  accountDeletionFileRootSchema,
+  accountDeletionPendingConnectionsSchema,
+  accountDeletionPlanSchema,
+  accountDeletionPreviewSchema,
+  accountDeletionSpaceSchema,
+  requestAccountDeletionSchema,
+} from "./account-deletion";
+export {
   type AccountInvalidationFrame,
   accountInvalidationFrameSchema,
 } from "./account-invalidation";
@@ -363,6 +387,18 @@ export {
 } from "./schemas/http/space-message-search";
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
+export {
+  type CloudComputer,
+  type CloudComputerOperation,
+  cloudComputerCleanupResultSchema,
+  cloudComputerCommandSchema,
+  cloudComputerOperationResultSchema,
+  cloudComputerOperationSchema,
+  cloudComputerResponseSchema,
+  cloudComputerRpcRequestSchema,
+  cloudComputerSchema,
+  cloudComputerWorkerRequestSchema,
+} from "./schemas/runtime/cloud-computer";
 export {
   type RemoteAgentExecutionAccessRequest,
   type RemoteAgentExecutionAccessResponse,

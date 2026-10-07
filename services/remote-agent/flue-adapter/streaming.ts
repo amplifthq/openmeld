@@ -40,13 +40,15 @@ type RemoteAgentStreamState = {
 
 type RemoteAgentTransientStreamState = {
   pendingKindOrder: RemoteAgentStreamDeltaKind[];
-  pendingProgress: string;
+  content: Record<
+    "progress" | "thinking",
+    { pending: string; snapshot: string }
+  >;
   progressUnsupported: boolean;
   replaceTextSnapshotOnNextText: boolean;
-  progressSnapshot: string;
 };
 
-export type RemoteAgentStreamDeltaKind = "text" | "progress";
+export type RemoteAgentStreamDeltaKind = "text" | "progress" | "thinking";
 
 type RemoteAgentStreamPublishInput = {
   context: RemoteAgentCallbackContext;
@@ -115,8 +117,11 @@ export function buildRemoteAgentStreamDeltaCallbackBody(input: {
     observedAtMs: input.observedAtMs,
     sequence: input.sequence,
     snapshot: input.snapshot,
-    source:
-      input.kind === "progress" ? "hosted.public_progress" : "flue.text_delta",
+    source: {
+      progress: "hosted.public_progress",
+      thinking: "flue.thinking_delta",
+      text: "flue.text_delta",
+    }[input.kind],
     spaceId: input.context.spaceId,
     streamId: buildRemoteAgentStreamId(input.context.submissionId),
     submissionId: input.context.submissionId,
@@ -245,11 +250,13 @@ export function createRemoteAgentStreamPublisher(
     }
     const transientState: RemoteAgentTransientStreamState = {
       pendingKindOrder: state.pendingText.length > 0 ? ["text"] : [],
-      pendingProgress: "",
+      content: {
+        progress: { pending: "", snapshot: "" },
+        thinking: { pending: "", snapshot: "" },
+      },
       progressUnsupported: false,
       replaceTextSnapshotOnNextText:
         state.textSnapshot.length > 0 || state.pendingText.length > 0,
-      progressSnapshot: "",
     };
     transientStates.set(submissionId, transientState);
     return transientState;
@@ -282,7 +289,7 @@ export function createRemoteAgentStreamPublisher(
       transientState,
     });
     const snapshot =
-      kind === "progress"
+      kind !== "text"
         ? (currentSnapshot + pendingDelta).slice(
             -AGENT_STREAM_SNAPSHOT_MAX_CHARS
           )
@@ -299,9 +306,9 @@ export function createRemoteAgentStreamPublisher(
       });
     }
 
-    if (kind === "progress") {
-      transientState.pendingProgress = "";
-      transientState.progressSnapshot = snapshot;
+    if (kind !== "text") {
+      transientState.content[kind].pending = "";
+      transientState.content[kind].snapshot = snapshot;
     } else {
       state.pendingText = "";
       state.textSnapshot = snapshot;
@@ -345,8 +352,7 @@ export function createRemoteAgentStreamPublisher(
       // An older Core rejects this new callback kind before touching its
       // stream cursor. Keep the last accepted sequence and the text preview.
       state.sequence = previousSequence;
-      transientState.pendingProgress = "";
-      transientState.progressSnapshot = "";
+      transientState.content.progress = { pending: "", snapshot: "" };
       transientState.progressUnsupported = true;
       await persistRemoteAgentStreamState(input.storage, state);
       return {
@@ -464,12 +470,14 @@ export function createRemoteAgentStreamPublisher(
           };
         }
         if (
-          !shouldPublishRemoteAgentStreamPush({
-            context: input.context,
-            observedAtMs: input.observedAtMs,
-            replacingFailedText,
-            state,
-          })
+          !(
+            replacingFailedText ||
+            shouldFlushRemoteAgentStream(
+              state,
+              input.observedAtMs,
+              input.context
+            )
+          )
         ) {
           return {
             status: "buffered",
@@ -585,13 +593,14 @@ function appendPendingRemoteAgentStreamDelta(input: {
   state: RemoteAgentStreamState;
   transientState: RemoteAgentTransientStreamState;
 }): void {
-  if (input.kind === "progress") {
-    if (input.transientState.pendingProgress.length === 0) {
+  if (input.kind !== "text") {
+    const content = input.transientState.content[input.kind];
+    if (content.pending.length === 0) {
       input.transientState.pendingKindOrder.push(input.kind);
     }
-    input.transientState.pendingProgress = (
-      input.transientState.pendingProgress + input.delta
-    ).slice(-REMOTE_AGENT_STREAM_DELTA_MAX_CHARS);
+    content.pending = (content.pending + input.delta).slice(
+      -REMOTE_AGENT_STREAM_DELTA_MAX_CHARS
+    );
     return;
   }
   if (input.state.pendingText.length === 0) {
@@ -609,7 +618,8 @@ async function handleRemoteAgentStreamLimitExceeded(input: {
   input.state.disabled = true;
   input.state.pendingText = "";
   input.transientState.pendingKindOrder = [];
-  input.transientState.pendingProgress = "";
+  input.transientState.content.progress.pending = "";
+  input.transientState.content.thinking.pending = "";
   await persistRemoteAgentStreamState(input.storage, input.state);
   return {
     status: "disabled",
@@ -623,8 +633,8 @@ function readPendingRemoteAgentStreamDelta(input: {
   state: RemoteAgentStreamState;
   transientState: RemoteAgentTransientStreamState;
 }): string {
-  return input.kind === "progress"
-    ? input.transientState.pendingProgress
+  return input.kind !== "text"
+    ? input.transientState.content[input.kind].pending
     : input.state.pendingText;
 }
 
@@ -633,8 +643,8 @@ function readRemoteAgentStreamSnapshot(input: {
   state: RemoteAgentStreamState;
   transientState: RemoteAgentTransientStreamState;
 }): string {
-  return input.kind === "progress"
-    ? input.transientState.progressSnapshot
+  return input.kind !== "text"
+    ? input.transientState.content[input.kind].snapshot
     : input.state.textSnapshot;
 }
 
@@ -691,30 +701,16 @@ function shouldFlushRemoteAgentStream(
   observedAtMs: number,
   context: RemoteAgentCallbackContext
 ): boolean {
-  // The first visible content must not wait for another token or prompt
-  // completion (which can include post-response conversation compaction).
+  // A short answer may arrive in one delta. Send the first words immediately;
+  // coalesce later snapshots and flush the tail at the model-message boundary.
   if (state.lastFlushedAtMs === null) {
     return true;
   }
-  if (context.turnEnvelope?.trigger.source === "message_channel") {
-    return (
-      observedAtMs - state.lastFlushedAtMs >=
-      MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
-    );
-  }
-  return observedAtMs - state.lastFlushedAtMs >= STREAM_FLUSH_INTERVAL_MS;
-}
-
-function shouldPublishRemoteAgentStreamPush(input: {
-  context: RemoteAgentCallbackContext;
-  observedAtMs: number;
-  replacingFailedText: boolean;
-  state: RemoteAgentStreamState;
-}): boolean {
-  return (
-    input.replacingFailedText ||
-    shouldFlushRemoteAgentStream(input.state, input.observedAtMs, input.context)
-  );
+  const intervalMs =
+    context.turnEnvelope?.trigger.source === "message_channel"
+      ? MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
+      : STREAM_FLUSH_INTERVAL_MS;
+  return observedAtMs - state.lastFlushedAtMs >= intervalMs;
 }
 
 async function deliverRemoteAgentStreamDelta(input: {

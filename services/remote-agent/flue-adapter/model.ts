@@ -67,6 +67,8 @@ const OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS = new Set([
 ]);
 export const REMOTE_AGENT_MODEL_METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS = 8000;
+export const REMOTE_AGENT_WORKING_CONTEXT_TOKENS = 48_000;
+export const REMOTE_AGENT_MAX_SUMMARY_TOKENS = 4096;
 const MODEL_METADATA_FETCH_TIMEOUT_MS = 3000;
 // Flue estimates context tokens, so compact before reaching a provider tier.
 const PRICE_TIER_COMPACTION_SAFETY_RATIO = 0.8;
@@ -131,8 +133,11 @@ export type RemoteAgentProviderStageObservation = {
 
 export type RemoteAgentModelRuntimeConfig = {
   compaction: {
+    workingContextHeadroomTokens: number;
     keepRecentTokens: number;
     reserveTokens: number;
+    workingContextTokens: number;
+    maxSummaryTokens: number;
   };
   contextWindow: number;
   maxTokens: number;
@@ -470,6 +475,18 @@ export async function resolveRemoteAgentModelRuntimeConfigForRegistration(input:
   if (input.modelRoute) {
     return {
       compaction: {
+        workingContextHeadroomTokens: Math.min(
+          8000,
+          Math.floor(input.modelRoute.contextWindow / 8)
+        ),
+        workingContextTokens: Math.min(
+          REMOTE_AGENT_WORKING_CONTEXT_TOKENS,
+          input.modelRoute.contextWindow -
+            resolveRemoteAgentCompactionReserveTokens(
+              input.modelRoute.contextWindow
+            )
+        ),
+        maxSummaryTokens: REMOTE_AGENT_MAX_SUMMARY_TOKENS,
         keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
         reserveTokens:
           input.modelRoute.contextWindow -
@@ -616,6 +633,15 @@ function buildRemoteAgentModelRuntimeConfig(input: {
   );
   return {
     compaction: {
+      workingContextHeadroomTokens: Math.min(
+        8000,
+        Math.floor(contextWindow / 8)
+      ),
+      workingContextTokens: Math.min(
+        REMOTE_AGENT_WORKING_CONTEXT_TOKENS,
+        contextWindow - resolveRemoteAgentCompactionReserveTokens(contextWindow)
+      ),
+      maxSummaryTokens: REMOTE_AGENT_MAX_SUMMARY_TOKENS,
       keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
       // Flue interprets reserveTokens as the early-compaction band below the
       // context window. Price-aware bands may intentionally exceed the base

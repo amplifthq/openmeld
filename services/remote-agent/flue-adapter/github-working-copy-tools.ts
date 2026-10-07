@@ -41,18 +41,14 @@ import {
 } from "../connectors/github-working-copy-provider";
 import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
-import {
-  type ComputerDataSourceAccess,
-  recordComputerDataSource,
-} from "./computer-data-sources";
 import { createAgentComputerFileHandoff } from "./computer-file-handoff";
+import { createComputerGitConnectionTool } from "./computer-git-connection";
 import {
   GitWorkingCopyComputer,
   type GitWorkingCopyComputerApi,
   type GitWorkingCopyLocation,
 } from "./github-working-copy-computer";
 import { advanceGitPackTransfer } from "./github-working-copy-transfer";
-
 export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
 // Code Mode stops its script after 60 seconds. Leave time to import the blobs
 // already transferred and return a truthful preparing result.
@@ -68,7 +64,6 @@ type Dependencies = {
   storage: RemoteAgentStorage;
   connectorExecution: ConnectorExecutionConfig;
   computer: GitWorkingCopyComputerApi;
-  dataSources: ComputerDataSourceAccess;
   workingDirectory: string;
   workspaceAccess: AgentComputerWorkspaceAccess;
 };
@@ -90,7 +85,11 @@ type CheckoutTimings = {
   computerWrite: number;
   computerPrepare: number;
 };
-type Publication = { signature: string; commit: string; refAttempted: boolean };
+type Publication = {
+  signature: string;
+  commit: string;
+  refAttempted: boolean;
+};
 type FilePublication = Publication & {
   branch: string;
   path: string;
@@ -98,15 +97,15 @@ type FilePublication = Publication & {
   repo: string;
   githubActor: "requester" | "organization";
 };
-
 export function getGitHubWorkingCopyTools(
   input: Dependencies
 ): RemoteAgentToolDefinition[] {
   return [
+    createComputerGitConnectionTool(input),
     {
       name: "github_checkout_repository",
       description:
-        "Prepare a private GitHub repository snapshot in this isolated Computer using the explicitly selected Plugin account. Use one stable key and the same owner/repo/ref/githubActor for retries. A preparing result means the next bounded batch is needed: call again with the unchanged input. Ready supplies the exact source commit/tree, directory, fixed task branch and an independently authenticated default-branch baseline at origin/<default-branch>. Local commits have a synthetic comparison graph, not downloaded upstream history. LFS payloads and submodule repositories are not downloaded. Use the existing computer_command tools for editing, git commits and tests. Provider credentials never enter the Computer. No remote branch is created by checkout.",
+        "Prepare a private GitHub snapshot for bounded API-based publication with github_publish_checkout. For an ordinary native clone, use computer_git_connection and git clone instead. Select the Plugin account explicitly. Use one stable key and the same owner/repo/ref/githubActor for retries. A preparing result requires another unchanged call. Ready supplies the source commit/tree, directory, fixed task branch and authenticated default-branch baseline at origin/<default-branch>. Local commits use a synthetic comparison graph, not upstream history. LFS payloads and submodule repositories are not downloaded. Use computer for editing, commits and tests. Provider credentials never enter the Computer. Checkout does not create a remote branch.",
       input: strictObject({
         key: string(),
         owner: string(),
@@ -159,7 +158,6 @@ export function getGitHubWorkingCopyTools(
     },
   ];
 }
-
 type PublishComputerFileInput = {
   path: string;
   owner: string;
@@ -167,7 +165,6 @@ type PublishComputerFileInput = {
   githubActor: "requester" | "organization";
   operationId: string;
 };
-
 export async function publishComputerFile(
   input: Dependencies,
   request: PublishComputerFileInput,
@@ -356,7 +353,6 @@ export async function publishComputerFile(
   }
   return computerFileReceipt(publication, request.operationId, false);
 }
-
 function validComputerFilePublishRequest(request: PublishComputerFileInput) {
   return (
     GITHUB_REPOSITORY_SEGMENT_PATTERN.test(request.owner) &&
@@ -364,7 +360,6 @@ function validComputerFilePublishRequest(request: PublishComputerFileInput) {
     GITHUB_OPERATION_ID_PATTERN.test(request.operationId)
   );
 }
-
 async function createComputerFileCommit(input: {
   remote: GitHubWorkingCopyProvider;
   operation: Omit<
@@ -402,7 +397,6 @@ async function createComputerFileCommit(input: {
   }
   return commit;
 }
-
 function computerFileReceipt(
   publication: FilePublication,
   operationId: string,
@@ -424,7 +418,6 @@ function computerFileReceipt(
       "Keep this side branch while the image is referenced so the commit remains reachable.",
   };
 }
-
 async function locate(input: Dependencies, key: string) {
   const scope = await requireRemoteAgentExecutionAccess(input);
   const scopeKey = remoteAgentExecutionScopeKey(scope);
@@ -441,7 +434,6 @@ async function locate(input: Dependencies, key: string) {
   }
   return { stored, id, storageKey, scopeKey };
 }
-
 async function authorizeCheckout(
   input: Dependencies,
   record: Checkout,
@@ -460,7 +452,6 @@ async function authorizeCheckout(
     ],
   });
 }
-
 function provider(
   input: Dependencies,
   record: Checkout,
@@ -482,7 +473,6 @@ function provider(
     deadlineAtMs,
   });
 }
-
 async function createCheckout(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
@@ -585,7 +575,6 @@ async function createCheckout(
         : null,
   };
 }
-
 async function readVerifiedCachedManifests(
   computer: GitWorkingCopyComputer,
   record: Checkout
@@ -619,7 +608,6 @@ async function readVerifiedCachedManifests(
     return null;
   }
 }
-
 async function loadVerifiedCheckoutManifests(input: {
   record: Checkout;
   created: Awaited<ReturnType<typeof createCheckout>> | null;
@@ -650,7 +638,6 @@ async function loadVerifiedCheckoutManifests(input: {
   }
   return { entries, baselineEntries };
 }
-
 async function transferCheckoutBlobs(input: {
   allowed: Set<string>;
   missing: string[];
@@ -704,7 +691,6 @@ async function transferCheckoutBlobs(input: {
     throw transferError;
   }
 }
-
 async function prepareCheckoutWithinBudget(input: {
   computer: GitWorkingCopyComputer;
   record: Checkout;
@@ -734,7 +720,6 @@ async function prepareCheckoutWithinBudget(input: {
     throw error;
   }
 }
-
 async function prepareRequesterCheckoutObjects(input: {
   dependencies: Dependencies;
   record: Checkout;
@@ -778,7 +763,6 @@ async function prepareRequesterCheckoutObjects(input: {
     ? ((await prepareWithinBudget(true)) ?? progress)
     : progress;
 }
-
 export async function checkoutRepository(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
@@ -815,7 +799,6 @@ export async function checkoutRepository(
     });
   }
 }
-
 async function loadOrCreateCheckout(input: {
   deps: Dependencies;
   intent: RemoteAgentGitCheckoutInput;
@@ -859,7 +842,6 @@ async function loadOrCreateCheckout(input: {
   }
   return { record, created, identity };
 }
-
 async function registerRequesterCheckoutGrant(input: {
   dependencies: Dependencies;
   intent: RemoteAgentGitCheckoutInput;
@@ -921,7 +903,6 @@ async function registerRequesterCheckoutGrant(input: {
     })
   );
 }
-
 async function checkoutRepositoryBatch(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
@@ -1012,15 +993,6 @@ async function checkoutRepositoryBatch(
       identity,
     });
   }
-  await recordComputerDataSource({
-    ...input,
-    source: {
-      kind: "plugin_connection",
-      service: "github",
-      connectionName: record.connectionName,
-      connectionUpdatedAtMs: record.connectionUpdatedAtMs,
-    },
-  });
   if (!cached) {
     await measureComputer("computerWrite", () =>
       computer.writeManifest(record, entries, baselineEntries)
@@ -1087,7 +1059,6 @@ async function checkoutRepositoryBatch(
       : "Call github_checkout_repository again with identical input to check transfer progress.",
   };
 }
-
 export async function publishCheckout(
   input: Dependencies,
   request: RemoteAgentGitPublishInput,
@@ -1262,7 +1233,6 @@ export async function publishCheckout(
     false
   );
 }
-
 async function reconcilePublication(input: {
   existing: Awaited<ReturnType<typeof readConnectorActionOperation>>;
   publication: Publication | undefined;
@@ -1314,7 +1284,6 @@ async function reconcilePublication(input: {
     true
   );
 }
-
 async function planUploadObjects(
   remote: GitHubWorkingCopyProvider,
   entries: RemoteAgentGitTreeEntry[],
@@ -1341,7 +1310,6 @@ async function planUploadObjects(
   }
   return needed;
 }
-
 async function uploadObjects(
   remote: GitHubWorkingCopyProvider,
   computer: GitWorkingCopyComputer,
@@ -1355,7 +1323,6 @@ async function uploadObjects(
   }
   await remote.createTree(entries, tree);
 }
-
 function publicationReceipt(
   record: Checkout,
   request: RemoteAgentGitPublishInput,
@@ -1378,7 +1345,6 @@ function publicationReceipt(
       "Use this branch with github_create_pull_request and draft=true, or update the existing Draft PR. Report tests against the exact local commit/tree separately.",
   };
 }
-
 function validateCheckoutBudget(
   entries: RemoteAgentGitTreeEntry[],
   baseline: RemoteAgentGitTreeEntry[]
@@ -1410,7 +1376,6 @@ function validateCheckoutBudget(
     );
   }
 }
-
 async function textDigest(text: string) {
   return Buffer.from(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))

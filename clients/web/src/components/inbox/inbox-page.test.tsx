@@ -105,7 +105,7 @@ class TestIntersectionObserver implements IntersectionObserver {
 		/* The test retains only the current sentinel. */
 	}
 	disconnect(): void {
-		/* Browser cleanup is exercised by React unmount. */
+		intersectionCallback = null;
 	}
 	takeRecords(): IntersectionObserverEntry[] {
 		return [];
@@ -447,6 +447,80 @@ describe("canonical Inbox attention page", () => {
 				conversationType: "direct_messages",
 				cursor: "next-page",
 			})
+		);
+	});
+
+	it("keeps visible rows and waits for background refresh before loading older items", async () => {
+		const first = row(item({ id: "first", title: "Visible update" }));
+		const next = row(item({ id: "next", title: "Older update" }));
+		const { queryClient, queryKey } = renderPage({
+			rows: [first],
+			nextRows: [next],
+		});
+		await waitFor(() => expect(observed).toHaveBeenCalled());
+		let finishRefresh!: (response: InboxFeedResponse) => void;
+		mocks.feed.mockImplementationOnce(
+			() =>
+				new Promise<InboxFeedResponse>((resolve) => {
+					finishRefresh = resolve;
+				})
+		);
+		let refresh!: Promise<void>;
+		act(() => {
+			refresh = queryClient.invalidateQueries({ queryKey });
+		});
+		await waitFor(() => expect(mocks.feed).toHaveBeenCalledTimes(1));
+		await waitFor(() => expect(intersectionCallback).toBeNull());
+		expect(screen.getByText("Visible update")).toBeTruthy();
+		expect((observed.mock.calls.at(-1)?.[0] as Element).isConnected).toBe(
+			false
+		);
+		expect(mocks.feed).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			finishRefresh(page([first], "next-page"));
+			await refresh;
+		});
+		await waitFor(() => expect(intersectionCallback).not.toBeNull());
+		intersect();
+		expect(await screen.findByText("Older update")).toBeTruthy();
+	});
+
+	it("shows an expired saved view but waits for a fresh snapshot before bulk actions", async () => {
+		const original = row(item({ id: "saved", title: "Saved update" }));
+		const { queryClient, queryKey } = renderPage({ rows: [original] });
+		act(() =>
+			queryClient.setQueryData(queryKey, {
+				pageParams: [undefined],
+				pages: [
+					{
+						...page([original]),
+						snapshotExpiresAt: new Date(Date.now() - 1).toISOString(),
+					},
+				],
+			})
+		);
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Mark 1 item as read",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(true)
+		);
+		expect(screen.getByText("Saved update")).toBeTruthy();
+		expect(mocks.selection).not.toHaveBeenCalled();
+		await act(async () => {
+			await queryClient.invalidateQueries({ queryKey });
+		});
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Mark 1 item as read",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false)
 		);
 	});
 
@@ -882,7 +956,7 @@ function page(
 	return {
 		organizationId: "organization-123",
 		snapshotId: "snapshot",
-		snapshotExpiresAt: "2026-09-18T02:00:00Z",
+		snapshotExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
 		nextCursor,
 		selectionUnreadCount: rows.reduce(
 			(n, current) => n + current.unreadCount,

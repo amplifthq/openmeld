@@ -3,7 +3,6 @@ import type { ComponentType, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Route as CenterAgentChannelsRoute } from "./_center-agent/center-agent.channels";
 import { Route as CenterAgentMemoryRoute } from "./_center-agent/center-agent.memory";
-import { Route as CenterAgentRoutinesRoute } from "./_center-agent/center-agent.routines";
 import { Route as AgentActivityRoute } from "./agent-activity";
 import { Route as AgentsRoute } from "./agents";
 import { Route as NewOrganizationRoute } from "./new-organization";
@@ -63,10 +62,6 @@ vi.mock("#/components/organizations/agent-activity-page", () => ({
 	AgentActivityPage: () => (
 		<h1 data-section-id="agent-activity">Agent Activity</h1>
 	),
-}));
-
-vi.mock("#/components/organizations/center-agent-routines-page", () => ({
-	CenterAgentRoutinesPage: () => <h1 data-section-id="routines">Routines</h1>,
 }));
 
 vi.mock("#/components/organizations/center-agent-section-frame", () => ({
@@ -389,10 +384,6 @@ describe("primary organization routes", () => {
 		{
 			expectedSectionId: "memory",
 			route: CenterAgentMemoryRoute,
-		},
-		{
-			expectedSectionId: "routines",
-			route: CenterAgentRoutinesRoute,
 		},
 	])("mounts the $expectedSectionId page in Center Agent", ({
 		expectedSectionId,

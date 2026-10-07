@@ -1,5 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import { type CoreBindings, localStateDb } from "../../../lib/bindings";
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
+import type { CoreBindings } from "../../../lib/bindings";
 import { decryptLarkPlatformCredential } from "../../application/lark-platform-credential-crypto";
 import { normalizeLarkPlatformEvent } from "../../application/lark-platform-event-normalizer";
 import { getLarkPlatformApiHost } from "../../application/lark-platform-openapi-client";
@@ -9,7 +14,7 @@ import {
   type RemoteAgentLarkPlatformChannelConnectionRecord,
   readRemoteAgentLarkPlatformChannelConnection,
   readRemoteAgentLarkPlatformChannelCredentials,
-} from "../../infrastructure/d1/lark-platform-channel-connection-repo";
+} from "../../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   decodeLarkFrame,
   encodeLarkFrame,
@@ -43,12 +48,11 @@ type ProviderPayload = {
   };
   event?: unknown;
 };
-
 /** One named object per connection. D1 owns identity/authority; this object
  * owns the live socket and the durable handoff to the existing ingress Queue. */
 export class LarkChannelConnector extends DurableObject<CoreBindings> {
-  private get db(): D1Database {
-    const db = localStateDb(this.env);
+  private get db(): PostgresDatabase {
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       throw new Error("lark.database_unavailable");
     }
@@ -67,70 +71,73 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
   private serviceId = 0;
   private epoch = 0;
   private assembler = new LarkPayloadAssembler();
-
   constructor(ctx: DurableObjectState, env: CoreBindings) {
     super(ctx, env);
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS pending_events (
       event_id TEXT PRIMARY KEY, generation INTEGER NOT NULL,
       payload TEXT NOT NULL, received_at_ms INTEGER NOT NULL)`);
   }
-
   async ensureConnected(connectionId: string): Promise<boolean> {
-    const saved = await this.ctx.storage.get<string>("connectionId");
-    if (saved && saved !== connectionId) {
-      throw new Error("lark.connector_identity_mismatch");
-    }
-    await this.ctx.storage.put("connectionId", connectionId);
-    await this.ctx.storage.setAlarm(Date.now() + RECOVERY_INTERVAL_MS);
-    if (this.connecting) {
-      return this.connecting;
-    }
-    const operation = this.openConnection(connectionId);
-    this.connecting = operation;
-    try {
-      return await operation;
-    } catch (error) {
-      if (this.connection) {
-        await this.ctx.storage.setAlarm(Date.now() + this.reconnectIntervalMs);
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const saved = await this.ctx.storage.get<string>("connectionId");
+      if (saved && saved !== connectionId) {
+        throw new Error("lark.connector_identity_mismatch");
       }
-      throw error;
-    } finally {
-      if (this.connecting === operation) {
-        this.connecting = null;
+      await this.ctx.storage.put("connectionId", connectionId);
+      await this.ctx.storage.setAlarm(Date.now() + RECOVERY_INTERVAL_MS);
+      if (this.connecting) {
+        return this.connecting;
       }
-    }
+      const operation = this.openConnection(connectionId);
+      this.connecting = operation;
+      try {
+        return await operation;
+      } catch (error) {
+        if (this.connection) {
+          await this.ctx.storage.setAlarm(
+            Date.now() + this.reconnectIntervalMs
+          );
+        }
+        throw error;
+      } finally {
+        if (this.connecting === operation) {
+          this.connecting = null;
+        }
+      }
+    });
   }
-
   async disconnect(): Promise<void> {
-    this.closeSocket();
-    this.connection = null;
-    await this.ctx.storage.deleteAlarm();
-    // A revoked connection must never forward its accepted pending messages.
-    this.ctx.storage.sql.exec("DELETE FROM pending_events");
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      this.closeSocket();
+      this.connection = null;
+      await this.ctx.storage.deleteAlarm();
+      // A revoked connection must never forward its accepted pending messages.
+      this.ctx.storage.sql.exec("DELETE FROM pending_events");
+    });
   }
-
   async alarm(): Promise<void> {
-    const id = await this.ctx.storage.get<string>("connectionId");
-    if (!id) {
-      return;
-    }
-    try {
-      // The socket heartbeat owns idle liveness. Authority is checked at
-      // reconnection and before queued work; idle bots need no D1 polling.
-      if (this.socket?.readyState === WebSocket.OPEN) {
-        await this.ctx.storage.setAlarm(Date.now() + RECOVERY_INTERVAL_MS);
-      } else {
-        await this.ensureConnected(id);
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const id = await this.ctx.storage.get<string>("connectionId");
+      if (!id) {
+        return;
       }
-      await this.drain();
-    } catch (error) {
-      console.error("[core.lark_connector.recovery_failed]", {
-        connectionId: id,
-        reasonCode: connectorFailureReason(error),
-      });
-    }
+      try {
+        // The socket heartbeat owns idle liveness. Authority is checked at
+        // reconnection and before queued work; idle bots need no D1 polling.
+        if (this.socket?.readyState === WebSocket.OPEN) {
+          await this.ctx.storage.setAlarm(Date.now() + RECOVERY_INTERVAL_MS);
+        } else {
+          await this.ensureConnected(id);
+        }
+        await this.drain();
+      } catch (error) {
+        console.error("[core.lark_connector.recovery_failed]", {
+          connectionId: id,
+          reasonCode: connectorFailureReason(error),
+        });
+      }
+    });
   }
-
   private async openConnection(connectionId: string): Promise<boolean> {
     const openingEpoch = this.epoch;
     const connection = await readRemoteAgentLarkPlatformChannelConnection({
@@ -191,7 +198,10 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
     );
     const endpoint = (await response.json()) as {
       code?: number;
-      data?: { URL?: string; ClientConfig?: ProviderClientConfig };
+      data?: {
+        URL?: string;
+        ClientConfig?: ProviderClientConfig;
+      };
     };
     if (!response.ok || endpoint.code !== 0 || !endpoint.data?.URL) {
       throw new Error("lark.connection_endpoint_failed");
@@ -265,7 +275,6 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
     this.drainInBackground();
     return true;
   }
-
   private closeSocket(): void {
     this.epoch++;
     if (this.heartbeat) {
@@ -278,7 +287,6 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
       socket.close(1000);
     }
   }
-
   private scheduleHeartbeat(): void {
     this.heartbeat = setTimeout(() => {
       if (!this.socket) {
@@ -293,7 +301,6 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
       this.scheduleHeartbeat();
     }, this.pingIntervalMs);
   }
-
   private async receive(
     socket: WebSocket,
     data: string | ArrayBuffer
@@ -341,7 +348,9 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
       throw new Error("lark.event_identity_mismatch");
     }
     const count = this.ctx.storage.sql
-      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM pending_events")
+      .exec<{
+        count: number;
+      }>("SELECT COUNT(*) AS count FROM pending_events")
       .one().count;
     if (count >= MAX_PENDING_EVENTS) {
       throw new Error("lark.ingress_backpressure");
@@ -369,7 +378,6 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
     });
     this.drainInBackground();
   }
-
   private drainInBackground(): void {
     this.ctx.waitUntil(
       this.drain().catch((error) => {
@@ -380,7 +388,6 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
       })
     );
   }
-
   private applyProviderConfig(config: ProviderClientConfig | undefined): void {
     if (!config) {
       return;
@@ -398,14 +405,12 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
       this.reconnectNonceMs
     );
   }
-
   private scheduleReconnect(): void {
     // Match the provider's randomized first reconnect window to avoid all
     // organization bots reconnecting together after a Worker deployment.
     const delay = Math.max(1000, Math.random() * this.reconnectNonceMs);
     this.ctx.waitUntil(this.ctx.storage.setAlarm(Date.now() + delay));
   }
-
   private async drain(): Promise<void> {
     if (this.draining) {
       return this.draining;
@@ -420,7 +425,6 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
       }
     }
   }
-
   private async flushPending(): Promise<void> {
     const epoch = this.epoch;
     const id = this.connection?.connectionId;
@@ -508,7 +512,6 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
       await this.ctx.storage.setAlarm(Date.now() + 1000);
     }
   }
-
   private async bindTenant(
     connection: RemoteAgentLarkPlatformChannelConnectionRecord,
     tenantKey: string
@@ -533,7 +536,6 @@ export class LarkChannelConnector extends DurableObject<CoreBindings> {
     return current;
   }
 }
-
 function requireEventTenant(payload: ProviderPayload): string {
   const tenantKey = payload.header?.tenant_key;
   if (!tenantKey) {
@@ -541,7 +543,6 @@ function requireEventTenant(payload: ProviderPayload): string {
   }
   return tenantKey;
 }
-
 function providerInterval(
   seconds: number | undefined,
   current: number
@@ -550,7 +551,6 @@ function providerInterval(
     ? Math.min(300_000, Math.max(1000, seconds * 1000))
     : current;
 }
-
 function connectorFailureReason(error: unknown): string {
   return error instanceof Error && CONNECTOR_REASON_PATTERN.test(error.message)
     ? error.message

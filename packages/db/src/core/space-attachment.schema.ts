@@ -5,21 +5,20 @@ import {
   SPACE_ATTACHMENT_MAX_SIZE_BYTES,
 } from "@openmeld/schemas";
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text } from "drizzle-orm/pg-core";
 import { organizations } from "../auth/auth.schema.ts";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 
 const SPACE_ATTACHMENT_ALLOWED_MIME_TYPES_SQL =
   SPACE_ATTACHMENT_ALLOWED_MIME_TYPES.map(
     (mimeType) => `'${mimeType.replaceAll("'", "''")}'`
   ).join(", ");
 
-export const spaceAttachments = sqliteTable(
+export const spaceAttachments = applicationTable(
   "space_attachments",
   {
     id: text("id").primaryKey(),
@@ -29,12 +28,12 @@ export const spaceAttachments = sqliteTable(
     spaceId: text("space_id").notNull(),
     uploaderUserId: text("uploader_user_id").notNull(),
     mimeType: text("mime_type").notNull(),
-    sizeBytes: integer("size_bytes").notNull(),
-    width: integer("width"),
-    height: integer("height"),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    width: bigint("width", { mode: "number" }),
+    height: bigint("height", { mode: "number" }),
     fileName: text("file_name"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [

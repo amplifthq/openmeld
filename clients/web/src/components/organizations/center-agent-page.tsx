@@ -68,6 +68,12 @@ function CenterAgentDirectMessagePage(input: {
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const { data: currentAccountAvatar } = useAccountAvatar();
+	// Pinning the default chat in the URL must not discard an attachment-open
+	// request. Reset state only when the actual conversation changes.
+	const conversationId =
+		input.directMessageRouteData.status === "ready"
+			? input.directMessageRouteData.directMessage.spaceId
+			: (input.sessionId ?? "default");
 
 	return (
 		<CenterAgentDirectMessageOrganizationBoundary
@@ -77,7 +83,7 @@ function CenterAgentDirectMessagePage(input: {
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			initialSpaceView={input.initialSpaceView}
-			key={`${currentOrganization.id}:${input.sessionId ?? "default"}`}
+			key={`${currentOrganization.id}:${conversationId}`}
 			organizationId={currentOrganization.id}
 			organizationSlug={currentOrganization.slug}
 			presentation={input.presentation}
@@ -244,6 +250,7 @@ function CenterAgentDirectMessageEntry(input: {
 				pendingSend.preparing ?? pendingMessage ?? pendingSend.stopped
 			}
 			presentation={input.presentation}
+			selfAvatarImageUrl={input.currentUserAvatarImageUrl}
 			selfProfile={defaultHumanProfile}
 			stopStatus={pendingSend.stopped ? "stopped" : undefined}
 		/>
@@ -288,8 +295,11 @@ function CenterAgentDirectMessageEntry(input: {
 				initialSpaceView={input.initialSpaceView}
 				isCenterAgentDirectMessage
 				isPersonalContext={currentOrganization.isPersonal === true}
-				loadingFallback={(controller) =>
-					optimisticConversation(controller.composerFiles)
+				loadingFallback={
+					input.sessionId && !pendingMessage
+						? undefined
+						: (controller) =>
+								optimisticConversation(controller.composerFileSession)
 				}
 				onInitialPendingMessageConsumed={() => {
 					clearCenterAgentPendingMessage(queryClient, pendingScope);
@@ -308,7 +318,9 @@ function CenterAgentDirectMessageEntry(input: {
 			<section className="m-auto max-w-sm space-y-4 p-6">
 				<div className="space-y-2">
 					<p className="font-medium text-foreground text-sm">
-						Center Agent is unavailable
+						{input.sessionId
+							? "This chat is unavailable"
+							: "Center Agent is unavailable"}
 					</p>
 					<p className="text-muted-foreground text-sm">{errorMessage}</p>
 				</div>
@@ -318,6 +330,7 @@ function CenterAgentDirectMessageEntry(input: {
 						onClick={() => {
 							setRetryPending(true);
 							loadCenterAgentDirectMessageRouteData({
+								forceRefresh: true,
 								...(input.sessionId === undefined
 									? {}
 									: { sessionId: input.sessionId }),
@@ -350,6 +363,14 @@ function CenterAgentDirectMessageEntry(input: {
 					>
 						Retry
 					</Button>
+					{input.sessionId && (
+						<Link
+							className={buttonVariants({ size: "sm", variant: "outline" })}
+							to={buildOrganizationCenterAgentChatPath(input.organizationSlug)}
+						>
+							Open my chat
+						</Link>
+					)}
 					<Link
 						className={buttonVariants({ size: "sm", variant: "ghost" })}
 						to={buildOrganizationCenterAgentSettingsPath(

@@ -1,32 +1,15 @@
-import { afterEach, describe, expect, it } from "vitest";
-import {
-  listRecentOpenMeldDaemonOpsDecisions,
-  writeOpenMeldDaemonOpsDecision,
-} from "../src/dispatch/infrastructure/d1/dispatch-ledger-d1";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { describe, expect, it, vi } from "vitest";
+import { listRecentOpenMeldDaemonOpsDecisions } from "../src/dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
-type SqliteBindValue = number | string | null;
+const OR_FILTER_PATTERN = /\sOR\s/iu;
+const CORRELATION_UNIQUE_INDEX_PATTERN =
+  /(?:uq_openMeldDaemon_ops_decisions_correlation_code|idx_openMeldDaemon_ops_decisions_correlation_code_time)/;
+const CORRELATION_TIME_INDEX_PATTERN =
+  /idx_openMeldDaemon_ops_decisions_correlation_(?:code_)?time/;
+const NULL_PARAMETER_FILTER_PATTERN = /\$\d+\s+IS\s+NULL/iu;
 
-type CapturedQuery = {
-  params: readonly SqliteBindValue[];
-  sql: string;
-};
-
-const OPTIONAL_FILTER_PATTERN = /\?\s+IS\s+NULL/iu;
-const SQL_OR_PATTERN = /\sOR\s/iu;
-
-const harnesses: ReturnType<typeof createSqliteD1Harness>[] = [];
-
-describe("dispatch ops decisions query plan", () => {
-  afterEach(() => {
-    for (const harness of harnesses.splice(0)) {
-      harness.close();
-    }
-  });
-
+describe("dispatch ops decisions PostgreSQL query plan", () => {
   it.each([
     {
       name: "correlation and decision",
@@ -34,22 +17,16 @@ describe("dispatch ops decisions query plan", () => {
         correlationId: "dispatch-1",
         decisionCode: "controller.binding.lookup_failed",
       },
-      // The D4 latest-per-code unique index is an exact-equality match for
-      // this shape, so SQLite now prefers it over the wider composite index.
-      expectedIndex: "uq_openMeldDaemon_ops_decisions_correlation_code",
+      expectedIndex: CORRELATION_UNIQUE_INDEX_PATTERN,
     },
     {
       name: "correlation only",
-      input: {
-        correlationId: "dispatch-1",
-      },
-      expectedIndex: "idx_openMeldDaemon_ops_decisions_correlation_time",
+      input: { correlationId: "dispatch-1" },
+      expectedIndex: CORRELATION_TIME_INDEX_PATTERN,
     },
     {
       name: "decision only",
-      input: {
-        decisionCode: "controller.binding.lookup_failed",
-      },
+      input: { decisionCode: "controller.binding.lookup_failed" },
       expectedIndex: "idx_openMeldDaemon_ops_decisions_code_time",
     },
     {
@@ -58,99 +35,43 @@ describe("dispatch ops decisions query plan", () => {
       expectedIndex: "idx_openMeldDaemon_ops_decisions_time",
     },
   ])("uses an indexed shape for $name", async (testCase) => {
-    const harness = createMigratedHarness();
-    await seedOpsDecisions(harness.db);
-    const capturedQueries: CapturedQuery[] = [];
-
-    await listRecentOpenMeldDaemonOpsDecisions({
-      db: createCapturingD1Database(harness.db, capturedQueries),
-      limit: 10,
-      ...testCase.input,
-    });
-
-    expect(capturedQueries).toHaveLength(1);
-    const capturedQuery = capturedQueries[0];
-    expect(capturedQuery?.sql).not.toMatch(OPTIONAL_FILTER_PATTERN);
-    expect(capturedQuery?.sql).not.toMatch(SQL_OR_PATTERN);
-
-    const plan = explainQueryPlan(harness, capturedQuery);
-    expect(plan).toContain(testCase.expectedIndex);
-    expect(plan).not.toContain("USE TEMP B-TREE");
+    const harness = await createPostgresHarness();
+    try {
+      // A representative population lets PostgreSQL choose a real plan; a
+      // two-row table legitimately favors a sequential scan.
+      await harness.query(`INSERT INTO "openmeld"."openMeldDaemon_ops_decisions"
+        (id, decision_code, decision_payload_json, decided_by, decided_at_ms, source, correlation_id)
+        SELECT 'decision-' || n, CASE WHEN n % 100 = 1 THEN 'controller.binding.lookup_failed' ELSE 'other-' || (n % 100) END,
+          '{}', 'core.dispatch_queue.preflight', n, 'dispatch_queue_consumer', 'dispatch-' || n
+        FROM generate_series(1, 20000) AS fixture(n)`);
+      await harness.query(`ANALYZE "openmeld"."openMeldDaemon_ops_decisions"`);
+      const querySpy = vi.spyOn(harness.db, "query");
+      await listRecentOpenMeldDaemonOpsDecisions({
+        db: harness.db,
+        limit: 10,
+        ...testCase.input,
+      });
+      expect(querySpy).toHaveBeenCalledTimes(1);
+      const query = querySpy.mock.calls[0]?.[0];
+      querySpy.mockRestore();
+      if (!query || typeof query === "string") {
+        throw new Error("Native decision query was not captured");
+      }
+      expect(query.text).not.toMatch(NULL_PARAMETER_FILTER_PATTERN);
+      expect(query.text).not.toMatch(OR_FILTER_PATTERN);
+      const plan = await harness.queryAll({
+        text: `EXPLAIN (FORMAT JSON) ${query.text}`,
+        values: query.values,
+      });
+      const serializedPlan = JSON.stringify(plan);
+      if (typeof testCase.expectedIndex === "string") {
+        expect(serializedPlan).toContain(testCase.expectedIndex);
+      } else {
+        expect(serializedPlan).toMatch(testCase.expectedIndex);
+      }
+      expect(serializedPlan).not.toContain('"Node Type":"Sort"');
+    } finally {
+      await harness.close();
+    }
   });
 });
-
-function createMigratedHarness(): ReturnType<typeof createSqliteD1Harness> {
-  const harness = createSqliteD1Harness();
-  harnesses.push(harness);
-  applyDrizzleMigrationForTable(harness, "openMeldDaemon_ops_decisions");
-  return harness;
-}
-
-async function seedOpsDecisions(db: D1Database): Promise<void> {
-  await writeOpenMeldDaemonOpsDecision({
-    db,
-    decisionCode: "controller.binding.lookup_failed",
-    decisionPayload: { dispatchId: "dispatch-1" },
-    decidedBy: "core.dispatch_queue.preflight",
-    decidedAtMs: 3000,
-    source: "dispatch_queue_consumer",
-    correlationId: "dispatch-1",
-  });
-  await writeOpenMeldDaemonOpsDecision({
-    db,
-    decisionCode: "dispatch.window.risk",
-    decisionPayload: { dispatchId: "dispatch-2" },
-    decidedBy: "core.dispatch_queue.risk",
-    decidedAtMs: 2000,
-    source: "dispatch_queue_consumer",
-    correlationId: "dispatch-2",
-  });
-}
-
-function createCapturingD1Database(
-  db: D1Database,
-  capturedQueries: CapturedQuery[]
-): D1Database {
-  return {
-    ...db,
-    prepare: (sql: string) => {
-      const statement = db.prepare(sql);
-      return {
-        bind: (...params: unknown[]) => {
-          capturedQueries.push({
-            params: params.map(toSqliteBindValue),
-            sql,
-          });
-          return statement.bind(...params);
-        },
-        first: statement.first.bind(statement),
-        all: statement.all.bind(statement),
-        run: statement.run.bind(statement),
-      } as D1PreparedStatement;
-    },
-  } as D1Database;
-}
-
-function explainQueryPlan(
-  harness: ReturnType<typeof createSqliteD1Harness>,
-  query: CapturedQuery | undefined
-): string {
-  if (!query) {
-    throw new Error("ops decision query was not captured");
-  }
-  const rows = harness.queryAll<{ detail: string }>({
-    sql: `EXPLAIN QUERY PLAN ${query.sql}`,
-    params: query.params,
-  });
-  return rows.map((row) => row.detail).join("\n");
-}
-
-function toSqliteBindValue(value: unknown): SqliteBindValue {
-  if (typeof value === "string" || typeof value === "number") {
-    return value;
-  }
-  if (value === null || value === undefined) {
-    return null;
-  }
-  throw new Error(`Unsupported SQLite bind value: ${String(value)}`);
-}

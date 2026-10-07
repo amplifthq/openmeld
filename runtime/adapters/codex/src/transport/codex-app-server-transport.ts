@@ -1531,8 +1531,7 @@ class CodexAppServerSession {
       cwd: tmpdir(),
       env: launch.env,
       shell: launch.shell ?? false,
-      ...(this.#computerFileAccessBoundary?.executionContextAccess &&
-      this.#env?.OPENMELD_PROCESS_SUPERVISION_ID
+      ...(this.#env?.OPENMELD_PROCESS_SUPERVISION_ID
         ? { supervisionId: this.#env.OPENMELD_PROCESS_SUPERVISION_ID }
         : {}),
     });
@@ -1995,9 +1994,8 @@ class CodexAppServerSession {
         ...(!scoped &&
         supportsAgentControllerVersion(nativeVersion, ">=0.160.0")
           ? {
-              // In 0.160.0 this reuses the thread's published connection state.
-              // An unfiltered query creates a discovery manager for every MCP,
-              // making unrelated startup/auth/resource work an admission gate.
+              // Reuse the thread's published connection state. An unfiltered
+              // query starts discovery for unrelated MCP servers as well.
               serverName: OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
             }
           : {}),

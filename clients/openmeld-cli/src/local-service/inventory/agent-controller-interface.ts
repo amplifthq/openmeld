@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
+import {
+  isAntigravityAcpLaunchContract,
+  probeAntigravityAcp,
+} from "@openmeld/adapter-antigravity";
 import { probeClaudeCodeUsageLimits } from "@openmeld/adapter-claude-code";
 import {
   probeCodexAppServerAccount,
@@ -63,7 +67,7 @@ const PROBE_TIMEOUT_MS = 8000;
 const CODEX_AUX_INVENTORY_GRACE_MS = 2500;
 const PROBE_OUTPUT_LIMIT = 32_000;
 const CODEX_USER_AGENT_VERSION_RE = /\/([^\s]+)/u;
-const CLI_SEMVER_RE = /\b(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
+const CLI_SEMVER_RE = /\bv?(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
 const CURSOR_BUILD_DATE_RE = /^(\d{4})\.(\d{2})\.(\d{2})-[\da-f]+$/u;
 const WHITESPACE_RE = /\s+/u;
 
@@ -106,6 +110,45 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
 async function resolveAntigravityInterfaceSnapshot(
   input: InventoryProbeInput
 ): Promise<AgentControllerInterfaceProbeOutcome> {
+  if (isAntigravityAcpLaunchContract(input.launchContract)) {
+    try {
+      const initialized = await probeAntigravityAcp({
+        cwd: input.workingDirectory,
+        launchContract: input.launchContract,
+        timeoutMs: PROBE_TIMEOUT_MS,
+      });
+      return {
+        probeCompleted: true,
+        snapshot: {
+          ...input.baseSnapshot,
+          nativeInterface: "acp",
+          version: initialized.agentInfo?.version ?? null,
+          capabilities: {
+            ...input.baseSnapshot.capabilities,
+            approvals: true,
+            structuredUserInput: true,
+          },
+          auth: { status: "unknown" },
+          status: "warning",
+          message:
+            "Antigravity ACP is installed. Sign-in status and usage limits must be checked in Antigravity.",
+          usageLimits: createUnsupportedProviderUsageLimits(
+            input.baseSnapshot.checkedAt
+          ),
+        },
+      };
+    } catch (error) {
+      return {
+        probeCompleted: false,
+        snapshot: {
+          ...input.baseSnapshot,
+          nativeInterface: "acp",
+          status: "unknown",
+          message: `OpenMeld could not start Antigravity ACP: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      };
+    }
+  }
   // /usage may enter interactive authentication even in print mode. A status
   // read (including an explicit refresh) must never initiate browser login or
   // Keychain authorization. Keep only the credential-free version probe until
@@ -957,12 +1000,16 @@ async function resolveOpenCodeInterfaceSnapshot(
         ? { usageLimits: readinessProbe.usageLimits }
         : {}),
       version,
-      versionAdvisory: await resolveControllerVersionAdvisory({
-        checkedAt: input.baseSnapshot.checkedAt,
-        controllerId: input.baseSnapshot.controllerId,
-        currentVersion: version,
-        launchContract: input.launchContract,
-      }),
+      // The v1 maintenance channel installs opencode-ai. It must not replace
+      // an explicitly selected v2 installation with the older major.
+      versionAdvisory: version?.startsWith("2.")
+        ? undefined
+        : await resolveControllerVersionAdvisory({
+            checkedAt: input.baseSnapshot.checkedAt,
+            controllerId: input.baseSnapshot.controllerId,
+            currentVersion: version,
+            launchContract: input.launchContract,
+          }),
     },
   };
 }

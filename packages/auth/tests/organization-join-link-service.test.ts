@@ -7,6 +7,7 @@ import {
   createOrganizationJoinLinkService,
   OrganizationJoinLinkServiceError,
 } from "../src/organization/join-link-service";
+import { createCapturedPostgresUniqueError } from "./postgresql-errors.test-support";
 
 const ORGANIZATION_ID = "org-acme";
 const WEB_APP_URL = "https://openmeld.example";
@@ -19,9 +20,8 @@ describe("organization join link concurrent creation", () => {
     "reset",
   ])("returns the active link when %s loses the active-link insert race", async (insertPath) => {
     const activeLink = createJoinLinkRecord({ id: "link-winner" });
-    const uniqueConstraintError = new Error(
-      "D1_ERROR: UNIQUE constraint failed: organization_join_links.organization_id: SQLITE_CONSTRAINT"
-    );
+    const uniqueConstraintError =
+      createCapturedPostgresUniqueError("organizationActive");
     const repository = createStubRepository({
       findActiveByOrganizationId: vi.fn().mockResolvedValue(activeLink),
       [insertPath === "ensure" ? "ensureActive" : "resetActive"]: vi
@@ -48,9 +48,7 @@ describe("organization join link concurrent creation", () => {
     "ensure",
     "reset",
   ])("rethrows a non-constraint %s insert failure", async (insertPath) => {
-    const databaseError = new Error(
-      "D1_ERROR: database is locked: SQLITE_BUSY"
-    );
+    const databaseError = new Error("synthetic database transport failure");
     const repository = createStubRepository({
       [insertPath === "ensure" ? "ensureActive" : "resetActive"]: vi
         .fn()
@@ -67,9 +65,8 @@ describe("organization join link concurrent creation", () => {
     "ensure",
     "reset",
   ])("returns a structured error when the active link disappears after a %s insert conflict", async (insertPath) => {
-    const uniqueConstraintError = new Error(
-      "UNIQUE constraint failed: organization_join_links.organization_id"
-    );
+    const uniqueConstraintError =
+      createCapturedPostgresUniqueError("organizationActive");
     const repository = createStubRepository({
       findActiveByOrganizationId: vi.fn().mockResolvedValue(null),
       [insertPath === "ensure" ? "ensureActive" : "resetActive"]: vi

@@ -1158,6 +1158,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       kind: "account_access",
       mappedReasonBody: (targetName) =>
         `${targetName} reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.`,
+      availabilityBadgeLabel: "Usage Limit reached",
+      availabilitySummary:
+        "This agent reached a Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+      availabilityTooltip: "Usage Limit reached. Review Usage Limits.",
       patterns: ["=usage_exhausted"],
       primaryActionId: "review_agent_settings",
       preferMappedReasonOverDetail: true,
@@ -1897,6 +1901,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       kind: "local_agent_prepare",
       patterns: ["=execution_context.custom_config_file_access_unverified"],
       primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "The Agent owner's request can no longer be verified. The task did not start. Ask the owner to send the task again.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.owner_request_unavailable"],
+      primaryActionId: "check_status",
       preferMappedReasonOverDetail: true,
       recoveryTarget: "computer",
     },

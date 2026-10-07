@@ -1,49 +1,35 @@
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
+import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { BuildingsIcon, UserIcon } from "@phosphor-icons/react";
-import { getRouteApi, useLocation, useNavigate } from "@tanstack/react-router";
-
-const pluginsRoute = getRouteApi("/o/$orgSlug/plugins");
+import { useQueryState } from "nuqs";
+import { pluginScopeParser } from "#/lib/page-tab-search";
 
 export function usePluginScope() {
-	return pluginsRoute.useSearch().scope;
+	return useQueryState("scope", pluginScopeParser)[0];
 }
 
 export function PluginScopeTabs(input: {
 	organizationName: string;
 	isPersonalWorkspace: boolean;
 }) {
-	const scope = usePluginScope();
-	const navigate = useNavigate();
-	const pathname = useLocation({ select: (location) => location.pathname });
+	const [scope, setScope] = useQueryState("scope", pluginScopeParser);
 	if (input.isPersonalWorkspace) {
 		return null;
 	}
 	return (
-		<TabsSubtle
-			aria-label="Configure plugins for"
-			className="w-fit max-w-full gap-6"
-			onSelect={(index) =>
-				navigate({
-					to: pathname,
-					search: { scope: index === 0 ? "organization" : "personal" },
-					replace: true,
-				})
+		<Tabs
+			onValueChange={(value) =>
+				setScope(value === "personal" ? "personal" : "organization")
 			}
-			selectedIndex={scope === "organization" ? 0 : 1}
-			variant="underline"
+			value={scope}
 		>
-			<TabsSubtleItem
-				className="h-9 py-2"
-				icon={BuildingsIcon}
-				index={0}
-				label={input.organizationName}
-			/>
-			<TabsSubtleItem
-				className="h-9 py-2"
-				icon={UserIcon}
-				index={1}
-				label="Personal"
-			/>
-		</TabsSubtle>
+			<TabsList aria-label="Configure plugins for" className="w-fit max-w-full">
+				<TabItem
+					icon={BuildingsIcon}
+					label={input.organizationName}
+					value="organization"
+				/>
+				<TabItem icon={UserIcon} label="Personal" value="personal" />
+			</TabsList>
+		</Tabs>
 	);
 }

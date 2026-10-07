@@ -412,24 +412,16 @@ async function insertOrReadConcurrentActiveLink(input: {
 function isActiveOrganizationJoinLinkUniqueConstraintError(
   error: unknown
 ): boolean {
-  if (!(error && typeof error === "object")) {
-    return false;
-  }
-
-  const message =
-    error instanceof Error ? error.message : String(error ?? "").trim();
-  if (
-    message.includes(
-      "UNIQUE constraint failed: organization_join_links.organization_id"
+  return (
+    isPostgresUniqueViolation(
+      error,
+      "organization_join_links_active_organization_uidx"
+    ) ||
+    isPostgresUniqueViolation(
+      error,
+      "organization_join_links_active_space_uidx"
     )
-  ) {
-    return true;
-  }
-
-  const cause = "cause" in error ? error.cause : undefined;
-  return cause
-    ? isActiveOrganizationJoinLinkUniqueConstraintError(cause)
-    : false;
+  );
 }
 
 export function generateOrganizationJoinLinkToken(): string {
@@ -532,3 +524,5 @@ function assertOrganizationCanHaveMembers(
     );
   }
 }
+
+import { isPostgresUniqueViolation } from "@openmeld/db/postgresql";

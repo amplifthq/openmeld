@@ -1,19 +1,22 @@
+import { withPostgresRequest } from "@openmeld/db/postgresql";
+import { runAccountDeletionCleanup } from "./lib/account/deletion-service";
 import { runDeletedProfileReconcileOutbox } from "./lib/profiles/deleted-profile-reconcile";
 import { runSpaceIndexMembershipOverlayReconcile } from "./lib/profiles/overlay-reconcile";
 import { AuthRpcEntrypoint } from "./lib/rpc/entrypoint";
-
 export class GatewayAuthRpcEntrypoint extends AuthRpcEntrypoint {}
-
 class AuthEntrypoint extends AuthRpcEntrypoint {
   // Periodic convergence for Auth-owned cross-service work. The overlay sweep
   // repairs dropped Profile history projections. The deletion outbox retries
   // Wake cancellation, Binding cleanup, and Space removal until Core confirms
   // the whole Profile deletion lifecycle is complete.
   async scheduled(_controller: ScheduledController): Promise<void> {
-    await Promise.all([
-      runSpaceIndexMembershipOverlayReconcile(this.env),
-      runDeletedProfileReconcileOutbox(this.env),
-    ]);
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      await Promise.all([
+        runSpaceIndexMembershipOverlayReconcile(this.env),
+        runDeletedProfileReconcileOutbox(this.env),
+      ]);
+      await runAccountDeletionCleanup(this.env);
+    });
   }
 }
 

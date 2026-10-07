@@ -11,12 +11,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { authBusinessRequest } from "../../../clients/web/src/lib/auth-business.server";
 import { Route as createOrganizationRoute } from "../../../clients/web/src/routes/v1/organizations";
 import { deleteAgentProfileRequest } from "../../../clients/web/src/routes/v1/profiles/agents/$profileId";
-import type { AuthBindings } from "../src/lib/bindings";
-import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-} from "./support/sqlite-d1-harness";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
+import type { AuthBindings } from "../src/lib/bindings";
+import { createAuthWorkerTestApp } from "./support/auth-worker-entrypoint.test-support";
 
 vi.mock("#/env", () => ({
   getRequiredServerEnv: (name: string) =>
@@ -32,23 +32,25 @@ vi.mock("#/lib/openmeld-api/proxy-cloudflare-runtime.server", () => ({
 }));
 
 describe("fixed business Web to Auth boundary", () => {
-  const harness = createSqliteD1Harness();
-  const app = createHonoApp();
-  const env = {
-    AUTH_BRAND_NAME: "OpenMeld",
-    AUTH_COOKIE_DOMAIN: "localhost",
-    AUTH_DEVICE_ALLOWED_CLIENT_IDS: "openmeld-cli",
-    AUTH_EMAIL: { send: async () => undefined },
-    AUTH_FROM_EMAIL: "OpenMeld <noreply@openmeld.invalid>",
-    AUTH_WORKER_NODE_ENV: "development",
-    BETTER_AUTH_OPENMELD_SECRET:
-      "1234567890123456789012345678901234567890123456789012345678901234",
-    BETTER_AUTH_URL: "http://localhost:8788",
-    OPENMELD_AUTH_KV: {},
-    OPENMELD_DB: harness.db,
-    PASSKEY_RP_ID: "localhost",
-    WEB_APP_URL: "http://localhost:3000",
-  } as unknown as AuthBindings;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
+  const app = createAuthWorkerTestApp();
+  let env: AuthBindings;
+  const createEnv = () =>
+    ({
+      AUTH_BRAND_NAME: "OpenMeld",
+      AUTH_COOKIE_DOMAIN: "localhost",
+      AUTH_DEVICE_ALLOWED_CLIENT_IDS: "openmeld-cli",
+      AUTH_EMAIL: { send: async () => undefined },
+      AUTH_FROM_EMAIL: "OpenMeld <noreply@openmeld.invalid>",
+      AUTH_WORKER_NODE_ENV: "development",
+      BETTER_AUTH_OPENMELD_SECRET:
+        "1234567890123456789012345678901234567890123456789012345678901234",
+      BETTER_AUTH_URL: "http://localhost:8788",
+      OPENMELD_AUTH_KV: {},
+      OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      PASSKEY_RP_ID: "localhost",
+      WEB_APP_URL: "http://localhost:3000",
+    }) as unknown as AuthBindings;
   const executionContext = {
     waitUntil: () => undefined,
     passThroughOnException: () => undefined,
@@ -60,7 +62,9 @@ describe("fixed business Web to Auth boundary", () => {
   const authFetch: typeof fetch = async (input, init) =>
     app.fetch(new Request(input, init), env, executionContext);
   beforeAll(async () => {
-    applyDrizzleMigrations(harness.database);
+    harness = await createPostgresHarness();
+    env = createEnv();
+
     const response = await authFetch(
       "http://localhost:8788/api/auth/sign-up/email",
       {
@@ -79,9 +83,9 @@ describe("fixed business Web to Auth boundary", () => {
     if (!response.ok) {
       throw new Error("Fixture sign-up failed.");
     }
-    harness.run({
-      sql: "update users set email_verified = 1 where email = ?",
-      params: ["owner@example.com"],
+    await harness.query({
+      text: 'update "openmeld"."users" set email_verified = 1 where email = $1',
+      values: ["owner@example.com"],
     });
     const signedIn = await authFetch(
       "http://localhost:8788/api/auth/sign-in/email",
@@ -104,8 +108,8 @@ describe("fixed business Web to Auth boundary", () => {
       .getSetCookie()
       .map((value) => value.split(";")[0])
       .join("; ");
-    const personal = harness.queryFirst<{ id: string }>({
-      sql: "select id from organizations limit 1",
+    const personal = await harness.queryFirst<{ id: string }>({
+      text: 'select id from "openmeld"."organizations" limit 1',
     });
     if (!personal) {
       throw new Error("Fixture Personal Organization missing.");
@@ -113,9 +117,9 @@ describe("fixed business Web to Auth boundary", () => {
     personalId = personal.id;
     vi.stubGlobal("fetch", authFetch);
   });
-  afterAll(() => {
+  afterAll(async () => {
     vi.unstubAllGlobals();
-    harness.close();
+    await harness.close();
   });
   function request(
     path: string,
@@ -149,8 +153,8 @@ describe("fixed business Web to Auth boundary", () => {
     "null",
     "https://hostile.example",
   ])("never upgrades %s Origin into trusted cookie authority", async (origin) => {
-    const before = harness.queryFirst({
-      sql: "select count(*) as count from organizations",
+    const before = await harness.queryFirst({
+      text: 'select count(*) as count from "openmeld"."organizations"',
     });
     const response = await create(origin);
     expect(response.status).toBe(403);
@@ -158,7 +162,9 @@ describe("fixed business Web to Auth boundary", () => {
       code: "auth.invalid_origin",
     });
     expect(
-      harness.queryFirst({ sql: "select count(*) as count from organizations" })
+      await harness.queryFirst({
+        text: 'select count(*) as count from "openmeld"."organizations"',
+      })
     ).toEqual(before);
     const profile = await authBusinessRequest({
       request: request("/v1/profiles/agents", { profileName: "Agent" }, origin),
@@ -192,9 +198,9 @@ describe("fixed business Web to Auth boundary", () => {
       code: "organization.personal_undeletable",
     });
     expect(
-      harness.queryFirst({
-        sql: "select id from organizations where id = ?",
-        params: [personalId],
+      await harness.queryFirst({
+        text: 'select id from "openmeld"."organizations" where id = $1',
+        values: [personalId],
       })
     ).toEqual({ id: personalId });
   });
@@ -298,9 +304,9 @@ describe("fixed business Web to Auth boundary", () => {
       }
       expect(nudges).toBe(2);
       expect(
-        harness.queryFirst({
-          sql: "select profile_id from openmeld_profiles where profile_id = ?",
-          params: [profile.openMeldProfileId],
+        await harness.queryFirst({
+          text: 'select profile_id from "openmeld"."openmeld_profiles" where profile_id = $1',
+          values: [profile.openMeldProfileId],
         })
       ).toBeNull();
       expect(warning).toHaveBeenCalled();
@@ -310,16 +316,16 @@ describe("fixed business Web to Auth boundary", () => {
     }
   });
   it("refuses Human and another account's Agent before Auth cleanup", async () => {
-    const primary = harness.queryFirst<{ id: string; owner: string }>({
-      sql: "select profile_id as id, owner_user_id as owner from openmeld_profiles where profile_kind = 'human' and is_default = 1 limit 1",
+    const primary = await harness.queryFirst<{ id: string; owner: string }>({
+      text: 'select profile_id as id, owner_user_id as owner from "openmeld"."openmeld_profiles" where profile_kind = \'human\' and is_default = 1 limit 1',
     });
     if (!primary) {
       throw new Error("Fixture primary Human Profile missing.");
     }
     const additional = "33333333-3333-4333-8333-333333333333";
-    harness.run({
-      sql: "insert into openmeld_profiles (profile_id,profile_name,profile_handle,profile_kind,is_default,status,owner_user_id,source,created_at,updated_at) values (?, 'Additional', 'additional', 'human', 0, 'active', ?, 'migration', 1, 1)",
-      params: [additional, primary.owner],
+    await harness.query({
+      text: "insert into \"openmeld\".\"openmeld_profiles\" (profile_id,profile_name,profile_handle,profile_kind,is_default,status,owner_user_id,source,created_at,updated_at) values ($1, 'Additional', 'additional', 'human', 0, 'active', $2, 'migration', 1, 1)",
+      values: [additional, primary.owner],
     });
     for (const profileId of [primary.id, additional]) {
       const response = await authFetch(
@@ -331,19 +337,19 @@ describe("fixed business Web to Auth boundary", () => {
       );
       expect(response.status).toBe(400);
       expect(
-        harness.queryFirst({
-          sql: "select status from openmeld_profiles where profile_id = ?",
-          params: [profileId],
+        await harness.queryFirst({
+          text: 'select status from "openmeld"."openmeld_profiles" where profile_id = $1',
+          values: [profileId],
         })
       ).toEqual({ status: "active" });
     }
     const foreign = "agt_44444444-4444-4444-8444-444444444444";
-    harness.run({
-      sql: "insert into users (id,name,email,email_verified,created_at,updated_at) values ('other','Other','other@example.com',1,1,1)",
+    await harness.query({
+      text: "insert into \"openmeld\".\"users\" (id,name,email,email_verified,created_at,updated_at) values ('other','Other','other@example.com',1,1,1)",
     });
-    harness.run({
-      sql: "insert into openmeld_profiles (profile_id,profile_name,profile_handle,profile_kind,is_default,status,owner_user_id,organization_id,source,created_at,updated_at) values (?, 'Other Agent', 'other-agent', 'agent', 0, 'active', 'other', ?, 'migration', 1, 1)",
-      params: [foreign, personalId],
+    await harness.query({
+      text: "insert into \"openmeld\".\"openmeld_profiles\" (profile_id,profile_name,profile_handle,profile_kind,is_default,status,owner_user_id,organization_id,source,created_at,updated_at) values ($1, 'Other Agent', 'other-agent', 'agent', 0, 'active', 'other', $2, 'migration', 1, 1)",
+      values: [foreign, personalId],
     });
     const response = await authFetch(
       `http://localhost:8788/v1/profiles/agents/${foreign}`,
@@ -351,9 +357,9 @@ describe("fixed business Web to Auth boundary", () => {
     );
     expect(response.status).toBe(404);
     expect(
-      harness.queryFirst({
-        sql: "select status from openmeld_profiles where profile_id = ?",
-        params: [foreign],
+      await harness.queryFirst({
+        text: 'select status from "openmeld"."openmeld_profiles" where profile_id = $1',
+        values: [foreign],
       })
     ).toEqual({ status: "active" });
   });

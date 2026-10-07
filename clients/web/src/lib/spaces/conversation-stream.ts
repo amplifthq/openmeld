@@ -21,6 +21,8 @@ type SpaceConversationStreamCommon = {
 	triggerMessageId: string;
 	updatedAtMs: number;
 	toolParts?: readonly AgentStreamToolPart[];
+	thinkingSequence?: number;
+	progressSequence?: number;
 };
 
 const MAX_LIVE_AGENT_WORK_PARTS = 50;
@@ -54,6 +56,22 @@ export type SpaceConversationStreamProjection =
 export type SpaceConversationStreamState =
 	readonly SpaceConversationStreamProjection[];
 
+function readDeltaSequence(
+	projection: Extract<
+		SpaceConversationVisibleStreamProjection,
+		{ status: "streaming" }
+	>,
+	frame: SpaceAgentStreamDeltaFrame
+): number {
+	if (frame.kind === "thinking") {
+		return projection.thinkingSequence ?? 0;
+	}
+	if (frame.kind === "progress") {
+		return projection.progressSequence ?? 0;
+	}
+	return projection.sequence;
+}
+
 export function applySpaceConversationStreamFrame(input: {
 	current: SpaceConversationStreamState;
 	frame:
@@ -81,13 +99,7 @@ export function applySpaceConversationStreamFrame(input: {
 		}
 		if (
 			currentProjection &&
-			input.frame.sequence <= currentProjection.sequence &&
-			!(
-				input.frame.kind === "thinking" &&
-				!currentProjection.thinking &&
-				!currentProjection.reasoningState
-			) &&
-			!(input.frame.kind === "progress" && !currentProjection.progress)
+			input.frame.sequence <= readDeltaSequence(currentProjection, input.frame)
 		) {
 			return input.current;
 		}
@@ -234,6 +246,8 @@ function toPresenceProjection(input: {
 			: undefined;
 	return {
 		createdAtMs: input.presence.createdAtMs,
+		thinkingSequence: currentStreamingProjection?.thinkingSequence,
+		progressSequence: currentStreamingProjection?.progressSequence,
 		dispatchId: input.presence.dispatchId,
 		observedRevision: Math.max(
 			currentStreamingProjection?.observedRevision ?? 0,
@@ -305,6 +319,8 @@ export function clearSpaceConversationTransientStreams(
 			progress: _progress,
 			reasoningState: _reasoningState,
 			toolParts: _toolParts,
+			thinkingSequence: _thinkingSequence,
+			progressSequence: _progressSequence,
 			...persistent
 		} = projection;
 		return persistent;
@@ -390,6 +406,10 @@ function projectTransientStreamContent(
 				}
 			: {}),
 		...(reasoningState ? { reasoningState } : {}),
+		thinkingSequence:
+			frame.kind === "thinking" ? frame.sequence : current?.thinkingSequence,
+		progressSequence:
+			frame.kind === "progress" ? frame.sequence : current?.progressSequence,
 	};
 }
 
@@ -423,6 +443,8 @@ function toStreamingPartProjection(input: {
 	}
 	const boundedToolParts = toolParts.slice(-MAX_LIVE_AGENT_WORK_PARTS);
 	return {
+		thinkingSequence: input.currentProjection?.thinkingSequence,
+		progressSequence: input.currentProjection?.progressSequence,
 		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.reasoningState
 			? { reasoningState: input.currentProjection.reasoningState }
@@ -474,6 +496,8 @@ function toSnapshotProjection(input: {
 }): SpaceConversationVisibleStreamProjection {
 	return {
 		createdAtMs: input.snapshot.createdAtMs,
+		thinkingSequence: input.currentProjection?.thinkingSequence,
+		progressSequence: input.currentProjection?.progressSequence,
 		dispatchId: input.snapshot.dispatchId,
 		observedRevision: Math.max(
 			input.currentProjection?.observedRevision ?? 0,
@@ -560,11 +584,18 @@ function toTerminalProjection(input: {
 			status: "final_message",
 		};
 	}
+	const stoppedText =
+		input.currentProjection && "text" in input.currentProjection
+			? input.currentProjection.text
+			: "";
 	return {
 		...common,
 		reasonCode: input.frame.terminal.reasonCode,
 		status: input.frame.terminal.kind,
-		text: input.frame.terminal.noticeText,
+		text:
+			input.frame.terminal.kind === "stopped"
+				? stoppedText
+				: input.frame.terminal.noticeText,
 	};
 }
 

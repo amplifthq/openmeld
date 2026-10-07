@@ -15,6 +15,7 @@ import type { SpaceWakeOutcomeIndex } from "#/lib/spaces/wake-stop-target";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
+import { SpaceMessageProgressRow } from "./space-message-progress-row";
 import { SpaceMessageWakeThinkingIndicator } from "./space-message-wake-thinking-indicator";
 import {
 	SpacePendingSendFeedback,
@@ -33,6 +34,7 @@ export function SpaceMessageProgressStatus(input: {
 	wakeSourceItem?: SpaceTimelineItem;
 	onOpenMessageDetails?: () => void;
 }) {
+	const requestStartedAtMs = resolveRequestStartedAtMs(input);
 	const stopFeedback = resolveSpaceMessageStopFeedback(
 		input.item,
 		useSpaceWakeStopRequestStatuses()
@@ -72,6 +74,7 @@ export function SpaceMessageProgressStatus(input: {
 					entries: input.entries,
 					hasControl: input.control != null,
 					item: input.item,
+					requestStartedAtMs,
 				});
 	if (sendFailure) {
 		return wrapProgressStatus(
@@ -89,7 +92,25 @@ export function SpaceMessageProgressStatus(input: {
 				align={input.align}
 				control={input.control}
 				item={input.item}
+				requestStartedAtMs={requestStartedAtMs}
 			/>,
+			input.containerClassName,
+			input.item.activeWakeProgress
+		);
+	}
+	if (content.deliveryPresentation && content.entries.length === 0) {
+		return wrapProgressStatus(
+			<SpaceMessageProgressRow
+				align={input.align}
+				control={input.control}
+				slot="space-message-progress-row"
+			>
+				<SpaceMessageDeliveryStatus
+					align={input.align}
+					presentation={content.deliveryPresentation}
+					requestStartedAtMs={requestStartedAtMs}
+				/>
+			</SpaceMessageProgressRow>,
 			input.containerClassName,
 			input.item.activeWakeProgress
 		);
@@ -127,7 +148,28 @@ type SpaceMessageProgressContent =
 			showAgentWorkingState: boolean;
 	  };
 
-function resolveActiveWakeEntries(item: SpaceTimelineItem) {
+function resolveRequestStartedAtMs(input: {
+	item: SpaceTimelineItem;
+	wakeSourceItem?: SpaceTimelineItem;
+}): number | undefined {
+	const source = input.wakeSourceItem ?? input.item;
+	const progress = input.item.activeWakeProgress;
+	// A fresh Wake of an older message is a new request, not time spent waiting
+	// since that message was originally posted.
+	if (
+		progress?.clientMessageId &&
+		source.clientMessageId &&
+		progress.clientMessageId !== source.clientMessageId
+	) {
+		return progress.startedAtMs;
+	}
+	return source.createdAtMs;
+}
+
+function resolveActiveWakeEntries(
+	item: SpaceTimelineItem,
+	requestStartedAtMs?: number
+) {
 	if (!item.activeWakeProgress) {
 		return [];
 	}
@@ -136,6 +178,9 @@ function resolveActiveWakeEntries(item: SpaceTimelineItem) {
 			? { ...item.activeWakeProgress, previewText: undefined }
 			: item.activeWakeProgress,
 		showElapsedTime: true,
+		// The Agent reply already owns the avatar and identity header.
+		showTargetName: false,
+		requestStartedAtMs,
 	});
 }
 
@@ -144,19 +189,12 @@ function resolveSpaceMessageProgressContent(input: {
 	entries: readonly SpaceMessageWakeThinkingEntry[];
 	hasControl: boolean;
 	item: SpaceTimelineItem;
+	requestStartedAtMs?: number;
 }): SpaceMessageProgressContent | null {
-	if (
-		input.item.activeWakeProgress?.phase === "sending" &&
-		input.deliveryPresentation === "sending_delayed"
-	) {
-		return {
-			deliveryPresentation: input.deliveryPresentation,
-			entries: [],
-			kind: "status",
-			showAgentWorkingState: false,
-		};
-	}
-	const activeEntries = resolveActiveWakeEntries(input.item);
+	const activeEntries = resolveActiveWakeEntries(
+		input.item,
+		input.requestStartedAtMs
+	);
 	const presentedEntries =
 		activeEntries.length > 0 ? activeEntries : input.entries;
 	if (presentedEntries.some((entry) => entry.step.status === "pending")) {
@@ -225,12 +263,7 @@ function hasLiveSpaceAgentWork(item: SpaceTimelineItem): boolean {
 	return (
 		hasLiveSpaceAgentToolActivity(item) ||
 		(item.agentStreamState?.status === "streaming" &&
-			Boolean(
-				item.agentStreamState.progress ||
-					item.agentStreamState.thinking ||
-					(item.agentStreamState.reasoningState?.status &&
-						item.agentStreamState.reasoningState.status !== "streaming")
-			))
+			Boolean(item.agentStreamState.progress || item.agentStreamState.thinking))
 	);
 }
 

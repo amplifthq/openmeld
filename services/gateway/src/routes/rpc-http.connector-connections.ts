@@ -1,5 +1,4 @@
 import {
-  CONNECTOR_SERVICES,
   connectorAppCatalogResponseSchema,
   connectorAppRequestListResponseSchema,
   connectorAppRequestResponseSchema,
@@ -14,7 +13,9 @@ import {
   pluginAccessListResponseSchema,
   pluginAccessSchema,
   pluginAccessUpdateBodySchema,
+  pluginActionRequestCommandSchema,
   pluginActionRequestSchema,
+  pluginActionRequestViewSchema,
   pluginActionResponseSchema,
   pluginChannelContinueBodySchema,
   pluginChannelContinueResponseSchema,
@@ -189,6 +190,47 @@ export function registerConnectorConnectionRoutes(
     });
   });
   registerPluginChannelContinuationRoutes(app);
+  const requestRoute = "/v1/organizations/current/plugins/action-requests";
+  app.post(requestRoute, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      requestRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    // Requiring the non-simple JSON content type prevents form-based cross-site
+    // submissions. Core verifies the authenticated account principal and owner.
+    const command =
+      c.req.header("content-type")?.split(";")[0] === "application/json"
+        ? pluginActionRequestCommandSchema.safeParse(
+            await c.req.json().catch(() => null)
+          )
+        : null;
+    if (!command?.success) {
+      return respondBadRequest({
+        c,
+        route: requestRoute,
+        method: "POST",
+        reason: "Invalid Plugin request.",
+        message: "Choose a valid Plugin request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: requestRoute,
+      method: "POST",
+      retryMode: "none",
+      responseSchema: pluginActionRequestViewSchema,
+      execute: () =>
+        c.var.coreRpc.pluginActionRequest({
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: organization.expectedOrganizationId,
+          command: command.data,
+        }),
+    });
+  });
   const actionRoute = "/v1/organizations/current/plugins/actions";
   app.post(actionRoute, async (c) => {
     const organization = parseConnectorOrganizationRequest(
@@ -615,26 +657,49 @@ async function configureCredential(
               expectedOrganizationId: request.expectedOrganizationId,
               service: request.service,
             });
-      await createOpenConnectorClient(c.env).configureConnection({
-        ...credential.body,
-        connectionName: pendingConnection.connectionName,
-        service: request.service,
-      });
-      const reconciled = await reconcileConnectorConnections(c, {
-        expectedOrganizationId: request.expectedOrganizationId,
-        service: request.service,
-      });
-      const connection = reconciled.connections.find(
-        (candidate) =>
-          candidate.connectionName === pendingConnection.connectionName &&
-          candidate.status === "active"
-      );
-      if (!connection) {
-        throw new Error(
-          "The configured connector connection was not activated by Core."
+      try {
+        await createOpenConnectorClient(c.env).configureConnection({
+          ...credential.body,
+          connectionName: pendingConnection.connectionName,
+          service: request.service,
+        });
+        const reconciled = await reconcileConnectorConnections(c, {
+          expectedOrganizationId: request.expectedOrganizationId,
+          service: request.service,
+        });
+        const connection = reconciled.connections.find(
+          (candidate) =>
+            candidate.connectionName === pendingConnection.connectionName &&
+            candidate.status === "active"
         );
+        if (!connection) {
+          throw new Error(
+            "The configured connector connection was not activated by Core."
+          );
+        }
+        return { connection };
+      } catch (error) {
+        // A configuration may complete after its account was closed. Register
+        // durable compensation before attempting the immediate disconnect.
+        const scheduled = await c.var.authRpc.requestAccountConnectionCleanup({
+          userId: context.actorContext.ownerUserId,
+          connectionName: pendingConnection.connectionName,
+          service: request.service,
+        });
+        if (scheduled) {
+          await createOpenConnectorClient(c.env)
+            .disconnect({
+              connectionName: pendingConnection.connectionName,
+              service: request.service,
+            })
+            .catch(() => {
+              console.warn("[gateway.account.connection_cleanup_pending]", {
+                userId: context.actorContext.ownerUserId,
+              });
+            });
+        }
+        throw error;
       }
-      return { connection };
     },
     method: "POST",
     responseSchema: connectorCredentialConnectResponseSchema,
@@ -894,8 +959,16 @@ async function reconcileCatalogConnections(
     c.env
   ).listConnections();
   const context = buildCoreRpcContext(c);
+  const stored =
+    await c.var.coreRpc.listCurrentOrganizationConnectorConnections({
+      context,
+      expectedOrganizationId: input.expectedOrganizationId,
+    });
+  const services = [
+    ...new Set(stored.connections.map((connection) => connection.service)),
+  ];
   const serviceResponses = await Promise.all(
-    CONNECTOR_SERVICES.map(
+    services.map(
       async (service) =>
         await c.var.coreRpc.reconcileCurrentOrganizationConnectorConnections({
           availableConnectionNames: connectorConnections
@@ -910,10 +983,7 @@ async function reconcileCatalogConnections(
         })
     )
   );
-  const identity = serviceResponses[0];
-  if (!identity) {
-    throw new Error("The App connector service catalog is empty.");
-  }
+  const identity = stored;
   return {
     connections: serviceResponses.flatMap((response) => response.connections),
     currentUserId: identity.currentUserId,

@@ -18,6 +18,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Match Core's native-fixture budget; concurrency stays inside behavior tests.
+    fileParallelism: false,
     include: ["tests/**/*.test.ts"],
     exclude: ["tests/workerd/**/*.test.ts"],
     server: {

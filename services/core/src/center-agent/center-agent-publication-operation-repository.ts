@@ -1,5 +1,5 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { createCoreRpcHttpError } from "../rpc/errors";
-
 export type CenterAgentPublicationDestinationKind =
   | "slack_channel"
   | "slack_file"
@@ -8,19 +8,16 @@ export type CenterAgentPublicationSourceKind =
   | "organization_document"
   | "remote_agent_execution"
   | "routine_run";
-
 export type CenterAgentPublicationSource = {
   kind: CenterAgentPublicationSourceKind;
   sourceId: string;
   sourceRevision: string;
 };
-
 export type CenterAgentPublicationOperationStatus =
   | "completed"
   | "failed"
   | "outcome_unknown"
   | "pending";
-
 export type CenterAgentPublicationOperationRecord = {
   actorProfileId: string;
   claimExpiresAtMs: number | null;
@@ -38,7 +35,6 @@ export type CenterAgentPublicationOperationRecord = {
   status: CenterAgentPublicationOperationStatus;
   updatedAtMs: number;
 };
-
 export type BeginCenterAgentPublicationOperationResult = {
   operation: CenterAgentPublicationOperationRecord;
   outcome:
@@ -47,7 +43,6 @@ export type BeginCenterAgentPublicationOperationResult = {
     | "outcome_unknown"
     | "pending_in_progress";
 };
-
 type CenterAgentPublicationOperationRow = {
   actor_profile_id: string;
   claim_expires_at_ms: number | null;
@@ -67,10 +62,9 @@ type CenterAgentPublicationOperationRow = {
   status: CenterAgentPublicationOperationStatus;
   updated_at_ms: number;
 };
-
 type BeginCenterAgentPublicationOperationInput = {
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   destinationId: string;
   destinationKind: CenterAgentPublicationDestinationKind;
   nowMs: number;
@@ -80,22 +74,18 @@ type BeginCenterAgentPublicationOperationInput = {
   requestSignature: string;
   source: CenterAgentPublicationSource;
 };
-
 export const CENTER_AGENT_PUBLICATION_CLAIM_LEASE_MS = 5 * 60_000;
 export const CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY = "source";
-
 export async function buildCenterAgentPublicationRequestSignature(
   value: unknown
 ): Promise<string> {
   return await sha256Hex(stableJson(value));
 }
-
 export async function buildCenterAgentPublicationSourceRevision(
   value: unknown
 ): Promise<string> {
   return await sha256Hex(stableJson(value));
 }
-
 export async function beginCenterAgentPublicationOperation(
   input: BeginCenterAgentPublicationOperationInput
 ): Promise<BeginCenterAgentPublicationOperationResult> {
@@ -103,10 +93,9 @@ export async function beginCenterAgentPublicationOperation(
   const claimId = `center_agent_publication_claim_${crypto.randomUUID()}`;
   const claimExpiresAtMs =
     input.nowMs + CENTER_AGENT_PUBLICATION_CLAIM_LEASE_MS;
-  const inserted = await input.db
-    .prepare(
-      `
-        INSERT OR IGNORE INTO center_agent_publication_operations (
+  const inserted = await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."center_agent_publication_operations" (
           id,
           organization_id,
           actor_profile_id,
@@ -124,10 +113,8 @@ export async function beginCenterAgentPublicationOperation(
           claim_expires_at_ms,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', NULL, $12, $13, $14, $15) ON CONFLICT DO NOTHING`,
+    values: [
       id,
       input.organizationId,
       input.actorProfileId,
@@ -142,11 +129,10 @@ export async function beginCenterAgentPublicationOperation(
       claimId,
       claimExpiresAtMs,
       input.nowMs,
-      input.nowMs
-    )
-    .run();
-
-  if (Number(inserted.meta?.changes ?? 0) === 1) {
+      input.nowMs,
+    ],
+  });
+  if (Number(inserted.rowCount ?? 0) === 1) {
     const operation = await requireCenterAgentPublicationOperation({
       db: input.db,
       input,
@@ -163,14 +149,12 @@ export async function beginCenterAgentPublicationOperation(
     }
     return { operation, outcome: "claimed" };
   }
-
   return await settleExistingCenterAgentPublicationOperation({
     claimExpiresAtMs,
     claimId,
     input,
   });
 }
-
 async function settleExistingCenterAgentPublicationOperation(input: {
   claimExpiresAtMs: number;
   claimId: string;
@@ -217,33 +201,30 @@ async function settleExistingCenterAgentPublicationOperation(input: {
     "Center Agent publication could not settle a concurrent claim transition."
   );
 }
-
 async function reclaimFailedCenterAgentPublicationOperation(input: {
   claimExpiresAtMs: number;
   claimId: string;
   input: BeginCenterAgentPublicationOperationInput;
   operation: CenterAgentPublicationOperationRecord;
 }): Promise<CenterAgentPublicationOperationRecord | null> {
-  const reclaimed = await input.input.db
-    .prepare(
-      `
-        UPDATE center_agent_publication_operations
+  const reclaimed = await input.input.db.query({
+    text: `
+        UPDATE "openmeld"."center_agent_publication_operations"
         SET
           status = 'pending',
-          claim_id = ?,
-          claim_expires_at_ms = ?,
-          updated_at_ms = ?
-        WHERE id = ? AND status = 'failed'
-      `
-    )
-    .bind(
+          claim_id = $1,
+          claim_expires_at_ms = $2,
+          updated_at_ms = $3
+        WHERE id = $4 AND status = 'failed'
+      `,
+    values: [
       input.claimId,
       input.claimExpiresAtMs,
       input.input.nowMs,
-      input.operation.id
-    )
-    .run();
-  if (Number(reclaimed.meta?.changes ?? 0) !== 1) {
+      input.operation.id,
+    ],
+  });
+  if (Number(reclaimed.rowCount ?? 0) !== 1) {
     return null;
   }
   const claimed = await requireCenterAgentPublicationOperation({
@@ -257,7 +238,6 @@ async function reclaimFailedCenterAgentPublicationOperation(input: {
   }
   return claimed;
 }
-
 async function settlePendingCenterAgentPublicationOperation(input: {
   input: BeginCenterAgentPublicationOperationInput;
   operation: CenterAgentPublicationOperationRecord;
@@ -271,24 +251,27 @@ async function settlePendingCenterAgentPublicationOperation(input: {
   if (operation.claimExpiresAtMs > input.input.nowMs) {
     return { operation, outcome: "pending_in_progress" };
   }
-  const closed = await input.input.db
-    .prepare(
-      `
-        UPDATE center_agent_publication_operations
+  const closed = await input.input.db.query({
+    text: `
+        UPDATE "openmeld"."center_agent_publication_operations"
         SET
           status = 'outcome_unknown',
           claim_id = NULL,
           claim_expires_at_ms = NULL,
-          updated_at_ms = ?
-        WHERE id = ?
+          updated_at_ms = $1
+        WHERE id = $2
           AND status = 'pending'
-          AND claim_id = ?
-          AND claim_expires_at_ms <= ?
-      `
-    )
-    .bind(input.input.nowMs, operation.id, operation.claimId, input.input.nowMs)
-    .run();
-  if (Number(closed.meta?.changes ?? 0) !== 1) {
+          AND claim_id = $3
+          AND claim_expires_at_ms <= $4
+      `,
+    values: [
+      input.input.nowMs,
+      operation.id,
+      operation.claimId,
+      input.input.nowMs,
+    ],
+  });
+  if (Number(closed.rowCount ?? 0) !== 1) {
     return null;
   }
   const outcomeUnknown = await requireCenterAgentPublicationOperation({
@@ -297,70 +280,63 @@ async function settlePendingCenterAgentPublicationOperation(input: {
   });
   return { operation: outcomeUnknown, outcome: "outcome_unknown" };
 }
-
 export async function completeCenterAgentPublicationOperation(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   operationId: string;
   responseJson: string;
 }): Promise<void> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE center_agent_publication_operations
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."center_agent_publication_operations"
         SET
-          response_json = ?,
+          response_json = $1,
           status = 'completed',
           claim_id = NULL,
           claim_expires_at_ms = NULL,
-          updated_at_ms = ?
-        WHERE id = ?
+          updated_at_ms = $2
+        WHERE id = $3
           AND status = 'pending'
-          AND claim_id = ?
-      `
-    )
-    .bind(input.responseJson, input.nowMs, input.operationId, input.claimId)
-    .run();
-  if (Number(result.meta?.changes ?? 0) !== 1) {
+          AND claim_id = $4
+      `,
+    values: [input.responseJson, input.nowMs, input.operationId, input.claimId],
+  });
+  if (Number(result.rowCount ?? 0) !== 1) {
     throw new Error(
       "Center Agent publication could not be completed by the current claim."
     );
   }
 }
-
 export async function failCenterAgentPublicationOperation(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   operationId: string;
   outcome: "failed" | "outcome_unknown";
 }): Promise<void> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE center_agent_publication_operations
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."center_agent_publication_operations"
         SET
-          status = ?,
+          status = $1,
           claim_id = NULL,
           claim_expires_at_ms = NULL,
-          updated_at_ms = ?
-        WHERE id = ?
+          updated_at_ms = $2
+        WHERE id = $3
           AND status = 'pending'
-          AND claim_id = ?
-      `
-    )
-    .bind(input.outcome, input.nowMs, input.operationId, input.claimId)
-    .run();
-  if (Number(result.meta?.changes ?? 0) !== 1) {
+          AND claim_id = $4
+      `,
+    values: [input.outcome, input.nowMs, input.operationId, input.claimId],
+  });
+  if (Number(result.rowCount ?? 0) !== 1) {
     throw new Error(
       "Center Agent publication outcome could not be recorded by the current claim."
     );
   }
 }
-
 async function requireCenterAgentPublicationOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   input: {
     actorProfileId: string;
     destinationId: string;
@@ -371,38 +347,37 @@ async function requireCenterAgentPublicationOperation(input: {
   };
 }): Promise<CenterAgentPublicationOperationRecord> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentPublicationOperationRow>({
+      text: `
         SELECT *
-        FROM center_agent_publication_operations
-        WHERE organization_id = ?
-          AND actor_profile_id = ?
-          AND source_kind = ?
-          AND source_id = ?
-          AND source_revision = ?
-          AND operation_key = ?
-          AND destination_kind = ?
-          AND destination_id = ?
+        FROM "openmeld"."center_agent_publication_operations"
+        WHERE organization_id = $1
+          AND actor_profile_id = $2
+          AND source_kind = $3
+          AND source_id = $4
+          AND source_revision = $5
+          AND operation_key = $6
+          AND destination_kind = $7
+          AND destination_id = $8
         LIMIT 1
-      `
-    )
-    .bind(
-      input.input.organizationId,
-      input.input.actorProfileId,
-      input.input.source.kind,
-      input.input.source.sourceId,
-      input.input.source.sourceRevision,
-      input.input.operationKey,
-      input.input.destinationKind,
-      input.input.destinationId
-    )
-    .first<CenterAgentPublicationOperationRow>();
+      `,
+      values: [
+        input.input.organizationId,
+        input.input.actorProfileId,
+        input.input.source.kind,
+        input.input.source.sourceId,
+        input.input.source.sourceRevision,
+        input.input.operationKey,
+        input.input.destinationKind,
+        input.input.destinationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw new Error("Center Agent publication operation could not be claimed.");
   }
   return mapOperation(row);
 }
-
 function assertSamePublicationRequest(
   operation: CenterAgentPublicationOperationRecord,
   input: {
@@ -420,7 +395,6 @@ function assertSamePublicationRequest(
     "This publication operation was already used for different content or a different represented member."
   );
 }
-
 function mapOperation(
   row: CenterAgentPublicationOperationRow
 ): CenterAgentPublicationOperationRecord {
@@ -447,7 +421,6 @@ function mapOperation(
     updatedAtMs: Number(row.updated_at_ms),
   };
 }
-
 function publicationConflict(reason: string): Error {
   return createCoreRpcHttpError({
     code: "center_agent.publication_conflict",
@@ -455,7 +428,6 @@ function publicationConflict(reason: string): Error {
     status: 409,
   });
 }
-
 async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -463,7 +435,6 @@ async function sha256Hex(value: string): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-
 function stableJson(value: unknown): string {
   if (value === undefined) {
     return "undefined";

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   ExecutionRecoveryDestination,
   SpaceMessageAttachment,
@@ -17,18 +18,19 @@ import {
   postSlackThreadMessage,
 } from "../../remote-agent/application/slack-client";
 import { buildSlackFinalReplyPresentation } from "../../remote-agent/application/slack-final-reply-presentation";
-import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { assertExecutionRecoveryDestinationMatchesDelivery } from "./execution-recovery-destination";
 
 const SLACK_RECOVERY_METADATA_EVENT_TYPE = "openmeld_execution_recovery";
 type ConnectorRecoveryDestination = Exclude<
   ExecutionRecoveryDestination,
-  { surface: "space" }
+  {
+    surface: "space";
+  }
 >;
-
 export async function publishExecutionRecoveryToOrigin(input: {
   attachments?: readonly SpaceMessageAttachment[];
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   destination: ExecutionRecoveryDestination;
   env: CoreBindings;
@@ -58,9 +60,8 @@ export async function publishExecutionRecoveryToOrigin(input: {
     },
   });
 }
-
 export async function findExecutionRecoveryPublicationAtOrigin(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   destination: ExecutionRecoveryDestination;
   env: CoreBindings;
@@ -97,11 +98,12 @@ export async function findExecutionRecoveryPublicationAtOrigin(input: {
   });
   return existing?.id ?? null;
 }
-
 async function publishSlackExecutionRecovery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
-  destination: ConnectorRecoveryDestination & { surface: "slack" };
+  destination: ConnectorRecoveryDestination & {
+    surface: "slack";
+  };
   env: CoreBindings;
   operationId: string;
   reuseOriginalFinalPublicationIdentity?: boolean;
@@ -160,12 +162,13 @@ async function publishSlackExecutionRecovery(input: {
   });
   return { publicationId: published.id, status: "published" };
 }
-
 async function publishLarkExecutionRecovery(input: {
   attachments?: readonly SpaceMessageAttachment[];
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
-  destination: ConnectorRecoveryDestination & { surface: "lark" };
+  destination: ConnectorRecoveryDestination & {
+    surface: "lark";
+  };
   env: CoreBindings;
   operationId: string;
   reuseOriginalFinalPublicationIdentity?: boolean;
@@ -214,7 +217,6 @@ async function publishLarkExecutionRecovery(input: {
   }
   throw new Error(publication.reasonCode);
 }
-
 function requireOriginalProviderPublicationIdempotencyKey(
   delivery: RemoteAgentNativeDeliveryRecord
 ): string {

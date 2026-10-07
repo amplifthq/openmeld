@@ -2,6 +2,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { assertProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
 import { executeWithProductionScopeLeases } from "./production-release.mjs";
 import {
   admitWebsiteDomainRelease,
@@ -12,6 +13,7 @@ import {
 
 const STAGING_ENTRY_POINTS = [
   "https://staging.openmeld.ai/",
+  "https://docs.staging.openmeld.ai/docs",
   "https://app.staging.openmeld.ai/guide.md",
   "https://auth.staging.openmeld.ai/health",
   "https://gateway.staging.openmeld.ai/health",
@@ -24,6 +26,7 @@ const STAGING_SCOPED_WORKERS = new Map([
   ],
   ["web", { label: "Web", packageName: "openmeld-web" }],
   ["website", { label: "Website", packageName: "openmeld-website" }],
+  ["docs", { label: "Docs", packageName: "openmeld-docs" }],
   ["auth", { label: "Auth", packageName: "@openmeld/auth-worker" }],
 ]);
 
@@ -101,19 +104,33 @@ function parseOrdinaryStagingArgs(argv) {
   }
   if (command === "verify" || args.length !== 3 || args[1] !== "--scope") {
     throw new Error(
-      "Staging deploy scope must use --scope auth, web, website, or remote-agent."
+      "Staging deploy scope must use --scope auth, web, website, docs, or remote-agent."
     );
   }
   const scope = args[2];
   if (!STAGING_SCOPED_WORKERS.has(scope)) {
     throw new Error(
-      "Staging deploy scope must be auth, web, website, or remote-agent. Use the full deploy for other database-backed components."
+      "Staging deploy scope must be auth, web, website, docs, or remote-agent. Use the full deploy for other database-backed components."
     );
   }
   return { command, scope, ...rollout };
 }
 
 export function buildStagingDeployStepSpecs(input = {}) {
+  if (input.scope === "docs") {
+    return [
+      environmentContractStep(),
+      workerDeployStep("docs", "openmeld-docs", "Docs"),
+      {
+        label: "Verify staging Docs entry points",
+        mutates: false,
+        urls: [
+          "https://docs.staging.openmeld.ai/docs",
+          "https://docs.staging.openmeld.ai/llms.txt",
+        ],
+      },
+    ];
+  }
   if (input.scope) {
     const worker = STAGING_SCOPED_WORKERS.get(input.scope);
     if (!worker) {
@@ -193,6 +210,7 @@ export function buildStagingDeployStepSpecs(input = {}) {
       input.skipContainers
     ),
     workerDeployStep("website", "openmeld-website", "Website"),
+    workerDeployStep("docs", "openmeld-docs", "Docs"),
     stagingResourceVerificationStep(),
     stagingEntryPointVerificationStep(),
   ];
@@ -217,6 +235,7 @@ async function runStagingRelease(input) {
     return;
   }
   if (input.command === "deploy") {
+    assertProductDatabaseReleaseSupported();
     assertCleanWorktree();
     if (!process.env.CLOUDFLARE_API_TOKEN) {
       runStep(
@@ -244,10 +263,13 @@ async function runStagingRelease(input) {
         : ["auth", "core", "gateway", "web", "website"],
       evidencePath: input.domainEvidence,
     };
+    const workerScopes = input.scope
+      ? [input.scope]
+      : ["auth", "core", "gateway", "web", "remote-agent", "website", "docs"];
     // Reuse the existing cross-machine leases. This intentionally serializes
     // the two environments' domain work instead of creating another lock owner.
     await executeWithProductionScopeLeases({
-      scopes: ["auth", "web", "website"],
+      scopes: input.domainPhase ? ["auth", "web", "website"] : workerScopes,
       sourceSha,
       owner: `staging:${process.cwd()}`,
       execute: async () => {

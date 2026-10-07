@@ -1,6 +1,12 @@
 {
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "env": ["OPENMELD_AFFECTED_BASE"]
+    },
+    "dev:isolated": {
+      "env": ["OPENMELD_AFFECTED_BASE"]
+    },
     "test": {
       "dependsOn": ["transit"]
     }

@@ -442,15 +442,15 @@ For the normal GitHub production path:
    when either channel is unavailable. Use mutually exclusive
    `--version X.Y.Z` only for an already-approved explicit target. The stamp
    verifies its output; the release workflow repeats readiness before upload.
-2. Before `.github/workflows/cli-release.yml`, use the separate Scoped
-   Production Release workflow with scope `database` when the exact release SHA
-   has pending migrations. CLI Release verifies the remote D1 pending list
-   before any publication because it also deploys Core; it fails closed instead
-   of running new Core code against an older database schema. After Production
-   D1 is current, run CLI Release with `release_path=normal` and the exact
-   release commit SHA. The publish command verifies release readiness before
-   its first irreversible action, so a separate repeated verification run is
-   unnecessary.
+2. Complete pending native migrations for the exact release SHA through the
+   guarded local `db` scope in
+   [Production Database Release](production-release.md#production-database-release).
+   The CLI publisher also deploys Core; its PostgreSQL preflight verifies the
+   deployed target, native journal and retained import evidence. A D1 pending
+   list does not prove PostgreSQL readiness. Use the supported CLI release lane
+   with the exact source SHA after its database prerequisites pass. Publication
+   verifies release readiness before its first irreversible action, so a
+   separate repeated verification run is unnecessary.
 3. Require an `Apple notarization accepted` submission ID before treating the
    binary upload as valid.
 4. Close the release only after the npm version, production CLI manifest,
@@ -559,7 +559,7 @@ pnpm run release:deploy:local -- --scope cli
 - The workflow defaults to a non-publishing verify mode. Explicit release mode
   publishes the npm package and signed/notarized binary channel,
   creates the tag, and deploys Core through the guarded release command. It
-  does not touch D1, Auth, Remote Agent, Gateway, or Web. Coordinate any broader
+  does not touch the shared database, Auth, Remote Agent, Gateway, or Web. Coordinate any broader
   rollout through `.github/workflows/release-on-main.yml`.
 - Keep the default `release_path` set to `normal` for every complete release.
   The legacy `resume-after-binary-upload` and `resume-after-npm-publish` inputs

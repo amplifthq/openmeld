@@ -1,4 +1,5 @@
 import type { AiUsageQueryResponse } from "@openmeld/schemas/types";
+import { BrandChartDot } from "@openmeld/ui/components/brand-chart-dot";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Card,
@@ -24,12 +25,9 @@ import {
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
 import { ArrowClockwiseIcon, CalendarBlankIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
-import { type CSSProperties, lazy, Suspense, useState } from "react";
-import {
-	organizationAiUsageQueryOptions,
-	organizationUsageCalendarPeriod,
-} from "#/query/organizations/organization-usage";
+import { lazy, Suspense, useState } from "react";
+import { useAgentUsage } from "#/components/organizations/use-agent-usage";
+import { organizationUsageCalendarPeriod } from "#/query/organizations/organization-usage";
 import {
 	type LocalAgentTokenSeries,
 	localAgentTokenSeries,
@@ -63,25 +61,25 @@ export function ComputerTokenUsage(input: {
 export function LocalAgentTokenUsageCard(input: {
 	organizationId: string;
 	computerId?: string;
+	userId?: string;
 }) {
 	const [days, setDays] = useState(7);
 	const period = organizationUsageCalendarPeriod(days);
-	const query = useQuery(
-		organizationAiUsageQueryOptions({
-			organizationId: input.organizationId,
-			query: {
-				...period,
-				computerId: input.computerId,
-				runtime: "local",
-				groupTimeSeriesBy: "controller",
-			},
-		})
-	);
+	const { query, pending, failed, refreshing, refresh } = useAgentUsage({
+		organizationId: input.organizationId,
+		userId: input.userId,
+		query: {
+			...period,
+			computerId: input.computerId,
+			runtime: "local",
+			groupTimeSeriesBy: "controller",
+		},
+	});
 	const total =
 		query.data?.models.reduce((sum, model) => sum + model.totalTokens, 0) ?? 0;
 	const series = query.data?.timeSeries;
 	const agents = localAgentTokenSeries(series ?? []);
-	if (!(query.isPending || query.isError) && total === 0) {
+	if (!(pending || failed) && total === 0) {
 		return null;
 	}
 	const data =
@@ -99,7 +97,7 @@ export function LocalAgentTokenUsageCard(input: {
 			),
 		})) ?? [];
 	const unavailable =
-		query.isError ||
+		failed ||
 		(query.isSuccess &&
 			(!series || series.some((bucket) => !bucket.controllers)));
 	return (
@@ -108,11 +106,11 @@ export function LocalAgentTokenUsageCard(input: {
 				<CardTitle>Local Agent token usage</CardTitle>
 				<CardDescription>Last {days} days</CardDescription>
 				<CardAction>
-					{query.isPending ? (
+					{pending && !failed ? (
 						<Skeleton className="h-6 w-20" />
 					) : (
 						<p className="text-right font-medium text-xl tabular-nums">
-							{unavailable && !query.data ? "—" : number.format(total)}{" "}
+							{unavailable ? "—" : number.format(total)}{" "}
 							<span className="font-normal text-muted-foreground text-xs">
 								tokens
 							</span>
@@ -131,11 +129,7 @@ export function LocalAgentTokenUsageCard(input: {
 						role="img"
 					>
 						<Suspense fallback={<Skeleton className="h-44 w-full" />}>
-							<AreaChart
-								agents={agents}
-								data={data}
-								loading={query.isPending}
-							/>
+							<AreaChart agents={agents} data={data} loading={pending} />
 						</Suspense>
 					</div>
 				)}
@@ -193,19 +187,17 @@ export function LocalAgentTokenUsageCard(input: {
 										</SelectContent>
 									</Select>
 									<Button
-										aria-busy={query.isFetching}
+										aria-busy={refreshing}
 										className="max-lg:h-11"
-										disabled={query.isFetching}
-										onClick={() => query.refetch()}
+										disabled={refreshing}
+										onClick={refresh}
 										size="default"
 										variant="outline"
 									>
 										<ArrowClockwiseIcon
 											aria-hidden="true"
 											className={
-												query.isFetching
-													? "motion-safe:animate-spin"
-													: undefined
+												refreshing ? "motion-safe:animate-spin" : undefined
 											}
 										/>
 										Refresh
@@ -236,16 +228,7 @@ export function LocalAgentTokenUsageCard(input: {
 function TokenAgentLabel({ agent }: { agent: LocalAgentTokenSeries }) {
 	return (
 		<span className="inline-flex items-center gap-2 whitespace-nowrap">
-			<span
-				aria-hidden="true"
-				className="size-2 shrink-0 rounded-full bg-(--agent-light) dark:bg-(--agent-dark)"
-				style={
-					{
-						"--agent-light": agent.colors.light[0],
-						"--agent-dark": agent.colors.dark[0],
-					} as CSSProperties
-				}
-			/>
+			<BrandChartDot colors={agent.colors} />
 			{agent.controller ? (
 				<LocalAgentLogo agentId={agent.controller} size="xs" />
 			) : null}

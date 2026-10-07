@@ -42,7 +42,7 @@ export async function runRoutinesList(
 
   try {
     const api = await createRoutinesApiClient();
-    const response = await api.listRoutines();
+    const response = await api.listAllRoutines();
     if (context.cliJsonOutput) {
       emitCliJsonEnvelope({
         schemaVersion: 1,
@@ -98,7 +98,7 @@ export async function runRoutinesShow(
   try {
     const routineId = requireRoutineId(input.routineId);
     const api = await createRoutinesApiClient();
-    const response = await api.listRoutines();
+    const response = await api.listAllRoutines();
     const routine = response.routines.find((item) => item.id === routineId);
     if (!routine) {
       throw routineNotFoundError(routineId);

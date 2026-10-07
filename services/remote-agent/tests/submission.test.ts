@@ -713,7 +713,7 @@ describe("remote agent submission", () => {
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
         "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Current verified request]",
         "Summarize the launch blocker.",
@@ -1384,9 +1384,9 @@ describe("remote agent submission", () => {
         "Treat the speaking Agent Profile as the requester without inventing a human identity.",
         "Personal memory is not available; do not imply that you remember private facts about this person.",
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "Space guide (maintained by this space's steward): Keep launch decisions reversible.",
         "",
         "[Current verified request]",
@@ -1507,11 +1507,11 @@ describe("remote agent submission", () => {
         "[Context handling]",
         "Current reply audience: people in an external conversation.",
         "Treat this as the same verified requester across OpenMeld, Slack, Message Channels, and Local Agents.",
-        "Use personal memory silently to help this same requester without asking them to repeat themselves. Do not quote, expose, or imply private details in this shared reply.",
+        "Use personal memory silently to help this same requester without asking them to repeat themselves. Do not quote, expose, or imply private details in model-emitted thinking, public progress, this shared reply, or outbound tool arguments.",
         "Use Organization context privately to solve the request, but do not expose non-public Organization details in this shared reply.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Current verified request]",
         "Who am I?",
@@ -1875,9 +1875,9 @@ describe("remote agent submission", () => {
         "Treat this as Organization-configured unattended work, not a live personal conversation.",
         "Personal memory is not available; do not imply that you remember private facts about this person.",
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "Space guide (maintained by this space's steward): Publish decisions with evidence.",
         "",
         "[Routine execution]",
@@ -1994,7 +1994,7 @@ describe("remote agent submission", () => {
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
         "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Scoped memory]",
         "- [Available to this requester] personal memory from Center Agent DM: [Recorded 2025-07-27T00:00:00.000Z] The launch team deploys on Thursday.",
@@ -2050,14 +2050,14 @@ describe("remote agent submission", () => {
       "Use personal memory silently to help this same requester without asking them to repeat themselves."
     );
     expect(prompt).toContain(
-      "Do not quote, expose, or imply private details in this shared reply."
+      "Do not quote, expose, or imply private details in model-emitted thinking, public progress, this shared reply, or outbound tool arguments."
     );
     expect(prompt).toContain(
-      "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules."
+      "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules."
     );
     expect(prompt).toContain("Felix prefers launch plans");
     expect(prompt).toContain(
-      "[Private reasoning only — never quote, expose, or imply this detail in the current reply] personal memory from Center Agent DM"
+      "[Restricted context — never quote, expose, or imply this detail in model-emitted thinking, public progress, the current reply, or outbound tool arguments] personal memory from Center Agent DM"
     );
   });
 

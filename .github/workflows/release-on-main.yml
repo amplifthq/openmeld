@@ -26,6 +26,7 @@ on:
           - database-core
           - web
           - website
+          - docs
           - gateway
           - auth
           - core
@@ -58,6 +59,7 @@ jobs:
       parent_admission_evidence: ${{ steps.train_admission.outputs.parent_admission_evidence }}
       parent_web_artifact_id: ${{ steps.web_artifact.outputs.artifact-id }}
       parent_website_artifact_id: ${{ steps.website_artifact.outputs.artifact-id }}
+      parent_docs_artifact_id: ${{ steps.docs_artifact.outputs.artifact-id }}
     steps:
       - name: Checkout main history
         uses: actions/checkout@v5
@@ -121,10 +123,14 @@ jobs:
             database-auth) selected_scopes="db,auth" ;;
             database-core) selected_scopes="db,core" ;;
             core-current-cli-projection) selected_scopes="core" ;;
-            cloud) selected_scopes="auth,web,gateway,core,remote-agent,website" ;;
-            full) selected_scopes="db,auth,web,gateway,core,remote-agent,website" ;;
+            cloud) selected_scopes="auth,web,gateway,core,remote-agent,website,docs" ;;
+            full) selected_scopes="db,auth,web,gateway,core,remote-agent,website,docs" ;;
             *) selected_scopes="$RELEASE_SCOPE" ;;
           esac
+          node --input-type=module -e '
+            import { assertHostedProductDatabaseReleaseSupported } from "../release-control/scripts/release/database-backend-admission.mjs";
+            assertHostedProductDatabaseReleaseSupported(process.cwd(), process.argv[1].split(","));
+          ' "$selected_scopes"
           node ../release-control/scripts/release/production-train-artifact-admission.mjs \
             --source-sha "$RELEASE_SHA" \
             --scope "$selected_scopes" \
@@ -152,6 +158,19 @@ jobs:
           path: |
             release-source/dev-tmp/release-artifact-check/website.json
             release-source/dev-tmp/release-artifact-check/artifacts/website/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Preserve the admitted Docs snapshot for this run
+        id: docs_artifact
+        if: steps.train_admission.outputs.has_docs_artifact == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-train-docs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release-source/dev-tmp/release-artifact-check/docs.json
+            release-source/dev-tmp/release-artifact-check/artifacts/docs/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
@@ -297,6 +316,26 @@ jobs:
       release_sha: ${{ inputs.release_sha }}
     secrets: inherit
 
+
+  docs:
+    name: Release Docs
+    needs:
+      - website
+      - validate_release_source
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (inputs.scope == 'docs' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
+      needs.validate_release_source.result == 'success' &&
+      (needs.website.result == 'success' || needs.website.result == 'skipped')
+    uses: ./.github/workflows/deploy-docs.yml
+    with:
+      parent_docs_artifact_id: ${{ needs.validate_release_source.outputs.parent_docs_artifact_id }}
+      parent_admission_evidence: ${{ needs.validate_release_source.outputs.parent_admission_evidence }}
+      deploy_environment: production
+      production_train_scopes: ${{ needs.validate_release_source.outputs.production_train_scopes }}
+      release_sha: ${{ inputs.release_sha }}
+    secrets: inherit
 
   gateway:
     name: Release Gateway Worker

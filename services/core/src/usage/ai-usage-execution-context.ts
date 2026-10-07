@@ -1,13 +1,13 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildAgentTaskKey } from "@openmeld/schemas";
 import type { AiUsageQueryResponse } from "@openmeld/schemas/types";
-import { readAgentTaskTerminalOutcome } from "../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
-import { readRemoteAgentNativeDeliveryByExecution } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { readRuntimeCoordinatorExecutionProjectionByDispatch } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
-
+import { readAgentTaskTerminalOutcome } from "../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
+import { readRemoteAgentNativeDeliveryByExecution } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readRuntimeCoordinatorExecutionProjectionByDispatch } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 // Consumption never writes or derives execution truth. Enrich only from the
 // existing execution owners, without exposing task prompts or private titles.
 export async function enrichAiUsageExecutions(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   usage: AiUsageQueryResponse;
 }): Promise<AiUsageQueryResponse> {
@@ -39,9 +39,8 @@ export async function enrichAiUsageExecutions(input: {
   }
   return input.usage;
 }
-
 async function readExecutionContext(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   dispatchId: string;
   spaceId: string;

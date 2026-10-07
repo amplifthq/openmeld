@@ -1,5 +1,6 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
@@ -11,40 +12,48 @@ import {
   markRemoteAgentNativeDeliveryAck,
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { rpcCreateSpace, rpcPostSignal } from "../src/rpc/methods";
 
 const coreEnv = env as unknown as CoreBindings;
 const NOW_MS = Date.UTC(2026, 8, 21, 10);
-
 describe("Center Agent evidence source authorization in Workerd", () => {
   it("reads an authorized private source through its actual Space owner and hides another member's source", async () => {
     const organizationId = `evidence-org-${randomUUID()}`;
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Evidence', ?, ?)"
-    )
-      .bind(organizationId, organizationId, NOW_MS)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Evidence\', $2, $3)',
+        values: [],
+      },
+      values: [organizationId, organizationId, NOW_MS],
+    });
     const requester = await createMember(organizationId);
     const other = await createMember(organizationId);
     const agentProfileId = `agt_${randomUUID()}`;
-    await env.OPENMELD_DB.prepare(`INSERT INTO openmeld_profiles
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `INSERT INTO "openmeld"."openmeld_profiles"
       (profile_id, profile_handle, profile_name, profile_kind, managed_role, organization_id, owner_user_id, is_default, status, source, created_at, updated_at)
-      VALUES (?, ?, 'Center Agent', 'agent', 'center_agent', ?, NULL, 0, 'active', 'auth_bootstrap', ?, ?)`)
-      .bind(
+      VALUES ($1, $2, 'Center Agent', 'agent', 'center_agent', $3, NULL, 0, 'active', 'auth_bootstrap', $4, $5)`,
+        values: [],
+      },
+      values: [
         agentProfileId,
         `evidence-agent-${randomUUID()}`,
         organizationId,
         NOW_MS,
-        NOW_MS
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(`INSERT INTO center_agent_designations
+        NOW_MS,
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `INSERT INTO "openmeld"."center_agent_designations"
       (organization_id, agent_profile_id, duty, designated_by, created_at)
-      VALUES (?, ?, NULL, ?, ?)`)
-      .bind(organizationId, agentProfileId, requester.userId, NOW_MS)
-      .run();
-
+      VALUES ($1, $2, NULL, $3, $4)`,
+        values: [],
+      },
+      values: [organizationId, agentProfileId, requester.userId, NOW_MS],
+    });
     const namespace = coreEnv.OPENMELD_SPACES;
     const spaceId = namespace.newUniqueId().toString();
     const stub = namespace.get(namespace.idFromString(spaceId));
@@ -132,7 +141,7 @@ describe("Center Agent evidence source authorization in Workerd", () => {
       },
     });
     await upsertRemoteAgentNativeDeliveryRecord({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: NOW_MS,
       organizationId,
       spaceId,
@@ -148,14 +157,14 @@ describe("Center Agent evidence source authorization in Workerd", () => {
       onBehalfOfDisplayName: "Requester",
     });
     await persistRemoteAgentWorkerSubmitRequest({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: request.idempotencyKey,
       nowMs: NOW_MS,
       workerSubmitRequest: request,
     });
     await markRemoteAgentNativeDeliveryAck({
       accepted: true,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: request.idempotencyKey,
       nowMs: NOW_MS,
       submissionId,
@@ -240,26 +249,39 @@ describe("Center Agent evidence source authorization in Workerd", () => {
     );
   });
 });
-
 async function createMember(organizationId: string) {
   const userId = `evidence-user-${randomUUID()}`;
   const profileId = randomUUID();
   const memberId = randomUUID();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Member', ?, 1, ?, ?)"
-  )
-    .bind(userId, `${userId}@openmeld.test`, NOW_MS, NOW_MS)
-    .run();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-  )
-    .bind(memberId, organizationId, userId, NOW_MS)
-    .run();
-  await env.OPENMELD_DB.prepare(`INSERT INTO openmeld_profiles
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, \'Member\', $2, 1, $3, $4)',
+      values: [],
+    },
+    values: [userId, `${userId}@openmeld.test`, NOW_MS, NOW_MS],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4)',
+      values: [],
+    },
+    values: [memberId, organizationId, userId, NOW_MS],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."openmeld_profiles"
     (profile_id, profile_handle, profile_name, profile_kind, owner_user_id, is_default, status, source, created_at, updated_at)
-    VALUES (?, ?, 'Member', 'human', ?, 1, 'active', 'auth_bootstrap', ?, ?)`)
-    .bind(profileId, `evidence-member-${randomUUID()}`, userId, NOW_MS, NOW_MS)
-    .run();
+    VALUES ($1, $2, 'Member', 'human', $3, 1, 'active', 'auth_bootstrap', $4, $5)`,
+      values: [],
+    },
+    values: [
+      profileId,
+      `evidence-member-${randomUUID()}`,
+      userId,
+      NOW_MS,
+      NOW_MS,
+    ],
+  });
   const context: OpenMeldRequestContext = {
     activeOrganizationId: organizationId,
     actorContext: {

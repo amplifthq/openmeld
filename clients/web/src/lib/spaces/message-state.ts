@@ -18,13 +18,13 @@ export function isSpaceMessageAgentWorking(
 			return false;
 		}
 		const kind = resolveWakeProgressStatus(item.activeWakeProgress)?.kind;
-		return kind === "working" || kind === "replying" || kind === "posting";
+		return kind === "working";
 	}
 	return item.agentStreamState?.status === "streaming";
 }
 
 export const SPACE_LOCAL_PENDING_MESSAGE_DELAY_MS = 8000;
-export const SPACE_AGENT_WORKING_STATUS_TEXT = "Thinking…";
+export const SPACE_AGENT_WORKING_STATUS_TEXT = "Working…";
 
 export type SpaceMessageDeliveryPresentation =
 	| "delivered"
@@ -89,7 +89,7 @@ export function resolveSpaceMessageDeliveryStatusText(
 		case "sending_delayed":
 			return "Still sending...";
 		case "agent_sending":
-			return "Thinking…";
+			return "Working…";
 		case "agent_streaming":
 			return SPACE_AGENT_WORKING_STATUS_TEXT;
 		case "agent_stream_failed":

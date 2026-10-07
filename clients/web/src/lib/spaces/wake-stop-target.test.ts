@@ -115,8 +115,19 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(resolved.selector).toMatchObject({
 			by: "client_message",
 			clientMessageId: "client-message-1",
+			dispatchId: "B",
 			targetProfileId: TARGET_PROFILE_ID,
 		});
+		expect(
+			resolveSpaceMessageWakeStopTarget({
+				item: source,
+				wakeProgressItems: [a, b],
+				timelineItems: [source, reply],
+				stopRequestStatusBySelectorKey: new Map([
+					[`dispatch:A:${TARGET_PROFILE_ID}`, "cancelled"],
+				]),
+			}).canStop
+		).toBe(true);
 		expect(
 			resolveSpaceMessageWakeStopTarget({
 				item: source,
@@ -224,6 +235,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(target.selector).toEqual({
 			by: "source_signal",
 			sourceSignalId: "sig-source",
+			dispatchId: "dispatch-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		});
 	});
@@ -244,6 +256,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(target.selector).toEqual({
 			by: "client_message",
 			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		});
 	});
@@ -252,6 +265,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const selector = {
 			by: "client_message" as const,
 			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		const target = resolveSpaceMessageWakeStopTarget({
@@ -286,6 +300,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(target.selector).toEqual({
 			by: "client_message",
 			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		});
 	});
@@ -352,6 +367,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const selector = {
 			by: "client_message" as const,
 			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		const target = resolveSpaceMessageWakeStopTarget({
@@ -375,6 +391,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const selector = {
 			by: "client_message" as const,
 			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		const target = resolveSpaceMessageWakeStopTarget({
@@ -734,6 +751,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		const selector = {
 			by: "client_message" as const,
 			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		const target = resolveSpaceMessageWakeStopTarget({

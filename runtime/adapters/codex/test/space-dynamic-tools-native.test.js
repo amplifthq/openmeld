@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 import { z } from "zod/v4";
 import {
   createCodexAdapter,
@@ -12,8 +14,10 @@ import {
   resolveCodexAppServerCompletedTurn,
 } from "../dist/index.js";
 
+const CODEX_VERSION_PREFIX = /^codex-cli\s+/;
+
 test(
-  "native Codex delivers on start, cold resume and forks despite unrelated MCP resource stalls and startup failures",
+  "native Codex delivers despite unrelated MCP resource stalls, duplicate connection stalls and startup failures",
   { skip: !process.env.OPENMELD_TEST_CODEX_BIN, timeout: 90_000 },
   async (t) => {
     // Actual executable, temporary homes, dummy credentials and a loopback-only
@@ -23,15 +27,41 @@ test(
     await mkdir(workdir);
     const mcpLog = join(home, "mcp-requests.jsonl");
     const mcpScript = join(home, "ambient-mcp.cjs");
-    // A real MCP peer: tool discovery succeeds, resource discovery never
-    // responds. Admission needs neither its resources nor a second connection.
+    const nativeVersion = execFileSync(
+      process.env.OPENMELD_TEST_CODEX_BIN,
+      ["--version"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HOME: home, CODEX_HOME: home },
+      }
+    )
+      .trim()
+      .replace(CODEX_VERSION_PREFIX, "");
+    const selectedStatusSupported = supportsAgentControllerVersion(
+      nativeVersion,
+      ">=0.160.0"
+    );
+    const connectionMarker = join(home, "first-connection");
+    const admissionMarker = join(home, "start-admission");
+    if (selectedStatusSupported) {
+      await writeFile(admissionMarker, "");
+    }
+    // Resource discovery never responds. During initial admission on a current
+    // controller, the thread's first connection works but an extra connection
+    // hangs. This catches rediscovery even when resources are already omitted.
     await writeFile(
       mcpScript,
-      `const {appendFileSync}=require('node:fs');
+      `const {appendFileSync,existsSync,openSync,closeSync}=require('node:fs');
+let duplicate=false;
+if(existsSync(${JSON.stringify(admissionMarker)})) {
+ try { closeSync(openSync(${JSON.stringify(connectionMarker)},'wx')); }
+ catch(error) { if(error.code!=='EEXIST') throw error; duplicate=true; }
+}
 const lines=require('node:readline').createInterface({input:process.stdin});
 lines.on('line',line=>{
  const request=JSON.parse(line);
- appendFileSync(${JSON.stringify(mcpLog)},JSON.stringify({method:request.method,pid:process.pid})+'\\n');
+ appendFileSync(${JSON.stringify(mcpLog)},JSON.stringify({method:request.method,pid:process.pid,duplicate})+'\\n');
+ if(duplicate) return;
  let result;
  if(request.method==='initialize') result={protocolVersion:'2024-11-05',capabilities:{tools:{},resources:{}},serverInfo:{name:'ambient-fixture',version:'1'}};
  if(request.method==='tools/list') result={tools:[{name:'read_fixture',description:'Synthetic read-only tool.',inputSchema:{type:'object'}}]};
@@ -159,6 +189,7 @@ lines.on('line',line=>{
         "[mcp_servers.ambient]",
         `command = ${JSON.stringify(process.execPath)}`,
         `args = [${JSON.stringify(mcpScript)}]`,
+        "startup_timeout_sec = 60",
         "tool_timeout_sec = 60",
         "[mcp_servers.unavailable]",
         `command = ${JSON.stringify(join(home, "missing-mcp-executable"))}`,
@@ -251,6 +282,7 @@ lines.on('line',line=>{
       return { conversationId, turnId };
     };
     const started = await run("start");
+    await rm(admissionMarker, { force: true });
     const resumed = await run("cold-resume", started.conversationId);
     await run("repair-fork", resumed.conversationId, "repair");
     // The Service prepares a recovery fork without dispatch credentials. The
@@ -291,6 +323,13 @@ lines.on('line',line=>{
       .split("\n")
       .map((line) => JSON.parse(line));
     assert.ok(mcpRequests.some((request) => request.method === "tools/list"));
+    if (selectedStatusSupported) {
+      assert.equal(
+        mcpRequests.some((request) => request.duplicate),
+        false,
+        "ordinary admission must reuse the thread instead of opening a second connection"
+      );
+    }
     assert.equal(
       mcpRequests.some((request) => request.method.startsWith("resources/")),
       false,

@@ -23,7 +23,6 @@ import {
 import type { Profile, SpaceCreator } from "@openmeld/protocol";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
-
 export {
   OPENMELD_EXPECTED_FORWARDED_BY,
   OPENMELD_HEADER_ACTIVE_ORGANIZATION_ID,
@@ -43,7 +42,6 @@ export {
   OPENMELD_HEADER_VISITED_PROFILE_IDS,
   OPENMELD_HEADER_VISITED_PROFILE_IDS_HASH,
 };
-
 export type ReadResolvedOpenMeldContextResult =
   | {
       ok: true;
@@ -55,7 +53,6 @@ export type ReadResolvedOpenMeldContextResult =
       requestId: string;
       message: string;
     };
-
 export function readResolvedOpenMeldContext(
   headers: Headers,
   fallbackRequestId: string
@@ -71,7 +68,6 @@ export function readResolvedOpenMeldContext(
       message: "authentication required",
     };
   }
-
   const requestContext = readOpenMeldRequestContext(headers, fallbackRequestId);
   if (!requestContext) {
     return {
@@ -80,7 +76,6 @@ export function readResolvedOpenMeldContext(
       message: "authentication required",
     };
   }
-
   const spacePassword = readRawSpacePasswordHeader(headers);
   return {
     ok: true,
@@ -88,7 +83,6 @@ export function readResolvedOpenMeldContext(
     ...(spacePassword === undefined ? {} : { spacePassword }),
   };
 }
-
 export function applyResolvedOpenMeldContextHeaders(
   target: Headers,
   input: {
@@ -103,7 +97,6 @@ export function applyResolvedOpenMeldContextHeaders(
       : { spacePassword: input.spacePassword }),
   });
 }
-
 export function toProtocolProfile(context: OpenMeldRequestContext): Profile {
   const actorContext = context.actorContext;
   return {
@@ -131,7 +124,6 @@ export function toProtocolProfile(context: OpenMeldRequestContext): Profile {
       : {}),
   };
 }
-
 export function toSpaceCreator(context: OpenMeldRequestContext): SpaceCreator {
   const actorContext = context.actorContext;
   return {
@@ -146,14 +138,12 @@ export function toSpaceCreator(context: OpenMeldRequestContext): SpaceCreator {
     ...(actorContext.ownerName ? { ownerName: actorContext.ownerName } : {}),
   };
 }
-
 function readRequestId(headers: Headers, fallbackRequestId: string): string {
   return (
     normalizeHeaderText(headers.get(OPENMELD_HEADER_REQUEST_ID)) ??
     fallbackRequestId
   );
 }
-
 function readRawSpacePasswordHeader(headers: Headers): string | undefined {
   const value = headers.get(OPENMELD_HEADER_SPACE_PASSWORD);
   if (value === null) {
@@ -164,7 +154,6 @@ function readRawSpacePasswordHeader(headers: Headers): string | undefined {
   );
   return spacePassword.length > 0 ? spacePassword : undefined;
 }
-
 function normalizeHeaderText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;

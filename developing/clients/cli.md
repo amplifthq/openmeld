@@ -185,6 +185,19 @@ isolation, and CI/release workflow belong in
 
 ## Command Model
 
+`openmeld computer cloud` resolves the authenticated account's personal cloud
+Computer. `--operation <json>` uses the shared Computer operation schema.
+Start with `{"action":"describe"}` for official file-tool schemas and execution
+capabilities. `files` takes a tool name and input object. `command` supports
+container, worker-shell and worker-javascript plus environment, launch-time stdin
+and structured JavaScript input/results. `browser` and `preview` use the existing
+private browser capability when configured. Existing file actions stay supported.
+Local Agents can use the same persistent files as that account's hosted Agents
+without mounting or exposing their workstation. Keep command invocation IDs and
+keys stable across retries; poll or list after uncertain outcomes. Computer
+identity, command observations and publication remain server-owned. This command
+does not manage OpenMeld Service or change the active local Computer connection.
+
 `openmeld org invitation-requests` uses the signed-in account and the same Auth
 contract as Web. `create --email ... [--space ...]` proposes an invitation;
 `link [--space ...]` ensures an approval-required share link; `request --token ...`
@@ -947,10 +960,10 @@ provider creates them. The CLI remains startable on its declared Node 20 floor;
 OpenCode SQLite reconciliation is optional capability detection, while the
 managed OpenCode plugin is the low-latency primary path.
 
-### Center Agent Routines
+### Routines
 
 `openmeld routines` is the terminal surface for the active organization's
-Center Agent Routines. It exposes exactly eight commands:
+personal and Team Routines. It exposes exactly eight commands:
 
 ```text
 list
@@ -965,10 +978,13 @@ runs
 
 `show` selects one Routine from the canonical strict list response; it does not
 require or imply a separate HTTP endpoint. `runs` reads the shared paginated Run
-projection. All active organization members may read Routines and Runs. Core's
-owner/admin/member creator-scope remains the mutation authority; CLI must not
-infer it from local state.
+projection. List/show request the v3 management contract, including scope,
+executor, and available executor choices. Core enforces creator-only personal
+reads and destination-scoped Team reads; CLI never infers authority locally.
 
+Create accepts `--scope personal|team` (default personal) and
+`--agent <profile-id>|center`. List exposes authorized executor choices; an Agent
+uses an exact returned ID. The selected Agent supplies model and reasoning settings.
 Create requires a name, instructions, and explicit target Space. It accepts
 either `--run-at <ISO-8601>` with an explicit timezone offset for one future
 Run, or one raw five-field schedule expression/`--daily HH:MM` plus an explicit
@@ -1029,7 +1045,7 @@ contract is not translated into a successful practical response, and a new
 producer must not add unknown required response fields to the no-contract v1
 projection.
 Deployment order and the separate W2/W5 Remote Agent windows live in
-`developing/product/center-agent-routines.md` and
+`developing/product/routines.md` and
 `developing/engineering/development-workflow.md`.
 
 ### Space File Commands
@@ -1675,7 +1691,7 @@ the message unsent and preserve a structured error; the command must never
 downgrade to a file-free success. `space action reply --file <path>` provides
 the same output path to a Local Agent handling a Wake.
 
-`space wake-progress <space-id>` is the live, polling-oriented Wake read. With
+`space wake-progress <space-id-or-url>` is the live, polling-oriented Wake read. With
 no selector it returns the active Wake summary for the Space. With
 `--client-message <id>` it returns the progress associated with that authored
 message, optionally narrowed by `--target-profile <id>`. The active summary can
@@ -1695,9 +1711,14 @@ wait reason with `includeWaitReason=true`; older CLI versions omit that query
 and must continue receiving the previous strict response shape. This command
 does not replace `space result`,
 which reads archived results, or `service trace`, which diagnoses the execution
-chain.
+chain. Missing archived results are not failed Wakes. All output views explain
+that hosted replies can exist without a workstation archive and provide the
+exact dispatch trace command. Read its visible Signal ID through Space history.
+Wake progress, Stop, and result accept trusted Space URLs through the shared
+target resolver before authentication. Explicit Profile and Gateway options
+retain precedence.
 
-`space wake-stop <space-id>` requires one Space-visible selector and an exact
+`space wake-stop <space-id-or-url>` requires one Space-visible selector and an exact
 target profile: either `--source-signal <id> --target-profile <id>` or
 `--client-message <id> --target-profile <id>`. It must never expose
 `dispatchId` as a public Stop selector. POST the exact selector directly: a
@@ -1828,7 +1849,8 @@ computer. It does not prove that a specific Agent Profile can reply in a
 specific Space.
 
 Service status and setup diagnostics may include `localServiceDiagnostics`. This
-is local OpenMeld Service evidence only. It must not be labeled as final
+is local OpenMeld Service evidence only. Local readiness labels say "Local setup
+ready", not "Can reply". Access and current Usage admission remain Core-owned. It must not be labeled as final
 Wakeability, final Wake truth, or final Space delivery truth.
 
 Reply-recovery copy may use shared Agent Profile recovery semantics. The CLI
@@ -1849,7 +1871,7 @@ The selector must include `clientMessageId` and `targetProfileId` for
 Web-authored Wake diagnosis because one message can Wake multiple Agent
 Profiles.
 
-CLI trace reads the shared observability model. It must not become a direct D1
+CLI trace reads the shared observability model. It must not become a direct PostgreSQL
 reader, direct Durable Object reader, or second trace system.
 
 The current CLI explicitly requests dispatch-trace response contract version
@@ -1883,6 +1905,13 @@ projection when the selected dispatch used the hosted Center Agent. The caller
 still supplies only the normal Space and dispatch selectors. Core resolves the
 frozen runtime conversation generation; the CLI must not accept or reconstruct
 that generation identity.
+
+Detailed trace explains the retained runtime counters. `modelCallCount` is the
+legacy field for completed agent prompt operations, each of which can contain
+many tool-loop requests. `providerRequestCount` counts individual model-provider
+requests. Conversation compaction is separate retained-history evidence. None
+of these counters proves Space delivery. A pending final projection does not
+establish that a Computer is offline, for either runtime family.
 
 Center Agent self-diagnostics use the same exact runtime-conversation boundary
 for Message Channel turns. The projection distinguishes retained runtime
@@ -1976,7 +2005,7 @@ Use scoped owner documents for deeper rules:
 - `developing/product/product-model.md`: product promise and main loop.
 - `developing/product/agent-profiles.md`: Agent Profile identity and recovery
   semantics.
-- `developing/product/center-agent-routines.md`: Routine and Run semantics,
+- `developing/product/routines.md`: Routine and Run semantics,
   authority, scheduling, and result surfaces.
 - `developing/product/space-collaboration.md`: Space addressing, threads, and
   visible outcome semantics.

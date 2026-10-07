@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ensurePrimaryAgentProfileBinding } from "../src/agent-profile-binding/application/agent-profile-binding-command-service";
 import {
   compareAndSetPrimaryAgentProfileBindingModelSelectionRecord,
-  createD1AgentProfileBindingCommandStore,
+  createPostgresAgentProfileBindingCommandStore,
   disablePrimaryAgentProfileBindingRecord,
   ensurePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
@@ -21,20 +21,17 @@ import {
   reconnectPrimaryAgentProfileBindingRecord,
   updatePrimaryAgentProfileBindingAgentControllerCollaborationModeRecord,
   updatePrimaryAgentProfileBindingAgentControllerPermissionModeRecord,
-} from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+  updatePrimaryAgentProfileBindingConversationId,
+} from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   acceptRuntimeAgentControllerReportRecord,
   readCurrentRuntimeAgentControllerReport,
-} from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+} from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import {
   readRuntimeRegistryRecord,
   registerRuntimeRegistryRecord,
-} from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
-import {
-  applyDrizzleMigrationsForTables,
-  applyDrizzleMigrationForTable as applySingleTableMigration,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const OTHER_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
@@ -42,11 +39,13 @@ const OWNER = {
   id: "owner-1",
   kind: "owner_account",
 } as const;
-
 describe("Agent Profile Binding repo write-side", () => {
   it("reads member-visible configuration for exact authorized Profile/owner pairs without extra query rounds", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       await ensurePrimaryAgentProfileBindingRecord({
         db: harness.db,
@@ -64,33 +63,36 @@ describe("Agent Profile Binding repo write-side", () => {
           ownerUserId: OWNER.id,
         })),
       ];
-      const legacyPrepare = vi.spyOn(harness.db, "prepare");
+      const legacyPrepare = vi.spyOn(harness.db, "query");
       expect([
         ...(await listPrimaryAgentProfileConfigurations({
           db: harness.db,
           profiles,
         })),
       ]).toEqual([[AGENT_PROFILE_ID, { agentControllerRef: "builtin:codex" }]]);
-      expect(legacyPrepare).toHaveBeenCalledTimes(3);
+      expect(legacyPrepare).toHaveBeenCalledTimes(1);
       expect(
-        legacyPrepare.mock.calls.map(([sql]) => sql.match(/\?/g)?.length)
-      ).toEqual([98, 98, 6]);
-      legacyPrepare.mockRestore();
-      await harness.db
-        .prepare(
-          "UPDATE openMeldDaemon_agent_profile_bindings SET model_id = 'gpt-5.6-sol', reasoning_level = 'high' WHERE binding_id = 'branding-binding'"
+        legacyPrepare.mock.calls.map(([query]) =>
+          typeof query === "string" ? 0 : query.values?.length
         )
-        .run();
-      const prepare = vi.spyOn(harness.db, "prepare");
+      ).toEqual([3]);
+      legacyPrepare.mockRestore();
+      await harness.db.query({
+        text: "UPDATE \"openmeld\".\"openMeldDaemon_agent_profile_bindings\" SET model_id = 'gpt-5.6-sol', reasoning_level = 'high' WHERE binding_id = 'branding-binding'",
+        values: [],
+      });
+      const prepare = vi.spyOn(harness.db, "query");
       const withModels = await listPrimaryAgentProfileConfigurations({
         db: harness.db,
         profiles,
         includeModelSelection: true,
       });
-      expect(prepare).toHaveBeenCalledTimes(3);
+      expect(prepare).toHaveBeenCalledTimes(1);
       expect(
-        prepare.mock.calls.map(([sql]) => sql.match(/\?/g)?.length)
-      ).toEqual([98, 98, 6]);
+        prepare.mock.calls.map(([query]) =>
+          typeof query === "string" ? 0 : query.values?.length
+        )
+      ).toEqual([3]);
       expect([...withModels]).toEqual([
         [
           AGENT_PROFILE_ID,
@@ -101,11 +103,10 @@ describe("Agent Profile Binding repo write-side", () => {
         ],
       ]);
       prepare.mockRestore();
-      await harness.db
-        .prepare(
-          "UPDATE openMeldDaemon_agent_profile_bindings SET model_id = NULL WHERE binding_id = 'branding-binding'"
-        )
-        .run();
+      await harness.db.query({
+        text: 'UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings" SET model_id = NULL WHERE binding_id = \'branding-binding\'',
+        values: [],
+      });
       expect(
         (
           await listPrimaryAgentProfileConfigurations({
@@ -137,16 +138,18 @@ describe("Agent Profile Binding repo write-side", () => {
         })),
       ]).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("updates hosted model selection only at the expected configuration revision", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
-    harness.run({
-      sql: "UPDATE openmeld_profiles SET managed_role = 'center_agent', owner_user_id = NULL WHERE profile_id = ?",
-      params: [AGENT_PROFILE_ID],
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
+    await harness.query({
+      text: 'UPDATE "openmeld"."openmeld_profiles" SET managed_role = \'center_agent\', owner_user_id = NULL WHERE profile_id = $1',
+      values: [AGENT_PROFILE_ID],
     });
     try {
       const record = {
@@ -165,7 +168,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record,
       });
-
       await expect(
         compareAndSetPrimaryAgentProfileBindingModelSelectionRecord({
           agentProfileId: record.agentProfileId,
@@ -207,7 +209,6 @@ describe("Agent Profile Binding repo write-side", () => {
           },
         ],
       ]);
-
       await expect(
         compareAndSetPrimaryAgentProfileBindingModelSelectionRecord({
           agentProfileId: record.agentProfileId,
@@ -228,13 +229,15 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("creates and reads one enabled primary Binding", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const record = {
         agentProfileId: AGENT_PROFILE_ID,
@@ -259,7 +262,6 @@ describe("Agent Profile Binding repo write-side", () => {
         reasoningLevel: null,
         updatedAtMs: 1000,
       };
-
       await expect(
         ensurePrimaryAgentProfileBindingRecord({
           db: harness.db,
@@ -274,7 +276,6 @@ describe("Agent Profile Binding repo write-side", () => {
         outcome: "created",
         status: "accepted",
       });
-
       await expect(
         readPrimaryAgentProfileBindingRecord({
           agentProfileId: AGENT_PROFILE_ID,
@@ -290,16 +291,18 @@ describe("Agent Profile Binding repo write-side", () => {
         disabledAtMs: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("creates and reads a hosted Center Agent Binding without a daemon conversation", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
-    harness.run({
-      sql: "UPDATE openmeld_profiles SET managed_role = 'center_agent', owner_user_id = NULL WHERE profile_id = ?",
-      params: [AGENT_PROFILE_ID],
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
+    await harness.query({
+      text: 'UPDATE "openmeld"."openmeld_profiles" SET managed_role = \'center_agent\', owner_user_id = NULL WHERE profile_id = $1',
+      values: [AGENT_PROFILE_ID],
     });
     try {
       const hostedRuntimeIdentityJson = JSON.stringify(
@@ -315,7 +318,6 @@ describe("Agent Profile Binding repo write-side", () => {
         }),
         owner: { kind: "organization" as const, id: "org-1" },
       };
-
       await expect(
         ensurePrimaryAgentProfileBindingRecord({
           db: harness.db,
@@ -331,14 +333,14 @@ describe("Agent Profile Binding repo write-side", () => {
         status: "accepted",
       });
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           agent_controller_conversation_id: string | null;
           agent_controller_ref: string;
           hosted_runtime_identity_json: string | null;
           runtime_kind: string;
           openmeld_service_runtime_id: string;
         }>({
-          sql: "SELECT agent_controller_ref, agent_controller_conversation_id, runtime_kind, hosted_runtime_identity_json, openmeld_service_runtime_id FROM openMeldDaemon_agent_profile_bindings",
+          text: 'SELECT agent_controller_ref, agent_controller_conversation_id, runtime_kind, hosted_runtime_identity_json, openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toEqual([
         {
@@ -350,13 +352,15 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reuses the existing Binding for the same enabled primary target", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const record = createBindingRecord({
         bindingId: "binding_opaque_1",
@@ -367,7 +371,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record,
       });
-
       await expect(
         ensurePrimaryAgentProfileBindingRecord({
           db: harness.db,
@@ -386,18 +389,22 @@ describe("Agent Profile Binding repo write-side", () => {
         status: "accepted",
       });
       expect(
-        harness.queryAll<{ binding_id: string }>({
-          sql: "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings",
+        await harness.queryAll<{
+          binding_id: string;
+        }>({
+          text: 'SELECT binding_id FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toEqual([{ binding_id: "binding_opaque_1" }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("updates Agent Controller Permission Mode when the same target is ensured", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const record = createBindingRecord({
         bindingId: "binding_opaque_1",
@@ -408,7 +415,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record,
       });
-
       await expect(
         ensurePrimaryAgentProfileBindingRecord({
           agentControllerPermissionModePatch: {
@@ -435,11 +441,11 @@ describe("Agent Profile Binding repo write-side", () => {
         status: "accepted",
       });
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           agent_controller_permission_mode: string | null;
           updated_at_ms: number;
         }>({
-          sql: "SELECT agent_controller_permission_mode, updated_at_ms FROM openMeldDaemon_agent_profile_bindings",
+          text: 'SELECT agent_controller_permission_mode, updated_at_ms FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toEqual([
         {
@@ -448,13 +454,15 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("preserves Agent Controller Permission Mode when reconnecting without a policy patch", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const record = createBindingRecord({
         bindingId: "binding_opaque_1",
@@ -471,7 +479,6 @@ describe("Agent Profile Binding repo write-side", () => {
           agentControllerPermissionMode: "codex:approveForMe",
         },
       });
-
       await expect(
         reconnectPrimaryAgentProfileBindingRecord({
           acquireExecutionTargetMutationAdmission: async () => undefined,
@@ -493,13 +500,12 @@ describe("Agent Profile Binding repo write-side", () => {
         outcome: "reused",
         status: "accepted",
       });
-
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           agent_controller_permission_mode: string | null;
           updated_at_ms: number;
         }>({
-          sql: "SELECT agent_controller_permission_mode, updated_at_ms FROM openMeldDaemon_agent_profile_bindings",
+          text: 'SELECT agent_controller_permission_mode, updated_at_ms FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toEqual([
         {
@@ -508,18 +514,23 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("preserves settings changed after a reconnect reader captured an older Binding", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_runtime_registry_records"
+    );
+    await applyMigrationForTable(
       harness,
       "openMeldDaemon_runtime_agent_controller_reports"
     );
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const initial = {
         ...createBindingRecord({
@@ -535,7 +546,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record: initial,
       });
-
       const staleReconnectSnapshot = await readPrimaryAgentProfileBindingRecord(
         {
           agentProfileId: initial.agentProfileId,
@@ -549,7 +559,6 @@ describe("Agent Profile Binding repo write-side", () => {
         modelId: "gpt-5.6-sol",
         reasoningLevel: "high",
       });
-
       await updatePrimaryAgentProfileBindingAgentControllerPermissionModeRecord(
         {
           agentProfileId: initial.agentProfileId,
@@ -579,7 +588,6 @@ describe("Agent Profile Binding repo write-side", () => {
         },
         status: "updated",
       });
-
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
         lane: "openmeld-dev",
@@ -610,12 +618,11 @@ describe("Agent Profile Binding repo write-side", () => {
           openMeldServiceRuntimeId: currentRuntimeId,
         },
       });
-
       await expect(
         ensurePrimaryAgentProfileBinding({
           agentProfileId: initial.agentProfileId,
           agentControllerRef: "builtin:codex",
-          bindingStore: createD1AgentProfileBindingCommandStore({
+          bindingStore: createPostgresAgentProfileBindingCommandStore({
             acquireExecutionTargetMutationAdmission: async () => undefined,
             db: harness.db,
           }),
@@ -661,13 +668,15 @@ describe("Agent Profile Binding repo write-side", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("updates only Agent Controller Permission Mode on the enabled primary Binding", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const record = createBindingRecord({
         bindingId: "binding_opaque_1",
@@ -678,7 +687,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record,
       });
-
       await expect(
         updatePrimaryAgentProfileBindingAgentControllerPermissionModeRecord({
           agentProfileId: record.agentProfileId,
@@ -700,15 +708,14 @@ describe("Agent Profile Binding repo write-side", () => {
         },
         status: "updated",
       });
-
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           agent_controller_permission_mode: string | null;
           configuration_revision: number;
           model_id: string | null;
           reasoning_level: string | null;
         }>({
-          sql: "SELECT agent_controller_permission_mode, configuration_revision, model_id, reasoning_level FROM openMeldDaemon_agent_profile_bindings",
+          text: 'SELECT agent_controller_permission_mode, configuration_revision, model_id, reasoning_level FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toEqual([
         {
@@ -719,13 +726,15 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("updates only Agent Controller Collaboration Mode on the enabled primary Binding", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const record = createBindingRecord({
         bindingId: "binding_opaque_1",
@@ -736,7 +745,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record,
       });
-
       await expect(
         updatePrimaryAgentProfileBindingAgentControllerCollaborationModeRecord({
           agentProfileId: record.agentProfileId,
@@ -758,15 +766,14 @@ describe("Agent Profile Binding repo write-side", () => {
         },
         status: "updated",
       });
-
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           agent_controller_collaboration_mode: string | null;
           agent_controller_permission_mode: string | null;
           configuration_revision: number;
           updated_at_ms: number;
         }>({
-          sql: "SELECT agent_controller_collaboration_mode, agent_controller_permission_mode, configuration_revision, updated_at_ms FROM openMeldDaemon_agent_profile_bindings",
+          text: 'SELECT agent_controller_collaboration_mode, agent_controller_permission_mode, configuration_revision, updated_at_ms FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toEqual({
         agent_controller_collaboration_mode: "codex:plan",
@@ -775,13 +782,15 @@ describe("Agent Profile Binding repo write-side", () => {
         updated_at_ms: 2000,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects a different enabled primary target as a deterministic conflict", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const existing = createBindingRecord({
         bindingId: "binding_opaque_1",
@@ -792,7 +801,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record: existing,
       });
-
       await expect(
         ensurePrimaryAgentProfileBindingRecord({
           db: harness.db,
@@ -812,18 +820,22 @@ describe("Agent Profile Binding repo write-side", () => {
         status: "rejected",
       });
       expect(
-        harness.queryAll<{ binding_id: string }>({
-          sql: "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings",
+        await harness.queryAll<{
+          binding_id: string;
+        }>({
+          text: 'SELECT binding_id FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toEqual([{ binding_id: "binding_opaque_1" }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("explicitly reconnects a different enabled primary target", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const existing = createBindingRecord({
         bindingId: "binding_opaque_1",
@@ -837,7 +849,6 @@ describe("Agent Profile Binding repo write-side", () => {
           agentControllerCollaborationMode: "codex:plan",
         },
       });
-
       const replacement = {
         ...createBindingRecord({
           bindingId: "binding_opaque_2",
@@ -863,15 +874,14 @@ describe("Agent Profile Binding repo write-side", () => {
         outcome: "reconnected",
         status: "accepted",
       });
-
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           agent_controller_collaboration_mode: string | null;
           binding_id: string;
           binding_state: string;
           disabled_at_ms: number | null;
         }>({
-          sql: "SELECT agent_controller_collaboration_mode, binding_id, binding_state, disabled_at_ms FROM openMeldDaemon_agent_profile_bindings ORDER BY created_at_ms",
+          text: 'SELECT agent_controller_collaboration_mode, binding_id, binding_state, disabled_at_ms FROM "openmeld"."openMeldDaemon_agent_profile_bindings" ORDER BY created_at_ms',
         })
       ).toEqual([
         {
@@ -888,13 +898,15 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("disables the enabled primary Binding when its Agent Profile is removed", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const record = createBindingRecord({
         bindingId: "binding_opaque_1",
@@ -906,7 +918,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record,
       });
-
       await expect(
         disablePrimaryAgentProfileBindingRecord({
           agentProfileId: record.agentProfileId,
@@ -930,13 +941,13 @@ describe("Agent Profile Binding repo write-side", () => {
         })
       ).resolves.toBeNull();
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           binding_id: string;
           binding_state: string;
           disabled_at_ms: number | null;
           reason_code: string | null;
         }>({
-          sql: "SELECT binding_id, binding_state, disabled_at_ms, reason_code FROM openMeldDaemon_agent_profile_bindings",
+          text: 'SELECT binding_id, binding_state, disabled_at_ms, reason_code FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toEqual([
         {
@@ -947,20 +958,21 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("converges concurrent duplicate ensure calls to one enabled primary Binding", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const record = createBindingRecord({
         bindingId: "binding_opaque_1",
         agentControllerRef: "builtin:codex",
         openMeldServiceRuntimeId: "runtime_opaque_1",
       });
-
       const results = await Promise.all([
         ensurePrimaryAgentProfileBindingRecord({
           db: harness.db,
@@ -974,29 +986,36 @@ describe("Agent Profile Binding repo write-side", () => {
           },
         }),
       ]);
-
       expect(results.map((result) => result.status)).toEqual([
         "accepted",
         "accepted",
       ]);
+      const winner = results[0];
+      if (winner?.status !== "accepted") {
+        throw new Error("Expected an accepted Binding");
+      }
       expect(
         results.map((result) =>
           result.status === "accepted" ? result.binding.bindingId : null
         )
-      ).toEqual(["binding_opaque_1", "binding_opaque_1"]);
+      ).toEqual([winner.binding.bindingId, winner.binding.bindingId]);
       expect(
-        harness.queryAll<{ binding_id: string }>({
-          sql: "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings",
+        await harness.queryAll<{
+          binding_id: string;
+        }>({
+          text: 'SELECT binding_id FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
-      ).toEqual([{ binding_id: "binding_opaque_1" }]);
+      ).toEqual([{ binding_id: winner.binding.bindingId }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("converges concurrent different-target ensure calls to one created Binding and one primary conflict", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const results = await Promise.all([
         ensurePrimaryAgentProfileBindingRecord({
@@ -1016,7 +1035,6 @@ describe("Agent Profile Binding repo write-side", () => {
           }),
         }),
       ]);
-
       expect(
         results.filter((result) => result.status === "accepted")
       ).toHaveLength(1);
@@ -1027,18 +1045,22 @@ describe("Agent Profile Binding repo write-side", () => {
         }),
       ]);
       expect(
-        harness.queryAll<{ binding_id: string }>({
-          sql: "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings",
+        await harness.queryAll<{
+          binding_id: string;
+        }>({
+          text: 'SELECT binding_id FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects an enabled primary Binding when another Agent Profile already owns the controller conversation", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const existing = createBindingRecord({
         agentControllerConversationId: "ctx-shared",
@@ -1051,7 +1073,6 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record: existing,
       });
-
       await expect(
         ensurePrimaryAgentProfileBindingRecord({
           db: harness.db,
@@ -1073,13 +1094,15 @@ describe("Agent Profile Binding repo write-side", () => {
         status: "rejected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("atomically converges concurrent Agent Profiles claiming the same controller conversation", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const results = await Promise.all([
         ensurePrimaryAgentProfileBindingRecord({
@@ -1103,7 +1126,6 @@ describe("Agent Profile Binding repo write-side", () => {
           }),
         }),
       ]);
-
       expect(
         results.filter((result) => result.status === "accepted")
       ).toHaveLength(1);
@@ -1114,18 +1136,71 @@ describe("Agent Profile Binding repo write-side", () => {
         }),
       ]);
       expect(
-        harness.queryAll<{ binding_id: string }>({
-          sql: "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings",
+        await harness.queryAll<{
+          binding_id: string;
+        }>({
+          text: 'SELECT binding_id FROM "openmeld"."openMeldDaemon_agent_profile_bindings"',
         })
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
+  it("allows only one concurrent Binding update to claim a controller conversation", async () => {
+    const harness = await createPostgresHarness();
+    await applyAgentProfileBindingRepoMigrations(harness);
+    try {
+      for (const [agentProfileId, bindingId, conversationId] of [
+        [AGENT_PROFILE_ID, "binding-one", "initial-one"],
+        [OTHER_AGENT_PROFILE_ID, "binding-two", "initial-two"],
+      ] as const) {
+        await ensurePrimaryAgentProfileBindingRecord({
+          db: harness.db,
+          record: createBindingRecord({
+            agentProfileId,
+            bindingId,
+            agentControllerConversationId: conversationId,
+            agentControllerRef: "builtin:codex",
+            openMeldServiceRuntimeId: "runtime-one",
+          }),
+        });
+      }
+      const outcomes = await Promise.all(
+        (
+          [
+            [AGENT_PROFILE_ID, "binding-one"],
+            [OTHER_AGENT_PROFILE_ID, "binding-two"],
+          ] as const
+        ).map(([agentProfileId, bindingId]) =>
+          updatePrimaryAgentProfileBindingConversationId({
+            db: harness.db,
+            owner: OWNER,
+            agentProfileId,
+            bindingId,
+            agentControllerConversationId: "shared-update",
+            updatedAtMs: 2000,
+          })
+        )
+      );
+      expect(outcomes.filter(Boolean)).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome === null)).toHaveLength(1);
+      const persisted = await harness.db.query<{ agent_profile_id: string }>({
+        text: 'SELECT agent_profile_id FROM "openmeld"."openMeldDaemon_agent_profile_bindings" WHERE agent_controller_conversation_id = $1',
+        values: ["shared-update"],
+      });
+      expect(persisted.rows).toEqual([
+        { agent_profile_id: outcomes.find(Boolean)?.agentProfileId },
+      ]);
+    } finally {
+      await harness.close();
+    }
+  });
   it("reuses this Agent Profile's existing Binding without repairing historical duplicate conversations", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const existing = createBindingRecord({
         agentControllerConversationId: "ctx-shared",
@@ -1138,8 +1213,8 @@ describe("Agent Profile Binding repo write-side", () => {
         db: harness.db,
         record: existing,
       });
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           "binding_opaque_2",
           OWNER.kind,
           OWNER.id,
@@ -1152,8 +1227,8 @@ describe("Agent Profile Binding repo write-side", () => {
           "profile-1",
           "agent_profile_binding.created",
         ],
-        sql: `
-          INSERT INTO openMeldDaemon_agent_profile_bindings (
+        text: `
+          INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
             binding_id,
             owner_kind,
             owner_id,
@@ -1168,10 +1243,9 @@ describe("Agent Profile Binding repo write-side", () => {
             created_by_profile_id,
             reason_code
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'enabled_primary', ?, ?, null, ?, ?)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 'enabled_primary', $8, $9, null, $10, $11)
         `,
       });
-
       await expect(
         ensurePrimaryAgentProfileBindingRecord({
           db: harness.db,
@@ -1187,18 +1261,23 @@ describe("Agent Profile Binding repo write-side", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets the command service consume real D1 Runtime facts and write Binding truth through the D1 repo", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_runtime_registry_records"
+    );
+    await applyMigrationForTable(
       harness,
       "openMeldDaemon_runtime_agent_controller_reports"
     );
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       const runtimeLookupInput = ownerAccountRuntimeLookupInput();
       const registeredRuntimeId = createAuthorityOpenMeldServiceRuntimeId({
@@ -1226,11 +1305,10 @@ describe("Agent Profile Binding repo write-side", () => {
           status: "ready",
         },
       });
-
       await expect(
         ensurePrimaryAgentProfileBinding({
           agentProfileId: AGENT_PROFILE_ID,
-          bindingStore: createD1AgentProfileBindingCommandStore({
+          bindingStore: createPostgresAgentProfileBindingCommandStore({
             db: harness.db,
           }),
           agentControllerRef: "builtin:codex",
@@ -1274,13 +1352,15 @@ describe("Agent Profile Binding repo write-side", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lists only enabled Profiles bound to the reported Runtime and Agent Controller", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
     try {
       await ensurePrimaryAgentProfileBindingRecord({
         db: harness.db,
@@ -1299,7 +1379,6 @@ describe("Agent Profile Binding repo write-side", () => {
           openMeldServiceRuntimeId: "runtime_target",
         }),
       });
-
       await expect(
         listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController({
           agentControllerRef: "builtin:codex",
@@ -1315,11 +1394,10 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
 function createBindingRecord(input: {
   agentControllerConversationId?: string | null;
   agentProfileId?: string;
@@ -1353,7 +1431,6 @@ function createBindingRecord(input: {
     updatedAtMs: 1000,
   };
 }
-
 function ownerAccountRuntimeLookupInput(): RuntimeLookupInput {
   return createRuntimeLookupInput({
     deviceId: "device-1",
@@ -1364,48 +1441,40 @@ function ownerAccountRuntimeLookupInput(): RuntimeLookupInput {
     },
   });
 }
-
-function applyMigrationForTable(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function applyMigrationForTable(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   tableName: string
-): void {
+): Promise<void> {
   if (tableName !== "openMeldDaemon_agent_profile_bindings") {
-    applySingleTableMigration(harness, tableName);
     return;
   }
-  applyAgentProfileBindingRepoMigrations(harness);
+  await applyAgentProfileBindingRepoMigrations(harness);
 }
-
-function applyAgentProfileBindingRepoMigrations(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  applyAgentProfileBindingIdentityTables(harness);
-  applyDrizzleMigrationsForTables(harness, [
-    "openmeld_profiles",
-    "openMeldDaemon_agent_profile_bindings",
-  ]);
+async function applyAgentProfileBindingRepoMigrations(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
   const nowMs = 1000;
-  harness.run({
-    params: [OWNER.id, "Owner", "owner@example.com", 1, nowMs, nowMs],
-    sql: `
-      INSERT INTO users (
+  await harness.query({
+    values: [OWNER.id, "Owner", "owner@example.com", 1, nowMs, nowMs],
+    text: `
+      INSERT INTO "openmeld"."users" (
         id, name, email, email_verified, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6)
     `,
   });
-  harness.run({
-    params: ["org-1", "Organization", "organization", nowMs],
-    sql: `
-      INSERT INTO organizations (id, name, slug, created_at)
-      VALUES (?, ?, ?, ?)
+  await harness.query({
+    values: ["org-1", "Organization", "organization", nowMs],
+    text: `
+      INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+      VALUES ($1, $2, $3, $4)
     `,
   });
   for (const [profileId, profileHandle] of [
     [AGENT_PROFILE_ID, "agent-one"],
     [OTHER_AGENT_PROFILE_ID, "agent-two"],
   ] as const) {
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         profileId,
         profileHandle,
         profileHandle,
@@ -1418,8 +1487,8 @@ function applyAgentProfileBindingRepoMigrations(
         nowMs,
         nowMs,
       ],
-      sql: `
-        INSERT INTO openmeld_profiles (
+      text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id,
           profile_name,
           profile_handle,
@@ -1431,45 +1500,8 @@ function applyAgentProfileBindingRepoMigrations(
           source,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       `,
     });
   }
-}
-
-function applyAgentProfileBindingIdentityTables(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id text PRIMARY KEY NOT NULL,
-        name text NOT NULL,
-        email text NOT NULL,
-        email_verified integer DEFAULT false NOT NULL,
-        image text,
-        created_at integer NOT NULL,
-        updated_at integer NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id text PRIMARY KEY NOT NULL,
-        name text NOT NULL,
-        slug text NOT NULL,
-        logo text,
-        created_at integer NOT NULL,
-        metadata text
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE projects (
-        id text PRIMARY KEY NOT NULL
-      )
-    `,
-  });
 }

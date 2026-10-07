@@ -1,13 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { queryAiUsage } from "../src/usage/ai-usage-repository";
 import { recordAcceptedLocalAiUsage } from "../src/usage/local-ai-usage";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 vi.mock(
-  "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo",
+  "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo",
   () => ({
     readRuntimeCoordinatorExecutionProjectionById: async () => ({
       dispatchId: "dispatch-1",
@@ -19,7 +16,7 @@ vi.mock(
   })
 );
 vi.mock(
-  "../src/runtime-registry/infrastructure/d1/runtime-registry-repo",
+  "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo",
   () => ({
     readRuntimeRegistryRecordByRuntimeId: async () => ({
       status: "found",
@@ -30,20 +27,22 @@ vi.mock(
   })
 );
 
-let harness: ReturnType<typeof createSqliteD1Harness> | undefined;
-afterEach(() => {
-  harness?.close();
+let harness: Awaited<ReturnType<typeof createPostgresHarness>> | undefined;
+afterEach(async () => {
+  await harness?.close();
   harness = undefined;
 });
 
-function fixture() {
-  harness = createSqliteD1Harness();
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "INSERT INTO organizations VALUES ('org-1')" });
-  harness.run({
-    sql: "INSERT INTO openMeldDaemon_owned_devices (owner_user_id, device_id, connected_computer_id, first_seen_at_ms, updated_at_ms) VALUES ('user-1', 'device-1', 'computer-1', 1, 1)",
+async function fixture() {
+  harness = await createPostgresHarness();
+
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org-1\', \'Test Organization\', (\'org-1\')::text, 1700000000000)',
   });
-  applyDrizzleMigrationForTable(harness, "ai_usage_records");
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"openMeldDaemon_owned_devices\" (owner_user_id, device_id, connected_computer_id, first_seen_at_ms, updated_at_ms) VALUES ('user-1', 'device-1', 'computer-1', 1, 1)",
+  });
+
   // Other envelope fields are owned by the authenticated result-inbox receiver.
   const input = {
     db: harness.db,
@@ -92,7 +91,7 @@ function fixture() {
 
 describe("Accepted Local Agent consumption", () => {
   it("attributes native receipts to the accepted organization, task, and connected Computer once", async () => {
-    const input = fixture();
+    const input = await fixture();
     await recordAcceptedLocalAiUsage(input);
     await recordAcceptedLocalAiUsage(input);
     const query = {
@@ -140,7 +139,7 @@ describe("Accepted Local Agent consumption", () => {
   });
 
   it("rejects a result belonging to another execution without recording its consumption", async () => {
-    const input = fixture();
+    const input = await fixture();
     input.inboxRecord.targetProfileId = "wrong-agent";
     await expect(recordAcceptedLocalAiUsage(input)).rejects.toThrow(
       "matching accepted execution"
