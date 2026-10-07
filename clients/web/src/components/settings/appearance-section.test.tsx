@@ -62,7 +62,7 @@ describe("AppearanceSection", () => {
 		selfMessageAlignmentState.write.mockReset();
 	});
 
-	it("restores individually hidden toolbar shortcuts from Appearance after a reload", () => {
+	it("defaults toolbar shortcuts to off and saves individually enabled choices", () => {
 		renderAppearance();
 		const toolbarSettingsRow = screen
 			.getByText("Toolbar shortcuts")
@@ -74,16 +74,17 @@ describe("AppearanceSection", () => {
 		const shortcut = (label: string) =>
 			screen.getByLabelText(`Show ${label} in toolbar`);
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
+			expect(shortcut(label).getAttribute("aria-checked")).toBe("false");
 			fireEvent.click(shortcut(label));
 		}
 		cleanup();
 		renderAppearance();
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
-			expect(shortcut(label).getAttribute("aria-checked")).toBe("false");
+			expect(shortcut(label).getAttribute("aria-checked")).toBe("true");
 		}
 		fireEvent.click(shortcut("Computer"));
-		expect(shortcut("Computer").getAttribute("aria-checked")).toBe("true");
-		expect(shortcut("Inbox").getAttribute("aria-checked")).toBe("false");
+		expect(shortcut("Computer").getAttribute("aria-checked")).toBe("false");
+		expect(shortcut("Inbox").getAttribute("aria-checked")).toBe("true");
 	});
 
 	it("keeps the history slider setting across Appearance mounts", () => {

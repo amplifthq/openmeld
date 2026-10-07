@@ -5389,6 +5389,8 @@ before Members restores the preview. Dismissal is saved per Organization,
 Human Profile, and Space in this browser, without changing shared pin state.
 
 Appearance includes Toolbar shortcuts for Computer, Center Agent, and Inbox.
+All three default to off when no browser preference is saved. Existing saved
+choices are preserved, and users can enable each shortcut in Appearance.
 Each bottom shortcut also exposes a compact hide control on hover or keyboard
 focus, with Undo. Touch users customize shortcuts in Appearance. Browser-wide
 preferences apply on first paint; hiding all shortcuts removes the reserved
