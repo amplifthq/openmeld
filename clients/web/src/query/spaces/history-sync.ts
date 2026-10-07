@@ -64,7 +64,7 @@ export function spaceHistoryPrefetchQueryOptions(
 				.find({ queryKey: historyKey, exact: true });
 			const history =
 				queryClient.getQueryData<SpaceHistorySnapshot>(historyKey);
-			const anchor = history?.envelopes.at(-1)?.id;
+			const anchor = history?.confirmedCursor;
 			if (!(historyQuery && anchor)) {
 				return null;
 			}
@@ -88,6 +88,7 @@ export function spaceHistoryPrefetchQueryOptions(
 				...input,
 				queryClient,
 				envelopes: updates.signals,
+				confirmedCursor: updates.signals.at(-1)?.id ?? anchor,
 			});
 			return null;
 		},

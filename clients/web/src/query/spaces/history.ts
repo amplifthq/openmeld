@@ -56,6 +56,8 @@ export const SPACE_HISTORY_SIGNAL_KINDS = [
 export type SpaceHistorySnapshot = {
 	envelopes: readonly SignalEnvelope[];
 	nextCursor: string | null;
+	/** Last contiguous server read, independent of retained or live display rows. */
+	confirmedCursor?: string | null;
 	/** Bounded display context only; never seeds the authoritative Thread query. */
 	threadDisplay?: ListSpaceThreadsResponse;
 };
@@ -114,8 +116,13 @@ export function mergeSpaceHistorySnapshots(input: {
 	const envelopes = boundSavedSpaceHistory(mergedEnvelopes);
 	const threadDisplay =
 		input.incoming.threadDisplay ?? input.current?.threadDisplay;
+	const confirmedCursor =
+		input.incoming.confirmedCursor !== undefined
+			? input.incoming.confirmedCursor
+			: input.current?.confirmedCursor;
 	const nextSnapshot = {
 		...input.incoming,
+		...(confirmedCursor !== undefined ? { confirmedCursor } : {}),
 		...(threadDisplay
 			? {
 					threadDisplay: boundSpaceThreadDisplay(envelopes, threadDisplay),
@@ -128,11 +135,12 @@ export function mergeSpaceHistorySnapshots(input: {
 
 export function writeSpaceHistoryEnvelopesToCache(input: {
 	envelopes: readonly SignalEnvelope[];
+	confirmedCursor?: string | null;
 	queryClient: QueryClient;
 	spaceId: string;
 	openMeldProfileId: string;
 }): void {
-	if (input.envelopes.length === 0) {
+	if (input.envelopes.length === 0 && input.confirmedCursor === undefined) {
 		return;
 	}
 
@@ -144,6 +152,9 @@ export function writeSpaceHistoryEnvelopesToCache(input: {
 				incoming: {
 					envelopes: input.envelopes,
 					nextCursor: current?.nextCursor ?? null,
+					...(input.confirmedCursor !== undefined
+						? { confirmedCursor: input.confirmedCursor }
+						: {}),
 				},
 			});
 			if (merged !== current) {
@@ -194,7 +205,7 @@ export async function readSpaceHistory(input: {
 	spacePassword?: string;
 	signal?: AbortSignal;
 }): Promise<SpaceHistorySnapshot> {
-	return await readAnchoredSpaceHistory({
+	const snapshot = await readAnchoredSpaceHistory({
 		spaceId: input.spaceId,
 		...(input.openMeldProfileId === undefined
 			? {}
@@ -209,6 +220,10 @@ export async function readSpaceHistory(input: {
 			: { spacePassword: input.spacePassword }),
 		...(input.signal === undefined ? {} : { signal: input.signal }),
 	});
+	return {
+		...snapshot,
+		confirmedCursor: snapshot.envelopes.at(-1)?.id ?? null,
+	};
 }
 
 export async function readEarlierSpaceHistory(input: {
