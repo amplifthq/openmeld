@@ -102,6 +102,67 @@
       "body": "Spaces and Direct messages open in a card view inside your existing groups.\nSwitch to the table whenever you need a denser view. Both views keep your\nsorting, filters, unread updates, and Space actions.\n\nCards show up to eight member slots and adapt to narrower widths. Unread counts\nstay beside the Space name, and the latest message appears as a clean text\npreview without Markdown formatting marks.\n\nYour browser remembers the Space view you choose and each person's grouped or\nexpanded Agent view.\n\nWithout a saved choice, the sidebar starts collapsed on Spaces and Team overviews\nand opens when you enter a conversation, person, or Agent detail page.\nYour choice to open or close it stays in place across pages and reloads.\n\nUse Show message previews in the sidebar settings to show or hide message\npreviews across the sidebar and cards. Previews are off by default, and your\nbrowser remembers the choice across pages and reloads.\nRows without previews keep their titles and actions centered, and title hints\nopen beside the full row without covering its text."
     },
     {
+      "id": "live-agent-permission-updates",
+      "title": "Change supported agent permissions during a task",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1564",
+        "pr:1568",
+        "workflow:37607115073"
+      ],
+      "body": "Codex can switch between Ask for approval and Approve for me during a running\ntask on supported versions. Claude Code can accept an owner-selected permission\nchange without starting another task.\n\nCodex settings now offer Ask for approval, Approve for me, and Full access.\nExisting custom settings remain in effect until you choose another mode.\nApproval cards can save a mode before continuing the approved action, with\nexplicit confirmation for Full access. Full access changes Codex's sandbox on\nthe next task; the interface explains when a change can take effect."
+    },
+    {
+      "id": "october-model-catalog-refresh",
+      "title": "Choose Exo Free and Mistral Large 4 for OpenCode",
+      "kind": "new",
+      "areas": [
+        "agent-profiles"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1567",
+        "pr:1568",
+        "workflow:37607115073"
+      ],
+      "body": "OpenCode Agents can select Exo Free and Mistral Large 4 with the provider's\nsupported reasoning options. Mistral Large 4 requires OpenCode Zen access.\nExo Free is a preview; its provider may use data from the free period to improve\nthe model.\n\nCursor Agents gain exact options for Gemini 3.7 Flash, Gemini 3.6 Flash, Kimi K3,\nGLM 5.3, and GLM 5.3 Flash. OpenCode Go's Qwen3.7 Plus now offers High and Max\nreasoning. The New labels reflect the October 1–6 release batch.\n\nExisting Agent selections and creation defaults are preserved."
+    },
+    {
+      "id": "agent-feedback-diagnostics",
+      "title": "Clearer Agent status and Space diagnostics",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "users",
+        "agents"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1558",
+        "pr:1568",
+        "workflow:37607115073"
+      ],
+      "body": "Space progress, Stop, and result commands accept copied Space links. Missing\nresult archives now explain that a Hosted reply can still exist and point to\nthe exact execution trace.\n\nUsage Limit messages identify the reason an Agent cannot start new work.\nLocal CLI readiness describes local setup without promising that a Wake can\nstart. Pending trace projections no longer suggest an offline Computer without\nevidence. Detailed traces explain the difference between completed Agent\noperations and individual model-provider requests."
+    },
+    {
       "id": "consistent-usage-brand-colors",
       "title": "Clearer AI usage charts",
       "kind": "fixed",
@@ -332,6 +393,26 @@
       "body": "Combined Remote Agent and Local Service releases keep Core's version declaration\non the published CLI until the new CLI artifacts are available. Operators can\ncomplete the PostgreSQL cloud stage locally and then use GitHub's signed CLI\npublication workflow."
     },
     {
+      "id": "codex-mcp-startup-check",
+      "title": "Keep unrelated MCP discovery out of Codex task startup",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "local-service"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1557",
+        "pr:1568",
+        "workflow:37607115073"
+      ],
+      "body": "With Codex 0.160.0 or later, OpenMeld checks its own tool connection without\nopening extra connections to unrelated tool services. A stalled extra connection\nno longer blocks an ordinary task before it starts. Your configured tools and\nfile access settings stay in place. Tasks with explicit isolation still receive\nthe full isolation check."
+    },
+    {
       "id": "stable-space-composer",
       "title": "Keep writing while a Space loads",
       "kind": "fixed",
@@ -476,6 +557,27 @@
       "body": "Space titles no longer show loading, reconnecting, or syncing badges. Brief\ninterruptions recover quietly. If updates remain interrupted, a discreet notice\nin the conversation explains that messages and activity may be out of date and\noffers Retry. Existing messages and drafts stay in place.\n\nLive Agent work also stays visible while the same conversation reconnects.\nThinking and progress recover independently, and returning to a suspended tab\nchecks the connection before replacing it."
     },
     {
+      "id": "controlled-session-history",
+      "title": "Read selected Codex session history",
+      "kind": "new",
+      "areas": [
+        "computers",
+        "agents"
+      ],
+      "audiences": [
+        "users",
+        "agents"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1563",
+        "pr:1568",
+        "workflow:37607115073"
+      ],
+      "body": "Computer owners can enable read-only Codex conversation history for selected\nconnected projects and Agents. Access starts off and works for sessions without\nan OpenMeld Agent Profile. Read messages from the Computer page, the CLI, or an\nauthorized Agent, and check recent access on the same Computer page.\n\nHistory is read on demand without syncing transcripts. File access restrictions\nstill apply. Agent conversations and model providers may retain returned results.\nShared Space membership alone does not grant access."
+    },
+    {
       "id": "local-agent-completion-context",
       "title": "Reduce repeated context in local Agent conversations",
       "kind": "improved",
@@ -518,6 +620,30 @@
         "commit:9e377afcb9686978faeb332493a8c03d76646f5a"
       ],
       "body": "Hosted agents can omit older completed tool-output previews when their working\ncontext is full. They keep completion details and references for reading the\noriginal output when needed. Recent results stay visible, and normal history\ncompaction still runs when the context needs more space."
+    },
+    {
+      "id": "plugin-computer-connections",
+      "title": "Reuse Plugin accounts from Computer",
+      "kind": "improved",
+      "areas": [
+        "plugins",
+        "computer",
+        "agents"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.247",
+      "evidence": [
+        "pr:1565",
+        "pr:1568",
+        "workflow:37607115073",
+        "https://github.com/amplifthq/open-connector/pull/23",
+        "worker-version:d379bb22-ce61-4fc5-a66b-f72a41c457d8"
+      ],
+      "body": "Agents can reuse a connected personal or shared Plugin account for supported\nnative HTTP reads on your cloud Computer. Provider credentials stay on the\nserver, and each request checks the account's current Agent access. Cloudflare\nWorkers supports bounded runtime-log and invocation-metric queries, plus\ndeployment and version reads.\n\nPlugin discovery and settings now distinguish expired authorization from a\nstored account. When reconnection is needed, reconnect the same account in\nPlugins instead of signing in again on the Computer.\n\nAgents now receive guidance to reuse project repositories and create separate\nGit worktrees for concurrent changes. Computer capability checks report\npersistent storage usage and near-limit guidance before large downloads or\nbuilds. Capacity errors explain how to preserve files and inspect the failure\nwithout blindly repeating a command."
     },
     {
       "id": "send-input-to-running-local-agents",
