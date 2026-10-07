@@ -166,6 +166,55 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it("collects a dispatch whose acknowledgement was lost without failing an unstarted dispatch", async () => {
+    const f = fixture();
+    let nativeId = "";
+    f.exec.mockImplementationOnce((_source, options) => {
+      nativeId = options.id;
+      return Promise.reject(new Error("dispatch acknowledgement lost"));
+    });
+    await expect(
+      f.tool().execute({
+        action: "start",
+        key: "uncertain",
+        command: "printf recovered",
+      })
+    ).rejects.toThrow("dispatch acknowledgement lost");
+    f.getExec.mockRejectedValue(
+      Object.assign(new Error("not dispatched yet"), { code: "ENOENT" })
+    );
+    await collectComputerCommands({
+      storage: f.storage,
+      workspaceAccess: f.workspaceAccess,
+    });
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(
+        handle(
+          id,
+          [
+            { id, seq: 1, name: "stdout", value: "recovered" },
+            { id, seq: 2, name: "exit", code: 0 },
+          ],
+          true
+        )
+      )
+    );
+    await collectComputerCommands({
+      storage: f.storage,
+      workspaceAccess: f.workspaceAccess,
+    });
+    await expect(
+      f.tool().execute({ action: "poll", key: "uncertain" })
+    ).resolves.toMatchObject({
+      id: nativeId,
+      status: "completed",
+      exitCode: 0,
+      stdout: "recovered",
+    });
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
+
   it("collects a result without model polls and serves it after native retention expires", async () => {
     const f = fixture();
     const started = (await f.tool().execute({

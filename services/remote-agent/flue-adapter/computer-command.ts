@@ -233,21 +233,12 @@ export async function hasCollectableComputerCommands(
   storage: RemoteAgentStorage
 ) {
   const commands = await storage.list<Command>({ prefix: PREFIX });
-  return [...commands.values()].some(
-    (command) =>
-      command.collectable !== undefined &&
-      !(
-        isCommandComplete(command) ||
-        command.loss ||
-        command.lostDuringCleanup ||
-        command.backend === "worker-shell"
-      )
-  );
+  return [...commands.values()].some(isCollectableCommand);
 }
 
 function isCollectableCommand(command: Command) {
   return (
-    command.collectable &&
+    command.collectable !== undefined &&
     !(
       isCommandComplete(command) ||
       command.loss ||
@@ -617,7 +608,7 @@ export function createComputerCommandTool(input: {
           Date.now() + 7 * 24 * 60 * 60 * 1000
         );
         // Arm recovery before spawn or any other external I/O. Pending launches
-        // keep the alarm alive but are not treated as missing executions.
+        // can be inspected, but an absent record does not prove dispatch failed.
         await input.scheduleCollection?.();
         const command = created ? candidate : await read(request.key);
         assertCommandMatches(command, fingerprint);
@@ -710,11 +701,16 @@ export function createComputerCommandTool(input: {
           await updateCommand(
             input.storage,
             `${prefix}${encodeURIComponent(command.key)}`,
-            (current) => ({
-              ...current,
-              loss: error.code,
-              ...(input.reportErrors === false ? {} : { lossReported: true }),
-            })
+            (current) =>
+              current.collectable === false || isCommandComplete(current)
+                ? current
+                : {
+                    ...current,
+                    loss: error.code,
+                    ...(input.reportErrors === false
+                      ? {}
+                      : { lossReported: true }),
+                  }
           );
         }
         console.warn("[remote_agent.computer_command_failed]", {

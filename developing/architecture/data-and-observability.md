@@ -41,10 +41,11 @@ compare-and-set updates prevent cleanup from replacing a concurrent exit receipt
 Worker-shell cannot be interrupted; cleanup cannot infer exit from a Stop request.
 All backends retain bounded command output in this same receipt owner. New
 receipts use one monotonic observation, including exit and synchronization facts;
-older terminal receipts remain readable. A Computer alarm collects acknowledged
-native dispatches independently of model polling. It never repeats a launch.
+older terminal receipts remain readable. A Computer alarm inspects saved command
+identities independently of model polling. It never repeats a launch.
 The alarm is armed before external dispatch and stays armed while dispatch is
-pending. Pending dispatch is not evidence that the native record was lost.
+pending. It can recover a dispatch whose acknowledgement was lost, but an absent
+record during pending dispatch is not evidence that the execution was lost.
 Output cursors select retained slices; clipping is explicit. Native log expiry
 does not invalidate a saved terminal receipt. Command records retain the existing
 seven-day storage policy; this is not an indefinite output archive.
