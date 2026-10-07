@@ -11,8 +11,8 @@ Switch to the table whenever you need a denser view. Both views keep your
 sorting, filters, unread updates, and Space actions.
 
 Cards show up to six member slots and adapt to narrower widths. Unread counts
-stay beside the Space name, and the two latest messages appear as clean text
-previews without Markdown formatting marks.
+stay beside the Space name, and the latest message appears as a clean text
+preview without Markdown formatting marks.
 
 Your browser remembers the Space view you choose and each person's grouped or
 expanded Agent view.

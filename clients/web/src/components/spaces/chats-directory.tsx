@@ -287,7 +287,7 @@ export function ChatsDirectory() {
 						{layout === "cards" ? (
 							<DirectoryCardGrid
 								aria-label={section.name}
-								className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] items-start lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
+								className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
 							>
 								{section.chats.map((chat) => (
 									<ChatDirectoryCard
@@ -434,10 +434,7 @@ function ChatDirectoryCard({
 		chat.recentMessagePreviews ??
 		(latest ? [{ ...latest, text: normalizeMessagePreview(latest.text) }] : []);
 	return (
-		<DirectoryCardItem
-			className="h-auto border border-border"
-			itemId={chat.spaceId}
-		>
+		<DirectoryCardItem className="border border-border" itemId={chat.spaceId}>
 			<FluidContextMenuScope
 				target={
 					<div className="@container/space-card group/directory-row relative flex h-full min-w-0 flex-col gap-3 rounded-md p-4">
@@ -487,7 +484,7 @@ function ChatDirectoryCard({
 						)}
 						{previews.length > 0 && (
 							<div className="relative z-10 flex min-w-0 flex-col gap-1">
-								{previews.slice(0, 2).map((preview) => (
+								{previews.slice(0, 1).map((preview) => (
 									<TooltipHint content={preview.text} key={preview.signalId}>
 										<Link
 											aria-label={`Preview message in ${title}: ${preview.text}`}

@@ -550,7 +550,7 @@ function DirectoryGroupLayout(input: {
 	) : (
 		<DirectoryCardGrid
 			aria-label={input.label === "Spaces" ? "Spaces" : `${input.label} Spaces`}
-			className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] items-start px-2 lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
+			className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] px-2 lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
 		>
 			{input.children}
 		</DirectoryCardGrid>
@@ -673,10 +673,7 @@ function JoinedRow(input: {
 			: []);
 	if (input.layout === "cards") {
 		return (
-			<DirectoryCardItem
-				className="h-auto border border-border"
-				itemId={item.spaceId}
-			>
+			<DirectoryCardItem className="border border-border" itemId={item.spaceId}>
 				<FluidContextMenuScope
 					target={
 						<div
@@ -730,7 +727,7 @@ function JoinedRow(input: {
 							)}
 							{messagePreviews.length > 0 && (
 								<div className="relative z-10 flex min-w-0 flex-col gap-1">
-									{messagePreviews.slice(0, 2).map((message) => (
+									{messagePreviews.slice(0, 1).map((message) => (
 										<TooltipHint content={message.text} key={message.signalId}>
 											<Link
 												aria-label={`Preview message in ${item.spaceName}: ${message.text}`}

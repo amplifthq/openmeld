@@ -63,13 +63,13 @@ export function SpaceMemberAvatars(input: SpaceMemberAvatarsProps) {
 	if (input.layout === "grid") {
 		return (
 			<span aria-hidden="true" className="block">
-				<span className="block @min-[96px]/space-card:hidden">
+				<span className="block @min-[112px]/space-card:hidden">
 					<SpaceMemberAvatarSlots {...input} gridSlots={2} />
 				</span>
-				<span className="@min-[96px]/space-card:block @min-[144px]/space-card:hidden hidden">
+				<span className="@min-[112px]/space-card:block @min-[176px]/space-card:hidden hidden">
 					<SpaceMemberAvatarSlots {...input} gridSlots={4} />
 				</span>
-				<span className="@min-[144px]/space-card:block hidden">
+				<span className="@min-[176px]/space-card:block hidden">
 					<SpaceMemberAvatarSlots {...input} gridSlots={6} />
 				</span>
 			</span>
@@ -95,7 +95,7 @@ function SpaceMemberAvatarSlots(
 	const compactMemberSize =
 		members.length === 1 ? compactSize : Math.round(compactSize * 0.6);
 	const rowSize = horizontal ? 20 : compactMemberSize;
-	const size = grid ? 32 : rowSize;
+	const size = grid ? 40 : rowSize;
 	let positions = ["inset-0"];
 	if (members.length === 3) {
 		positions = TRIANGLE_POSITIONS;
@@ -108,11 +108,11 @@ function SpaceMemberAvatarSlots(
 			aria-hidden="true"
 			className={cn(
 				"shrink-0",
-				grid && "grid auto-rows-[32px] justify-start gap-2",
+				grid && "grid h-24 auto-rows-[40px] justify-start gap-2",
 				grid &&
 					(slots === 6
-						? "grid-cols-[repeat(3,32px)]"
-						: "grid-cols-[repeat(2,32px)]"),
+						? "grid-cols-[repeat(3,40px)]"
+						: "grid-cols-[repeat(2,40px)]"),
 				horizontal && "isolate inline-flex h-5 max-w-full items-center",
 				!(grid || horizontal) && "relative"
 			)}
