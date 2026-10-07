@@ -1,11 +1,12 @@
 import { currentInboxAgentFactExistsSql } from "./inbox-current-source-facts";
 
 /** Direct messages to the Human recipient share mention attention, not owner observations. */
-export function inboxMentionSql(): string {
+export function inboxMentionSql(useFeedAgentScope = false): string {
   const facts = "source_facts_json";
   const mentioned = currentInboxAgentFactExistsSql(
     "inbox_items",
-    "mentionedAgentProfileIds"
+    "mentionedAgentProfileIds",
+    useFeedAgentScope
   );
   return `coalesce((kind IN ('space_mention', 'space_reference')
     OR ${mentioned}
