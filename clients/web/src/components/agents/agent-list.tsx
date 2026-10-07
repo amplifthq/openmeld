@@ -30,6 +30,7 @@ import {
 	DesktopIcon,
 	GearSixIcon,
 	ListIcon,
+	RobotIcon,
 	SlidersHorizontalIcon,
 	SortAscendingIcon,
 	SquaresFourIcon,
@@ -37,6 +38,7 @@ import {
 	WifiSlashIcon,
 } from "@phosphor-icons/react";
 import { type ReactNode, useId, useState } from "react";
+import { AppEmptyState } from "#/components/app/app-empty-state";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { DirectorySearch } from "#/components/directory/directory-search";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
@@ -541,30 +543,52 @@ export function AgentList(input: {
 						}
 					/>
 				) : (
-					<div className="space-y-2 py-4 text-muted-foreground text-sm">
-						<p>
-							{input.items.length
-								? "No Agents match. Try another search or clear filters."
-								: "No Agents yet."}
-						</p>
-						{input.items.length > 0 && (search || override) && (
-							<Button
-								onClick={() => {
-									setSearch("");
-									setOverride(null);
-									selection.reset();
-								}}
-								size="sm"
-								variant="secondary"
-							>
-								Clear search and filters
-							</Button>
-						)}
-						{input.items.length === 0 && input.emptyAction}
-					</div>
+					<AgentListEmptyState
+						action={input.emptyAction}
+						canClear={Boolean(search || override)}
+						hasAgents={input.items.length > 0}
+						onClear={() => {
+							setSearch("");
+							setOverride(null);
+							selection.reset();
+						}}
+					/>
 				)}
 			</div>
 		</section>
+	);
+}
+
+function AgentListEmptyState(input: {
+	action?: ReactNode;
+	canClear: boolean;
+	hasAgents: boolean;
+	onClear: () => void;
+}) {
+	if (!input.hasAgents && input.action) {
+		return (
+			<AppEmptyState
+				actions={input.action}
+				className="min-h-56 w-full"
+				description="Create your first Agent to start working together."
+				icon={<RobotIcon aria-hidden="true" className="size-5" />}
+				title="No Agents yet."
+			/>
+		);
+	}
+	return (
+		<div className="space-y-2 py-4 text-muted-foreground text-sm">
+			<p>
+				{input.hasAgents
+					? "No Agents match. Try another search or clear filters."
+					: "No Agents yet."}
+			</p>
+			{input.hasAgents && input.canClear && (
+				<Button onClick={input.onClear} size="sm" variant="secondary">
+					Clear search and filters
+				</Button>
+			)}
+		</div>
 	);
 }
 
