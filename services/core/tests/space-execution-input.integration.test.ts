@@ -73,7 +73,8 @@ async function fixture(
     request: RemoteAgentWorkerSubmitTurnRequestV1;
     context: CoreRpcContextInput;
     post: (signal?: SignalEnvelope) => Promise<void>;
-  }) => Promise<void>
+  }) => Promise<void>,
+  admitted = true
 ) {
   const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
   const id = namespace.newUniqueId();
@@ -146,13 +147,15 @@ async function fixture(
     nowMs: Date.now(),
     workerSubmitRequest: request,
   });
-  await markRemoteAgentNativeDeliveryAck({
-    db: getPostgresDatabase(env),
-    idempotencyKey: request.idempotencyKey,
-    nowMs: Date.now(),
-    submissionId: crypto.randomUUID(),
-    accepted: true,
-  });
+  if (admitted) {
+    await markRemoteAgentNativeDeliveryAck({
+      db: getPostgresDatabase(env),
+      idempotencyKey: request.idempotencyKey,
+      nowMs: Date.now(),
+      submissionId: crypto.randomUUID(),
+      accepted: true,
+    });
+  }
   await runInDurableObject(namespace.get(id), async (object, state) => {
     const background = vi.spyOn(state, "waitUntil");
     const instance = object as unknown as InputSpace;
@@ -166,6 +169,16 @@ async function fixture(
       creator,
       visibility: "private",
       accessMode: "members_only",
+      ...(admitted
+        ? {}
+        : {
+            purpose: "openmeld_dm_space",
+            directMessage: {
+              pairKey: [profile.profileId, request.agentProfileId]
+                .sort()
+                .join(":"),
+            },
+          }),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -429,6 +442,7 @@ describe("Center Agent execution input in the Space owner", () => {
     "recover",
     "rebind",
     "enqueue",
+    "enqueue-by-source",
     "delete-retired-target",
     "claude-applied",
     "claude-enqueue",
@@ -439,7 +453,10 @@ describe("Center Agent execution input in the Space owner", () => {
     let result = scenario;
     if (scenario === "claude-applied") {
       result = "applied";
-    } else if (scenario === "claude-enqueue") {
+    } else if (
+      scenario === "claude-enqueue" ||
+      scenario === "enqueue-by-source"
+    ) {
       result = "enqueue";
     }
     await fixture(async ({ instance, state, signal, request, context }) => {
@@ -462,7 +479,7 @@ describe("Center Agent execution input in the Space owner", () => {
         target: {
           ownerUserId: "owner",
           dispatchId: request.dispatchId,
-          runtimeCoordinatorExecutionId: "execution-local",
+          runtimeCoordinatorExecutionId: `execution-${inputId}`,
           attemptId: "attempt-local",
           runtimeCoordinatorRunId: "run-local",
           targetProfileId: request.agentProfileId,
@@ -666,7 +683,9 @@ describe("Center Agent execution input in the Space owner", () => {
         }
         // Delivery retires the conveyor while the admitted execution is still
         // running. Fresh chats also have no controller display snapshot yet.
-        state.storage.sql.exec("DELETE FROM openMeldDaemon_outbox");
+        if (scenario !== "enqueue-by-source") {
+          state.storage.sql.exec("DELETE FROM openMeldDaemon_outbox");
+        }
         state.storage.sql.exec(
           "UPDATE space_members SET controller_ref_snapshot = NULL WHERE profile_id = ?",
           request.agentProfileId
@@ -674,34 +693,37 @@ describe("Center Agent execution input in the Space owner", () => {
         const projection = await import(
           "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo"
         );
-        await projection.writeRuntimeCoordinatorExecutionProjection({
-          db: getPostgresDatabase(env),
-          record: {
-            modelVersion: "openmeld.runtime_coordinator.execution.v1",
-            runtimeCoordinatorExecutionId: "execution-local",
-            spaceId: signal.spaceId,
-            dispatchId: dispatch.dispatch_id,
-            targetProfileId: request.agentProfileId,
-            sourceClientMessageId: parent.data.meta.clientMessageId ?? null,
-            openMeldServiceRuntimeId: {
-              source: "runtime_registry_authority",
-              value: runtimeId,
+        if (scenario !== "enqueue-by-source") {
+          await projection.writeRuntimeCoordinatorExecutionProjection({
+            db: getPostgresDatabase(env),
+            record: {
+              modelVersion: "openmeld.runtime_coordinator.execution.v1",
+              runtimeCoordinatorExecutionId:
+                local.target.runtimeCoordinatorExecutionId,
+              spaceId: signal.spaceId,
+              dispatchId: dispatch.dispatch_id,
+              targetProfileId: request.agentProfileId,
+              sourceClientMessageId: parent.data.meta.clientMessageId ?? null,
+              openMeldServiceRuntimeId: {
+                source: "runtime_registry_authority",
+                value: runtimeId,
+              },
+              bindingId: "binding-local",
+              agentControllerRef: controllerRef,
+              status: "running",
+              terminalOutcome: null,
+              createdAtMs: 1,
+              updatedAtMs: 1,
+              legacyPointers: {
+                attemptId: "attempt-local",
+                claimLeaseId: null,
+                daemonSessionId: null,
+                connectionGeneration: null,
+                leaseEpoch: null,
+              },
             },
-            bindingId: "binding-local",
-            agentControllerRef: controllerRef,
-            status: "running",
-            terminalOutcome: null,
-            createdAtMs: 1,
-            updatedAtMs: 1,
-            legacyPointers: {
-              attemptId: "attempt-local",
-              claimLeaseId: null,
-              daemonSessionId: null,
-              connectionGeneration: null,
-              leaseEpoch: null,
-            },
-          },
-        });
+          });
+        }
         await getPostgresDatabase(env).query({
           text: "INSERT INTO \"openmeld\".\"openMeldDaemon_runtime_registry_records\" (openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane, created_at_ms, last_registered_at_ms, updated_at_ms) VALUES ($1, 'owner_account', 'owner', $1, 'canary', 1, 1, 1)",
           values: [runtimeId],
@@ -742,7 +764,7 @@ describe("Center Agent execution input in the Space owner", () => {
             },
             context
           );
-          expect(response.status).toBe(200);
+          expect(response.status, await response.text()).toBe(200);
           expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
           expect(transport).toHaveBeenCalledTimes(2);
           expect(transport.mock.calls[1]?.[0]).toMatchObject({
@@ -762,7 +784,9 @@ describe("Center Agent execution input in the Space owner", () => {
           inputId,
           text: signal.data.text,
           target: {
-            dispatchId: dispatch.dispatch_id,
+            ...(scenario === "enqueue-by-source"
+              ? { clientMessageId: parent.data.meta.clientMessageId }
+              : { dispatchId: dispatch.dispatch_id }),
             targetProfileId: request.agentProfileId,
           },
         };
@@ -776,9 +800,11 @@ describe("Center Agent execution input in the Space owner", () => {
             callerPrincipalId: "owner",
           },
         };
-        expect(
-          (await instance.handleInputQueue(mutation, enqueueContext)).status
-        ).toBe(200);
+        const enqueueResponse = await instance.handleInputQueue(
+          mutation,
+          enqueueContext
+        );
+        expect(enqueueResponse.status, await enqueueResponse.text()).toBe(200);
         expect(
           (await instance.handleInputQueue(mutation, enqueueContext)).status
         ).toBe(200);
@@ -792,14 +818,85 @@ describe("Center Agent execution input in the Space owner", () => {
           requesterUserId: "owner",
           target: {
             dispatchId: dispatch.dispatch_id,
-            attemptId: "attempt-local",
-            runtimeCoordinatorRunId: "run-local",
+            ...(scenario === "enqueue-by-source"
+              ? {}
+              : {
+                  attemptId: "attempt-local",
+                  runtimeCoordinatorRunId: "run-local",
+                }),
           },
         });
-        expect(transport).toHaveBeenCalledTimes(1);
-        expect(transport.mock.calls[0]?.[0].path).toBe(
-          "/runtime-coordinator/execution-input/resolve"
-        );
+        if (scenario === "enqueue-by-source") {
+          expect(transport).not.toHaveBeenCalled();
+          // No Coordinator record existed at intake. Admission occurs later,
+          // and only the explicit Send now operation resolves its binding.
+          await projection.writeRuntimeCoordinatorExecutionProjection({
+            db: getPostgresDatabase(env),
+            record: {
+              modelVersion: "openmeld.runtime_coordinator.execution.v1",
+              runtimeCoordinatorExecutionId:
+                local.target.runtimeCoordinatorExecutionId,
+              spaceId: signal.spaceId,
+              dispatchId: dispatch.dispatch_id,
+              targetProfileId: request.agentProfileId,
+              sourceClientMessageId: parent.data.meta.clientMessageId ?? null,
+              openMeldServiceRuntimeId: {
+                source: "runtime_registry_authority",
+                value: runtimeId,
+              },
+              bindingId: "binding-local",
+              agentControllerRef: controllerRef,
+              status: "running",
+              terminalOutcome: null,
+              createdAtMs: 1,
+              updatedAtMs: 2,
+              legacyPointers: {
+                attemptId: "attempt-local",
+                claimLeaseId: null,
+                daemonSessionId: null,
+                connectionGeneration: null,
+                leaseEpoch: null,
+              },
+            },
+          });
+          transport
+            .mockResolvedValueOnce({
+              ...binding,
+              dispatchId: dispatch.dispatch_id,
+            })
+            .mockResolvedValue({
+              inputId,
+              status: "applied",
+              taskId: "task-local",
+              threadId: "thread-local",
+              turnId: "turn-local",
+            });
+          const steered = await instance.handleInputQueue(
+            {
+              action: "steer",
+              inputId,
+              target: {
+                dispatchId: dispatch.dispatch_id,
+                targetProfileId: request.agentProfileId,
+              },
+            },
+            enqueueContext
+          );
+          expect(steered.status).toBe(200);
+          expect(transport).toHaveBeenCalledTimes(2);
+          expect(transport.mock.calls[1]?.[0]).toMatchObject({
+            body: {
+              operation: "apply",
+              request: { dispatchId: dispatch.dispatch_id, inputId },
+            },
+          });
+          expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+        } else {
+          expect(transport).toHaveBeenCalledTimes(1);
+          expect(transport.mock.calls[0]?.[0].path).toBe(
+            "/runtime-coordinator/execution-input/resolve"
+          );
+        }
         return;
       }
       if (result === "consume") {
@@ -903,7 +1000,140 @@ describe("Center Agent execution input in the Space owner", () => {
       }
     });
   });
-  it("atomically hands the first queued message to the normal outbox and replays without another dispatch", async () => {
+  it("keeps a native startup follow-up queued until Send now binds the admitted submission", async () => {
+    await fixture(async ({ instance, state, signal, request }) => {
+      if (signal.type !== "signal.text" || !signal.data.meta?.clientMessageId) {
+        throw new Error("Missing fixture input");
+      }
+      const inputId = signal.data.meta.clientMessageId;
+      const db = getPostgresDatabase(env);
+      await db.query({
+        text: "INSERT INTO \"openmeld\".\"users\" (id, name, email, email_verified, created_at, updated_at) VALUES ('owner', 'Morgan', 'queue@example.test', 1, 1, 1) ON CONFLICT DO NOTHING",
+        values: [],
+      });
+      await db.query({
+        text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Queue test\', $2, 1)',
+        values: [request.organizationId, request.organizationId],
+      });
+      await db.query({
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, managed_role, created_at, updated_at) VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, 'owner', 'cli_create', 'center_agent', 1, 1)",
+        values: [
+          request.agentProfileId,
+          request.agentProfileId,
+          request.organizationId,
+        ],
+      });
+      await db.query({
+        text: 'INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, duty, designated_by, created_at) VALUES ($1, $2, NULL, \'owner\', 1)',
+        values: [request.organizationId, request.agentProfileId],
+      });
+      const original = {
+        ...signal,
+        id: request.triggerMessageId,
+        data: {
+          text: "Original request",
+          messageEnvelope: {
+            text: "Original request",
+            activationTargets: [request.agentProfileId],
+            referenceTargets: [],
+          },
+        },
+      };
+      await instance.publishTextSignal(original, {
+        authoringPolicy: "user_authored",
+      });
+      const dispatch = state.storage.sql
+        .exec<{ dispatch_id: string }>(
+          "SELECT dispatch_id FROM openMeldDaemon_outbox WHERE source_event_id = ?",
+          original.id
+        )
+        .toArray()[0];
+      if (!dispatch) {
+        throw new Error("Expected durable source dispatch");
+      }
+      request.dispatchId = dispatch.dispatch_id;
+      signal.data.meta.centerAgentExecutionInput = {
+        dispatchId: request.dispatchId,
+        targetProfileId: request.agentProfileId,
+      };
+      await db.query({
+        text: 'DELETE FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger" WHERE idempotency_key = $1',
+        values: [request.idempotencyKey],
+      });
+      const otherAuthor = structuredClone(signal);
+      otherAuthor.profile.profileId = crypto.randomUUID();
+      await expect(
+        instance.publishExecutionInput(
+          otherAuthor,
+          { authoringPolicy: "user_authored" },
+          true
+        )
+      ).rejects.toThrow("cannot receive this update");
+      await instance.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toHaveLength(1);
+      await expect(instance.steerQueuedExecutionInput(inputId)).rejects.toThrow(
+        "still queued"
+      );
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state).toBe(
+        "queued"
+      );
+      await upsertRemoteAgentNativeDeliveryRecord({
+        db,
+        nowMs: Date.now(),
+        organizationId: request.organizationId,
+        spaceId: request.spaceId,
+        profileId: request.agentProfileId,
+        bindingId: request.bindingId,
+        triggerMessageId: request.triggerMessageId,
+        dispatchId: request.dispatchId,
+        attemptId: null,
+        idempotencyKey: request.idempotencyKey,
+        status: "submitted",
+      });
+      await markRemoteAgentNativeDeliveryAck({
+        db: getPostgresDatabase(env),
+        idempotencyKey: request.idempotencyKey,
+        nowMs: Date.now(),
+        submissionId: "admitted-submission",
+        accepted: true,
+      });
+      const receive = vi.fn(
+        (
+          input: RemoteAgentWorkerExecutionInputRequest
+        ): Promise<RemoteAgentWorkerExecutionInputResponse> =>
+          Promise.resolve({
+            status: "applied",
+            receipt: {
+              target: input.target,
+              inputId,
+              receivedAtMs: 1,
+              appliedAtMs: 2,
+            },
+          })
+      );
+      instance.bindings = {
+        ...instance.bindings,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          receiveExecutionInput: receive,
+          readExecutionInput: () => Promise.resolve({ status: "not_found" }),
+        },
+      };
+      await instance.steerQueuedExecutionInput(inputId);
+      expect(receive).toHaveBeenCalledTimes(1);
+      expect(receive.mock.calls[0]?.[0].target.submissionId).toBe(
+        "admitted-submission"
+      );
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+    }, false);
+  });
+  it.each([
+    "consume",
+    "steer",
+  ] as const)("atomically hands off one queued message and targets its successor for %s", async (nextAction) => {
     await fixture(async ({ instance, state, signal, request }) => {
       if (signal.type !== "signal.text") {
         throw new Error("Expected a text input.");
@@ -990,6 +1220,70 @@ describe("Center Agent execution input in the Space owner", () => {
       const nextDispatch = dispatches[0];
       if (!nextDispatch) {
         throw new Error("Expected one dispatch.");
+      }
+      if (nextAction === "steer") {
+        const nextRequest = {
+          ...request,
+          dispatchId: nextDispatch.dispatch_id,
+          idempotencyKey: crypto.randomUUID(),
+          triggerMessageId: signal.id,
+        };
+        await upsertRemoteAgentNativeDeliveryRecord({
+          db: getPostgresDatabase(env),
+          nowMs: Date.now(),
+          organizationId: nextRequest.organizationId,
+          spaceId: nextRequest.spaceId,
+          profileId: nextRequest.agentProfileId,
+          bindingId: nextRequest.bindingId,
+          triggerMessageId: nextRequest.triggerMessageId,
+          dispatchId: nextRequest.dispatchId,
+          attemptId: null,
+          idempotencyKey: nextRequest.idempotencyKey,
+          status: "submitted",
+        });
+        await persistRemoteAgentWorkerSubmitRequest({
+          db: getPostgresDatabase(env),
+          idempotencyKey: nextRequest.idempotencyKey,
+          workerSubmitRequest: nextRequest,
+          nowMs: Date.now(),
+        });
+        await markRemoteAgentNativeDeliveryAck({
+          db: getPostgresDatabase(env),
+          idempotencyKey: nextRequest.idempotencyKey,
+          submissionId: "next-accepted-submission",
+          accepted: true,
+          nowMs: Date.now(),
+        });
+        const receive = vi.fn(
+          async (input: RemoteAgentWorkerExecutionInputRequest) => ({
+            status: "applied" as const,
+            receipt: {
+              inputId: input.inputId,
+              target: input.target,
+              receivedAtMs: 1,
+              appliedAtMs: 2,
+            },
+          })
+        );
+        instance.bindings = {
+          ...instance.bindings,
+          OPENMELD_REMOTE_AGENT_WORKER: {
+            receiveExecutionInput: receive,
+            readExecutionInput: () => Promise.resolve({ status: "not_found" }),
+          },
+        };
+        const secondInputId = second.data.meta?.clientMessageId;
+        if (!secondInputId) {
+          throw new Error("Expected the second input identity.");
+        }
+        await instance.steerQueuedExecutionInput(secondInputId);
+        expect(receive).toHaveBeenCalledTimes(1);
+        expect(receive.mock.calls[0]?.[0].target).toMatchObject({
+          submissionId: "next-accepted-submission",
+          idempotencyKey: nextRequest.idempotencyKey,
+        });
+        expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+        return;
       }
       insertSignalRecord(state.storage.sql, {
         v: 1,

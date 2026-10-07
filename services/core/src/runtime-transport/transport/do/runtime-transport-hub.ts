@@ -1982,6 +1982,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const response =
         await authorizeRuntimeCoordinatorAgentProfileWorkContinuation({
           continuationClientMessageId: parsed.data.continuationClientMessageId,
+          requesterProfileId: parsed.data.requesterProfileId,
           currentAgentControllerRef: parsed.data.currentAgentControllerRef,
           currentBindingId: parsed.data.currentBindingId,
           currentConfigurationRevision:
@@ -2357,6 +2358,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         return { status: "unavailable" };
       }
       const response = await skipRuntimeCoordinatorAgentProfileInterruptedWork({
+        requesterProfileId: parsed.data.requesterProfileId,
         expectedInterruptedTargetWakeLifecycleId:
           parsed.data.expectedInterruptedTargetWakeLifecycleId,
         nowMs: Date.now(),

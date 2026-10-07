@@ -84,6 +84,7 @@ export type {
 } from "../schemas/http/space-file-update-settings";
 export type {
   SpaceInputQueueMutation,
+  SpaceInputQueueOptions,
   SpaceInputQueueResponse,
 } from "../schemas/http/space-input-queue";
 export type {

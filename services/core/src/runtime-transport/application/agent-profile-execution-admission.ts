@@ -817,6 +817,7 @@ export async function readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmissio
   }
   return {
     action: resolveAvailableWorkRecoveryAction(action, head),
+    requesterRecoveryScope: resolveRequesterRecoveryScope(admission, head),
     automaticForkEligible: await canAutomaticallyForkOccupiedWork({
       gate,
       head,
@@ -841,6 +842,50 @@ export async function readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmissio
     spaceId: head.targetWakeLifecycleIdentity.spaceId,
     status: "available",
   };
+}
+
+/** A requester may only resolve their own context, never release another context's held work. */
+function resolveRequesterRecoveryScope(
+  admission: AgentProfileExecutionAdmissionRecord,
+  head: RuntimeCoordinatorHeadLifecycleRecord
+) {
+  const context = head.acceptedDispatchSnapshot?.executionContext;
+  if (
+    !context ||
+    admission.recoveryGate?.additionalInterruptedWork?.length ||
+    admission.workItems.some((item) => item.executionContextId !== context.id)
+  ) {
+    return undefined;
+  }
+  return {
+    profileId: context.scope.requesterProfileId,
+    spaceId: context.scope.spaceId,
+    canFork: context.access !== "workspace" && !context.permissionSource,
+  };
+}
+
+async function canRequesterRecoverWork(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  storage: Pick<DurableObjectTransaction, "get">;
+  requesterProfileId?: string;
+  expectedInterruptedTargetWakeLifecycleId: string;
+  fork?: boolean;
+}): Promise<boolean> {
+  if (!input.requesterProfileId) {
+    return true;
+  }
+  const head = await input.storage.get<unknown>(
+    buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      input.expectedInterruptedTargetWakeLifecycleId
+    )
+  );
+  const scope = isRuntimeCoordinatorHeadLifecycleRecord(head)
+    ? resolveRequesterRecoveryScope(input.admission, head)
+    : undefined;
+  return (
+    scope?.profileId === input.requesterProfileId &&
+    (input.fork === undefined || (input.fork && scope.canFork))
+  );
 }
 
 /**
@@ -1936,6 +1981,7 @@ export type RuntimeCoordinatorAgentProfileWorkContinuationAuthorization = {
 };
 
 export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(input: {
+  requesterProfileId?: string;
   continuationClientMessageId: string;
   currentAgentControllerRef: string;
   currentBindingId: string;
@@ -1987,6 +2033,16 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
     }
     if (admission.recoveryGate.status === "continuation_needs_attention") {
       return { status: "needs_attention" as const };
+    }
+    if (
+      !(await canRequesterRecoverWork({
+        ...input,
+        admission,
+        storage: transaction,
+        fork: input.forkInterruptedConversation === true,
+      }))
+    ) {
+      return { status: "not_pending" as const };
     }
     if (
       input.requireAutomaticForkEligibility &&
@@ -2482,6 +2538,7 @@ export async function approveRuntimeCoordinatorAgentProfileWorkQueue(input: {
 }
 
 export async function skipRuntimeCoordinatorAgentProfileInterruptedWork(input: {
+  requesterProfileId?: string;
   expectedInterruptedTargetWakeLifecycleId: string;
   nowMs: number;
   ownerUserId: string;
@@ -2545,6 +2602,15 @@ export async function skipRuntimeCoordinatorAgentProfileInterruptedWork(input: {
       return { pendingPromotion: null, status: "not_pending" as const };
     }
     const skippedRecoveryGate = admission.recoveryGate;
+    if (
+      !(await canRequesterRecoverWork({
+        ...input,
+        admission,
+        storage: transaction,
+      }))
+    ) {
+      return { pendingPromotion: null, status: "not_pending" as const };
+    }
     const coordinator = projectAgentProfileWorkCoordinator(admission);
     const skipped = skipAgentProfileInterruptedWork({
       coordinator: unavailableLegacyFork

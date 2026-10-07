@@ -3863,15 +3863,79 @@ describe("SpaceLanding", () => {
 	});
 
 	it.each([
-		{ controller: "Center", sameAuthor: true, otherThread: false },
-		{ controller: "Local", sameAuthor: true, otherThread: false },
-		{ controller: "Local", sameAuthor: false, otherThread: false },
-		{ controller: "Local", sameAuthor: true, otherThread: true },
-	] as const)("routes follow-ups for $controller with sameAuthor=$sameAuthor and otherThread=$otherThread", async ({
-		controller,
-		sameAuthor,
-		otherThread,
-	}) => {
+		{
+			controller: "Center",
+			sameAuthor: true,
+			otherThread: false,
+			starting: false,
+		},
+		{
+			controller: "Center",
+			sameAuthor: true,
+			otherThread: false,
+			starting: true,
+		},
+		{
+			controller: "Local",
+			sameAuthor: true,
+			otherThread: false,
+			starting: false,
+		},
+		{
+			controller: "Local",
+			sameAuthor: true,
+			otherThread: false,
+			starting: true,
+		},
+		{
+			controller: "Local",
+			sameAuthor: false,
+			otherThread: false,
+			starting: false,
+		},
+		{
+			controller: "Local",
+			sameAuthor: true,
+			otherThread: true,
+			starting: false,
+		},
+		{
+			controller: "Local",
+			sameAuthor: true,
+			otherThread: false,
+			starting: false,
+			multiple: true,
+			reply: false,
+		},
+		{
+			controller: "Local",
+			sameAuthor: true,
+			otherThread: false,
+			starting: false,
+			multiple: true,
+			reply: true,
+		},
+		{
+			controller: "Local",
+			sameAuthor: true,
+			otherThread: false,
+			starting: false,
+			shared: true,
+			reply: false,
+		},
+		{
+			controller: "Local",
+			sameAuthor: true,
+			otherThread: false,
+			starting: false,
+			shared: true,
+			reply: true,
+		},
+	] as const)("routes follow-ups for $controller with sameAuthor=$sameAuthor, otherThread=$otherThread, starting=$starting, reply=$reply, shared=$shared", async (scenario) => {
+		const { controller, sameAuthor, otherThread, starting } = scenario;
+		const multiple = "multiple" in scenario && scenario.multiple;
+		const reply = "reply" in scenario && scenario.reply;
+		const shared = "shared" in scenario && scenario.shared;
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -3883,8 +3947,8 @@ describe("SpaceLanding", () => {
 		const queryClient = createTestQueryClient();
 		const item = createWakeProgressItem({
 			clientMessageId: "original-message",
-			dispatchId: "original-dispatch",
-			phase: "running",
+			dispatchId: starting ? null : "original-dispatch",
+			phase: starting ? "request_sent" : "running",
 			sourceSignalId: "original-signal",
 			targetLabel: "Center Agent",
 			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
@@ -3901,8 +3965,27 @@ describe("SpaceLanding", () => {
 					}
 				: {}),
 		});
+		const items = multiple
+			? [
+					item,
+					{
+						...item,
+						id: "second-active-response",
+						dispatchId: "second-dispatch",
+						clientMessageId: "second-message",
+						sourceSignalId: "second-signal",
+						sourceContext: {
+							profileId: DEFAULT_SPACE_PROFILE_ID,
+							profileKind: "human" as const,
+							profileName: "Mira",
+							messagePreview: "Another task.",
+							threadId: null,
+						},
+					},
+				]
+			: [item];
 		setSpaceWakeProgressPresentationItems({
-			items: [item],
+			items,
 			openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			queryClient,
 			spaceId: "space-123",
@@ -3917,15 +4000,30 @@ describe("SpaceLanding", () => {
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage,
 			getActiveWakeProgress: vi.fn().mockResolvedValue({
-				items: [item],
+				items,
 				query: { spaceId: "space-123", targetProfileId: null },
 			}),
 			getWakeProgress: vi.fn().mockResolvedValue({
-				items: [item],
+				items,
 				query: { spaceId: "space-123", targetProfileId: null },
 			}),
 			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
 		});
+		const queueMembers = createMembersSnapshot({
+			defaultAgentControllerRef:
+				controller === "Center" ? "hosted:center-agent" : "builtin:codex",
+		});
+		if (shared) {
+			const human = queueMembers.humans[0];
+			if (!human) {
+				throw new Error("Expected a Human member.");
+			}
+			queueMembers.humans.push({
+				...human,
+				profileId: "22222222-2222-2222-2222-222222222222",
+				profileName: "Another member",
+			});
+		}
 		mockSpaceQueries({
 			centerAgentProfileId:
 				controller === "Center" ? DEFAULT_AGENT_PROFILE_ID : null,
@@ -3933,7 +4031,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				isFetchedAfterMount: true,
 				data: {
-					items: [item],
+					items,
 					get presentationEpoch() {
 						return wakeProgressFixture.presentationEpoch;
 					},
@@ -3943,10 +4041,7 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentControllerRef:
-						controller === "Center" ? "hosted:center-agent" : "builtin:codex",
-				}),
+				data: queueMembers,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -3975,9 +4070,26 @@ describe("SpaceLanding", () => {
 			queryClient,
 			isCenterAgentDirectMessage: controller === "Center",
 		});
+		if (reply) {
+			fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+		}
 		await setComposerValue(screen.getByRole("textbox"), "Only North America.");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-		if (!sameAuthor || otherThread) {
+		if (multiple && !reply) {
+			await screen.findByText(
+				"More than one task is active. Reply to your original request to choose which task to update."
+			);
+			expect(postNormalMessage).not.toHaveBeenCalled();
+			expect(
+				vi
+					.mocked(readOrUpdateSpaceInputQueue)
+					.mock.calls.some(
+						([, request]) => request.mutation?.action === "enqueue"
+					)
+			).toBe(false);
+			return;
+		}
+		if (!sameAuthor || otherThread || (shared && !reply)) {
 			await waitFor(() => expect(postNormalMessage).toHaveBeenCalled());
 			expect(
 				vi
@@ -3997,7 +4109,9 @@ describe("SpaceLanding", () => {
 						action: "enqueue",
 						text: "Only North America.",
 						target: {
-							dispatchId: "original-dispatch",
+							...(starting
+								? { clientMessageId: "original-message" }
+								: { dispatchId: "original-dispatch" }),
 							targetProfileId: DEFAULT_AGENT_PROFILE_ID,
 						},
 					}),

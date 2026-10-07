@@ -11,6 +11,7 @@ import {
   ensureSpaceExecutionInputOutbox,
   insertSpaceExecutionInput,
   listQueuedSpaceExecutionInputs,
+  listReadySpaceInputIds,
   readNextSpaceExecutionInputAlarm,
   readSpaceExecutionInput,
   rebindQueuedSpaceInput,
@@ -73,7 +74,7 @@ function enqueue(sql: SqlStorage, inputId: string, queued = true) {
 }
 
 describe("Space pending input ownership", () => {
-  it("carries only untouched local drafts to a continuation and keeps uncertain delivery fenced", () => {
+  it("carries only untouched local drafts to a continuation and preserves uncertain delivery on its original task", () => {
     fixture((sql) => {
       for (const id of ["pending", "uncertain", "delivered", "other"]) {
         enqueue(sql, id);
@@ -151,7 +152,7 @@ describe("Space pending input ownership", () => {
         throw new Error("Missing pending input");
       }
       expect(claimQueuedSpaceExecutionInput(sql, "pending", "steer")).toBe(
-        false
+        true
       );
       expect(
         rebindQueuedSpaceInput(sql, {
@@ -163,6 +164,33 @@ describe("Space pending input ownership", () => {
       expect(readSpaceExecutionInput(sql, "uncertain")?.state).toBe(
         "unconfirmed"
       );
+    });
+  });
+
+  it("does not let another task's pending or uncertain input block a completed task's Queue", () => {
+    fixture((sql) => {
+      ensureSpaceSqlSchema(sql);
+      for (const id of ["a", "b", "b-later"]) {
+        enqueue(sql, id);
+      }
+      sql.exec(
+        "UPDATE space_execution_input_outbox SET queue_after_dispatch_id = 'b-dispatch', request_json = json_set(request_json, '$.authorProfileId', 'human-2'), signal_json = json_set(signal_json, '$.profile.profileId', 'human-2') WHERE input_id IN ('b', 'b-later')"
+      );
+      sql.exec(
+        "INSERT INTO space_final_reply_claims (dispatch_id, profile_id, signal_id, created_at) VALUES ('b-dispatch', 'agt_11111111-1111-4111-8111-111111111111', 'b-reply', 1)"
+      );
+      expect(listReadySpaceInputIds(sql)).toEqual(["b"]);
+      expect(claimQueuedSpaceExecutionInput(sql, "a", "steer")).toBe(true);
+      expect(
+        settleQueuedSpaceExecutionInput(sql, "a", "steer", "unconfirmed")
+      ).toBe(true);
+      expect(listReadySpaceInputIds(sql)).toEqual(["b"]);
+      expect(claimQueuedSpaceExecutionInput(sql, "b-later", "consume")).toBe(
+        false
+      );
+      expect(claimQueuedSpaceExecutionInput(sql, "b", "consume")).toBe(true);
+      expect(listReadySpaceInputIds(sql)).toEqual([]);
+      expect(readSpaceExecutionInput(sql, "a")?.state).toBe("unconfirmed");
     });
   });
 

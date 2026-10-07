@@ -175,6 +175,7 @@ export function listReadySpaceInputIds(sql: SqlStorage): string[] {
     WHERE candidate.queue_state = 'queued' AND candidate.queue_blocked = 0
     AND NOT EXISTS (SELECT 1 FROM space_execution_input_outbox AS other
       WHERE json_extract(other.signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId') = json_extract(candidate.signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId')
+      AND other.queue_after_dispatch_id = candidate.queue_after_dispatch_id
       AND (other.queue_state IN ('claimed', 'unconfirmed') OR
         (other.queue_state = 'queued' AND other.queue_position < candidate.queue_position)))
     ORDER BY candidate.queue_position`)
@@ -311,7 +312,7 @@ export function reorderQueuedSpaceExecutionInputs(
   return true;
 }
 
-/** Claim before any await. Unknown delivery holds every later input for this target. */
+/** Claim before any await. Unknown delivery holds later inputs in the same task chain. */
 export function claimQueuedSpaceExecutionInput(
   sql: SqlStorage,
   inputId: string,
@@ -325,6 +326,7 @@ export function claimQueuedSpaceExecutionInput(
     WHERE input_id = ? AND queue_state = 'queued' AND queue_blocked = 0
     AND NOT EXISTS (SELECT 1 FROM space_execution_input_outbox AS other
       WHERE json_extract(other.signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId') = json_extract(candidate.signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId')
+      AND other.queue_after_dispatch_id = candidate.queue_after_dispatch_id
       AND (other.queue_state IN ('claimed', 'unconfirmed') OR
         (? = 'consume' AND other.queue_state = 'queued' AND other.queue_position < candidate.queue_position)))
     RETURNING input_id`,

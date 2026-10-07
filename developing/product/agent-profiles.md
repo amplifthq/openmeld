@@ -1275,8 +1275,25 @@ unchanged fast path.
 The Space composer also consumes this existing owner projection for paused work
 in the current Space. It places the existing continuation/skip confirmation beside
 pending inputs in the same tray. Sorting, Send now, editing, and deletion retain
-their existing controls. Non-owners receive no recovery controls, and a task in
-another Space is not presented as this conversation's interrupted work.
+their existing controls. The original requester can also skip their own paused
+work when the recovery gate contains only that requester's execution context.
+They can fork a read-only or Space-only context without inherited permission
+overrides. Mixed-context gates, legacy work without a verifiable requester,
+and shared write permissions retain owner-only recovery. The owner shard
+rechecks this scope when authorizing the operation. A task in another Space
+is not presented as this conversation's interrupted work.
+
+Text follow-ups to the sender's one active response enter the composer Queue,
+including while the first send is being confirmed. Queue intake can resolve
+the original client-message identity into the exact dispatch; it never invents
+a second execution. Send now requires a running execution and an acknowledged
+steering receipt. When multiple responses belong to the sender, Reply to the
+original request selects the target. Another person's request remains independent.
+In a shared Space, an explicit Agent mention or Reply to the original request
+selects the follow-up target; ordinary messages to people do not enter its Queue.
+Queue ordering and uncertain-delivery holds apply to the same task chain, not
+every task assigned to that Agent. A failed task cannot block another member's
+independent Queue.
 
 After the existing occupied-conversation waiting period, fresh available Usage
 reports may trigger one automatic native fork for Codex work that never began a

@@ -21033,6 +21033,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
           ownerUserId: "owner-1",
           targetProfileId: TARGET_AGENT_PROFILE_ID,
         });
+      const savedRecoveryAdmission = storageRecordsAdmission(
+        storageRecords,
+        admissionKey
+      );
+      storageRecords.set(admissionKey, {
+        ...savedRecoveryAdmission,
+        workItems: [],
+      });
       for (const [access, explicit, eligible] of [
         ["read_only", false, true],
         ["space_context", false, true],
@@ -21060,8 +21068,62 @@ describe("runtime transport runtime coordinator transport contract", () => {
         });
         await expect(readRecovery()).resolves.toMatchObject({
           automaticForkEligible: eligible,
+          requesterRecoveryScope: {
+            profileId: "human-1",
+            spaceId: HEX_SPACE_ID,
+            canFork: access !== "workspace",
+          },
+        });
+        const skip = (
+          hub as unknown as {
+            rpcSkipAgentProfileInterruptedWork: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+              requesterProfileId: string;
+              expectedInterruptedTargetWakeLifecycleId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcSkipAgentProfileInterruptedWork.bind(hub);
+        await expect(
+          skip({
+            ownerUserId: "owner-1",
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            requesterProfileId: "another-human",
+            expectedInterruptedTargetWakeLifecycleId:
+              occupiedTargetWakeLifecycleId,
+          })
+        ).resolves.toMatchObject({ status: "not_pending" });
+        const foreignWork = admission.workItems[0];
+        if (!foreignWork) {
+          throw new Error("Missing original work fixture");
+        }
+        storageRecords.set(admissionKey, {
+          ...savedRecoveryAdmission,
+          workItems: [
+            {
+              ...foreignWork,
+              executionContextId: "22222222-2222-4222-8222-222222222222",
+            },
+          ],
+        });
+        expect(await readRecovery()).not.toHaveProperty(
+          "requesterRecoveryScope"
+        );
+        await expect(
+          skip({
+            ownerUserId: "owner-1",
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            requesterProfileId: "human-1",
+            expectedInterruptedTargetWakeLifecycleId:
+              occupiedTargetWakeLifecycleId,
+          })
+        ).resolves.toMatchObject({ status: "not_pending" });
+        storageRecords.set(admissionKey, {
+          ...savedRecoveryAdmission,
+          workItems: [],
         });
       }
+      storageRecords.set(admissionKey, savedRecoveryAdmission);
       storageRecords.set(headKey, originalHead);
       await expect(readRecovery()).resolves.toMatchObject({
         action: "skip_interrupted_work",

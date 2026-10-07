@@ -72,7 +72,7 @@ export function SpaceInputQueue(input: {
 	onEdit: (text: string) => void;
 }) {
 	const queue = useSpaceInputQueue({ ...input, enabled: true });
-	const recovery = useSpaceWorkRecovery(input.spaceId);
+	const recovery = useSpaceWorkRecovery(input.spaceId, queue.recoveries);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [editRecovery, setEditRecovery] = useState<Item | null>(null);

@@ -107,6 +107,7 @@ import {
   readPluginConnectionContinuationBindingRequestSchema,
   readPluginConnectionContinuationBindingResponseSchema,
   remoteAgentWorkerCancellationResponseSchema,
+  remoteAgentWorkerExecutionInputRequestSchema,
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
   resolveLocalExecutionOwnerCancellationReason,
@@ -120,6 +121,7 @@ import {
   restoreSpaceFileEntryBodySchema,
   runtimeCoordinatorFailurePublicationCommandSchema,
   runtimeCoordinatorFinalizationCommandSchema,
+  runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
@@ -7797,9 +7799,14 @@ export class Space extends DurableObject<CoreBindings> {
             spacePassword: input.password,
           }),
           {
-            GET: ({ context }) => this.handleInputQueue(undefined, context),
+            GET: ({ context }) =>
+              this.handleInputQueue(undefined, context, input.includeRecovery),
             PATCH: ({ context }) =>
-              this.handleInputQueue(input.mutation, context),
+              this.handleInputQueue(
+                input.mutation,
+                context,
+                input.includeRecovery
+              ),
           }
         );
         return readSpaceRpcJsonOrThrow(response);
@@ -8003,7 +8010,7 @@ export class Space extends DurableObject<CoreBindings> {
       await this.assertLocalQueuedInputAuthority(existing.request);
       return;
     }
-    const binding = await this.resolveLocalQueuedInputBinding({
+    const binding = await this.resolveLocalQueueIntakeTarget({
       ...target,
       authorProfileId: signal.profile.profileId,
     });
@@ -8108,6 +8115,42 @@ export class Space extends DurableObject<CoreBindings> {
     return binding.data;
   }
 
+  private async resolveLocalQueueIntakeTarget(target: {
+    dispatchId: string;
+    targetProfileId: string;
+    authorProfileId: string;
+  }) {
+    const outbox = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      target.dispatchId
+    );
+    if (!outbox) {
+      return await this.resolveLocalQueuedInputBinding(target);
+    }
+    const source = this.readSignalById(outbox.sourceEventId);
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      target.targetProfileId
+    );
+    if (
+      outbox.targetProfileId !== target.targetProfileId ||
+      source?.profile.kind !== "human" ||
+      source.profile.profileId !== target.authorProfileId ||
+      !member?.ownerUserIdSnapshot
+    ) {
+      throw new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 403,
+        message: "You can only add updates to your own task.",
+      });
+    }
+    return {
+      dispatchId: target.dispatchId,
+      targetProfileId: target.targetProfileId,
+      ownerUserId: member.ownerUserIdSnapshot,
+    };
+  }
+
   private async deliverLocalQueuedInput(
     item: {
       inputId: string;
@@ -8120,7 +8163,8 @@ export class Space extends DurableObject<CoreBindings> {
       throw new Error("Local input expected.");
     }
     const stored = item.request;
-    const { spaceId, ...target } = stored.target;
+    const { spaceId, ...selectors } = stored.target;
+    const target = localExecutionInputBindingSchema.parse(selectors);
     const result = localExecutionInputResponseSchema.safeParse(
       await callRuntimeTransportApi({
         env: this.bindings,
@@ -8188,9 +8232,119 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
+  private async readRequesterWorkRecoveries(context: CoreRpcContextInput) {
+    const access = await this.authorizeWritableSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: this.spaceId,
+        requestContext: context,
+      })
+    );
+    if (!access.ok) {
+      return [];
+    }
+    const agents = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    }).filter(
+      (agent) =>
+        agent.profileKindSnapshot === "agent" &&
+        agent.ownerUserIdSnapshot &&
+        agent.ownerUserIdSnapshot !== context.actorContext.ownerUserId
+    );
+    const recoveries: NonNullable<SpaceInputQueueResponse["recoveries"]> = [];
+    // Bound reads to this Space's members. Never expose another requester's
+    // recovery identity or release a Profile-wide queue from a task action.
+    for (const agent of agents) {
+      const ownerUserId = agent.ownerUserIdSnapshot;
+      if (!ownerUserId) {
+        continue;
+      }
+      const recovery =
+        runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
+          await resolveRuntimeTransportOwnerShard(
+            this.bindings,
+            ownerUserId
+          ).rpcReadAgentProfileWorkRecovery({
+            ownerUserId,
+            targetProfileId: agent.profileId,
+          })
+        );
+      if (
+        recovery.status !== "available" ||
+        recovery.requesterRecoveryScope?.profileId !==
+          context.actorContext.openMeldProfileId ||
+        recovery.requesterRecoveryScope.spaceId !== this.spaceId ||
+        !recovery.interruptedTargetWakeLifecycleId ||
+        !["fork_interrupted_work", "skip_interrupted_work"].includes(
+          recovery.action
+        )
+      ) {
+        continue;
+      }
+      recoveries.push({
+        targetProfileId: agent.profileId,
+        profileName: agent.profileNameSnapshot ?? "Agent",
+        action:
+          recovery.action === "fork_interrupted_work" &&
+          recovery.requesterRecoveryScope.canFork
+            ? "fork_interrupted_work"
+            : "skip_interrupted_work",
+        expectedInterruptedTargetWakeLifecycleId:
+          recovery.interruptedTargetWakeLifecycleId,
+      });
+    }
+    return recoveries;
+  }
+
+  private async resolveQueuedInputTarget(
+    target: Extract<
+      import("@openmeld/schemas/types").SpaceInputQueueMutation,
+      { action: "enqueue" }
+    >["target"]
+  ) {
+    if ("dispatchId" in target) {
+      return target;
+    }
+    const lookup = await this.readSpaceDispatchLookupByClientMessageId(target);
+    const local = listDispatchOutboxRecordsByClientMessageId(
+      this.ctx.storage.sql,
+      target.clientMessageId
+    ).filter((record) => record.targetProfileId === target.targetProfileId);
+    const ids = new Set([
+      ...lookup.matches.map((match) => match.dispatchId),
+      ...local.map((record) => record.dispatchId),
+    ]);
+    if (ids.size === 0) {
+      const db = getPostgresDatabase(this.bindings);
+      if (db) {
+        const native =
+          await listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+            db,
+            spaceId: this.spaceId,
+            targetProfileId: target.targetProfileId,
+          });
+        for (const delivery of native) {
+          if (delivery.clientMessageId === target.clientMessageId) {
+            ids.add(delivery.dispatchId);
+          }
+        }
+      }
+    }
+    const [dispatchId] = [...ids];
+    if (ids.size !== 1 || !dispatchId) {
+      throw new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 409,
+        message:
+          "The first message is still being confirmed. Your draft is still here. Try again.",
+      });
+    }
+    return { dispatchId, targetProfileId: target.targetProfileId };
+  }
+
   private async handleInputQueue(
     body: unknown,
-    context: CoreRpcContextInput
+    context: CoreRpcContextInput,
+    includeRecovery = false
   ): Promise<Response> {
     // Current public callers act as themselves. Native Center delivery retains
     // its stricter original-Human DM policy.
@@ -8210,8 +8364,12 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 403 }
       );
     }
+    const recoveryProjection = includeRecovery
+      ? { recoveries: await this.readRequesterWorkRecoveries(context) }
+      : {};
     const read = () =>
       spaceInputQueueResponseSchema.parse({
+        ...recoveryProjection,
         items: listQueuedSpaceExecutionInputs(this.ctx.storage.sql)
           .filter(
             (item) =>
@@ -8245,40 +8403,7 @@ export class Space extends DurableObject<CoreBindings> {
     const mutation = parsed.data;
     try {
       if (mutation.action === "enqueue") {
-        const signal = this.buildTextSignal(
-          {
-            kind: "human",
-            profileId: member.profileId,
-            profileName: member.profileNameSnapshot,
-          },
-          mutation.text,
-          {
-            meta: {
-              clientMessageId: mutation.inputId,
-              centerAgentExecutionInput: mutation.target,
-            },
-          }
-        );
-        // Route by the admitted execution, not a lazily populated member
-        // display snapshot (fresh conversations legitimately lack one).
-        const db = getPostgresDatabase(this.bindings);
-        const nativeDelivery = db
-          ? await readRemoteAgentNativeDeliveryByExecution({
-              db,
-              dispatchId: mutation.target.dispatchId,
-              profileId: mutation.target.targetProfileId,
-              spaceId: this.spaceId,
-            })
-          : null;
-        if (nativeDelivery) {
-          await this.publishExecutionInput(
-            signal,
-            { authoringPolicy: "user_authored" },
-            true
-          );
-        } else {
-          await this.enqueueLocalExecutionInput(signal, context);
-        }
+        await this.enqueueInputQueueMessage(mutation, member, context);
       } else if (mutation.action === "reorder") {
         await this.assertLocalQueueReorderAuthority(
           mutation.orderedIds,
@@ -8328,6 +8453,56 @@ export class Space extends DurableObject<CoreBindings> {
       }
       throw error;
     }
+  }
+
+  private async enqueueInputQueueMessage(
+    mutation: Extract<
+      import("@openmeld/schemas/types").SpaceInputQueueMutation,
+      { action: "enqueue" }
+    >,
+    member: NonNullable<ReturnType<typeof readSpaceMemberRecord>>,
+    context: CoreRpcContextInput
+  ): Promise<void> {
+    const target = await this.resolveQueuedInputTarget(mutation.target);
+    const signal = this.buildTextSignal(
+      {
+        kind: "human",
+        profileId: member.profileId,
+        profileName: member.profileNameSnapshot,
+      },
+      mutation.text,
+      {
+        meta: {
+          clientMessageId: mutation.inputId,
+          centerAgentExecutionInput: target,
+        },
+      }
+    );
+    // The admitted execution owns routing. Fresh chats may lack a member
+    // controller display snapshot.
+    const db = getPostgresDatabase(this.bindings);
+    const nativeDelivery = db
+      ? await readRemoteAgentNativeDeliveryByExecution({
+          db,
+          dispatchId: target.dispatchId,
+          profileId: target.targetProfileId,
+          spaceId: this.spaceId,
+        })
+      : null;
+    const meta = this.readSpaceMetaRecord();
+    const dm =
+      meta?.purpose === "openmeld_dm_space"
+        ? await this.readCenterAgentDirectMessageProjectionFromMetaRecord(meta)
+        : null;
+    if (nativeDelivery || dm?.centerAgentProfileId === target.targetProfileId) {
+      await this.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      return;
+    }
+    await this.enqueueLocalExecutionInput(signal, context);
   }
 
   private async mutateQueuedExecutionInput(
@@ -8404,43 +8579,47 @@ export class Space extends DurableObject<CoreBindings> {
     let item = listQueuedSpaceExecutionInputs(this.ctx.storage.sql).find(
       (candidate) => candidate.inputId === inputId
     );
-    if (item) {
-      this.assertQueuedInputMembers(item.signal);
-      if (isLocalSpaceExecutionInput(item.request)) {
-        await this.assertLocalQueuedInputAuthority(item.request);
-        if (
-          item.state === "queued" &&
-          item.request.target.dispatchId !== item.afterDispatchId
-        ) {
-          const binding = await this.resolveLocalQueuedInputBinding({
+    if (!item) {
+      return;
+    }
+    this.assertQueuedInputMembers(item.signal);
+    if (isLocalSpaceExecutionInput(item.request)) {
+      await this.assertLocalQueuedInputAuthority(item.request);
+      if (
+        item.state === "queued" &&
+        (item.request.target.dispatchId !== item.afterDispatchId ||
+          !("runtimeCoordinatorExecutionId" in item.request.target))
+      ) {
+        const binding = await this.resolveLocalQueuedInputBinding({
+          dispatchId: item.afterDispatchId,
+          targetProfileId: item.request.target.targetProfileId,
+          authorProfileId: item.request.authorProfileId,
+        });
+        const request = {
+          ...item.request,
+          target: { ...binding, spaceId: this.spaceId },
+        };
+        const signal = structuredClone(item.signal);
+        signal.data.meta = {
+          ...signal.data.meta,
+          centerAgentExecutionInput: {
             dispatchId: item.afterDispatchId,
-            targetProfileId: item.request.target.targetProfileId,
-            authorProfileId: item.request.authorProfileId,
-          });
-          const request = {
-            ...item.request,
-            target: { ...binding, spaceId: this.spaceId },
-          };
-          const signal = structuredClone(item.signal);
-          signal.data.meta = {
-            ...signal.data.meta,
-            centerAgentExecutionInput: {
-              dispatchId: item.afterDispatchId,
-              targetProfileId: request.target.targetProfileId,
-            },
-          };
-          if (
-            !rebindQueuedSpaceInput(this.ctx.storage.sql, {
-              request,
-              signal,
-              dispatchId: item.afterDispatchId,
-            })
-          ) {
-            return;
-          }
-          item = { ...item, request, signal };
+            targetProfileId: request.target.targetProfileId,
+          },
+        };
+        if (
+          !rebindQueuedSpaceInput(this.ctx.storage.sql, {
+            request,
+            signal,
+            dispatchId: item.afterDispatchId,
+          })
+        ) {
+          return;
         }
+        item = { ...item, request, signal };
       }
+    } else {
+      item = await this.bindQueuedNativeExecutionInput(item);
     }
     if (
       !(
@@ -8469,7 +8648,9 @@ export class Space extends DurableObject<CoreBindings> {
     // may only be reconciled by readExecutionInput, never by another receive.
     try {
       const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
-        await worker.receiveExecutionInput(item.request)
+        await worker.receiveExecutionInput(
+          remoteAgentWorkerExecutionInputRequestSchema.parse(item.request)
+        )
       );
       this.applyQueuedExecutionInputReceipt(item, response);
       updateSpaceExecutionInput(this.ctx.storage.sql, {
@@ -8498,6 +8679,59 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     await this.syncSpaceBackgroundAlarm();
+  }
+
+  private async bindQueuedNativeExecutionInput(
+    item: ReturnType<typeof listQueuedSpaceExecutionInputs>[number]
+  ) {
+    const selector = item.signal.data.meta?.centerAgentExecutionInput;
+    if (
+      isLocalSpaceExecutionInput(item.request) ||
+      item.state !== "queued" ||
+      (item.request.target.submissionId &&
+        selector?.dispatchId === item.afterDispatchId)
+    ) {
+      return item;
+    }
+    const db = getPostgresDatabase(this.bindings);
+    const target =
+      db && selector
+        ? await readActiveRemoteAgentNativeDeliveryCancellationTarget({
+            db,
+            dispatchId: item.afterDispatchId,
+            profileId: selector.targetProfileId,
+            spaceId: this.spaceId,
+          })
+        : null;
+    if (
+      !(target && selector) ||
+      (selector?.dispatchId === item.afterDispatchId &&
+        item.request.target.idempotencyKey !== undefined &&
+        target.idempotencyKey !== item.request.target.idempotencyKey)
+    ) {
+      throw new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 409,
+        message:
+          "This response can't accept updates yet. Your message is still queued.",
+      });
+    }
+    const request = { ...item.request, target: { ...target, v: 1 as const } };
+    const signal = structuredClone(item.signal);
+    signal.data.meta = {
+      ...signal.data.meta,
+      centerAgentExecutionInput: {
+        dispatchId: item.afterDispatchId,
+        targetProfileId: selector.targetProfileId,
+      },
+    };
+    return rebindQueuedSpaceInput(this.ctx.storage.sql, {
+      request,
+      signal,
+      dispatchId: item.afterDispatchId,
+    })
+      ? { ...item, request, signal }
+      : undefined;
   }
 
   private applyQueuedExecutionInputReceipt(
@@ -24302,7 +24536,7 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     const db = getPostgresDatabase(this.bindings);
-    const target = db
+    const activeTarget = db
       ? await readActiveRemoteAgentNativeDeliveryCancellationTarget({
           db,
           dispatchId: selector.dispatchId,
@@ -24310,22 +24544,32 @@ export class Space extends DurableObject<CoreBindings> {
           spaceId: this.spaceId,
         })
       : null;
-    const delivery =
-      target && db
-        ? await readRemoteAgentNativeDeliveryByIdempotencyKey({
-            db,
-            idempotencyKey: target.idempotencyKey,
-          })
+    const delivery = db
+      ? await readRemoteAgentNativeDeliveryByExecution({
+          db,
+          dispatchId: selector.dispatchId,
+          profileId: selector.targetProfileId,
+          spaceId: this.spaceId,
+        })
+      : null;
+    const pendingTarget =
+      queued && !delivery
+        ? await this.resolveUnadmittedNativeQueueTarget(signal, selector)
         : null;
-    const envelope = delivery?.executionRecoverySubmitRequest?.turnEnvelope;
-    if (
-      !target ||
-      envelope?.sender.kind !== "member" ||
-      !envelope.sender.verified ||
-      envelope.sender.profileId !== signal.profile.profileId ||
-      envelope.space.kind !== "dm" ||
-      !envelope.space.isCenterAgentDm
-    ) {
+    const target =
+      activeTarget ??
+      (queued && delivery?.status === "submitted"
+        ? {
+            idempotencyKey: delivery.idempotencyKey,
+            organizationId: delivery.organizationId,
+            spaceId: delivery.spaceId,
+            submissionId: undefined,
+          }
+        : pendingTarget);
+    const authorized = delivery
+      ? await this.canAuthorNativeExecutionInput(signal, delivery, queued)
+      : pendingTarget !== null;
+    if (!(target && authorized)) {
       throw invalid(
         "That response has ended or cannot receive this update. Send it again to start a new response."
       );
@@ -24408,6 +24652,85 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
+  }
+
+  private async resolveUnadmittedNativeQueueTarget(
+    signal: SignalEnvelope,
+    selector: { dispatchId: string; targetProfileId: string }
+  ) {
+    const outbox = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      selector.dispatchId
+    );
+    const meta = this.readSpaceMetaRecord();
+    if (
+      !(outbox && meta) ||
+      outbox.targetProfileId !== selector.targetProfileId ||
+      !(await this.canQueueUnadmittedNativeInput(signal, {
+        triggerMessageId: outbox.sourceEventId,
+        profileId: outbox.targetProfileId,
+        organizationId: meta.organizationId,
+      }))
+    ) {
+      return null;
+    }
+    return {
+      organizationId: meta.organizationId,
+      spaceId: this.spaceId,
+      submissionId: undefined,
+      idempotencyKey: undefined,
+    };
+  }
+
+  private async canAuthorNativeExecutionInput(
+    signal: SignalEnvelope,
+    delivery: NonNullable<
+      Awaited<ReturnType<typeof readRemoteAgentNativeDeliveryByExecution>>
+    >,
+    queued: boolean
+  ): Promise<boolean> {
+    const envelope = (
+      delivery.executionRecoverySubmitRequest ?? delivery.workerSubmitRequest
+    )?.turnEnvelope;
+    if (!envelope) {
+      return (
+        queued && (await this.canQueueUnadmittedNativeInput(signal, delivery))
+      );
+    }
+    return (
+      envelope.sender.kind === "member" &&
+      envelope.sender.verified &&
+      envelope.sender.profileId === signal.profile.profileId &&
+      envelope.space.kind === "dm" &&
+      envelope.space.isCenterAgentDm
+    );
+  }
+
+  private async canQueueUnadmittedNativeInput(
+    signal: SignalEnvelope,
+    delivery: {
+      triggerMessageId: string;
+      profileId: string;
+      organizationId: string;
+    }
+  ): Promise<boolean> {
+    const original = this.readSignalById(delivery.triggerMessageId);
+    const meta = this.readSpaceMetaRecord();
+    if (
+      !meta ||
+      meta.organizationId !== delivery.organizationId ||
+      original?.profile.kind !== "human" ||
+      original.profile.profileId !== signal.profile.profileId ||
+      meta.directMessage?.convertedAt
+    ) {
+      return false;
+    }
+    const dm =
+      await this.readCenterAgentDirectMessageProjectionFromMetaRecord(meta);
+    return (
+      dm?.centerAgentProfileId === delivery.profileId &&
+      dm.memberProfileId === signal.profile.profileId
+    );
   }
 
   private async flushQueuedSpaceInputs(): Promise<void> {
@@ -24522,7 +24845,8 @@ export class Space extends DurableObject<CoreBindings> {
     const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
       await worker.readExecutionInput({
         inputId: item.inputId,
-        target: item.request.target,
+        target: remoteAgentWorkerExecutionInputRequestSchema.parse(item.request)
+          .target,
       })
     );
     if (response.status === "not_found" || response.status === "rejected") {
@@ -24564,7 +24888,9 @@ export class Space extends DurableObject<CoreBindings> {
           throw new Error("Execution input receiver is unavailable.");
         }
         const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
-          await worker.receiveExecutionInput(item.request)
+          await worker.receiveExecutionInput(
+            remoteAgentWorkerExecutionInputRequestSchema.parse(item.request)
+          )
         );
         if (
           response.status === "unconfirmed" ||

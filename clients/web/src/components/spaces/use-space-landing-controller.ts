@@ -431,10 +431,12 @@ function resolveQueuedExecutionInput(input: {
 	members: SpaceMembersSnapshot | null;
 	activationTargets: readonly string[];
 	hasFiles: boolean;
+	replyToSignalId?: string;
 	items: readonly Pick<
 		WakeProgressItem,
 		| "terminal"
 		| "dispatchId"
+		| "clientMessageId"
 		| "targetProfileId"
 		| "sourceContext"
 		| "sourceSignalId"
@@ -452,7 +454,11 @@ function resolveQueuedExecutionInput(input: {
 		targetProfileId = input.activationTargets[0];
 	} else if (input.activationTargets.length === 0) {
 		targetProfileId = input.centerAgentProfileId;
-		if (!targetProfileId && localProfileIds.length === 1) {
+		if (
+			!targetProfileId &&
+			localProfileIds.length === 1 &&
+			(input.members?.humans.length === 1 || input.replyToSignalId)
+		) {
 			targetProfileId = localProfileIds[0];
 		}
 	}
@@ -466,20 +472,32 @@ function resolveQueuedExecutionInput(input: {
 	const responses = input.items.filter(
 		(item) =>
 			!item.terminal &&
-			item.dispatchId &&
+			(item.dispatchId || item.clientMessageId) &&
 			item.targetProfileId === targetProfileId &&
+			(!input.replyToSignalId ||
+				item.sourceSignalId === input.replyToSignalId) &&
 			!item.sourceContext?.threadId &&
 			(item.sourceContext?.profileId ??
 				input.timelineItems.find((source) => source.id === item.sourceSignalId)
 					?.actorProfileId) === input.profileId
 	);
-	const response = responses.length === 1 ? responses[0] : undefined;
-	return response?.dispatchId
-		? {
-				dispatchId: response.dispatchId,
-				targetProfileId: response.targetProfileId,
-			}
-		: undefined;
+	if (responses.length > 1) {
+		return "ambiguous" as const;
+	}
+	const response = responses[0];
+	if (response?.dispatchId) {
+		return {
+			dispatchId: response.dispatchId,
+			targetProfileId: response.targetProfileId,
+		};
+	}
+	if (response?.clientMessageId) {
+		return {
+			clientMessageId: response.clientMessageId,
+			targetProfileId: response.targetProfileId,
+		};
+	}
+	return undefined;
 }
 
 function buildNormalMessagePostInput(input: {
@@ -2979,6 +2997,7 @@ export function useSpaceLandingController(input: {
 				profileId: input.profileId,
 				timelineItems,
 				centerAgentProfileId: input.centerAgentProfileId,
+				replyToSignalId: preparedSubmission.messageEnvelope?.replyToSignalId,
 				members: membersSnapshot,
 				activationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
@@ -2989,11 +3008,18 @@ export function useSpaceLandingController(input: {
 			});
 			if (
 				queueTarget &&
-				!preparedSubmission.messageEnvelope?.replyToSignalId &&
 				!preparedSubmission.contextSelection &&
 				!preparedSubmission.deviceWait
 			) {
 				try {
+					if (queueTarget === "ambiguous") {
+						throw new Error(
+							"More than one task is active. Reply to your original request to choose which task to update."
+						);
+					}
+					// The previous send owns source publication. Resolve its dispatch
+					// only after that request settles, not from a delayed progress frame.
+					await request.ready;
 					await ensureEntryConfirmed();
 					await inputQueue.enqueue({
 						action: "enqueue",

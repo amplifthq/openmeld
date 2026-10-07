@@ -1,4 +1,7 @@
-import type { ProfileDetailsRecoveryAction } from "@openmeld/schemas/types";
+import type {
+	ProfileDetailsRecoveryAction,
+	SpaceInputQueueResponse,
+} from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -14,7 +17,10 @@ import {
 import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
 
 /** Read the existing work owner; the composer does not own another task queue. */
-export function useSpaceWorkRecovery(spaceId: string) {
+export function useSpaceWorkRecovery(
+	spaceId: string,
+	requesterRecoveries: SpaceInputQueueResponse["recoveries"] = []
+) {
 	const context = useOptionalSpaceAgentProfileEditContext();
 	const organizationId = context?.organizationId ?? "";
 	const queryClient = useQueryClient();
@@ -27,7 +33,7 @@ export function useSpaceWorkRecovery(spaceId: string) {
 	const [pending, setPending] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [waitingWakeId, setWaitingWakeId] = useState<string | null>(null);
-	const rows = (overview.data?.agentProfiles ?? []).flatMap((agent) => {
+	const ownerRows = (overview.data?.agentProfiles ?? []).flatMap((agent) => {
 		const work = agent.operationalContext;
 		const profile = context?.profilesById.get(agent.profileId);
 		if (
@@ -43,7 +49,11 @@ export function useSpaceWorkRecovery(spaceId: string) {
 		}
 		return [
 			{
-				profile,
+				profile: {
+					openMeldProfileId: profile.openMeldProfileId,
+					profileName: profile.profileName,
+				},
+				requester: false,
 				action: {
 					kind: work.recoveryAction,
 					expectedInterruptedTargetWakeLifecycleId:
@@ -53,9 +63,26 @@ export function useSpaceWorkRecovery(spaceId: string) {
 			},
 		];
 	});
+	const rows = [
+		...ownerRows,
+		...requesterRecoveries.map((recovery) => ({
+			profile: {
+				openMeldProfileId: recovery.targetProfileId,
+				profileName: recovery.profileName,
+			},
+			requester: true,
+			action: {
+				kind: recovery.action,
+				expectedInterruptedTargetWakeLifecycleId:
+					recovery.expectedInterruptedTargetWakeLifecycleId,
+				visibility: "requester_self" as const,
+			},
+		})),
+	];
 	async function recover(
 		profileId: string,
-		action: ProfileDetailsRecoveryAction
+		action: ProfileDetailsRecoveryAction,
+		requester: boolean
 	) {
 		if (pending || !action.expectedInterruptedTargetWakeLifecycleId) {
 			return;
@@ -67,6 +94,7 @@ export function useSpaceWorkRecovery(spaceId: string) {
 			await executeAgentProfileWorkRecovery({
 				agentProfileId: profileId,
 				organizationId,
+				...(requester ? { spaceId } : {}),
 				action: action.kind,
 				expectedInterruptedTargetWakeLifecycleId:
 					action.expectedInterruptedTargetWakeLifecycleId,
@@ -95,7 +123,7 @@ export function useSpaceWorkRecovery(spaceId: string) {
 		visible: rows.length > 0 || error !== null,
 		content: (
 			<>
-				{rows.map(({ profile, action }) => (
+				{rows.map(({ profile, action, requester }) => (
 					<div
 						className="flex items-center gap-2 px-3 py-2 text-xs"
 						key={profile.openMeldProfileId}
@@ -112,7 +140,7 @@ export function useSpaceWorkRecovery(spaceId: string) {
 							compact
 							isPending={pending !== null}
 							onRecoveryAction={(selected) =>
-								recover(profile.openMeldProfileId, selected)
+								recover(profile.openMeldProfileId, selected, requester)
 							}
 							recoveryAction={action}
 						/>

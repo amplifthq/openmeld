@@ -890,6 +890,13 @@ and real Local model acceptance are separate from protocol fixtures; no old
 published bundle is certified by deferred feature checks. There is no new public
 Service command or general Local Agent tool in this slice.
 
+Space may persist a queued draft before Coordinator admission by validating the
+original Human author against its durable dispatch source. This draft names the
+dispatch and Agent owner but contains no attempt/run authority. Send now resolves
+the current binding before claiming that same input row. Receipt reads require
+the saved binding; they never resolve a new run or resend. Ordinary queue
+consumption still waits for the predecessor's successful final Space reply.
+
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
 a connection-generation change, and a low-frequency recovery keepalive. Until

@@ -5305,6 +5305,48 @@ export async function rpcGetCurrentAgentProfileSession(
     status: "found",
   });
 }
+async function requireTaskRecoveryRequester(
+  env: CoreBindings,
+  request: ReturnType<typeof requireAgentProfileBindingRequest>,
+  body: ExecuteAgentProfileWorkRecoveryBody
+): Promise<string | undefined> {
+  if (request.owner.id === request.context.actorContext.ownerUserId) {
+    return undefined;
+  }
+  const denied = () =>
+    createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_allowed",
+      reason: "This task needs its Agent owner's attention.",
+      status: 403,
+    });
+  if (!body.spaceId) {
+    throw denied();
+  }
+  const { stub, spaceId } = resolveRpcSpaceStubOrThrow(env, body.spaceId);
+  const queue = await stub.rpcInputQueue({
+    spaceId,
+    context: request.context,
+    includeRecovery: true,
+  });
+  const allowed = queue.recoveries?.find(
+    (item) =>
+      item.targetProfileId === request.agentProfileId &&
+      item.expectedInterruptedTargetWakeLifecycleId ===
+        body.expectedInterruptedTargetWakeLifecycleId
+  );
+  if (
+    !(
+      allowed &&
+      (body.action === allowed.action ||
+        (allowed.action === "fork_interrupted_work" &&
+          body.action === "skip_interrupted_work"))
+    )
+  ) {
+    throw denied();
+  }
+  return request.context.actorContext.openMeldProfileId;
+}
+
 export async function rpcExecuteAgentProfileWorkRecovery(
   env: CoreBindings,
   input: ExecuteAgentProfileWorkRecoveryInput
@@ -5321,7 +5363,16 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       status: 400,
     });
   }
-  const request = await requireAgentProfileWorkRecoveryScope(env, input);
+  const request = await requireAgentProfileWorkRecoveryScope(
+    env,
+    input,
+    parsedBody.data.spaceId !== undefined
+  );
+  const requesterProfileId = await requireTaskRecoveryRequester(
+    env,
+    request,
+    parsedBody.data
+  );
   const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
   const recovery =
     runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
@@ -5385,6 +5436,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     });
   } else if (parsedBody.data.action === "fork_interrupted_work") {
     const continuation = await executeAgentProfileWorkContinuation({
+      requesterProfileId,
       context: request.context,
       env,
       expectedInterruptedTargetWakeLifecycleId:
@@ -5398,6 +5450,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     throwUnstartedAgentProfileWorkContinuationError(continuation);
   } else if (parsedBody.data.action === "skip_interrupted_work") {
     await executeAgentProfileInterruptedWorkSkip({
+      requesterProfileId,
       expectedInterruptedTargetWakeLifecycleId:
         parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
       ownerShard,
@@ -5446,6 +5499,7 @@ export async function rpcAgentProfileExecutionMode(
   );
 }
 async function executeAgentProfileInterruptedWorkSkip(input: {
+  requesterProfileId?: string;
   expectedInterruptedTargetWakeLifecycleId: string;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
@@ -5470,6 +5524,7 @@ async function executeAgentProfileInterruptedWorkSkip(input: {
       return null;
     });
   const skipped = await input.ownerShard.rpcSkipAgentProfileInterruptedWork({
+    requesterProfileId: input.requesterProfileId,
     expectedInterruptedTargetWakeLifecycleId:
       input.expectedInterruptedTargetWakeLifecycleId,
     ownerUserId: input.ownerUserId,
@@ -5622,6 +5677,7 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
   return false;
 }
 async function executeAgentProfileWorkContinuation(input: {
+  requesterProfileId?: string;
   context: CoreRpcContextInput;
   env: CoreBindings;
   expectedInterruptedTargetWakeLifecycleId?: string;
@@ -5680,7 +5736,10 @@ async function executeAgentProfileWorkContinuation(input: {
     input.forkInterruptedConversation ||
       input.recovery.forkInterruptedConversation
   );
-  if (input.recovery.authorizedContinuationClientMessageId === null) {
+  if (
+    input.recovery.authorizedContinuationClientMessageId === null ||
+    input.requesterProfileId
+  ) {
     const currentTarget =
       await requireCurrentAgentProfileWorkContinuationTarget({
         env: input.env,
@@ -5689,6 +5748,7 @@ async function executeAgentProfileWorkContinuation(input: {
       });
     const authorized =
       await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
+        requesterProfileId: input.requesterProfileId,
         continuationClientMessageId,
         currentAgentControllerRef: currentTarget.agentControllerRef,
         currentBindingId: currentTarget.bindingId,
@@ -23053,7 +23113,8 @@ async function requireAgentProfileWorkRecoveryScope(
   input: {
     agentProfileId: string;
     context?: CoreRpcContextInput;
-  }
+  },
+  allowRequester = false
 ): Promise<ReturnType<typeof requireAgentProfileBindingRequest>> {
   const request = requireAgentProfileBindingRequest(input);
   const activeOrganizationId = normalizeOptionalText(
@@ -23093,12 +23154,15 @@ async function requireAgentProfileWorkRecoveryScope(
     });
   }
   if (
-    !ownersEqual(
-      {
-        id: profileScope.scope.ownerUserId,
-        kind: "owner_account",
-      },
-      request.owner
+    !(
+      allowRequester ||
+      ownersEqual(
+        {
+          id: profileScope.scope.ownerUserId,
+          kind: "owner_account",
+        },
+        request.owner
+      )
     )
   ) {
     throw createCoreRpcHttpError({
@@ -23107,7 +23171,10 @@ async function requireAgentProfileWorkRecoveryScope(
       status: 404,
     });
   }
-  return request;
+  return {
+    ...request,
+    owner: { id: profileScope.scope.ownerUserId, kind: "owner_account" },
+  };
 }
 type ActiveOrganization = {
   memberId?: string;
@@ -25625,9 +25692,10 @@ export type SpaceFilePinsInput = GetSpaceMetaInput & {
   mutation?: SpaceFilePinMutation;
 };
 
-export type SpaceInputQueueInput = GetSpaceMetaInput & {
-  mutation?: SpaceInputQueueMutation;
-};
+export type SpaceInputQueueInput = GetSpaceMetaInput &
+  import("@openmeld/schemas/types").SpaceInputQueueOptions & {
+    mutation?: SpaceInputQueueMutation;
+  };
 
 export async function rpcSpaceInputQueue(
   env: CoreBindings,
