@@ -275,6 +275,14 @@ async function lockEmptyTarget(client, catalog) {
 
 function nativeColumns(table, targetColumns) {
   const columns = [...table.columns];
+  if (table.name === "space_index_spaces") {
+    columns.push({
+      name: "recent_message_previews_json",
+      type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
   // Historical accounts and Organizations have not requested deletion.
   const deletionColumn = {
     users: "deleted_at",

@@ -9,8 +9,8 @@ import {
 } from "./space-wake-bookmarks";
 
 const observers = new Map<Element, IntersectionObserverCallback>();
-const ATLAS_WORKING = /Atlas is working/;
-const OTHER_WORKING = /Other is working/;
+const ATLAS_WORKING = /Atlas.*View working agent/;
+const OTHER_WORKING = /Other.*View working agent/;
 const openThread = vi.fn();
 class TestIntersectionObserver implements IntersectionObserver {
 	root = null;
@@ -124,12 +124,14 @@ describe("Composer offscreen Wake bookmarks", () => {
 		cleanup();
 		observers.clear();
 		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
 		vi.useRealTimers();
 	});
 	it("hands off only the current person's offscreen work and avoids edge flicker", async () => {
 		const atlas = wake("Atlas");
 		vi.setSystemTime(Date.now() + 60_000);
 		render(<Fixture items={[atlas, wake("Other", "someone-else")]} />);
+		expect(screen.queryByRole("button", { name: ATLAS_WORKING })).toBeNull();
 		await visibility("Atlas", 1);
 		expect(screen.queryByRole("button", { name: ATLAS_WORKING })).toBeNull();
 		await visibility("Atlas", 0.4);
@@ -142,13 +144,15 @@ describe("Composer offscreen Wake bookmarks", () => {
 		await visibility("Atlas", 1);
 		expect(screen.queryByRole("button", { name: ATLAS_WORKING })).toBeNull();
 	});
-	it("keeps each conversation's work in its own Composer", () => {
+	it("keeps each conversation's work in its own Composer", async () => {
 		const item = wake("Atlas");
 		if (!item.sourceContext) {
 			throw new Error("Missing source context");
 		}
 		item.sourceContext = { ...item.sourceContext, threadId: "thread-current" };
 		render(<Fixture items={[item, wake("Other")]} thread="thread-current" />);
+		await visibility("Atlas", 0);
+		await visibility("Other", 0);
 		expect(
 			within(screen.getByTestId("main-composer")).queryByRole("button", {
 				name: ATLAS_WORKING,
@@ -180,13 +184,14 @@ describe("Composer offscreen Wake bookmarks", () => {
 		});
 		expect(screen.queryByRole("button", { name: ATLAS_WORKING })).toBeNull();
 	});
-	it("keeps other Threads in main and returns a closed Thread to main", () => {
+	it("keeps other Threads in main and returns a closed Thread to main", async () => {
 		const item = wake("Atlas");
 		if (!item.sourceContext) {
 			throw new Error("Missing source context");
 		}
 		item.sourceContext = { ...item.sourceContext, threadId: "thread-target" };
 		const view = render(<Fixture items={[item]} thread="thread-current" />);
+		await visibility("Atlas", 0);
 		expect(
 			within(screen.getByTestId("main-composer")).getByRole("button", {
 				name: ATLAS_WORKING,

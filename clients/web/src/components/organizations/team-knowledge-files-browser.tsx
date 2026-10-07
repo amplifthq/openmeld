@@ -17,6 +17,7 @@ import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
 	FluidDropdownMenuContent as ContextMenuContent,
 	FluidDropdownMenuItem as ContextMenuItem,
@@ -270,7 +271,9 @@ export function TeamKnowledgeFilesBrowser(input: {
 						}
 					}}
 				>
-					<Suspense fallback={<p>Loading files…</p>}>
+					<Suspense
+						fallback={<SkeletonRows className="p-3" label="Loading files" />}
+					>
 						<FileSystem
 							breadcrumb={breadcrumb}
 							className="h-full min-h-96"

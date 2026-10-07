@@ -1485,6 +1485,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return rpcReadComputerFileAccessPolicy(this.env, input);
   }
+  agentSessionHistory(input: Parameters<typeof rpcAgentSessionHistory>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAgentSessionHistory(this.env, input)
+    );
+  }
+  computerSessionHistory(
+    input: Parameters<typeof rpcComputerSessionHistory>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcComputerSessionHistory(this.env, input)
+    );
+  }
   readPeopleComputerFileAccessPolicy(
     input: Parameters<typeof rpcReadPeopleComputerFileAccessPolicy>[1]
   ) {
@@ -3183,6 +3195,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcPluginAction(this.env, input)
     );
   }
+  authorizeLocalPluginConnection(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      authorizeLocalPluginConnection(this.env, input)
+    );
+  }
 
   pluginActionRequest(
     input: import("@openmeld/schemas/types").PluginActionRequestCommandRpc
@@ -4432,6 +4449,14 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return super.readComputerFileAccessPolicy(input);
+  }
+  agentSessionHistory(input: Parameters<typeof rpcAgentSessionHistory>[1]) {
+    return super.agentSessionHistory(input);
+  }
+  computerSessionHistory(
+    input: Parameters<typeof rpcComputerSessionHistory>[1]
+  ) {
+    return super.computerSessionHistory(input);
   }
   readPeopleComputerFileAccessPolicy(
     input: Parameters<typeof rpcReadPeopleComputerFileAccessPolicy>[1]
@@ -6485,7 +6510,10 @@ import type {
   CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { rpcPluginActionRequest } from "./connectors/plugin-action-requests";
-import { rpcPluginAction } from "./connectors/plugin-actions";
+import {
+  authorizeLocalPluginConnection,
+  rpcPluginAction,
+} from "./connectors/plugin-actions";
 import {
   type CenterAgentPostChannelFileInput,
   rpcCenterAgentPostChannelFile,
@@ -6494,4 +6522,8 @@ import {
   type CenterAgentReadChannelFileInput,
   rpcCenterAgentReadChannelFile,
 } from "./remote-agent/application/message-channel-file-service";
-import { rpcCenterAgentSetReplyPlacement } from "./rpc/methods";
+import {
+  rpcAgentSessionHistory,
+  rpcCenterAgentSetReplyPlacement,
+  rpcComputerSessionHistory,
+} from "./rpc/methods";

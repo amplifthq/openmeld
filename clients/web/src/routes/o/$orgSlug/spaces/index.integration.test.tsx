@@ -238,6 +238,7 @@ import { AppSpacesIndexContent } from "./index";
 
 describe("app spaces index route", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
 		window.sessionStorage.clear();
 		appOrganizationMock.activeOrganization = null;
 		appOrganizationMock.currentOrganization = {
@@ -478,6 +479,7 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
+		fireEvent.click(await screen.findByRole("button", { name: "Table" }));
 		const workingRow = await screen.findByRole("row", {
 			name: WORKING_ROW,
 		});
@@ -513,7 +515,7 @@ describe("app spaces index route", () => {
 		).toBeNull();
 	});
 
-	it("pins a joined Space from its directory row and updates the shared index", async () => {
+	it("pins a joined Space from the default card view and updates the shared index", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
 				openMeldProfileId: "selected-human",
@@ -540,11 +542,13 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		const planning = await screen.findByRole("row", {
-			name: PLANNING_ROW,
-		});
+		expect(
+			(await screen.findByRole("button", { name: "Cards" })).getAttribute(
+				"aria-pressed"
+			)
+		).toBe("true");
 		fireEvent.click(
-			within(planning).getByRole("button", { name: "Pin Planning" })
+			await screen.findByRole("button", { name: "Pin Planning" })
 		);
 		await waitFor(() =>
 			expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
@@ -558,6 +562,27 @@ describe("app spaces index route", () => {
 		).toBeTruthy();
 		const pinned = screen.getByRole("heading", { name: "Pinned" });
 		expect(pinned).toBeTruthy();
+	});
+
+	it("remembers the selected Space layout when returning to the directory", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
+		]);
+		renderSpacesIndex();
+		expect(
+			(await screen.findByRole("button", { name: "Cards" })).getAttribute(
+				"aria-pressed"
+			)
+		).toBe("true");
+		fireEvent.click(screen.getByRole("button", { name: "Table" }));
+		cleanup();
+		renderSpacesIndex();
+		expect(
+			(await screen.findByRole("button", { name: "Table" })).getAttribute(
+				"aria-pressed"
+			)
+		).toBe("true");
+		expect(await screen.findByRole("row", { name: PLANNING_ROW })).toBeTruthy();
 	});
 
 	it("shows a newly joined Space while the discovery snapshot is still older", async () => {

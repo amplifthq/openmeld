@@ -865,7 +865,9 @@ function buildClaudeAgentSdkOptions(input: {
   const options: ClaudeAgentOptions = {
     abortController: input.abortController,
     additionalDirectories: [input.claudeWorkdir],
-    allowDangerouslySkipPermissions: permissionMode === "bypassPermissions",
+    // Eligibility permits a later owner-selected bypass; permissionMode still
+    // controls the starting policy. Repair turns cannot change permissions.
+    allowDangerouslySkipPermissions: input.executionMode !== "repair",
     cwd: input.claudeWorkdir,
     env: {
       ...process.env,

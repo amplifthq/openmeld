@@ -731,8 +731,6 @@ export function AgentControllerPermissionModeFields(input: {
 			</p>
 		);
 	}
-	const selectedOption =
-		options.find((option) => option.value === input.value) ?? options[0];
 	const selectedMetadata = getAgentControllerPermissionModeDisplayMetadata(
 		input.value,
 		{ agentControllerRef }
@@ -752,7 +750,7 @@ export function AgentControllerPermissionModeFields(input: {
 					input.onChange(value as AgentControllerPermissionMode);
 					input.onConfirmChange(false);
 				}}
-				value={selectedOption?.value}
+				value={input.value}
 			>
 				<SelectTrigger
 					aria-describedby={getAgentControllerPermissionModeOutcomeDescriptionId(

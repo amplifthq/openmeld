@@ -2353,6 +2353,16 @@ thread authorization. `read_receipt` reconciles the existing proposal without
 publishing or overwriting it. Positive input rejection is distinct from an
 unknown write result, and a receipt still means local proposal, not publication.
 
+Ordinary Codex native Space-tool admission verifies that the alternate dispatch
+MCP carrier is disabled. It does not require unrelated MCP resources or resource
+templates. On Codex 0.160.0 and later, query that server in the exact thread's
+published runtime using `threadId`, `serverName`, and `toolsAndAuthOnly`, rather
+than starting a separate all-server discovery pass. Older supported controllers
+use the unfiltered tools/auth inventory. Keep the existing bounded admission
+deadline and reject an active carrier or incomplete inventory. Explicit task
+isolation and delivery-only execution still require the full inventory of all
+servers, tools, and resources; a targeted carrier check cannot prove isolation.
+
 Read-only history, shared-file and Task-list tools return either a complete
 `result` or a bounded `page`. `read_result` continues an immutable JSON snapshot
 using the returned result id and byte offset. Snapshots stay in a bounded,

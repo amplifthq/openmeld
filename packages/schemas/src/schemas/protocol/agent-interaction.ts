@@ -1,5 +1,6 @@
 import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
+import { agentControllerPermissionModeSchema } from "../agent-controller-permission-mode";
 
 export const AGENT_INTERACTION_SCHEMA_VERSION = 1 as const;
 export const AGENT_INTERACTION_DEFAULT_TIMEOUT_MS = 8 * 60 * 60 * 1000;
@@ -65,6 +66,7 @@ export const agentInteractionRequestSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...agentInteractionBaseRequestShape,
     kind: z.literal("permission"),
+    supportsPermissionModeUpdate: z.boolean().optional(),
     options: z.array(agentInteractionPermissionOptionSchema).min(1).max(8),
     subject: agentInteractionPermissionSubjectSchema,
   }),
@@ -90,6 +92,13 @@ export const agentInteractionResponseSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("permission"),
     optionId: z.string().trim().min(1).max(256),
+    // A reference to an already saved Binding, never authority to change it.
+    permissionModeUpdate: z
+      .strictObject({
+        bindingId: z.string().trim().min(1),
+        mode: agentControllerPermissionModeSchema,
+      })
+      .optional(),
   }),
   z.strictObject({
     kind: z.literal("question"),
@@ -175,6 +184,15 @@ const resolveAgentInteractionResolutionIssue = (input: {
     };
   }
   if (request.kind === "permission" && response.kind === "permission") {
+    if (
+      response.permissionModeUpdate &&
+      !request.supportsPermissionModeUpdate
+    ) {
+      return {
+        message: "this interaction does not support permission mode updates",
+        path: ["response", "permissionModeUpdate"],
+      };
+    }
     return request.options.some(
       (option) => option.optionId === response.optionId
     )

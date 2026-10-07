@@ -3,6 +3,55 @@ import * as z from "zod/v4";
 const nonEmptyStringSchema = z.string().trim().min(1);
 const jsonSchemaObjectSchema = z.record(z.string(), z.unknown());
 
+export const pluginConnectionHealthSchema = z.strictObject({
+  state: z.enum(["unknown", "ready", "refresh_required", "reconnect_required"]),
+  observedAt: z.string().datetime(),
+  expiresAt: z.string().nullable(),
+  reason: z.string().nullable(),
+});
+
+export const pluginNativeHttpSchema = z.strictObject({
+  baseUrl: z.string().url(),
+  documentationUrl: z.string().url(),
+  auth: z.record(z.string(), z.unknown()),
+  headers: z.record(z.string(), z.string()).optional(),
+  cli: z
+    .strictObject({
+      command: nonEmptyStringSchema,
+      baseUrlEnvironment: nonEmptyStringSchema,
+      tokenEnvironment: nonEmptyStringSchema,
+      accountEnvironment: nonEmptyStringSchema.optional(),
+    })
+    .optional(),
+  read: z.array(
+    z.strictObject({
+      method: z.enum(["GET", "POST"]),
+      path: nonEmptyStringSchema,
+      requiredPermissions: z.array(nonEmptyStringSchema).optional(),
+      bodySchema: jsonSchemaObjectSchema.optional(),
+      timeWindow: z
+        .strictObject({
+          from: nonEmptyStringSchema,
+          to: nonEmptyStringSchema,
+          maxMilliseconds: z.number().positive(),
+        })
+        .optional(),
+    })
+  ),
+});
+
+export const pluginConnectionDescriptionSchema = z.strictObject({
+  service: nonEmptyStringSchema,
+  connection: z
+    .object({
+      connectionName: nonEmptyStringSchema,
+      health: pluginConnectionHealthSchema,
+      profile: z.object({ accountId: z.string(), displayName: z.string() }),
+    })
+    .optional(),
+  nativeHttp: pluginNativeHttpSchema.nullable(),
+});
+
 export const OPENCONNECTOR_RUNTIME_ACTION_CONTRACT_VERSION = 1 as const;
 
 export const openConnectorRuntimeActionEffectSchema = z.enum([

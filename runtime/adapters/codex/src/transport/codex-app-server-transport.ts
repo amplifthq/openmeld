@@ -10,6 +10,8 @@ import type {
   AdapterInstructionPrompt,
   AdapterInteractionCallback,
   AdapterInteractionRequest,
+  AdapterPermissionModeUpdateRequest,
+  AdapterPermissionModeUpdateResult,
   AdapterPreviewCallback,
   AdapterProviderAccessEvidence,
   AdapterRuntimeEvent,
@@ -32,6 +34,7 @@ import {
   resolveDispatchSpaceActionMcpServer,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
+import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
 import { extractCodexToolActivityEvent } from "../output/codex-tool-activity.js";
 import { projectCodexUsageLimits } from "../usage/codex-usage-limits.js";
@@ -79,6 +82,9 @@ export type CodexAppServerTransportResult = {
 };
 
 export type CodexAppServerActiveTurnRegistration = {
+  updatePermissionMode: (
+    input: AdapterPermissionModeUpdateRequest
+  ) => Promise<AdapterPermissionModeUpdateResult>;
   interrupt: () => Promise<void>;
   steer: (
     input: Omit<AgentExecutionSteerRequest, "taskId">
@@ -422,7 +428,10 @@ export async function invokeCodexAppServerTransport(input: {
         input.codexWorkdir,
         permissionExecutionMode
       );
-      await session.verifyScopedMcp(threadContext.threadId);
+      await session.verifyScopedMcp(
+        threadContext.threadId,
+        parseCodexAppServerVersion(initialized)
+      );
       const collaborationMode =
         await resolveCodexAppServerTurnCollaborationMode({
           conversationPolicy: input.conversationPolicy,
@@ -445,6 +454,13 @@ export async function invokeCodexAppServerTransport(input: {
       session.observeUsageForThread(executionThreadId, threadContext.model);
       throwIfCodexDispatchCancelled(input.cancellationSignal);
       const completedTurn = await startAndAwaitAppServerTurn({
+        supportsLiveReviewer: supportsAgentControllerVersion(
+          parseCodexAppServerVersion(initialized),
+          ">=0.153.0-alpha.4"
+        ),
+        permissionMode: resolveCodexAgentControllerPermissionMode(
+          input.agentControllerPermissionMode
+        ),
         cancellationSignal: input.cancellationSignal,
         collaborationMode,
         conversationPolicyParams,
@@ -501,6 +517,8 @@ export async function invokeCodexAppServerTransport(input: {
 }
 
 async function startAndAwaitAppServerTurn(input: {
+  supportsLiveReviewer: boolean;
+  permissionMode: AgentControllerPermissionMode;
   cancellationSignal?: AbortSignal;
   collaborationMode?: CodexAppServerCollaborationMode | null;
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
@@ -537,6 +555,71 @@ async function startAndAwaitAppServerTurn(input: {
   };
 
   const unregisterActiveTurn = session.registerActiveTurn({
+    updatePermissionMode: async (update) => {
+      const next = update.agentControllerPermissionMode;
+      const taskId = input.taskId;
+      if (!next.startsWith("codex:")) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.permission_mode_incompatible",
+        };
+      }
+      if (
+        !activeTurnId ||
+        turnSettled ||
+        interruptRequested ||
+        input.cancellationSignal?.aborted
+      ) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.task_not_active",
+        };
+      }
+      const reviewerMode = (mode: AgentControllerPermissionMode) =>
+        mode === "codex:askForApproval" || mode === "codex:approveForMe";
+      if (
+        !input.supportsLiveReviewer ||
+        input.executionMode === "repair" ||
+        !reviewerMode(input.permissionMode) ||
+        !reviewerMode(next)
+      ) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.permission_mode_update_unsupported",
+        };
+      }
+      const result = toRecord(
+        await session.requestControl(
+          "turn/settings/update",
+          {
+            threadId: executionThreadId,
+            turnId: activeTurnId,
+            approvalsReviewer:
+              next === "codex:approveForMe" ? "auto_review" : "user",
+          },
+          {
+            code: "runtime.permission_mode_update_timeout",
+            operation: "turn/settings/update",
+            terminateSession: false,
+          }
+        )
+      );
+      if (result?.status !== "applied" || turnSettled || interruptRequested) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.task_not_active",
+        };
+      }
+      return {
+        status: "applied",
+        effectiveFrom: "subsequent_tool_requests",
+        taskId,
+      };
+    },
     steer: async (steeringInput) => {
       const targetTurnId = activeTurnId;
       if (
@@ -1970,7 +2053,10 @@ class CodexAppServerSession {
     };
   }
 
-  async verifyScopedMcp(threadId: string): Promise<void> {
+  async verifyScopedMcp(
+    threadId: string,
+    nativeVersion: string | null
+  ): Promise<void> {
     const scoped =
       this.#computerFileAccessBoundary?.executionContextAccess !== undefined ||
       this.deliveryOnly;
@@ -1979,10 +2065,21 @@ class CodexAppServerSession {
     }
     const inventory = await this.requestControl(
       "mcpServerStatus/list",
-      // Scoped execution must also prove that resources are not exposed. A
-      // normal native-tool turn only checks the alternate carrier; unrelated
-      // MCP resource catalogs must not hold up that admission check.
-      { threadId, detail: scoped ? "full" : "toolsAndAuthOnly", limit: 100 },
+      {
+        threadId,
+        // Isolation must still inspect all servers, tools and resources. An
+        // ordinary native-tool turn only needs the alternate carrier disabled.
+        detail: scoped ? "full" : "toolsAndAuthOnly",
+        ...(!scoped &&
+        supportsAgentControllerVersion(nativeVersion, ">=0.160.0")
+          ? {
+              // Reuse the thread's published connection state. An unfiltered
+              // query starts discovery for unrelated MCP servers as well.
+              serverName: OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
+            }
+          : {}),
+        limit: 100,
+      },
       {
         code: "execution_context.mcp_inventory_timeout",
         operation: "mcpServerStatus/list",
@@ -2214,6 +2311,7 @@ class CodexAppServerSession {
   }
 
   registerActiveTurn(input: {
+    updatePermissionMode: CodexAppServerActiveTurnRegistration["updatePermissionMode"];
     interrupt?: () => Promise<void>;
     steer: CodexAppServerActiveTurnRegistration["steer"];
     onActiveTurn?: CodexAppServerActiveTurnRegistrar;
@@ -2225,6 +2323,7 @@ class CodexAppServerSession {
       return null;
     }
     return input.onActiveTurn({
+      updatePermissionMode: input.updatePermissionMode,
       steer: input.steer,
       taskId: input.taskId,
       threadId: input.threadId,

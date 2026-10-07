@@ -6078,9 +6078,6 @@ function AgentProfilePermissionModeEditSection(input: {
 		return null;
 	}
 	const options = input.controllerPermissionMode.options;
-	const selectedOption =
-		options.find((option) => option.value === input.selectedPolicy) ??
-		options[0];
 	const selectedMetadata = getAgentControllerPermissionModeDisplayMetadata(
 		input.selectedPolicy,
 		{ agentControllerRef: input.controllerPermissionMode.agentControllerRef }
@@ -6088,6 +6085,8 @@ function AgentProfilePermissionModeEditSection(input: {
 	const applicationTiming = resolveAgentProfileEditApplicationTiming({
 		agentControllerRef: input.controllerPermissionMode.agentControllerRef,
 		field: "permission_mode",
+		currentPermissionMode: input.controllerPermissionMode.value,
+		nextPermissionMode: input.selectedPolicy,
 	});
 	const requiresConfirmation =
 		selectedMetadata.requiresExplicitConfirmation &&
@@ -6119,7 +6118,7 @@ function AgentProfilePermissionModeEditSection(input: {
 						selectedPolicy: nextPolicy,
 					});
 				}}
-				value={selectedOption?.value}
+				value={input.selectedPolicy}
 			>
 				<SelectTrigger
 					aria-describedby={getAgentControllerPermissionModeOutcomeDescriptionId(

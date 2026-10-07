@@ -32,7 +32,18 @@ export function applyAcceptedAccountSpaceMessage(
 		) {
 			return item;
 		}
-		const next = { ...item, messagePreview };
+		const recentMessagePreviews = [
+			messagePreview,
+			...(item.recentMessagePreviews ??
+				(item.messagePreview ? [item.messagePreview] : [])),
+		]
+			.filter(
+				(preview, index, all) =>
+					all.findIndex((other) => other.signalId === preview.signalId) ===
+					index
+			)
+			.slice(0, 2);
+		const next = { ...item, messagePreview, recentMessagePreviews };
 		Object.defineProperty(next, ACCOUNT_SPACE_ACCEPTED_MESSAGE, {
 			value: { expiresAtMs: Date.now() + 30_000 },
 		});
@@ -71,7 +82,11 @@ function preserveAcceptedAccountSpaceMessages(
 		) {
 			return item;
 		}
-		const next = { ...item, messagePreview: older.messagePreview };
+		const next = {
+			...item,
+			messagePreview: older.messagePreview,
+			recentMessagePreviews: older.recentMessagePreviews,
+		};
 		Object.defineProperty(next, ACCOUNT_SPACE_ACCEPTED_MESSAGE, {
 			value: receipt,
 		});

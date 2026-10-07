@@ -1252,23 +1252,33 @@ Live permission-mode reconciliation changes the CLI-carried local Service and
 the process-internal `RuntimeAdapter` contract. It reuses the existing
 `daemon.route_catalog.changed` signal, expected-routes projection, Binding
 schema, Wake dispatch frame, Agent Interaction response path, and diagnostics
-transport; it adds no cloud-to-Service frame or shared schema field.
+transport. Approval sequencing additionally extends permission requests with
+optional `supportsPermissionModeUpdate` and responses with an optional reference
+to a saved Binding (`permissionModeUpdate`). The reference contains no execution
+authority; Service reads the canonical route before attempting a native update.
 
-- Old cloud can talk to the new local component because Core already sends the
-  catalog invalidation and canonical expected routes. New cloud can talk to an
-  old local component because the old Service keeps the established
-  future-work-only behavior. Mixed versions remain safe and explicit.
+- Deploy Web, Gateway, and Core readers for the optional fields before publishing
+  the new CLI/Service producer. Old strict cloud schemas reject new permission
+  requests, so publishing the local producer first is not supported. New Web
+  only sends the response reference when the pending request advertises support.
+  New cloud continues to accept old Service requests and ordinary approval
+  responses. Older local components retain their existing live-update subset or
+  future-work-only behavior; setup, Wake dispatch, status, Space Actions,
+  diagnostics, and self-rescue commands keep their current contracts.
 - The new local component applies a mode to an active task only after a
   controller adapter acknowledges native support. Unsupported providers and
   modes keep the starting mode and do not block catalog convergence, existing
   Wake work, setup, status, Space Actions, trace, or diagnostics.
 - No Runtime Transport epoch, OpenMeld Service contract, CLI command contract,
   or shared schema constant changes. At publication time, stamp the touched
-  CLI/Service artifact as advisory `available`; no cloud deploy order or forced
-  local update is required.
+  CLI/Service artifact as advisory `available`; existing local components remain
+  safe without a forced update. The receiver-first order above is required.
 - Rollback removes the local live-update capability and returns to the previous
   future-work-only behavior. It must not rewrite Binding state, active Wake
-  state, or pending Agent Interactions.
+  state, or pending Agent Interactions. Once a new Service is published, retain
+  cloud readers for the optional fields during rollback. Web and local native
+  update behavior can roll back independently; do not restore strict cloud
+  schemas that reject requests from the already published Service.
 
 ### Local Installation Recovery Contract Impact Audit
 

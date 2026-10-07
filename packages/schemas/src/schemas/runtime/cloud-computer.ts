@@ -12,6 +12,17 @@ export const cloudComputerSchema = z.strictObject({
 
 export type CloudComputer = zod.infer<typeof cloudComputerSchema>;
 
+export const cloudComputerStorageSchema = z.strictObject({
+  scope: z.literal("persistent"),
+  databaseBytes: z.number().int().nonnegative(),
+  limitBytes: z.number().int().positive(),
+  growthHeadroomBytes: z.number().int().nonnegative(),
+  status: z.enum(["available", "near_limit", "at_limit"]),
+  observedAtMs: z.number().int().nonnegative(),
+  guidance: z.string(),
+});
+export type CloudComputerStorage = zod.infer<typeof cloudComputerStorageSchema>;
+
 const path = z.string().min(1).max(4096);
 const key = z.string().min(1).max(256);
 export const cloudComputerBackendSchema = z.enum([
@@ -97,7 +108,9 @@ export const cloudComputerWorkerRequestSchema = z.strictObject({
 export const cloudComputerOperationResultSchema = z.union([
   z.strictObject({
     kind: z.literal("capabilities"),
-    capabilities: z.record(z.string(), z.unknown()),
+    capabilities: z
+      .object({ storage: cloudComputerStorageSchema.optional() })
+      .catchall(z.unknown()),
   }),
   z.strictObject({ kind: z.literal("files"), result: z.unknown() }),
   z.strictObject({ kind: z.enum(["browser", "preview"]), result: z.unknown() }),
@@ -115,6 +128,7 @@ export const cloudComputerOperationResultSchema = z.union([
     stderr: z.string().optional(),
     after: z.number().optional(),
     outputPending: z.literal(true).optional(),
+    syncPending: z.literal(true).optional(),
     outputTruncated: z.literal(true).optional(),
     result: z.json().optional(),
     nextAction: z.string().optional(),

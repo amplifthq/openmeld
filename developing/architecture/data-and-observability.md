@@ -35,12 +35,50 @@ status comes from native command observations; identity existence and a successf
 file read are not proof that a container is running. Future human UI must consume
 these same operations and observations rather than add another status writer.
 
+Persistent capacity is a read projection sampled from that Computer's own
+`ctx.storage.sql.databaseSize`. It includes SDK files and internal records.
+The optional shared `capabilities.storage` contract reports the provider limit,
+conservative growth headroom and observation time; it is not a second quota
+ledger or a Linux filesystem measurement. Near-limit guidance is advisory and
+does not block reads, selected deletes, or command inspection. The Agent explains
+the warning when it checks capacity; there is no background notification promise.
+Do not read or mutate SDK-private blob tables to reclaim storage. Deleting a
+visible file is not evidence that the SDK has reclaimed retained content.
+
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
 compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.
 Worker-shell cannot be interrupted; cleanup cannot infer exit from a Stop request.
-Linux and
-Worker JavaScript use the SDK's retained handles. Backend and launch inputs are
+All backends retain bounded command output in this same receipt owner. New
+receipts use one monotonic observation, including exit and synchronization facts;
+older terminal receipts remain readable. A Computer alarm inspects saved command
+identities independently of model polling. It never repeats a launch.
+The alarm is armed before external dispatch and stays armed while dispatch is
+pending. It can recover a dispatch whose acknowledgement was lost, but an absent
+record during pending dispatch is not evidence that the execution was lost.
+Output cursors select retained slices; clipping is explicit. Native log expiry
+does not invalidate a saved terminal receipt. Command records retain the existing
+seven-day storage policy; this is not an indefinite output archive.
+
+An exit receipt is saved before waiting for file synchronization. Only the SDK's
+explicit synchronization result confirms that step. Stream closure is not proof:
+the SDK also closes its stream when synchronization remains pending. Background
+loss observation and delivery of that error to the model are separate facts.
+Cleanup confirms exact-command absence before accepting a reported missing record;
+an unseen loss still fails the turn. Confirmed losses never replay commands.
+The Computer alarm also schedules Git pack collection without awaiting the pack
+download, so a long transfer cannot block command collection.
+
+The optional `syncPending` response field is additive. Existing consumers keep
+the supported `running` status and continue polling; upgraded consumers can
+distinguish an exited process from unconfirmed file synchronization. No CLI,
+Service, setup, Wake identity, permission or runtime protocol floor changes.
+Older API clients can keep consuming the existing response shape. A Remote Agent
+rollback is different: the older receipt reader does not understand new saved
+observations. Drain active commands before rollback; do not promise retained
+result recovery under the old Worker. The new Worker reads older terminal
+receipts without rewriting them.
+Linux and Worker JavaScript use the SDK's retained handles. Backend and launch inputs are
 bound to the command key; a repeated key cannot select another engine or launch
 different work. Controlled legacy and official file mutations share the Computer
 owner's short mutation queue. Arbitrary native program writes remain outside it.
@@ -226,6 +264,18 @@ a time after the minute scheduler's delivery work, with delayed retries.
 Space SQL schema v33 creates the preview revision table for existing v32
 Spaces before message publication or backfill. Fresh-table initialization alone
 does not upgrade a Space that already has the previous migration marker.
+
+`includeDirectoryPreviews=true` opts into eight member previews and up to two
+distinct recent text messages, newest first. The same Space-local revision and
+outbox capture both message projections atomically; retention clears both.
+PostgreSQL migration `0022` adds a nullable `recent_message_previews_json` column.
+Null means not yet captured, while `[]` means a known empty conversation. The
+existing bounded repair also captures this field for old Spaces. Legacy requests
+retain the single-message shape and three-member limit. Apply the additive database
+migration, then the Core/Gateway receivers, before exposing the Web opt-in. Existing
+CLI, Service and Skills do not opt in and their setup/Wake contracts are unchanged.
+Preview text uses the shared protocol Markdown parser before truncation; labels and
+inline code remain readable, and HTML, fenced code and action payloads are omitted.
 
 Web reports threshold-crossing experiences to its same-origin
 `/v1/observability/performance` receiver. Search Worker logs for
@@ -815,6 +865,36 @@ for selection until executor evidence confirms it again. A failed list request
 is not an empty inventory and must preserve the failure instead of rewriting
 status. Executor evidence cannot register a legacy or otherwise unowned
 connection.
+
+OpenConnector also owns credential health and refresh. Its connection summary
+reports observed credential state separately from Core's ownership status.
+An active Core row means a registered credential exists; it does not prove a
+provider request will succeed. Gateway projects health only to clients that
+request `includeConnectionHealth=true`, preserving published strict response
+schemas. No second health writer or credential copy is introduced in Core.
+An expired credential without a refresh token requires reconnecting the same
+account. Other unverified credentials remain `unknown`; discovery does not
+perform a provider health call before every action.
+
+Native Computer HTTP access uses the same selected Plugin account. Core owns
+the represented caller and current Agent permission; OpenConnector owns the
+catalog's declared read paths, input bounds, destination and authentication.
+Computer stores an expiring grant containing only an internal reauthorization
+request and non-secret connection identity. Its temporary URL is usable only
+through that Computer's container egress. Every request rechecks current
+execution/caller access and the exact connection name, scope and registration
+revision. Refreshing an OAuth token does not rewrite Core's registration.
+Git and native HTTP reuse remote account authorization; Git remains a binary
+stream, while native HTTP currently accepts bounded JSON API reads.
+
+Provider definitions declare native transport metadata; the host does not add
+a provider-specific tool or maintain provider CLI commands. Optional custom
+authentication adapters are reserved for protocols such as GitHub App token
+minting. Missing native transport means use existing Plugin actions. Writes
+and exact-action delegations retain their action authorization and recovery
+path; a delegated action cannot mint broader native access. Standard secret
+fields and known authentication values are redacted from native JSON results;
+arbitrary application log content is not guaranteed to be secret-free.
 
 Provider authentication mechanisms remain OpenConnector-owned credential
 detail and do not become a parallel Core connection kind. The Figma transition

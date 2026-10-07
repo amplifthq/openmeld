@@ -312,7 +312,8 @@ describe("canonical Inbox attention page", () => {
 				.getByText(normal.title)
 				.closest("li")
 				?.querySelector("[data-inbox-status-dot]")
-		).toBeNull();
+				?.getAttribute("data-inbox-status-dot")
+		).toBe("warning");
 		expect(
 			screen.getByText(priority.title).querySelector("[data-inbox-status-dot]")
 		).toBeNull();
@@ -345,14 +346,14 @@ describe("canonical Inbox attention page", () => {
 			importance: "normal",
 			resolutionStatus: "open",
 			read: false,
-			indicator: "unread",
+			indicator: "warning",
 		},
 		{
 			attention: "action_required",
 			importance: "normal",
 			resolutionStatus: "open",
 			read: true,
-			indicator: null,
+			indicator: "warning",
 		},
 		{
 			attention: "action_required",
