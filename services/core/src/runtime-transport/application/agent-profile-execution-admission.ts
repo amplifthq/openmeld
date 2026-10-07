@@ -3813,7 +3813,9 @@ function planAgentProfileWorkAcceptance(input: {
   }
   if (
     input.admission.workItems.length === 0 &&
-    admissionHasActiveReferences(input.admission)
+    (input.admission.referencesOverflowed ||
+      input.admission.activeExecutionIds.length > 0 ||
+      input.admission.activeHeadLifecycleIds.length > 0)
   ) {
     return { result: { status: "legacy_execution_active" } };
   }

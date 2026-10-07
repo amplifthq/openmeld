@@ -8158,6 +8158,71 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
   });
 
+  it("admits an authorized continuation when the interrupted task has no queued successor", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
+    const { admissionKey, authority } =
+      await prepareRunningContinuationWithQueuedWork({
+        hub,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+        queuedWorkName: "empty-recovery-fixture",
+      });
+    await (
+      hub as unknown as {
+        writeRuntimeCoordinatorTokenAuthority: (
+          authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+        ) => Promise<void>;
+      }
+    ).writeRuntimeCoordinatorTokenAuthority({
+      ...authority,
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "completed",
+        replySignalId: "signal-empty-recovery-final",
+        status: "reply_published",
+      },
+    });
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: AgentProfileWorkRecoveryGate;
+    };
+    // A retained decision is the only remaining work. There is no live task
+    // or later queued Wake that could account for an execution reservation.
+    storageRecords.set(admissionKey, {
+      ...admission,
+      activeExecutionIds: [],
+      activeHeadLifecycleIds: [],
+      workItems: [],
+      recoveryGate: {
+        ...admission.recoveryGate,
+        status: "continuation_authorized",
+        continuationClientMessageId: "client-message-empty-continuation",
+      },
+    });
+    const response = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId: "dispatch-empty-continuation",
+        idempotencyKey: "idempotency-empty-continuation",
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: "client-message-empty-continuation",
+          dispatchId: "dispatch-empty-continuation",
+          sourceSignalId: "signal-empty-continuation",
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }),
+      })
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      status: "accepted",
+      action: "create_execution",
+    });
+  });
+
   it("offers one occupancy decision and closes it whichever way the owner answers", async () => {
     const seedOccupancyGate = (
       storageRecords: Map<string, unknown>,
