@@ -30,3 +30,5 @@ including while a navigation popover opens or closes.
 The account avatar and its hover background stay circular in every corner style.
 Open Help from the account menu to see the three latest published updates,
 with links to the full changelog, OpenMeld website, and documentation.
+Menu focus outlines follow keyboard navigation and no longer appear from mouse
+hover after reopening a menu.
