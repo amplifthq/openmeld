@@ -72,7 +72,7 @@ export function resolveInboxAttention(input: {
 
 function resolveCurrentAttentionTone(
 	summary: InboxSummaryResponse
-): "danger" | "warning" | null {
+): "warning" | null {
 	if (summary.priorityCount === undefined) {
 		return resolveInboxAttentionTone(summary);
 	}
@@ -80,14 +80,14 @@ function resolveCurrentAttentionTone(
 }
 
 function resolveInboxTabLabel(
-	tone: "danger" | "warning" | "unread" | null,
+	tone: "warning" | "unread" | null,
 	summary: InboxSummaryResponse
 ): string | null {
 	switch (tone) {
-		case "danger":
-			return `Needs action (${summary.unresolvedActionCount})`;
 		case "warning":
-			return `Urgent updates (${summary.unreadUrgentUpdateCount})`;
+			return summary.unresolvedActionCount > 0
+				? `Needs action (${summary.unresolvedActionCount})`
+				: `Urgent updates (${summary.unreadUrgentUpdateCount})`;
 		case "unread":
 			return `${summary.totalUnreadCount} unread`;
 		default:
