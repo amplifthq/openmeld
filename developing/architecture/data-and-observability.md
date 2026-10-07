@@ -35,6 +35,16 @@ status comes from native command observations; identity existence and a successf
 file read are not proof that a container is running. Future human UI must consume
 these same operations and observations rather than add another status writer.
 
+Persistent capacity is a read projection sampled from that Computer's own
+`ctx.storage.sql.databaseSize`. It includes SDK files and internal records.
+The optional shared `capabilities.storage` contract reports the provider limit,
+conservative growth headroom and observation time; it is not a second quota
+ledger or a Linux filesystem measurement. Near-limit guidance is advisory and
+does not block reads, selected deletes, or command inspection. The Agent explains
+the warning when it checks capacity; there is no background notification promise.
+Do not read or mutate SDK-private blob tables to reclaim storage. Deleting a
+visible file is not evidence that the SDK has reclaimed retained content.
+
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
 compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.

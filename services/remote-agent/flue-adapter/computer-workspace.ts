@@ -57,6 +57,10 @@ import {
   validateComputerPreviewPort,
 } from "./computer-preview";
 import {
+  describeComputerStorage,
+  withComputerCapacityErrors,
+} from "./computer-storage";
+import {
   COMPUTER_GIT_PATH,
   COMPUTER_PLUGIN_PATH,
 } from "./computer-workspace-proxy";
@@ -214,15 +218,22 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
 
   async computerOperation(value: unknown) {
+    return await withComputerCapacityErrors(() =>
+      this.executeComputerOperation(value)
+    );
+  }
+
+  private async executeComputerOperation(value: unknown) {
     await requireRetainedAccountStorage(this.ctx.storage);
     const request = cloudComputerOperationSchema.parse(value);
-    await this.workspace.ready();
     if (request.action === "describe") {
       return describeComputer(
         this.#nativeFiles,
-        this.env.BROWSER ? this.describeBrowser("personal") : undefined
+        this.env.BROWSER ? this.describeBrowser("personal") : undefined,
+        describeComputerStorage(this.ctx.storage.sql.databaseSize)
       );
     }
+    await this.workspace.ready();
     if (request.action === "files") {
       const execute = () =>
         this.#nativeFiles.execute({
@@ -294,8 +305,10 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
 
   async writeComputerFile(path: string, content: string | Uint8Array) {
     await requireRetainedAccountStorage(this.ctx.storage);
-    await this.workspace.ready();
-    await this.#files.write(path, content);
+    await withComputerCapacityErrors(async () => {
+      await this.workspace.ready();
+      await this.#files.write(path, content);
+    });
   }
 
   async pendingComputerCommands(invocationId: string) {

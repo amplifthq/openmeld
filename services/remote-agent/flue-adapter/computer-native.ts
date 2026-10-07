@@ -2,7 +2,10 @@ import {
   type CreatePiToolsOptions,
   createPiTools,
 } from "@cloudflare/computer/tools/pi-ai";
-import { cloudComputerOperationSchema } from "@openmeld/schemas";
+import {
+  type CloudComputerStorage,
+  cloudComputerOperationSchema,
+} from "@openmeld/schemas";
 import {
   optional,
   parse,
@@ -40,11 +43,15 @@ export function createComputerFileTools(
 
 export function describeComputer(
   tools: ReturnType<typeof createComputerFileTools>,
-  browserDescription?: string
+  browserDescription?: string,
+  storage?: CloudComputerStorage
 ) {
   return {
     kind: "capabilities" as const,
     capabilities: {
+      ...(storage ? { storage } : {}),
+      repositories:
+        "Prefer a persistent repository under /computer/projects/<organization-id>/<project-id>/repo and separate task worktrees beside it. Inspect existing repository identity, status and worktrees before cloning. Use the actual default branch and pin each task to a commit; do not switch or reset another task's checkout. This is a convention, not a required path or a shared Team permission. Independent clones remain appropriate when isolation requires them. Worktrees share Git objects, not dependencies or all working files. Before cleanup inspect uncommitted/unpushed work and active commands; never delete the primary repository while linked worktrees need it.",
       backends: COMPUTER_BACKENDS,
       files: tools.tools,
       command: {

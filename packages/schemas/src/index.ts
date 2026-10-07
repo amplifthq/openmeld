@@ -390,6 +390,7 @@ export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-contr
 export {
   type CloudComputer,
   type CloudComputerOperation,
+  type CloudComputerStorage,
   cloudComputerCleanupResultSchema,
   cloudComputerCommandSchema,
   cloudComputerOperationResultSchema,
@@ -397,6 +398,7 @@ export {
   cloudComputerResponseSchema,
   cloudComputerRpcRequestSchema,
   cloudComputerSchema,
+  cloudComputerStorageSchema,
   cloudComputerWorkerRequestSchema,
 } from "./schemas/runtime/cloud-computer";
 export {

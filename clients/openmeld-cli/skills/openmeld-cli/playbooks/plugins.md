@@ -47,6 +47,8 @@ Credentials stay on the server. Access changes are managed in Plugins.
 
 ## Reuse a Plugin from Computer
 
+For Git repository placement, reuse and capacity checks, read `computer.md`.
+
 Do not ask the user to log in twice. Inspect the existing connection first:
 
 ```sh
