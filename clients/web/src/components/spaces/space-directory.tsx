@@ -1,3 +1,4 @@
+import { normalizeMessagePreview } from "@openmeld/protocol";
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
@@ -679,21 +680,23 @@ function JoinedRow(input: {
 		item.spaceCreatedAt
 	);
 	const actions = <JoinedSpaceActions {...input} />;
-	const statusContent = (
-		<RowStatus
-			route={route}
-			spaceId={item.spaceId}
-			status={status}
-			unread={input.unread}
-		/>
-	);
+	const messagePreviews =
+		item.recentMessagePreviews ??
+		(item.messagePreview
+			? [
+					{
+						...item.messagePreview,
+						text: normalizeMessagePreview(item.messagePreview.text),
+					},
+				]
+			: []);
 	if (input.layout === "cards") {
 		return (
 			<DirectoryCardItem className="border border-border" itemId={item.spaceId}>
 				<FluidContextMenuScope
 					target={
 						<div
-							className="group/directory-row relative flex h-full flex-col gap-3 rounded-md p-4"
+							className="@container/space-card group/directory-row relative flex h-full min-w-0 flex-col gap-3 rounded-md p-4"
 							data-space-id={item.spaceId}
 						>
 							<div className="pointer-events-none absolute top-2 right-2 z-20 [&_button]:pointer-events-auto">
@@ -707,26 +710,57 @@ function JoinedRow(input: {
 									orgSlug={input.input.orgSlug}
 								/>
 							</div>
-							<Link
-								aria-label={`Open ${item.spaceName}`}
-								className="block min-w-0 outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring"
-								{...route}
-							>
-								<SpaceDirectorySummary
-									item={item}
-									layout="card"
-									preview={input.preview}
-									unread={input.unread > 0}
-								/>
-							</Link>
-							{(status || input.unread > 0 || timestamp !== null) && (
-								<div className="mt-auto flex items-end justify-between gap-2">
-									<div className="relative z-10 min-w-0">{statusContent}</div>
-									<span className="shrink-0 text-muted-foreground text-xs">
-										{timestamp !== null && (
-											<SidebarConversationTime timestamp={timestamp} />
-										)}
+							<div className="flex min-w-0 items-center gap-2">
+								<Link
+									aria-label={`Open ${item.spaceName}`}
+									className="block min-w-0 flex-1 outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring"
+									{...route}
+								>
+									<SpaceDirectorySummary
+										item={item}
+										layout="card"
+										preview={input.preview}
+										unread={input.unread > 0}
+									/>
+								</Link>
+								{input.unread > 0 && (
+									<span className="relative z-10 shrink-0">
+										<SpaceUnreadLink
+											count={input.unread}
+											showCount
+											spaceId={item.spaceId}
+											url={`${route.to}?${new URLSearchParams(route.search)}`}
+										/>
 									</span>
+								)}
+							</div>
+							{status && (
+								<div className="relative z-10">
+									<RowStatus
+										route={route}
+										spaceId={item.spaceId}
+										status={status}
+										unread={0}
+									/>
+								</div>
+							)}
+							{messagePreviews.length > 0 && (
+								<div className="relative z-10 flex min-w-0 flex-col gap-1">
+									{messagePreviews.slice(0, 2).map((message) => (
+										<TooltipHint content={message.text} key={message.signalId}>
+											<Link
+												aria-label={`Preview message in ${item.spaceName}: ${message.text}`}
+												className="block truncate rounded-sm text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+												search={{
+													...route.search,
+													focusSignalId: message.signalId,
+												}}
+												to={route.to}
+											>
+												{message.text}
+											</Link>
+										</TooltipHint>
+									))}
 								</div>
 							)}
 						</div>

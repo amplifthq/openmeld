@@ -39,6 +39,7 @@ export async function readAccountSpaceIndex(input: {
 			includeRecentlyDeletedItems: true,
 			includeMemberPreviews: true,
 			includeMessagePreviews: true,
+			includeDirectoryPreviews: true,
 			includePurposes: input.includePurposes === true,
 			...(input.limit === undefined ? {} : { limit: input.limit }),
 			scope: input.scope,

@@ -20612,7 +20612,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
   private createCurrentMessagePreviewProjection(): SpaceIndexProjectionOutboxRecord {
-    const { revision, preview } = captureSpaceMessagePreview(
+    const { revision, preview, recentPreviews } = captureSpaceMessagePreview(
       this.ctx.storage.sql
     );
     return createSpaceIndexProjectionOutboxRecord({
@@ -20625,6 +20625,7 @@ export class Space extends DurableObject<CoreBindings> {
         eventType: "space.message_preview_updated",
         revision,
         preview,
+        recentPreviews,
       },
     });
   }

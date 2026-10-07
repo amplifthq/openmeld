@@ -221,9 +221,14 @@ Discover, in that order (Discover is absent in personal workspaces).
 Your Spaces defaults to Cards and offers Table in the directory toolbar.
 Both presentations consume the same saved sections, ordering, filters,
 membership previews, unread destinations, and current work indicators. Cards
-show up to three member avatars and the remaining member count, retain the
-Space name, access labels and latest-message preview, and open the canonical
-Space destination. Member previews and action menus keep independent targets.
+use six member slots, reducing to four or two on narrow cards. Overflow occupies
+the final slot; at least one avatar remains. The title truncates before its
+unread count. Cards omit activity timestamps and show up to two distinct recent
+messages as plain text, newest first, with independent message links and full-text
+hover previews. Empty conversations have no preview footer. The opt-in directory
+projection reads six members and two message previews from the authorized account
+index, with no per-card Space history fan-out. Member previews and action menus
+keep independent targets.
 The existing browser preference store remembers this choice per Human Profile
 and Organization. Direct messages and Discover retain their existing layouts.
 The Agents directory uses the same store to remember grouped versus expanded

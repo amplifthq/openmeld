@@ -49,16 +49,44 @@ export type SpaceMemberAppearance = {
 	avatarModelId?: string | null;
 };
 
-export function SpaceMemberAvatars(input: {
+type SpaceMemberAvatarsProps = {
 	members: NonNullable<AccountSpaceIndexItem["memberPreviews"]>;
 	appearances?: ReadonlyMap<string, SpaceMemberAppearance>;
 	layout?: "compact" | "horizontal" | "grid";
 	memberCount?: number | null;
 	compactSize?: 20 | 24;
-}) {
+};
+function visibleGridMembers(total: number, available: number, slots: number) {
+	return Math.min(available, total > slots ? slots - 1 : slots);
+}
+export function SpaceMemberAvatars(input: SpaceMemberAvatarsProps) {
+	if (input.layout === "grid") {
+		return (
+			<span aria-hidden="true" className="block">
+				<span className="block @min-[112px]/space-card:hidden">
+					<SpaceMemberAvatarSlots {...input} gridSlots={2} />
+				</span>
+				<span className="@min-[112px]/space-card:block @min-[176px]/space-card:hidden hidden">
+					<SpaceMemberAvatarSlots {...input} gridSlots={4} />
+				</span>
+				<span className="@min-[176px]/space-card:block hidden">
+					<SpaceMemberAvatarSlots {...input} gridSlots={6} />
+				</span>
+			</span>
+		);
+	}
+	return <SpaceMemberAvatarSlots {...input} />;
+}
+function SpaceMemberAvatarSlots(
+	input: SpaceMemberAvatarsProps & { gridSlots?: 2 | 4 | 6 }
+) {
 	const horizontal = input.layout === "horizontal";
 	const grid = input.layout === "grid";
-	const members = input.members.slice(0, horizontal ? 5 : 3);
+	const slots = input.gridSlots ?? 6;
+	const total = input.memberCount ?? input.members.length;
+	const gridCount = visibleGridMembers(total, input.members.length, slots);
+	const compactCount = horizontal ? 5 : 3;
+	const members = input.members.slice(0, grid ? gridCount : compactCount);
 	const remaining = Math.max(
 		0,
 		(input.memberCount ?? members.length) - members.length
@@ -80,7 +108,11 @@ export function SpaceMemberAvatars(input: {
 			aria-hidden="true"
 			className={cn(
 				"shrink-0",
-				grid && "grid size-24 grid-cols-2 grid-rows-2 place-items-center gap-2",
+				grid && "grid h-24 auto-rows-[40px] justify-start gap-2",
+				grid &&
+					(slots === 6
+						? "grid-cols-[repeat(3,40px)]"
+						: "grid-cols-[repeat(2,40px)]"),
 				horizontal && "isolate inline-flex h-5 max-w-full items-center",
 				!(grid || horizontal) && "relative"
 			)}
@@ -149,7 +181,7 @@ export function SpaceMemberAvatars(input: {
 				</span>
 			))}
 			{grid && remaining > 0 && (
-				<span className="text-muted-foreground text-sm tabular-nums">
+				<span className="grid place-items-center text-muted-foreground text-sm tabular-nums">
 					+{remaining}
 				</span>
 			)}

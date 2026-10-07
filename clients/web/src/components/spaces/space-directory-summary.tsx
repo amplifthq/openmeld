@@ -1,3 +1,4 @@
+import { normalizeMessagePreview } from "@openmeld/protocol";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, LockKeyIcon } from "@phosphor-icons/react";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
@@ -31,11 +32,7 @@ export function SpaceDirectorySummary(input: {
 					/>
 				)}
 				<span
-					className={
-						input.layout === "card"
-							? "line-clamp-2 min-w-0 break-words"
-							: "truncate"
-					}
+					className={input.layout === "card" ? "min-w-0 truncate" : "truncate"}
 				>
 					{input.item.spaceName}
 				</span>
@@ -47,14 +44,11 @@ export function SpaceDirectorySummary(input: {
 					/>
 				)}
 			</span>
-			{previewText && (
-				<span
-					className={cn(
-						"mt-1 block truncate text-muted-foreground text-xs",
-						input.layout !== "card" && "pl-6"
-					)}
-				>
-					{previewText}
+			{previewText && input.layout !== "card" && (
+				<span className="mt-1 block truncate pl-6 text-muted-foreground text-xs">
+					{input.item.recentMessagePreviews
+						? previewText
+						: normalizeMessagePreview(previewText)}
 				</span>
 			)}
 		</>

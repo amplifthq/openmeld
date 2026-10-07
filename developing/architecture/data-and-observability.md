@@ -227,6 +227,18 @@ Space SQL schema v33 creates the preview revision table for existing v32
 Spaces before message publication or backfill. Fresh-table initialization alone
 does not upgrade a Space that already has the previous migration marker.
 
+`includeDirectoryPreviews=true` opts into six member previews and up to two
+distinct recent text messages, newest first. The same Space-local revision and
+outbox capture both message projections atomically; retention clears both.
+PostgreSQL migration `0022` adds a nullable `recent_message_previews_json` column.
+Null means not yet captured, while `[]` means a known empty conversation. The
+existing bounded repair also captures this field for old Spaces. Legacy requests
+retain the single-message shape and three-member limit. Apply the additive database
+migration, then the Core/Gateway receivers, before exposing the Web opt-in. Existing
+CLI, Service and Skills do not opt in and their setup/Wake contracts are unchanged.
+Preview text uses the shared protocol Markdown parser before truncation; labels and
+inline code remain readable, and HTML, fenced code and action payloads are omitted.
+
 Web reports threshold-crossing experiences to its same-origin
 `/v1/observability/performance` receiver. Search Worker logs for
 `web.openmeld.slow_experience`. Reports contain build identity, an ephemeral
