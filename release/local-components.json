@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T08:05:02.509Z",
+  "updatedAt": "2026-10-07T08:26:26.382Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
@@ -9,8 +9,8 @@
       "reason": "Existing CLI commands remain compatible. Deploy Web, Gateway, and Core permission-field readers before publishing this producer."
     },
     "service": {
-      "bundleHash": "2542b942e082b796a1e012278ba3ed66a6c8b10c3c439eda506d8c9e4208ec0f",
-      "portableBundleHash": "7643fe82a57ea0c76b344fa341e34866f0c53e34fb74375ab813aeab12a157a6",
+      "bundleHash": "c7cc5a9b0b023282bd69b5c4422121386a4446b5b8b35a28f445f461a983776e",
+      "portableBundleHash": "ee75f74dc314043978ab339a56941542a980aef435e97385724361a1dd0b8916",
       "bundleVersion": "0.3.247",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
