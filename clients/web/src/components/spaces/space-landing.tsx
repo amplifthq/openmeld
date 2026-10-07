@@ -169,6 +169,7 @@ import {
 	SpaceLandingLoadingShell,
 	SpacePasswordRecoverySurface,
 } from "./space-state-surfaces";
+import { SpaceThreadLoadingPanel } from "./space-thread-loading";
 import { SpaceThreadPanel } from "./space-thread-panel";
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
@@ -1811,7 +1812,7 @@ function SpaceLandingConversationShell({
 							membersOpen &&
 							!currentSpaceIsCenterAgentDirectMessage
 						}
-						data-space-thread-panel-open={controller.activeThread !== null}
+						data-space-thread-panel-open={controller.threadPanelOpen}
 						style={
 							{
 								"--space-members-panel-width": membersPanelWidth.width,
@@ -1840,8 +1841,7 @@ function SpaceLandingConversationShell({
 								state={state}
 							/>
 						</SpaceLandingErrorBoundary>
-						{input.presentation === "compact" ||
-						!controller.isCurrentAccessConfirmed ? null : (
+						{input.presentation === "compact" ? null : (
 							<SpaceLandingSecondaryPanels
 								agentProfileEditContext={agentProfileEditContext}
 								automaticWakeConversationKind={automaticWakeConversationKind}
@@ -2796,6 +2796,11 @@ function SpaceLandingSecondaryPanels({
 	prepareSetupHref?: string;
 	state: SpaceLandingState;
 }) {
+	if (!controller.isCurrentAccessConfirmed) {
+		return controller.threadPanelOpen ? (
+			<SpaceThreadLoadingPanel onClose={controller.onCloseThread} />
+		) : null;
+	}
 	const {
 		accountProfiles,
 		activeWakeDisplayTargetProfileIds,

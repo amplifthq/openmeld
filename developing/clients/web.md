@@ -975,7 +975,7 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    When a row has a message preview, its link includes that exact Signal target.
    Thread placement comes from the shared Space thread catalog. Explicit targets
    take precedence over a previously saved open Thread, and target message reads
-   begin alongside Space prefetch. Known Thread targets show a loading panel
+   begin alongside Space prefetch. Known Thread targets and saved open Threads reserve their panel
    during access and bootstrap checks without rendering protected messages early.
    Each Inbox row or notification activation carries a new in-memory focus request,
    so selecting the same target again reopens its Thread and refocuses the message
@@ -5570,6 +5570,19 @@ older display caches cannot seed working streams after completion evidence has
 been collected. Live Thread progress is never stored in retained Thread history
 or previews. Accepted outcomes also suppress replayed streams for that execution.
 Evidence is not persisted and contains no message body or Stop permission.
+The same in-memory presentation lifetime retains received reply-stream content
+across route changes. Stream text is not written to persisted history or browser
+storage. A pending membership read does not clear it; explicit access rejection
+does. Published outcomes still suppress the matching stream.
+Received Markdown does not replay per-word entrance animations on route return;
+new text retains the shared pacing behavior and reduced-motion preference.
+An active-Wake response received within the existing 30-second Space snapshot
+window remains usable during a return visit's immediate revalidation. Older
+responses and retired presentation lifetimes cannot restore controls. Core
+still checks current Stop authority on each request.
+The same short return window retains this viewer's local `sending` or
+`request_sent` submission before a dispatch is assigned. It never promotes a
+cached execution to running or extends the existing local submission expiry.
 Neither snapshot omission, stream disappearance, ordinary Agent text nor human
 follow-ups establishes completion. Failed, stopped, publication-unknown and
 published outcomes retain their distinct meanings; Core still owns execution
@@ -5682,7 +5695,10 @@ status resolver, and Orb as the conversation. The own-work query applies
 `sourceProfileId` before the server's bounded result limit, and live invalidation
 refreshes both filtered and unfiltered summaries through their shared key prefix.
 Viewport visibility changes placement only, never execution state. A readable
-working status hides its matching bookmark; a short visibility delay and separate
+working status hides its matching bookmark. Mounted rows do not acquire an
+offscreen bookmark until the observer measures them after scroll restoration.
+The first measurement applies immediately. A short
+visibility delay and separate
 enter/leave thresholds avoid flicker at the scroll boundary. One bookmark jumps
 directly to the working status; multiple bookmarks open a stable-order list with
 request previews and Thread attribution. An open list updates state in place and
