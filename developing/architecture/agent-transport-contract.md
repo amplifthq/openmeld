@@ -411,6 +411,9 @@ or uncertain input.
 Automatic publication selects the replacement context explicitly. Native Steer
 resolves the successor binding and persists it conditionally before claiming the
 input; receipt reconciliation never changes the binding of an attempted delivery.
+After a successful fork, follow-ups already assigned to that replacement context
+can proceed without another approval when no unrelated work is held. Failed or
+stopped continuations and mixed-context queues retain the existing recovery gate.
 
 Contract impact: the owner read and authorization RPCs add optional fields. Older
 owner shards omit eligibility or reject the new strict authorization field, so

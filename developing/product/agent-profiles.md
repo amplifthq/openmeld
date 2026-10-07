@@ -1282,6 +1282,8 @@ Claimed, delivered, rejected, or uncertain inputs retain their original delivery
 records; they are not replayed. Send now resolves a fresh execution binding before
 the first delivery to a successor. A continuation is not a file rollback or a
 promise that another app has stopped modifying shared files.
+After the branch succeeds, its follow-ups continue without a second confirmation
+when no unrelated work is held. Other held work still needs owner approval.
 
 Legacy Binding-only conversations without a retained per-Wake context offer Skip,
 not a fork that cannot verify its source. A previously authorized legacy fork
