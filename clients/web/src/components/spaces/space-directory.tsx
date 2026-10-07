@@ -693,7 +693,7 @@ function JoinedRow(input: {
 				<FluidContextMenuScope
 					target={
 						<div
-							className="group/directory-row relative flex h-full min-h-56 flex-col gap-3 rounded-md p-4"
+							className="group/directory-row relative flex h-full flex-col gap-3 rounded-md p-4"
 							data-space-id={item.spaceId}
 						>
 							<div className="pointer-events-none absolute top-2 right-2 z-20 [&_button]:pointer-events-auto">
@@ -719,14 +719,16 @@ function JoinedRow(input: {
 									unread={input.unread > 0}
 								/>
 							</Link>
-							<div className="mt-auto flex min-h-5 items-end justify-between gap-2">
-								<div className="relative z-10 min-w-0">{statusContent}</div>
-								<span className="shrink-0 text-muted-foreground text-xs">
-									{timestamp !== null && (
-										<SidebarConversationTime timestamp={timestamp} />
-									)}
-								</span>
-							</div>
+							{(status || input.unread > 0 || timestamp !== null) && (
+								<div className="mt-auto flex items-end justify-between gap-2">
+									<div className="relative z-10 min-w-0">{statusContent}</div>
+									<span className="shrink-0 text-muted-foreground text-xs">
+										{timestamp !== null && (
+											<SidebarConversationTime timestamp={timestamp} />
+										)}
+									</span>
+								</div>
+							)}
 						</div>
 					}
 				/>

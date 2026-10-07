@@ -10,6 +10,12 @@ export function SpaceDirectorySummary(input: {
 	unread?: boolean;
 	layout?: "card" | "row";
 }) {
+	const previewText =
+		input.preview === undefined
+			? "Message preview unavailable"
+			: (input.preview?.text ??
+				input.item.spacePurpose ??
+				(input.layout === "card" ? null : "No messages yet"));
 	return (
 		<>
 			<span
@@ -41,18 +47,16 @@ export function SpaceDirectorySummary(input: {
 					/>
 				)}
 			</span>
-			<span
-				className={cn(
-					"mt-1 block truncate text-muted-foreground text-xs",
-					input.layout !== "card" && "pl-6"
-				)}
-			>
-				{input.preview === undefined
-					? "Message preview unavailable"
-					: (input.preview?.text ??
-						input.item.spacePurpose ??
-						"No messages yet")}
-			</span>
+			{previewText && (
+				<span
+					className={cn(
+						"mt-1 block truncate text-muted-foreground text-xs",
+						input.layout !== "card" && "pl-6"
+					)}
+				>
+					{previewText}
+				</span>
+			)}
 		</>
 	);
 }
