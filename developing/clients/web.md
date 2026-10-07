@@ -232,7 +232,9 @@ keep independent targets.
 The existing browser preference store remembers this choice per Human Profile
 and Organization, shared across Your Spaces and Direct messages. Direct message
 cards keep peer and Center Agent session identity, unread destinations, groups,
-pinning, and archive actions. Discover retains its existing layout.
+pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
+grid height; the title follows directly, with up to two message preview rows
+only when messages exist. Discover retains its existing layout.
 The Agents directory uses the same store to remember grouped versus expanded
 presentation per viewer, Organization, and person. Search and temporary filters
 do not become saved layout preferences.

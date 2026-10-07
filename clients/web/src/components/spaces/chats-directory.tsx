@@ -445,10 +445,10 @@ function ChatDirectoryCard({
 								sectionId={sectionId}
 							/>
 						</div>
-						<div className="h-24">
+						<div className="flex w-fit items-start">
 							<ChatIcon
 								chat={chat}
-								size="md"
+								size="card"
 								summary={model.indicators.activeWakeSummaryBySpaceId.get(
 									chat.spaceId
 								)}
