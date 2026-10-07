@@ -145,7 +145,12 @@ content, selected text, and disabled scopes retain native context menus.
 `FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
 `FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
 Menu separators leave one spacing unit (4px) on each side, matching the menu's
-content inset. Both shared menu families own this spacing. Sidebar hover pauses
+content inset. Both shared menu families own this spacing.
+Checkbox alternatives compose `FluidDropdownMenuCheckboxItem`,
+so Base UI owns checked state and keyboard semantics while Fluid owns hover.
+The reusable sidebar category/group filters own their semantic hover groups;
+an embedded group trigger can instead register in its parent's indexed list.
+Sidebar hover pauses
 for open context-menu trigger slots as well as ordinary popup triggers; Base UI
 context-menu areas expose an open marker without `aria-haspopup`.
 

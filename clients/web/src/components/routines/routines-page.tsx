@@ -13,6 +13,7 @@ import {
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import { PageToolbar } from "@openmeld/ui/components/page-toolbar";
+import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
 import {
 	Table,
 	TableBody,
@@ -235,9 +236,7 @@ function RoutinesContent(input: {
 				</div>
 			</PageToolbar>
 			{list.isPending ? (
-				<output className="py-10 text-muted-foreground text-sm">
-					Loading routines…
-				</output>
+				<SkeletonTable columns={4} label="Loading routines" />
 			) : null}
 			{list.isError ? (
 				<div className="text-sm" role="alert">

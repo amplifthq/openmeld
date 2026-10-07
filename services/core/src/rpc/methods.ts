@@ -2559,6 +2559,7 @@ export type ListAccountSpacesInput = {
   includePurposes?: boolean;
   includeMemberPreviews?: boolean;
   includeMessagePreviews?: boolean;
+  includeDirectoryPreviews?: boolean;
 };
 export type ListAccountSpaceActiveWakeSummaryInput =
   AccountSpaceActiveWakeSummaryRpcInput;
@@ -19938,6 +19939,7 @@ export async function rpcListAccountSpaces(
     includePurposes: input.includePurposes === true,
     includeMemberPreviews: input.includeMemberPreviews === true,
     includeMessagePreviews: input.includeMessagePreviews === true,
+    includeDirectoryPreviews: input.includeDirectoryPreviews === true,
   });
 }
 // Ambient sidebar indicator fan-out bound. The owner repositories apply their

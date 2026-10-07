@@ -304,7 +304,13 @@ The Web shell is a stable two-layer composition built from the shared
   The middle column can be resized or collapsed while the application rail and
   current work remain mounted. Existing outer-sidebar persistence stores its
   geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal
-  behavior. The Spaces heading opens the Space directory, without a duplicate
+  behavior. Without an explicit visibility choice, overview pages start collapsed
+  and conversation, person, and Agent detail pages start expanded. These route
+  defaults are not saved as user choices, including when group collapse is saved.
+  Explicit expanded/hidden choices remain shared across the Spaces directory,
+  conversation details, and Team tabs, including People and Agents, and survive
+  reloads. Navigation never resets that choice; existing cookies remain valid.
+  The Spaces heading opens the Space directory, without a duplicate
   aggregate status dot. Direct messages is a tab after Your Spaces. Its plus
   menu offers New message and New Space. Browse spaces is visible in both views,
   and empty search results offer Find someone with the query prefilled in the

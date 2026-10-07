@@ -154,6 +154,7 @@ export { StopIcon } from "@phosphor-icons/react/Stop";
 export { StopCircleIcon } from "@phosphor-icons/react/StopCircle";
 export { SunIcon } from "@phosphor-icons/react/Sun";
 export { SunDimIcon } from "@phosphor-icons/react/SunDim";
+export { TableIcon } from "@phosphor-icons/react/Table";
 export { TargetIcon } from "@phosphor-icons/react/Target";
 export { TerminalIcon } from "@phosphor-icons/react/Terminal";
 export { TextTIcon } from "@phosphor-icons/react/TextT";

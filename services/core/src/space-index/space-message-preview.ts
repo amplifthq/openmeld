@@ -1,4 +1,5 @@
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import { normalizeMessagePreview } from "@openmeld/protocol";
 import { sanitizeSignalTextPreview } from "@openmeld/schemas";
 import type { AccountSpaceIndexItem } from "@openmeld/schemas/types";
 import { parseStoredSignal } from "../space/rules/parsers/stored-signal";
@@ -9,8 +10,9 @@ export type SpaceMessagePreview = Exclude<
 export function captureSpaceMessagePreview(sql: SqlStorage): {
   revision: number;
   preview: SpaceMessagePreview;
+  recentPreviews: NonNullable<AccountSpaceIndexItem["recentMessagePreviews"]>;
 } {
-  const row = sql
+  const rows = sql
     .exec<{
       storage_order: number;
       id: string;
@@ -21,10 +23,26 @@ export function captureSpaceMessagePreview(sql: SqlStorage): {
     SELECT rowid AS storage_order, id, ts, profile_id, payload_json
     FROM space_signals WHERE type = 'signal.text'
       AND COALESCE(json_extract(payload_json, '$.data.meta.purpose'), '') != 'space_message_changed'
-    ORDER BY ts DESC NULLS LAST, id DESC NULLS LAST LIMIT 1
+    ORDER BY ts DESC NULLS LAST, id DESC NULLS LAST LIMIT 2
   `)
-    .toArray()[0];
-  const signal = row ? parseStoredSignal(row.payload_json) : null;
+    .toArray();
+  const recentPreviews = rows.flatMap((row) => {
+    const signal = parseStoredSignal(row.payload_json);
+    return signal?.type === "signal.text"
+      ? [
+          {
+            signalId: signal.id,
+            profileId: signal.profile.profileId,
+            timestamp: signal.ts,
+            text: (
+              sanitizeSignalTextPreview(
+                normalizeMessagePreview(signal.data.text)
+              ) ?? "Message"
+            ).slice(0, 240),
+          },
+        ]
+      : [];
+  });
   // A durable counter also orders retention snapshots after their deleted messages.
   const revision = sql
     .exec<{
@@ -37,17 +55,8 @@ export function captureSpaceMessagePreview(sql: SqlStorage): {
   }
   return {
     revision,
-    preview:
-      signal?.type === "signal.text"
-        ? {
-            signalId: signal.id,
-            profileId: signal.profile.profileId,
-            timestamp: signal.ts,
-            text: (
-              sanitizeSignalTextPreview(signal.data.text) ?? "Message"
-            ).slice(0, 240),
-          }
-        : null,
+    preview: recentPreviews[0] ?? null,
+    recentPreviews,
   };
 }
 export async function projectSpaceMessagePreview(input: {
@@ -55,10 +64,11 @@ export async function projectSpaceMessagePreview(input: {
   spaceId: string;
   revision: number;
   preview: SpaceMessagePreview;
+  recentPreviews?: NonNullable<AccountSpaceIndexItem["recentMessagePreviews"]>;
 }): Promise<void> {
   const result = await input.db.query({
     text: `
-    UPDATE "openmeld"."space_index_spaces" SET message_preview_revision = $1, message_preview_json = $2
+    UPDATE "openmeld"."space_index_spaces" SET message_preview_revision = $1, message_preview_json = $2, recent_message_previews_json = $5
     WHERE space_id = $3 AND status = 'active' AND (message_preview_revision IS NULL OR message_preview_revision <= $4)
   `,
     values: [
@@ -66,6 +76,9 @@ export async function projectSpaceMessagePreview(input: {
       input.preview === null ? null : JSON.stringify(input.preview),
       input.spaceId,
       input.revision,
+      input.recentPreviews === undefined
+        ? null
+        : JSON.stringify(input.recentPreviews),
     ],
   });
   if ((result.rowCount ?? 0) > 0) {

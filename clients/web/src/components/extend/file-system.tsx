@@ -14,6 +14,7 @@ import { createPortal } from "react-dom"
 
 import { cn } from "@openmeld/ui/lib/utils"
 import { Button } from "@openmeld/ui/components/button"
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content"
 import {
   FluidDropdownMenuContent,
   FluidDropdownMenuItem,
@@ -2080,8 +2081,8 @@ export function FileSystem({
       <div className="relative min-h-0 flex-1">
         {errorContent ? (
           errorContent
-        ) : isLoading || (isLoadingCurrentFolder && currentEntries.length === 0) ? (
-          <FileSystemEmptyState label="Loading…" isLoading />
+        ) : (isLoading || isLoadingCurrentFolder) && currentEntries.length === 0 ? (
+          <SkeletonRows className="p-3" label="Loading files" />
         ) : currentEntries.length === 0 &&
           (view !== "columns" || isSearching || hasActiveFilters || emptyContent) ? (
           !isSearching && !hasActiveFilters && emptyContent ? emptyContent : <FileSystemEmptyState
@@ -3043,19 +3044,10 @@ function useSettledValue<T>(value: T, delay: number): T {
   }, [delay, settled, value])
   return settled
 }
-function FileSystemEmptyState({
-  label,
-  isLoading = false,
-}: {
-  label: string
-  isLoading?: boolean
-}) {
+function FileSystemEmptyState({ label }: { label: string }) {
   return (
     <div
-      className={cn(
-        "flex size-full items-center justify-center text-sm text-muted-foreground",
-        isLoading && "animate-pulse motion-reduce:animate-none"
-      )}
+      className="flex size-full items-center justify-center text-sm text-muted-foreground"
     >
       {label}
     </div>
@@ -4256,9 +4248,7 @@ const FileSystemColumn = React.memo(function FileSystemColumn({
       viewportProps={{ "aria-label": "Files", role: "listbox" }}
     >
       {isLoading && entries.length === 0 ? (
-        <div className="animate-pulse px-2 py-1.5 text-xs text-muted-foreground motion-reduce:animate-none">
-          Loading…
-        </div>
+        <SkeletonRows className="p-2" label="Loading folder" />
       ) : (
         <div
           className="relative"

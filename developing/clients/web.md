@@ -218,6 +218,40 @@ competing highlights. Spaces and its contextual sidebar heading always open
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
 Discover, in that order (Discover is absent in personal workspaces).
 
+Your Spaces and Direct messages default to Cards and offer Table in the directory toolbar.
+The sidebar's View and filters menu includes Show message previews. It defaults
+to off and persists per Human Profile and Organization in the browser preference
+store. One setting controls the sidebar and both directory card views; it does
+not change Table previews or suppress actionable needs-input status. Hidden or
+absent message previews reserve no sidebar line or card footer. Single-line
+sidebar rows center their icon, title, and actions, and title tooltips anchor
+to the full row's trailing edge rather than the avatar.
+Both presentations consume the same saved sections, ordering, filters,
+membership previews, unread destinations, and current work indicators. Cards
+use eight 40px member slots, reducing to six, four or two on narrow cards. The avatar
+area reserves two rows, and cards stretch to equal height within each grid row.
+Overflow occupies the final slot; at least one avatar remains. The title truncates
+before its unread count; the title, lock, and count share one vertical center.
+Cards omit activity timestamps and show only the latest message
+as plain text, with its message link and full-text
+hover previews. Empty conversations have no preview footer. The opt-in directory
+projection reads eight members and two message previews from the authorized account
+index, with no per-card Space history fan-out. Member previews and action menus
+keep independent targets.
+Card member previews open only over an avatar or the overflow count. Gaps and
+unused avatar slots remain part of the Space navigation target. The member
+popover also has a primary Open Space link in its header; keyboard activation
+of the member trigger remains available.
+The existing browser preference store remembers this choice per Human Profile
+and Organization, shared across Your Spaces and Direct messages. Direct message
+cards keep peer and Center Agent session identity, unread destinations, groups,
+pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
+grid height; the title follows directly, with one latest-message preview row
+only when messages exist. Discover retains its existing layout.
+The Agents directory uses the same store to remember grouped versus expanded
+presentation per viewer, Organization, and person. Search and temporary filters
+do not become saved layout preferences.
+
 The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal
 workspaces) and Agent creation route. Its adjacent Filter people menu retains

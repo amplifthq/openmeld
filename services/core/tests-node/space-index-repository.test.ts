@@ -114,20 +114,28 @@ describe("space index AccountSpaces read model", () => {
   it("opts in to the first three active members without exposing other Spaces", async () => {
     const harness = await createSpaceIndexHarness();
     try {
-      const members = ["human-1", "human-2", "agent-1", "agent-2"].map(
-        (profileId, index) => ({
-          ...createMember({
-            addedAt: `2026-04-10T00:0${index + 1}:00.000Z`,
-            profileId,
-            profileKindSnapshot: profileId.startsWith("human")
-              ? ("human" as const)
-              : ("agent" as const),
-            profileNameSnapshot: profileId,
-            spaceId: "shared",
-          }),
-          controllerRefSnapshot: profileId.startsWith("agent") ? "codex" : null,
-        })
-      );
+      const members = [
+        "human-1",
+        "human-2",
+        "agent-1",
+        "agent-2",
+        "agent-3",
+        "agent-4",
+        "agent-5",
+        "agent-6",
+        "agent-7",
+      ].map((profileId, index) => ({
+        ...createMember({
+          addedAt: `2026-04-10T00:0${index + 1}:00.000Z`,
+          profileId,
+          profileKindSnapshot: profileId.startsWith("human")
+            ? ("human" as const)
+            : ("agent" as const),
+          profileNameSnapshot: profileId,
+          spaceId: "shared",
+        }),
+        controllerRefSnapshot: profileId.startsWith("agent") ? "codex" : null,
+      }));
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
         eventType: "space.created",
@@ -203,6 +211,24 @@ describe("space index AccountSpaces read model", () => {
           profileKind: "agent",
           agentControllerRef: "codex",
         },
+      ]);
+      const directory = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        includeDirectoryPreviews: true,
+      });
+      expect(
+        directory.spaceItems[0]?.memberPreviews?.map(
+          (member) => member.profileId
+        )
+      ).toEqual([
+        "human-1",
+        "human-2",
+        "agent-1",
+        "agent-2",
+        "agent-3",
+        "agent-4",
+        "agent-5",
+        "agent-6",
       ]);
     } finally {
       await harness.close();
