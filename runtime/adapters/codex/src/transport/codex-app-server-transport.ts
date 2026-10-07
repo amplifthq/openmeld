@@ -10,6 +10,8 @@ import type {
   AdapterInstructionPrompt,
   AdapterInteractionCallback,
   AdapterInteractionRequest,
+  AdapterPermissionModeUpdateRequest,
+  AdapterPermissionModeUpdateResult,
   AdapterPreviewCallback,
   AdapterProviderAccessEvidence,
   AdapterRuntimeEvent,
@@ -80,6 +82,9 @@ export type CodexAppServerTransportResult = {
 };
 
 export type CodexAppServerActiveTurnRegistration = {
+  updatePermissionMode: (
+    input: AdapterPermissionModeUpdateRequest
+  ) => Promise<AdapterPermissionModeUpdateResult>;
   interrupt: () => Promise<void>;
   steer: (
     input: Omit<AgentExecutionSteerRequest, "taskId">
@@ -449,6 +454,13 @@ export async function invokeCodexAppServerTransport(input: {
       session.observeUsageForThread(executionThreadId, threadContext.model);
       throwIfCodexDispatchCancelled(input.cancellationSignal);
       const completedTurn = await startAndAwaitAppServerTurn({
+        supportsLiveReviewer: supportsAgentControllerVersion(
+          parseCodexAppServerVersion(initialized),
+          ">=0.153.0-alpha.4"
+        ),
+        permissionMode: resolveCodexAgentControllerPermissionMode(
+          input.agentControllerPermissionMode
+        ),
         cancellationSignal: input.cancellationSignal,
         collaborationMode,
         conversationPolicyParams,
@@ -505,6 +517,8 @@ export async function invokeCodexAppServerTransport(input: {
 }
 
 async function startAndAwaitAppServerTurn(input: {
+  supportsLiveReviewer: boolean;
+  permissionMode: AgentControllerPermissionMode;
   cancellationSignal?: AbortSignal;
   collaborationMode?: CodexAppServerCollaborationMode | null;
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
@@ -541,6 +555,71 @@ async function startAndAwaitAppServerTurn(input: {
   };
 
   const unregisterActiveTurn = session.registerActiveTurn({
+    updatePermissionMode: async (update) => {
+      const next = update.agentControllerPermissionMode;
+      const taskId = input.taskId;
+      if (!next.startsWith("codex:")) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.permission_mode_incompatible",
+        };
+      }
+      if (
+        !activeTurnId ||
+        turnSettled ||
+        interruptRequested ||
+        input.cancellationSignal?.aborted
+      ) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.task_not_active",
+        };
+      }
+      const reviewerMode = (mode: AgentControllerPermissionMode) =>
+        mode === "codex:askForApproval" || mode === "codex:approveForMe";
+      if (
+        !input.supportsLiveReviewer ||
+        input.executionMode === "repair" ||
+        !reviewerMode(input.permissionMode) ||
+        !reviewerMode(next)
+      ) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.permission_mode_update_unsupported",
+        };
+      }
+      const result = toRecord(
+        await session.requestControl(
+          "turn/settings/update",
+          {
+            threadId: executionThreadId,
+            turnId: activeTurnId,
+            approvalsReviewer:
+              next === "codex:approveForMe" ? "auto_review" : "user",
+          },
+          {
+            code: "runtime.permission_mode_update_timeout",
+            operation: "turn/settings/update",
+            terminateSession: false,
+          }
+        )
+      );
+      if (result?.status !== "applied" || turnSettled || interruptRequested) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.task_not_active",
+        };
+      }
+      return {
+        status: "applied",
+        effectiveFrom: "subsequent_tool_requests",
+        taskId,
+      };
+    },
     steer: async (steeringInput) => {
       const targetTurnId = activeTurnId;
       if (
@@ -2232,6 +2311,7 @@ class CodexAppServerSession {
   }
 
   registerActiveTurn(input: {
+    updatePermissionMode: CodexAppServerActiveTurnRegistration["updatePermissionMode"];
     interrupt?: () => Promise<void>;
     steer: CodexAppServerActiveTurnRegistration["steer"];
     onActiveTurn?: CodexAppServerActiveTurnRegistrar;
@@ -2243,6 +2323,7 @@ class CodexAppServerSession {
       return null;
     }
     return input.onActiveTurn({
+      updatePermissionMode: input.updatePermissionMode,
       steer: input.steer,
       taskId: input.taskId,
       threadId: input.threadId,

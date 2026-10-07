@@ -99,13 +99,14 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Codex asks before editing files outside its working folder or using the internet.",
     label: "Ask for approval",
     requiresExplicitConfirmation: false,
-    technicalDetail: "codex -s workspace-write -a untrusted",
+    technicalDetail:
+      'codex -s workspace-write -a on-request -c approvals_reviewer="user"',
     tone: "neutral",
     value: "codex:askForApproval",
   },
   {
     description:
-      "Codex automatically reviews eligible approval requests. It may approve or deny them; denied actions may stop or require a safer approach.",
+      "Automatically review actions that need approval. Potentially unsafe actions may be blocked.",
     label: "Approve for me",
     requiresExplicitConfirmation: false,
     technicalDetail:
@@ -115,7 +116,7 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   },
   {
     description:
-      "Codex bypasses its sandbox and approval prompts for this Agent. Separate file-access limits on this Computer still apply.",
+      "Allow internet and file access without Codex approval prompts. This Computer's file-access limits still apply.",
     label: "Full access",
     requiresExplicitConfirmation: true,
     technicalDetail: "codex --dangerously-bypass-approvals-and-sandbox",
@@ -124,8 +125,8 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   },
   {
     description:
-      "Codex follows the permissions in config.toml. OpenMeld does not override its sandbox or approval settings.",
-    label: "Custom (config.toml)",
+      "This Agent keeps its previous permission settings until you choose a mode.",
+    label: "Previous settings",
     requiresExplicitConfirmation: false,
     technicalDetail: "codex (no OpenMeld permission overrides)",
     tone: "neutral",
@@ -386,7 +387,9 @@ export function listAgentControllerPermissionModeOptions(input?: {
 }): AgentControllerPermissionModeOption[] {
   const controllerOptions = resolveControllerOptions(input?.agentControllerRef);
   if (controllerOptions) {
-    return controllerOptions.map((option) => ({ ...option }));
+    return controllerOptions
+      .filter((option) => option.value !== "codex:customConfig")
+      .map((option) => ({ ...option }));
   }
   if (input) {
     return [];
@@ -397,7 +400,9 @@ export function listAgentControllerPermissionModeOptions(input?: {
     ...CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
     ...CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
     ...GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
-  ].map((option) => ({ ...option }));
+  ]
+    .filter((option) => option.value !== "codex:customConfig")
+    .map((option) => ({ ...option }));
 }
 
 export function agentControllerPermissionModeRequiresExplicitConfirmation(
@@ -415,7 +420,9 @@ function resolveAgentControllerPermissionModeOption(
 ): AgentControllerPermissionModeOption {
   const options =
     resolveControllerOptions(input?.agentControllerRef) ??
-    listAgentControllerPermissionModeOptions();
+    Object.values(
+      AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS_BY_CONTROLLER_ID
+    ).flat();
   return (
     options.find((option) => option.value === policy) ??
     CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS[0]

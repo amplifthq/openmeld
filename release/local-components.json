@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T17:22:36.371Z",
+  "updatedAt": "2026-10-07T08:26:26.382Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.246",
+      "packageVersion": "0.3.247",
       "updatePolicy": "available",
-      "reason": "Existing setup, Wake, Space actions and diagnostics remain compatible; new Computer callers follow cloud receiver deployment."
+      "reason": "Existing CLI commands remain compatible. Deploy Web, Gateway, and Core permission-field readers before publishing this producer."
     },
     "service": {
-      "bundleHash": "e9b936e089defd0d463ea1337b8f4270e3a10f44fd3f4b07bafb5f5c6a3937ae",
-      "portableBundleHash": "6a75821360a06ff971b26acd98efdb0395cf1495c5f6ea7adbeeded2cb798402",
-      "bundleVersion": "0.3.246",
+      "bundleHash": "c7cc5a9b0b023282bd69b5c4422121386a4446b5b8b35a28f445f461a983776e",
+      "portableBundleHash": "ee75f74dc314043978ab339a56941542a980aef435e97385724361a1dd0b8916",
+      "bundleVersion": "0.3.247",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Existing accepted work and Service lifecycle contracts remain compatible; new local controller capabilities are optional."
+      "reason": "Old Services remain safe. New approval fields require cloud readers first; native live updates require provider acknowledgement."
     },
     "skills": {
       "bundleHash": "bb72e332e8322d3035c65cd1214aca7e1c611a00114d7b955764c419a8731aea",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Context and retained-result tools add optional bounded reads without changing existing actions or delivery authority."
+      "reason": "Existing skill actions remain compatible; inherited retained-context read tools are optional."
     }
   }
 }

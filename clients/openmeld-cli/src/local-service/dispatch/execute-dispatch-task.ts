@@ -5565,6 +5565,9 @@ async function requestDispatchAgentInteraction(input: {
   const requestedAtMs = Date.now();
   const interactionCandidate: AgentInteractionRequest = {
     ...input.request,
+    ...(input.request.kind === "permission"
+      ? { supportsPermissionModeUpdate: true }
+      : {}),
     v: AGENT_INTERACTION_SCHEMA_VERSION,
     interactionId: randomUUID(),
     requestedAtMs,
