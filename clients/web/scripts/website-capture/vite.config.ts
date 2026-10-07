@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { mergeConfig } from "vite";
+import { mergeConfig, type Plugin } from "vite";
 import config from "../conversation-preview/vite.config";
 
 // Keep the real API's named exports, but admit only explicitly implemented local
@@ -206,7 +206,7 @@ export default mergeConfig(captureConfig, {
 					join(directory, "index.html")
 				);
 			},
-		},
+		} satisfies Plugin,
 	],
 	build: {
 		outDir: "../../../website/public/product-demo",

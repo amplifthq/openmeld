@@ -1,0 +1,1 @@
+import{x as r,y as t,z as o,w as a}from"./index-DeKpmzrl.js";import{u as s}from"./_website-demo_server-DqRobxgR.js";function i(){const e=s().get("cookie");return r(t({baseUrl:a("BETTER_AUTH_URL"),transport:o({fetch}),getAuthHeaders:async()=>e?{cookie:e}:{}}))}export{i as readAccountSessionFromRequest};
