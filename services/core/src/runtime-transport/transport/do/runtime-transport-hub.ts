@@ -3657,6 +3657,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.handleComputerFileAccessResultFrame(webSocket, frame);
         return;
       }
+      case "daemon.session_history.request_result": {
+        const parsed = sessionHistoryResultFrameSchema.safeParse(frame);
+        if (!parsed.success) {
+          this.rejectInvalidCurrentDeviceOperationResultFrame({
+            frame,
+            message: "Invalid session history result.",
+            webSocket,
+          });
+          return;
+        }
+        this.resolveCurrentDeviceOperationResultFrame({
+          code: parsed.data.code,
+          invalidMessage: "Invalid session history result.",
+          payload: parsed.data.payload,
+          webSocket,
+        });
+        return;
+      }
       case "daemon.local_folder_picker.select_folders_result": {
         this.handleLocalFolderPickerResultFrame(webSocket, frame);
         return;
@@ -10713,6 +10731,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
     writeRuntimeTransportSocketAttachment(server, {
+      sessionHistory:
+        request.headers.get(SESSION_HISTORY_CAPABILITY_HEADER) ===
+        SESSION_HISTORY_RUNTIME_CAPABILITY,
       executionAdmissionConfirmation:
         request.headers.get(OPENMELD_EXECUTION_ADMISSION_HEADER) === "1",
       admissionEvidence:
@@ -19758,7 +19779,79 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         computerFileAccessOperation
       );
     }
+    if (pathname === "/session-history") {
+      return this.handleSessionHistoryRequest(request);
+    }
     return undefined;
+  }
+  private async handleSessionHistoryRequest(
+    request: Request
+  ): Promise<Response> {
+    const parsed = runtimeTransportSessionHistoryRequestSchema.safeParse(
+      await readJsonBody(request)
+    );
+    const failure = (
+      code: "denied" | "unavailable" | "unsupported" | "failed",
+      message: string
+    ) => Response.json({ kind: "error", code, message });
+    if (!parsed.success) {
+      return failure("denied", "Invalid session history request.");
+    }
+    const input = parsed.data;
+    const session = [...this.state.sessionsById.values()]
+      .filter(
+        (candidate) =>
+          candidate.ownerUserId === input.ownerUserId &&
+          candidate.deviceId === input.deviceId &&
+          candidate.lane === input.lane
+      )
+      .sort(compareRuntimeTransportSessionsByFreshness)[0];
+    if (!session?.socket) {
+      return failure(
+        "unavailable",
+        "Reconnect this Computer to read history or change access."
+      );
+    }
+    if (
+      !isDaemonExecutionCompatible(session.executionCompatibility) ||
+      session.capabilities.sessionHistory !== true
+    ) {
+      return failure(
+        "unsupported",
+        "Update OpenMeld Service to use session history."
+      );
+    }
+    if (
+      input.request.requester.ownerUserId !== input.ownerUserId ||
+      input.request.expectedDeviceId !== input.deviceId
+    ) {
+      return failure("denied", "Session history target does not match.");
+    }
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.session_history.request",
+        expectedResponseCode: "daemon.session_history.request_result",
+        isExpectedPayload: (payload) =>
+          sessionHistoryResultSchema.safeParse(payload).success,
+        payload: { request: input.request, requestId: input.requestId },
+        requestId: input.requestId,
+        session: session as RuntimeTransportSessionState & {
+          socket: WebSocket;
+        },
+        timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
+      });
+      const valid = sessionHistoryResultSchema.safeParse(result);
+      return valid.success
+        ? Response.json(valid.data, {
+            headers: { "Cache-Control": "no-store" },
+          })
+        : failure("failed", "Session history did not return a valid result.");
+    } catch {
+      return failure(
+        "unavailable",
+        "Session history did not respond. Check the Computer before retrying."
+      );
+    }
   }
   private async handleOpenMeldToolsControlRequest(
     request: Request
@@ -22214,4 +22307,9 @@ const safeCloseSocket = (
 import {
   runtimeCoordinatorExecutionAccessRequestSchema,
   runtimeCoordinatorExecutionAccessResponseSchema,
+  runtimeTransportSessionHistoryRequestSchema,
+  SESSION_HISTORY_CAPABILITY_HEADER,
+  SESSION_HISTORY_RUNTIME_CAPABILITY,
+  sessionHistoryResultFrameSchema,
+  sessionHistoryResultSchema,
 } from "@openmeld/schemas";

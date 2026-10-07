@@ -1543,6 +1543,7 @@ registerProjectCommands(program, {
 });
 
 registerAgentActivityCommands(program, {
+  history: runAgentActivityHistory,
   context: runActivityContext,
   health: runActivityHealth,
   hook: runActivityHook,
@@ -6192,5 +6193,6 @@ main().catch((error: unknown) => {
   process.exitCode = 1;
 });
 
+import { runAgentActivityHistory } from "./agent-activity/command";
 import { registerPluginCommands } from "./plugins/registration";
 import { resolveSpaceTaskSelection } from "./space/send-input";

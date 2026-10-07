@@ -798,6 +798,7 @@ export {
   OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
   storedDaemonServiceUpdateJobSchema,
 } from "./daemon/service-update-job";
+export * from "./daemon/session-history";
 export {
   isOriginalErrorSafeForMessageDetails,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,

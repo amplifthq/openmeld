@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import {
   createAgentActivityApi,
   createProjectsApi,
+  createSessionHistoryApi,
 } from "@openmeld/api-client";
 import {
   agentActivityInventorySessionOriginSchema,
@@ -10,7 +11,10 @@ import {
   agentActivitySessionStatusSchema,
   agentActivitySnapshotQuerySchema,
   cliJsonOutputEnvelopeSchema,
+  daemonServiceLaneSchema,
   localAgentSessionProviderSchema,
+  sessionHistoryReadSchema,
+  sessionHistoryResultSchema,
 } from "@openmeld/schemas";
 import type {
   AgentActivityProvider,
@@ -61,6 +65,64 @@ import {
 } from "./route-registry";
 
 type CommandInput = { json?: boolean; view?: string };
+
+export async function runAgentActivityHistory(
+  input: CommandInput & {
+    device: string;
+    lane: string;
+    projectId: string;
+    session: string;
+    offset?: string;
+    limit?: string;
+  }
+) {
+  await runProjectCommand(input, "activity.history", async (context) => {
+    const request = sessionHistoryReadSchema.parse({
+      operation: "read_session",
+      projectId: input.projectId,
+      sessionId: input.session,
+      offset: Number(input.offset ?? 0),
+      limit: Number(input.limit ?? 20),
+    });
+    const dispatch =
+      process.env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] ||
+      process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+        ? readDispatchSpaceActionContextFromEnv()
+        : null;
+    const agent = dispatch
+      ? await resolveOpenMeldProfile({
+          openMeldProfileId: dispatch.targetProfileId,
+          profileKind: "agent",
+        })
+      : null;
+    if (dispatch && !dispatch.executionTokenEcho) {
+      throw new Error(
+        "This Wake has no current execution proof for session history."
+      );
+    }
+    const response = await context.historyApi.request({
+      organizationId: context.organizationId,
+      deviceId: input.device,
+      runtimeLane: daemonServiceLaneSchema.parse(input.lane),
+      request,
+      ...(dispatch && agent && dispatch.executionTokenEcho
+        ? {
+            execution: {
+              dispatchId: dispatch.dispatchId,
+              executionTokenEcho: dispatch.executionTokenEcho,
+            },
+            requestContext: buildOpenMeldRequestContextFromProfile({
+              openMeldProfile: agent,
+            }),
+          }
+        : {}),
+    });
+    if (response.kind === "error") {
+      throw new Error(response.message);
+    }
+    emitSuccess(context, "activity.history", response);
+  });
+}
 
 export async function runProjectsList(input: CommandInput = {}): Promise<void> {
   await runProjectCommand(input, "list", async (context) => {
@@ -528,6 +590,7 @@ export async function runProjectsUnbind(
 }
 
 export type ProjectCommandContext = {
+  historyApi: ReturnType<typeof createSessionHistoryApi>;
   activityApi: ReturnType<typeof createAgentActivityApi>;
   json: boolean;
   organizationId: string;
@@ -557,6 +620,7 @@ export async function runProjectCommand(
     organizationSlug = organization.slug;
     const apiClient = createCliApiClientFoundation(await resolveBaseUrl());
     await run({
+      historyApi: createSessionHistoryApi(apiClient),
       activityApi: createAgentActivityApi(apiClient),
       json,
       organizationId: organization.id,
@@ -707,6 +771,36 @@ function emitActivitySuccess(
   code: string,
   payload: Record<string, unknown>
 ): boolean {
+  if (code === "activity.history") {
+    const history = sessionHistoryResultSchema.parse(payload);
+    if (history.kind !== "session") {
+      return false;
+    }
+    renderInfoCard({
+      presenter: context.presenter,
+      codePrefix: code,
+      title: "Session history",
+      sanitize: true,
+      rows: [
+        { label: "Session", value: history.sessionId },
+        { label: "Requester", value: history.requester.requesterUserId },
+        { label: "Audience", value: history.requester.audience },
+        { label: "Request source", value: history.requester.requestRootId },
+        ...history.messages.map((message) => ({
+          label: `${message.role}${message.truncated ? " (shortened)" : ""}`,
+          value: message.text,
+        })),
+        {
+          label: "Next offset",
+          value:
+            history.nextOffset === null
+              ? "End of history"
+              : String(history.nextOffset),
+        },
+      ],
+    });
+    return true;
+  }
   if (code === "activity.read" && context.presenter.view === "agent") {
     emitAgentActivitySnapshot(
       context.presenter,
@@ -1049,3 +1143,11 @@ function titleForCode(code: string): string {
   const action = (code.split(".").at(-1) ?? "complete").replaceAll("_", " ");
   return `Project ${action.charAt(0).toUpperCase()}${action.slice(1)}`;
 }
+
+import { resolveOpenMeldProfile } from "../config/openmeld-profiles-api";
+import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
+import { OPENMELD_DISPATCH_RUNTIME_MODE_ENV } from "../runtime/dispatch-runtime-env";
+import {
+  OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV,
+  readDispatchSpaceActionContextFromEnv,
+} from "../runtime/dispatch-space-action-context";

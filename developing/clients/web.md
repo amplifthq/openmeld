@@ -6531,3 +6531,16 @@ Use the scoped owner documents for deeper rules:
 - Final Wakeability must come from the Core-owned Wakeability projection.
 - A visible Wake problem should end with a clear outcome, one next action, and a
   diagnostic path, not internal subsystem vocabulary.
+## Computer session history
+
+Computer owners manage Session history access beside File access. History starts
+off, requires selected connected Projects, and optionally permits selected
+Agents. Settings are acknowledged by the live source Service; offline edits
+must not appear saved. Save uses the last policy revision and requires reload
+after a concurrent change.
+
+Owners can browse current Codex sessions and read message pages, including
+sessions without a Profile. Private results use component memory only, never
+the persisted query cache or route loaders. Access history is owner-only and
+contains request metadata, not conversation text. Clearly disclose that Agent
+conversations and model providers can retain returned results.
