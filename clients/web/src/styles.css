@@ -658,7 +658,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
 }
 @media (min-width: 640px) and (pointer: fine) {
   html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
-    padding-inline-start: .5rem;
+    padding-inline-start: .375rem;
   }
 }
 .space-history-navigation {

@@ -428,7 +428,7 @@ when the slider is visible: Messages is selected, the viewport supports it, and
 its authorized history directory has older messages. Short conversations and
 unavailable directories reserve no lane. The slider retains its 8px leading inset
 and compacts the space on its message side. The desktop pointer lane is 36px;
-fine pointer content uses 8px of leading padding beside the slider, while its
+fine pointer content uses 6px of leading padding beside the slider, while its
 trailing padding stays at 16px. Coarse pointer devices retain a 44px touch target
 in a 52px lane and keep the standard content padding.
 
