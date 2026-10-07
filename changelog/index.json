@@ -2,6 +2,488 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "centered-startup-logo",
+      "title": "A simpler loading screen",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "desktop"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Web first-run and Desktop startup now show the same centered OpenMeld Logo.\nThe Logo responds to the pointer, with a static appearance when reduced motion\nis enabled. Loading text and the line below the Logo are removed."
+    },
+    {
+      "id": "recover-stalled-desktop-downloads",
+      "title": "Cancel and retry Desktop update downloads",
+      "kind": "fixed",
+      "areas": [
+        "desktop"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "You can cancel an update download and try again. Downloads that stop making\nprogress show a retry option instead of remaining stuck at the same percentage.\nDesktop installers and updates use a cached download service that supports\npartial file requests. Installing an update still requires your restart action."
+    },
+    {
+      "id": "center-agent-model-recovery",
+      "title": "Center Agent reconnects after temporary model failures",
+      "kind": "improved",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Center Agent retries temporary model failures up to five times with increasing\ndelays. The conversation shows Reconnecting and the retry count while keeping\nyour progress and Stop control available. Work continues in the same task when\nthe connection recovers. If all retries fail, the task reports a failure."
+    },
+    {
+      "id": "compact-history-slider",
+      "title": "Choose how the history slider appears",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "settings"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Appearance now includes Show and Hide preview cards for the history slider.\nThe slider uses less space beside messages and leaves no empty lane in\nconversations without older history to browse."
+    },
+    {
+      "id": "inbox-read-feedback",
+      "title": "Clear Inbox requests with less effort",
+      "kind": "improved",
+      "areas": [
+        "inbox"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Ended Agent approval, plan review, and question requests no longer leave an\nunread dot or ask for a response. Their history stays available. Failure notices\nand final results stay unread until you read them.\n\nMark as read responds immediately for individual items and groups. Individual\nitems now show the action beside the three-dot menu. If saving fails, Inbox\nrestores the affected read state without undoing other successful reads."
+    },
+    {
+      "id": "space-files-preview",
+      "title": "Clearer Space files and larger image previews",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Space Files now includes chat attachments by default. Image previews use the\navailable space in Columns and Gallery, and List shows small image thumbnails.\nLoading placeholders no longer show a second white document frame. File details\nhave more room, and ordinary file operations reuse unchanged image content.\n\nThe file toolbar no longer includes the structured Send to agent handoff form."
+    },
+    {
+      "id": "space-approval-response-confirmation",
+      "title": "Confirm Agent responses after a connection timeout",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Space approvals and answers now check whether a response was saved when its\nconfirmation is lost. If the result remains unknown, a clear status and check\naction replace the misleading failure message. Inbox updates no longer delay\nsending a saved response to the Agent."
+    },
+    {
+      "id": "conversation-queue-recovery",
+      "title": "Continue paused work from the conversation",
+      "kind": "improved",
+      "areas": [
+        "agents",
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Continue an occupied conversation on a new branch or skip paused work from the\nexisting message queue. Requesters can manage their own paused work when the\noperation does not affect other people's work or require shared write access.\nSorting, Send now, editing, and deletion keep\ntheir familiar controls. Untouched queued messages follow a new branch without\nresending messages whose delivery is uncertain.\nSend errors appear beside the send button, with room to wrap on small screens.\n\nCodex work can continue automatically after an occupied-conversation wait when\nOpenMeld confirms that no turn started and the task cannot modify shared files.\nTasks that need an owner's decision keep the existing recovery choices.\n\nShared Spaces keep each person's follow-ups attached to their own response.\nOne person's pending messages no longer hold up another independent task.\nSend now is available only while that response is running. Waiting for another\napp is shown separately from waiting for earlier tasks.\n\nCenter Agent chats use the same Queue. Follow-ups can enter it while the first\nrequest starts, without appearing as a second running task."
+    },
+    {
+      "id": "sidebar-creation-shortcuts",
+      "title": "Create from sidebar shortcuts",
+      "kind": "improved",
+      "areas": [
+        "navigation",
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Start a new message or create a Space from the Spaces sidebar menu. The Team\nsidebar menu also offers New Agent. These shortcuts sit below a divider and\nopen the existing creation flows."
+    },
+    {
+      "id": "message-copy-link-icon",
+      "title": "Distinguish message links from message text",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Copy link now uses a link icon in message action menus, so it is easier to\ndistinguish from Copy message."
+    },
+    {
+      "id": "spaces-directory-tabs",
+      "title": "Faster Space tabs and Discover cards",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Spaces tabs switch content without waiting for navigation requests to finish.\nSpace cards avoid rendering duplicate member avatars when the layout changes.\nDiscover now offers Cards and Table, with the same view preference across all\nthree tabs. You can preview and join a Space from either view."
+    },
+    {
+      "id": "inbox-filter-feedback",
+      "title": "Inbox filters respond immediately",
+      "kind": "improved",
+      "areas": [
+        "inbox",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Inbox tabs, Unread only, and activity and conversation filters now respond\nwithout waiting for page navigation. The selected view shows its own loading\nstate while new results arrive. Filter combinations and browser back and forward\ncontinue to work, including older unread-only links."
+    },
+    {
+      "id": "agent-logo-hidden-sidebar",
+      "title": "Keep Agent logos visible when the sidebar is closed",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Codex logos in Space cards no longer turn into blank white tiles when the\nsidebar is closed. Repeated Agent logos now keep their own color definitions,\nso hiding one copy does not affect another."
+    },
+    {
+      "id": "real-space-tutorial",
+      "title": "Learn OpenMeld in a real Space",
+      "kind": "new",
+      "areas": [
+        "onboarding",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "New and existing users now get a tutorial in a real Space. Add your Center Agent,\nsend a prepared greeting, and read its reply. Progress is saved; Help has one Tutorial\nentry with Continue and Replay. Replay creates a new Space when you confirm.\nComputer setup, Plugins, and Routines stay optional. Organization owners and\nadmins also get links to Channels, invitations, and team context. Members see\nonly the actions they can use. Closing a tutorial dialog saves your place so you\ncan continue later. The former onboarding remains in source without an entry."
+    },
+    {
+      "id": "agent-tool-context-recovery",
+      "title": "Less repeated setup during Agent work",
+      "kind": "improved",
+      "areas": [
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Hosted Agents can recover recently selected tools across multiple steps after\ncontext compaction. Clearer guidance helps them reuse existing evidence and\ncontinue pending work. Directory reads with only a new response timestamp no\nlonger count as new information for repeated-read protection."
+    },
+    {
+      "id": "team-directory-loading",
+      "title": "Less repeated work when browsing Team",
+      "kind": "improved",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Team tabs begin loading when you point to them or reach them with the keyboard.\nProfile avatars reuse their rendered backgrounds when you move between pages,\nreducing repeated drawing in member lists and cards."
+    },
+    {
+      "id": "session-history-discovery-and-queued-wakes",
+      "title": "More reliable Codex session discovery and queued Wakes",
+      "kind": "fixed",
+      "areas": [
+        "agent-activity",
+        "computer",
+        "agents"
+      ],
+      "audiences": [
+        "users",
+        "agents"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Codex session discovery now handles repeated native task records and uses the\ntask's update time. The Computer page shows discovery problems and keeps each\npage of results scoped to the selected computer. Personal Remote Agents can\nfind and request session history under the existing owner access settings.\nPersonal Agents no longer need Center designation to list conversations.\n\nQueued local Wakes use refreshed working-folder information after a Service\nconnection refresh, while retaining the existing authorization checks.\n\nHosted Wakes keep retrying the same request when submission cannot be confirmed,\ninstead of entering a waiting state that blocks admission recovery.\n\nComputer conversation access now uses one switch and selected projects, without\na per-Agent list. Settings stay directly editable on the Computer card and save\nimmediately. Conversation browsing and recent access open in one full-height\ndrawer, with messages in the same drawer.\nExisting per-Agent grants stay off until you enable the new\nsetting; other members still cannot read your history.\n\nThe same access settings now cover Claude Code, OpenCode, and Grok Build\nconversations as well as Codex. Each conversation shows its source. People and\nagents use the same read-only operation. Cursor and Antigravity history remains\nunavailable."
+    },
+    {
+      "id": "wake-session-renewal-and-blocker-feedback",
+      "title": "More reliable Wake session renewal and clearer blocker updates",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Wake session renewal no longer rereads a verified, unchanged credential from\nsecure storage. A temporary Keychain failure therefore does not interrupt that\nrenewal. New credentials still require storage verification, and remote access\nchecks remain in place.\n\nWake instructions now tell agents to share meaningful blockers in the Space\nand end with a clear explanation when work cannot continue. Repeated approval\ndelivery no longer logs another local resume. Cloud Computer help includes\ncapability discovery and valid operation examples."
+    },
+    {
+      "id": "compact-full-width-conversations",
+      "title": "More room in full-width conversations",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "settings"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Full-width conversations and Threads now use the same compact side spacing\nfor messages and composers. Centered conversations keep their existing layout."
+    },
+    {
+      "id": "faster-inbox-source-filtering",
+      "title": "Reduce Inbox loading work",
+      "kind": "improved",
+      "areas": [
+        "inbox"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Inbox performs less repeated work when loading larger notification histories.\nAccess checks, grouping, unread counts and pagination keep the same behavior."
+    },
+    {
+      "id": "space-creation-feedback",
+      "title": "See your new Space while it is being created",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Creating a Space opens its conversation immediately, with its name in the header\nand sidebar. You can write a message and add attachments while it prepares.\nMessages submitted during preparation send after the Space is ready. If creation\ncannot be confirmed, your draft stays available in the conversation.\n\nStarting a Space from New Message now uses the same immediate conversation.\nNew agents are selected as soon as creation completes, without waiting for the\npeople list to refresh. Adding members closes the picker immediately and shows\nprogress in the Space. If adding members fails, you can retry in the same Space."
+    },
+    {
+      "id": "ai-usage-tab-performance",
+      "title": "Smoother AI usage tabs",
+      "kind": "improved",
+      "areas": [
+        "settings",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Switching between Organization usage and My agents now reuses the usage charts\ninstead of rebuilding them. Your selected period and expanded details stay in\nplace while each view loads its own data."
+    },
+    {
+      "id": "settings-theme-cards-and-page",
+      "title": "Theme cards and a full settings page",
+      "kind": "improved",
+      "areas": [
+        "settings",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-08",
+      "release": "v0.3.248",
+      "evidence": [
+        "pr:1581",
+        "commit:22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+        "workflow:37672648199",
+        "workflow:37668077567"
+      ],
+      "body": "Appearance settings again offers three theme cards for Light, Dark, and System.\nThe account menu keeps its compact theme selector.\n\nUse the expand control beside Close in App settings to open the current section\nas a full page. The page uses the same settings controls, and AI usage keeps your\nselected usage view."
+    },
+    {
       "id": "personal-agent-empty-state",
       "title": "A clearer starting point for your first Agent",
       "kind": "improved",
