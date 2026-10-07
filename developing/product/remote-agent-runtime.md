@@ -1350,9 +1350,18 @@ the connected provider API.
    input to the next execution. The Flue steering source writes each input
    into its canonical conversation before acknowledging it to the intake
    projection. In a private Center Agent chat, Web binds a text-only message
-   sent during one active response to that response's dispatch. Core validates
-   the current writer against the original verified sender, then atomically
-   saves the visible message and its input outbox record. Retries retain that
+   sent during one active response to that response's dispatch and places it in
+   the same composer Queue used by Local Agents. Send now explicitly requests
+   steering; leaving it queued starts the next response after the current one.
+   Queue intake may precede creation of the native delivery record. Core
+   validates the original Human source and canonical Center Agent DM against
+   the Space outbox. Its stored target does not invent a delivery or submission
+   ID. Send now resolves the exact anchored dispatch and binds the
+   admitted submission before claiming the input; receipt reads retain that
+   saved target and cannot redirect the input to another execution.
+   Core validates the current writer against the original verified sender,
+   then atomically saves the visible message and its input outbox record when
+   delivery begins. Retries retain that
    exact execution; a late new input fails instead of starting different work.
    Files and independent chat submissions retain the ordinary admission path.
    An unconfirmed terminal input produces a visible update failure scoped to

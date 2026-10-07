@@ -2432,6 +2432,7 @@ export {
 } from "./http/space-files";
 export {
   spaceInputQueueMutationSchema,
+  spaceInputQueueOptionsSchema,
   spaceInputQueueResponseSchema,
 } from "./http/space-input-queue";
 export {

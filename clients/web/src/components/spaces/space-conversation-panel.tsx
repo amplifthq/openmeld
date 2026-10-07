@@ -2089,6 +2089,7 @@ function SpaceComposerSection(input: {
 										panel.textareaRef.current?.focus();
 									}}
 									profileId={panel.selfProfileId}
+									progressItems={panel.ephemeralActivityItems}
 									spaceId={panel.spaceId}
 								/>
 							) : null,

@@ -25,6 +25,10 @@ export type FinalOutcomeWriteAuthority =
 
 export type SignalPublishContext = {
   queuedInputHandoff?: { inputId: string; afterDispatchId: string };
+  workRecoveryQueueHandoff?: {
+    previousDispatchId: string;
+    targetProfileId: string;
+  };
   spaceTaskDeliveryId?: string;
   agentReplyObservation?: {
     observedThroughSignalId: string;

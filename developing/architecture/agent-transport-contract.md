@@ -392,6 +392,50 @@ under read-only preparation, and the Service confirms and journals that exact
 cutoff before creating the child. A harness that needs its boundary identified
 up front is refused rather than forked at a guessed point.
 
+Occupied-conversation recovery may automatically authorize the existing fork
+continuation only for `builtin:codex`, an automatic context selection, an explicit
+`read_only` or `space_context` assignment without inherited permissions or a fork
+source, and a retained run with no running/completed evidence. The admission
+owner rechecks this policy inside its authorization transaction. The caller must
+then confirm withdrawal and reread eligibility before publishing replacement work.
+The ordinary deterministic continuation identity, exact Binding/configuration
+fence, native completed-prefix preparation, and manual recovery remain authoritative.
+Fresh available Usage reports drive this bounded recovery after the normal
+occupancy waiting period; generic failures and uncertain native submissions do not.
+
+The Space input outbox moves only untouched local drafts owned by the interrupted
+message author to the replacement dispatch. The replacement message, dispatch
+outbox, and conditional queue update commit in the same SQLite transaction.
+This preserves order and identity and cannot move claimed, consumed, rejected,
+or uncertain input.
+Automatic publication selects the replacement context explicitly. Native Steer
+resolves the successor binding and persists it conditionally before claiming the
+input; receipt reconciliation never changes the binding of an attempted delivery.
+After a successful fork, follow-ups already assigned to that replacement context
+can proceed without another approval when no unrelated work is held. Failed or
+stopped continuations and mixed-context queues retain the existing recovery gate.
+Successful recovery retires only the source context's automatic scope association
+inside the same owner transaction. Its context and Wake history remain available
+for explicit selection. The replacement remains the conversation's automatic
+route; ordinary user-created forks retain their existing selection semantics.
+
+Contract impact: the owner read and authorization RPCs add optional fields. Older
+owner shards omit eligibility or reject the new strict authorization field, so
+automatic recovery defers; manual recovery continues to use the existing contract.
+No local Service or provider protocol changes are required. Core's existing Space
+and admission owners ship together. Web reuses the existing public recovery and
+queue schemas; older clients continue to read queued inputs. No database migration,
+new queue owner, or change to RuntimeCoordinator execution authority is introduced.
+
+Paused-work locations come from the retained recovery head, even after that head
+leaves the active work list. A legacy head without an execution-context assignment
+cannot supply a verified fork source and projects Skip instead. The owner permits
+Skip for an already authorized legacy fork only after validating that exact source
+head still has no context; it does not make an arbitrary authorized continuation
+skippable. Continuation uses the retained dispatch as the original addressing
+fact, including implicit automatic Wakes, with the same exact
+dispatch/source/target checks as explicit Wakes.
+
 A structured `usage_exhausted` terminal outcome is the deliberate exception to
 ordinary promotion: the Coordinator retains the interrupted work identity and
 holds every later Wake. A fresh reliable Usage recovery automatically starts

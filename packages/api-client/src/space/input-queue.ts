@@ -2,16 +2,20 @@ import {
   spaceInputQueueMutationSchema,
   spaceInputQueueResponseSchema,
 } from "@openmeld/schemas";
-import type { SpaceInputQueueMutation } from "@openmeld/schemas/types";
+import type {
+  SpaceInputQueueMutation,
+  SpaceInputQueueOptions,
+} from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 import type { SpaceRequestInput } from "./types";
 
 export async function readOrUpdateSpaceInputQueue(
   client: OpenMeldApiClientFoundation,
-  input: SpaceRequestInput & { mutation?: SpaceInputQueueMutation }
+  input: SpaceRequestInput &
+    SpaceInputQueueOptions & { mutation?: SpaceInputQueueMutation }
 ) {
   return await client.requestJson({
-    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/input-queue`,
+    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/input-queue${input.includeRecovery ? "?recovery=1" : ""}`,
     operation: "space.input-queue",
     method: input.mutation ? "PATCH" : "GET",
     ...(input.mutation

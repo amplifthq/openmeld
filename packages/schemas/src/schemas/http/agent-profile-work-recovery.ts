@@ -12,6 +12,7 @@ export const agentProfileWorkRecoveryRouteParamsSchema = z.strictObject({
 export const executeAgentProfileWorkRecoveryBodySchema = z.strictObject({
   action: agentProfileWorkRecoveryActionSchema,
   expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  spaceId: z.string().trim().min(1).max(512).optional(),
 });
 
 export const executeAgentProfileWorkRecoveryResponseSchema = z.strictObject({

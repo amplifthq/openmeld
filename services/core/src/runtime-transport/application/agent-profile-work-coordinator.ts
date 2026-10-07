@@ -367,6 +367,27 @@ export function dropRetiredAgentProfileWork(input: {
   return { ...next, removedItems };
 }
 
+function canResumeReplacementFollowUps(input: {
+  continuation: AgentProfileWorkCoordinatorItem;
+  gate: AgentProfileWorkRecoveryGate | null;
+  continuationRunning: boolean;
+  outcome: string;
+  queuedWork: AgentProfileWorkCoordinatorItem[];
+}): boolean {
+  return Boolean(
+    input.continuationRunning &&
+      input.outcome === "succeeded" &&
+      input.gate?.forkInterruptedConversation &&
+      input.continuation.executionContextId &&
+      input.continuation.executionContextId !==
+        input.gate.interruptedWork.executionContextId &&
+      input.queuedWork.every(
+        (item) =>
+          item.executionContextId === input.continuation.executionContextId
+      )
+  );
+}
+
 export function settleAgentProfileWork(input: {
   coordinator: AgentProfileWorkCoordinator;
   nowMs: number;
@@ -413,6 +434,28 @@ export function settleAgentProfileWork(input: {
   const continuationRunning =
     removedIndex === 0 &&
     input.coordinator.recoveryGate?.status === "continuation_running";
+  if (
+    canResumeReplacementFollowUps({
+      continuation: interruptedWork,
+      continuationRunning,
+      gate: input.coordinator.recoveryGate,
+      outcome: input.outcome,
+      queuedWork,
+    })
+  ) {
+    // Follow-ups on the successful replacement are already addressed to that
+    // context. Unrelated held work still requires the existing owner approval.
+    return removeAgentProfileWork({
+      ...input,
+      coordinator: {
+        ...input.coordinator,
+        recoveryGate: nextInterruptedWorkGate(
+          input.coordinator.recoveryGate,
+          input.nowMs
+        ),
+      },
+    });
+  }
   if (continuationRunning) {
     const interruptedContinuationWork =
       input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork;
