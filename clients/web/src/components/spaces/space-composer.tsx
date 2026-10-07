@@ -108,6 +108,7 @@ export type SpaceComposerProps = {
 		maxHeight?: number;
 	};
 	slots?: {
+		attachmentAction?: ReactNode;
 		pendingActionSurface?: ReactNode;
 		queuedMessages?: ReactNode;
 		beforeInput?: ReactNode;
@@ -128,6 +129,17 @@ const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
 const ignoreFileRestoration = (): void => undefined;
+
+function SpaceComposerAttachmentAction(input: {
+	children: ReactNode;
+	enabled: boolean;
+	override?: ReactNode;
+}) {
+	if (input.override !== undefined) {
+		return input.override;
+	}
+	return input.enabled ? input.children : null;
+}
 
 function SpaceComposerAttachmentState({
 	input,
@@ -412,7 +424,10 @@ export function SpaceComposer(input: SpaceComposerProps) {
 							)}
 						>
 							{taskContext.menu}
-							{input.capabilities?.attachments !== false ? (
+							<SpaceComposerAttachmentAction
+								enabled={input.capabilities?.attachments !== false}
+								override={input.slots?.attachmentAction}
+							>
 								<SpaceComposerAddMenu
 									addFiles={addFiles}
 									disabled={uploadsDisabled}
@@ -424,7 +439,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									limitReached={input.availability.fileLimitReached}
 									onAddPeopleOrAgents={input.actions.onAddPeopleOrAgents}
 								/>
-							) : null}
+							</SpaceComposerAttachmentAction>
 							{!editorFailed &&
 							policy.showMentionButton &&
 							input.capabilities?.mentions !== false ? (

@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { downloadDesktopPreview } from "./download";
 
 const store = vi.hoisted(() => ({ get: vi.fn(), head: vi.fn() }));
+const downloadEnv = vi.hoisted(() => ({
+	OPENMELD_DESKTOP_DOWNLOAD_ORIGIN: undefined as string | undefined,
+}));
 vi.mock("cloudflare:workers", () => ({
-	env: { OPENMELD_DESKTOP_DOWNLOADS: store },
+	env: Object.assign(downloadEnv, { OPENMELD_DESKTOP_DOWNLOADS: store }),
 }));
 const id = "a".repeat(64);
 const manifest = {
@@ -36,7 +39,10 @@ function object(body: string) {
 }
 
 describe("immutable Desktop candidate download", () => {
-	afterEach(() => vi.resetAllMocks());
+	afterEach(() => {
+		vi.resetAllMocks();
+		downloadEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN = undefined;
+	});
 	it.each([
 		"?candidate=",
 		"?candidate=../update.json",
@@ -98,5 +104,36 @@ describe("immutable Desktop candidate download", () => {
 		store.get.mockResolvedValue(null);
 		expect((await call("")).status).toBe(404);
 		expect(store.get).toHaveBeenCalledWith("desktop/promoted.json");
+	});
+	it.each([
+		true,
+		false,
+	])("redirects Windows preview downloads to the verified CDN artifact, body=%s", async (includeBody) => {
+		downloadEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN =
+			"https://downloads.openmeld.ai";
+		const preview = {
+			schemaVersion: 1,
+			platform: "windows-x64",
+			version: "0.1.25",
+			releaseSha: "22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+			sha256:
+				"65b824ff55eec9a6f3f4bb55f9d30e98649df41cfbb564bb9ecba3376b71ee8a",
+			sizeBytes: 123_341_680,
+		};
+		store.get.mockImplementation(async (key) =>
+			key === "desktop/internal-preview-windows-x64.json"
+				? object(JSON.stringify(preview))
+				: null
+		);
+		store.head.mockResolvedValue({
+			size: preview.sizeBytes,
+			httpEtag: '"etag"',
+		} satisfies Pick<R2Object, "size" | "httpEtag">);
+		const response = await call("?platform=windows-x64", includeBody);
+		expect(response.status).toBe(307);
+		expect(response.headers.get("location")).toBe(
+			`https://downloads.openmeld.ai/desktop/internal-preview/${preview.sha256}/OpenMeld-Desktop-0.1.25-windows-x64-internal-preview.exe`
+		);
+		expect(response.headers.get("cache-control")).toBe("no-store");
 	});
 });

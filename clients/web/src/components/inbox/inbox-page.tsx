@@ -129,6 +129,7 @@ function InboxExpansionAction({
 }
 
 export function InboxPage(input: {
+	searchEnabled?: boolean;
 	itemId?: string;
 	requestId?: string;
 	onItemDismissed?: (itemId: string) => void;
@@ -335,7 +336,10 @@ export function InboxPage(input: {
 								filters={filters}
 								onChange={input.onFiltersChange}
 							/>
-							<MessageSearchButton scope="inbox" />
+							<MessageSearchButton
+								enabled={input.searchEnabled}
+								scope="inbox"
+							/>
 						</div>
 						<InboxExpansionAction expansion={expansion} rows={rows} />
 					</div>
