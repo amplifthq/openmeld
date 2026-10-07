@@ -12,13 +12,7 @@ import type {
 	SessionHistoryResult,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@openmeld/ui/components/card";
+import { Card, CardContent, CardTitle } from "@openmeld/ui/components/card";
 import {
 	Sheet,
 	SheetContent,
@@ -55,7 +49,6 @@ function useConversationAccess(input: Props) {
 	const [sessionsError, setSessionsError] = useState<string | null>(null);
 	const [auditError, setAuditError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
-	const [saved, setSaved] = useState(false);
 	const [selected, setSelected] =
 		useState<AgentActivityInventorySession | null>(null);
 	const [history, setHistory] = useState<Session | null>(null);
@@ -152,7 +145,6 @@ function useConversationAccess(input: Props) {
 		}
 		saveLock.current = true;
 		setSaving(true);
-		setSaved(false);
 		setSettingsError(null);
 		closeHistory();
 		try {
@@ -163,7 +155,6 @@ function useConversationAccess(input: Props) {
 			});
 			if (result.kind === "settings") {
 				setSettings(result);
-				setSaved(true);
 			}
 		} catch (error) {
 			setSettingsError(errorText(error));
@@ -221,7 +212,6 @@ function useConversationAccess(input: Props) {
 		sessionsError,
 		auditError,
 		saving,
-		saved,
 		selected,
 		history,
 		reading,
@@ -239,14 +229,7 @@ export function ComputerSessionHistoryCard(input: Props) {
 	const state = useConversationAccess(input);
 	return (
 		<Card>
-			<CardHeader>
-				<CardTitle>Conversation access</CardTitle>
-				<CardDescription>
-					Read Codex conversations from this computer, including tasks started
-					outside OpenMeld.
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-6">
+			<CardContent className="space-y-4 pt-4">
 				<AccessSettings state={state} />
 				<ConversationList state={state} />
 				<AccessLog profiles={input.profiles} state={state} />
@@ -256,34 +239,15 @@ export function ComputerSessionHistoryCard(input: Props) {
 	);
 }
 function AccessSettings({ state }: { state: State }) {
-	const { settings, saving, saved, settingsError, save, loadSettings } = state;
+	const { settings, saving, settingsError, save, loadSettings } = state;
 	const enabled = settings?.policy.enabled === true;
 	const grants = settings?.policy.connections ?? [];
-	let status = "Connecting to this computer…";
-	if (settingsError && !settings) {
-		status = "Computer unavailable";
-	} else if (saving) {
-		status = "Saving…";
-	} else if (settings) {
-		status = enabled
-			? "On for selected projects"
-			: "Off — conversations cannot be read";
-	}
 	return (
 		<section aria-label="Conversation access settings" className="space-y-4">
-			<div className="flex items-start justify-between gap-4">
-				<div className="space-y-1">
-					<p className="font-medium text-sm" id="conversation-access-label">
-						Allow conversation access
-					</p>
-					<p
-						className="max-w-2xl text-muted-foreground text-sm"
-						id="conversation-access-help"
-					>
-						You and agents acting on your requests can read conversations in the
-						projects you select. Other members do not get access.
-					</p>
-				</div>
+			<div className="flex items-center justify-between gap-4">
+				<CardTitle id="conversation-access-label">
+					Conversation access
+				</CardTitle>
 				<Switch
 					aria-describedby="conversation-access-help"
 					aria-labelledby="conversation-access-label"
@@ -294,18 +258,23 @@ function AccessSettings({ state }: { state: State }) {
 					}
 				/>
 			</div>
-			<output className="block text-muted-foreground text-xs">
-				{status}
-				{saved && !saving ? " · Saved" : ""}
-			</output>
+			<p
+				className="text-muted-foreground text-sm"
+				id="conversation-access-help"
+			>
+				Read Codex conversations yourself or through agents acting for you.
+			</p>
+			{saving || !(settings || settingsError) ? (
+				<output className="block text-muted-foreground text-xs">
+					{saving ? "Saving…" : "Connecting…"}
+				</output>
+			) : null}
 			<ProjectAccess state={state} />
 			{settingsError ? (
 				<LoadError message={settingsError} retry={loadSettings} />
 			) : null}
 			<p className="max-w-3xl text-muted-foreground text-xs leading-relaxed">
-				Read on demand, not synced to OpenMeld. File access restrictions still
-				apply. Agents may include what they read in replies, and their
-				conversations or model providers may retain it.
+				Read on demand. Agents may share or retain what they read.
 			</p>
 		</section>
 	);
@@ -318,18 +287,14 @@ function ProjectAccess({ state }: { state: State }) {
 	const grants = settings.policy.connections;
 	return (
 		<fieldset className="space-y-2" disabled={saving}>
-			<legend className="font-medium text-sm">Projects</legend>
-			<p className="text-muted-foreground text-sm">
-				Select which projects to allow. All Codex conversations in each selected
-				project are included.
-			</p>
+			<legend className="font-medium text-sm">Allowed projects</legend>
 			{settings.connections.length === 0 ? (
 				<p className="text-muted-foreground text-sm">
 					Connect a project to this computer to enable access.
 				</p>
 			) : null}
 			<ScrollArea
-				className="max-h-40"
+				className="-mr-3 max-h-40"
 				viewportProps={{
 					"aria-label": "Projects available for conversation access",
 				}}
@@ -384,7 +349,7 @@ function ProjectAccess({ state }: { state: State }) {
 			</ScrollArea>
 			{grants.length === 0 && settings.connections.length > 0 ? (
 				<p className="text-muted-foreground text-xs">
-					Select a project, then turn on conversation access.
+					Select a project to enable access.
 				</p>
 			) : null}
 		</fieldset>
@@ -392,7 +357,6 @@ function ProjectAccess({ state }: { state: State }) {
 }
 function ConversationList({ state }: { state: State }) {
 	const {
-		settings,
 		sessions,
 		sessionsLoading,
 		sessionsError,
@@ -404,7 +368,7 @@ function ConversationList({ state }: { state: State }) {
 	return (
 		<section
 			aria-label="Codex conversations"
-			className="space-y-3 border-t pt-5"
+			className="space-y-2 border-t pt-4"
 		>
 			<div className="flex items-center justify-between gap-3">
 				<h3 className="font-medium text-sm">Codex conversations</h3>
@@ -412,17 +376,11 @@ function ConversationList({ state }: { state: State }) {
 					disabled={sessionsLoading}
 					onClick={() => loadSessions()}
 					size="sm"
-					variant="ghost"
+					variant="secondary"
 				>
 					Refresh
 				</Button>
 			</div>
-			{settings?.policy.enabled ? null : (
-				<p className="text-muted-foreground text-sm">
-					You can see conversation titles. Turn on access above to read
-					messages.
-				</p>
-			)}
 			{sessionsError ? (
 				<LoadError message={sessionsError} retry={() => loadSessions()} />
 			) : null}
@@ -443,7 +401,7 @@ function ConversationList({ state }: { state: State }) {
 				</p>
 			) : null}
 			<ScrollArea
-				className="max-h-64"
+				className="-mr-3 max-h-64"
 				viewportProps={{ "aria-label": "Codex conversations" }}
 			>
 				<ul className="divide-y pr-3">
@@ -460,7 +418,7 @@ function ConversationList({ state }: { state: State }) {
 						disabled={sessionsLoading}
 						onClick={() => loadSessions(cursor)}
 						size="sm"
-						variant="ghost"
+						variant="secondary"
 					>
 						{sessionsLoading ? "Loading…" : "Load more conversations"}
 					</Button>
@@ -508,7 +466,7 @@ function ConversationRow({
 				disabled={!allowed || saving}
 				onClick={() => read(session)}
 				size="sm"
-				variant="outline"
+				variant="secondary"
 			>
 				Read
 			</Button>
@@ -524,16 +482,15 @@ function AccessLog({
 }) {
 	const { audit, auditError, loadAudit, sessions } = state;
 	return (
-		<section aria-label="Recent access" className="space-y-3 border-t pt-5">
+		<section aria-label="Recent access" className="space-y-2 border-t pt-4">
 			<div className="flex items-center justify-between gap-3">
 				<h3 className="font-medium text-sm">Recent access</h3>
-				<Button onClick={loadAudit} size="sm" variant="ghost">
+				<Button onClick={loadAudit} size="sm" variant="secondary">
 					Refresh
 				</Button>
 			</div>
 			<p className="text-muted-foreground text-xs">
-				The latest 200 requests, stored on this computer. No message content is
-				recorded.
+				Stored locally. No message content.
 			</p>
 			{auditError ? <LoadError message={auditError} retry={loadAudit} /> : null}
 			{auditError || audit ? null : (
@@ -545,7 +502,7 @@ function AccessLog({
 				</p>
 			) : null}
 			<ScrollArea
-				className="max-h-56"
+				className="-mr-3 max-h-56"
 				viewportProps={{ "aria-label": "Recent conversation access" }}
 			>
 				<ul className="divide-y pr-3">
@@ -685,7 +642,7 @@ function ConversationReader({ state }: { state: State }) {
 							disabled={reading}
 							onClick={() => read(selected, history.nextOffset ?? 0)}
 							size="sm"
-							variant="outline"
+							variant="secondary"
 						>
 							Load more messages
 						</Button>
@@ -704,7 +661,7 @@ function LoadError(input: { message: string; retry: () => Promise<void> }) {
 	return (
 		<div className="flex items-center gap-3 text-sm" role="alert">
 			<p className="text-destructive">{input.message}</p>
-			<Button onClick={input.retry} size="sm" variant="ghost">
+			<Button onClick={input.retry} size="sm" variant="secondary">
 				Try again
 			</Button>
 		</div>
