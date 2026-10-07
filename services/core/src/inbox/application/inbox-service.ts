@@ -60,13 +60,16 @@ export const INBOX_SPACE_MESSAGE_FILTER = `
   AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
 `;
-export const INBOX_ATTENTION_PRESENTATION_FILTER = `
+export function inboxAttentionPresentationFilterSql(
+  useFeedAgentScope = false
+): string {
+  return `
   NOT (
     attention = 'update'
     AND importance = 'normal'
     AND kind NOT IN ('space_mention', 'space_reference')
-    AND NOT ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds")}
-    AND NOT ${currentInboxAgentFactExistsSql("inbox_items", "mentionedAgentProfileIds")}
+    AND NOT ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds", useFeedAgentScope)}
+    AND NOT ${currentInboxAgentFactExistsSql("inbox_items", "mentionedAgentProfileIds", useFeedAgentScope)}
     AND ${INBOX_SPACE_TARGET_FILTER}
     AND EXISTS (
       SELECT 1
@@ -79,6 +82,9 @@ export const INBOX_ATTENTION_PRESENTATION_FILTER = `
     )
   )
 `;
+}
+export const INBOX_ATTENTION_PRESENTATION_FILTER =
+  inboxAttentionPresentationFilterSql();
 const INBOX_NOTIFICATION_EFFECTIVE_MODE_SQL = `COALESCE(
   (
     SELECT mode
