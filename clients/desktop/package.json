@@ -34,6 +34,7 @@
     "@openmeld/ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "better-auth": "1.6.30",
+    "builder-util-runtime": "9.7.0",
     "conf": "15.0.2",
     "electron-updater": "6.8.9",
     "react": "^19.2.4",

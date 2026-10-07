@@ -122,6 +122,44 @@ function updateState(
 	};
 }
 
+it("lets the user cancel while the download action is still pending", async () => {
+	native.bridge.updaterState.mockResolvedValueOnce(
+		updateState({ canCancelDownload: true })
+	);
+	let finishDownload: (() => void) | undefined;
+	native.bridge.updaterAction.mockImplementationOnce(
+		() =>
+			new Promise<void>((resolve) => {
+				finishDownload = resolve;
+			})
+	);
+	render(
+		<QueryClientProvider client={new QueryClient()}>
+			<DesktopUpdater />
+			<DesktopUpdatesSection presentation="settings" />
+		</QueryClientProvider>
+	);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Download update" })
+	);
+	act(() =>
+		native.changed?.(
+			updateState({
+				canCancelDownload: true,
+				status: "downloading",
+				percent: 27,
+			})
+		)
+	);
+	const cancel = await screen.findByRole("button", { name: "Cancel download" });
+	expect(cancel.hasAttribute("disabled")).toBe(false);
+	fireEvent.click(cancel);
+	expect(native.bridge.updaterAction).toHaveBeenCalledWith("cancel");
+	await act(() => {
+		finishDownload?.();
+	});
+});
+
 it("keeps the installed version separate from the changing update status", async () => {
 	const currentState: DesktopUpdaterState = {
 		status: "current",
@@ -176,6 +214,9 @@ it("keeps the installed version separate from the changing update status", async
 	);
 	expect(within(settings).getByText("Downloading version 0.1.2.")).toBeTruthy();
 	expect(within(settings).getByText("42%")).toBeTruthy();
+	expect(
+		within(settings).queryByRole("button", { name: "Cancel download" })
+	).toBeNull();
 	expect(
 		within(settings)
 			.getByRole("progressbar", { name: "Download progress" })

@@ -34,7 +34,7 @@ export function DesktopUpdaterView(input: {
 				action={view.action}
 				label={view.label}
 				onAction={input.onAction}
-				pending={input.pending}
+				pending={input.pending && view.action !== "cancel"}
 				settings={settings}
 			/>
 		) : null;
@@ -83,7 +83,8 @@ export function DesktopUpdaterView(input: {
 							className="@lg/desktop-update:w-auto w-full @lg/desktop-update:min-w-36 shrink-0"
 							data-slot="desktop-update-action"
 						>
-							{action ?? progress ?? <BusyStatus label={headline} />}
+							{progress}
+							{action || (!progress && <BusyStatus label={headline} />)}
 						</div>
 					) : null}
 				</div>
