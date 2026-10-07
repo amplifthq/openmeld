@@ -14,3 +14,6 @@ available in Settings > Appearance, and changing themes keeps the menu open.
 
 Computer, Center Agent, and Inbox toolbar shortcuts now default to off. Enable
 them in Settings > Appearance when you need them. Saved choices stay unchanged.
+
+The Spaces and Team sidebar search fields stay aligned when switching sections,
+without an entrance animation.

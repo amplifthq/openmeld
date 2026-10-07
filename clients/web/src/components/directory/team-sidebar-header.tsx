@@ -52,7 +52,7 @@ export function TeamSidebarHeader() {
 	);
 	return (
 		<>
-			<div className="mb-4 flex items-center justify-between gap-1 px-1">
+			<div className="mb-2 flex items-center justify-between gap-1 px-1">
 				<div className="flex items-center gap-1">
 					<AppModuleSidebarToggle placement="sidebar" />
 					<h2 className="font-medium text-sm">Team</h2>
