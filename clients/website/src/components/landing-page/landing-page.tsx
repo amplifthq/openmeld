@@ -4,6 +4,7 @@ import {
 	listLocalAgentInstallGuides,
 } from "@openmeld/product-catalog/local-agent-install-guides";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
 import { OpenMeldWordmark } from "@openmeld/ui/components/openmeld-wordmark";
 import {
 	Accordion,
@@ -94,8 +95,16 @@ export function LandingPage() {
 				</a>
 				<header className="meld-header">
 					<div className="meld-wrap meld-header-inner">
-						<a aria-label="OpenMeld homepage" className="meld-brand" href="/">
-							<OpenMeldWordmark />
+						<a
+							aria-label="OpenMeld homepage"
+							className="meld-brand meld-brand-motion"
+							href="/"
+						>
+							<OpenMeldLogoStrong
+								ariaLabel={null}
+								pointerTracking="viewport"
+								size={4}
+							/>
 						</a>
 						<nav aria-label="Main navigation">
 							<LandingLinks

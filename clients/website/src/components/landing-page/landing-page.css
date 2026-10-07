@@ -50,6 +50,11 @@
 	display: inline-flex;
 	color: inherit;
 }
+.meld-brand-motion {
+	align-items: center;
+	min-height: 44px;
+	letter-spacing: 0;
+}
 .meld-brand [role="img"] {
 	font-size: 16px;
 	color: inherit;
