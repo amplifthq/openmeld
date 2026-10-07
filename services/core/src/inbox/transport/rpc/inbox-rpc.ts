@@ -81,7 +81,11 @@ import { reconcileInvitationInbox } from "../../../organizations/invitation-inbo
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { reconcileTaskContinuationInbox } from "../../../remote-agent/application/native-delivery-inbox-reconciliation";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
-import { createInboxFeedService } from "../../application/inbox-feed-service";
+import {
+  createInboxFeedService,
+  type InboxFeedMeasure,
+  runInboxFeedStage,
+} from "../../application/inbox-feed-service";
 import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
 import { observeInboxNotifications } from "../../application/inbox-notification-observations";
 import {
@@ -111,20 +115,26 @@ export async function rpcMutateSpaceInboxRead(
 
 export async function rpcListInboxFeed(
   env: CoreBindings,
-  input: ListInboxFeedRpcInput
+  input: ListInboxFeedRpcInput,
+  measure: InboxFeedMeasure = runInboxFeedStage
 ): Promise<InboxFeedResponse> {
   const { context, ...query } = parseRequest(
     listInboxFeedRpcInputSchema,
     input
   );
-  const prepared = await prepareRequest(env, context);
-  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
+  const prepared = await measure("inbox.prepare", () =>
+    prepareRequest(env, context)
+  );
+  await measure("inbox.invitations", () =>
+    reconcileInvitationInbox(prepared.db, prepared.organizationId)
+  );
   return parseResponse(
     inboxFeedResponseSchema,
     await runService(() =>
       createInboxFeedService({
         db: prepared.db,
         canManageOrganization: prepared.canManageOrganization,
+        measure,
       }).list(
         {
           organizationId: prepared.organizationId,

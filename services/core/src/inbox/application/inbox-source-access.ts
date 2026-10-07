@@ -11,12 +11,13 @@ type InboxItemSqlAlias = "inbox_items" | "items";
 // Human membership is checked independently; never infer identity from the roster.
 export function buildCurrentInboxSourceAccessSql(
   itemAlias: InboxItemSqlAlias,
-  canManageOrganization = false
+  canManageOrganization = false,
+  useFeedAgentScope = false
 ): string {
   return `
     (
       ${itemAlias}.kind IN (${inboxItemKindSchema.options.map((kind) => `'${kind}'`).join(", ")})
-      AND ${currentInboxRecipientRelationshipSql(itemAlias)}
+      AND ${currentInboxRecipientRelationshipSql(itemAlias, useFeedAgentScope)}
       AND (${itemAlias}.kind != 'computer_connection' OR EXISTS (
         SELECT 1 FROM "openmeld"."openMeldDaemon_owned_devices" AS inbox_device
         WHERE inbox_device.owner_user_id = ${itemAlias}.recipient_user_id
