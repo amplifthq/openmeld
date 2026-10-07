@@ -45,7 +45,9 @@ import {
   requireRetainedAccountStorage,
 } from "./account-deletion";
 import {
+  collectComputerCommands,
   createComputerCommandTool,
+  hasCollectableComputerCommands,
   listPendingRemoteAgentComputerCommands,
   stopStoredComputerCommands,
 } from "./computer-command";
@@ -217,6 +219,13 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
   readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
 
+  private async scheduleAlarm(at: number) {
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || at < current) {
+      await this.ctx.storage.setAlarm(at);
+    }
+  }
+
   async computerOperation(value: unknown) {
     return await withComputerCapacityErrors(() =>
       this.#executeComputerOperation(value)
@@ -284,6 +293,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       context: { submissionId: request.invocationId },
       storage: this.#commands,
       workingDirectory,
+      scheduleCollection: () => this.scheduleAlarm(Date.now() + 15_000),
       assertCanStart: async () => {
         await requireRetainedAccountStorage(this.ctx.storage);
         if (
@@ -488,19 +498,51 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         errorCode: null,
       };
       await this.ctx.storage.put(key, job);
-      await this.ctx.storage.setAlarm(Date.now());
+      await this.scheduleAlarm(Date.now());
     } else if (
       job.status === "running" &&
       job.startedAtMs !== null &&
       Date.now() - job.startedAtMs > GIT_PACK_RETRY_AFTER_MS
     ) {
-      await this.ctx.storage.setAlarm(Date.now());
+      await this.scheduleAlarm(Date.now());
     }
     return gitPackStatus(job);
   }
 
   async alarm(): Promise<void> {
     await requireRetainedAccountStorage(this.ctx.storage);
+    // Rearm before external I/O so a Worker replacement cannot abandon receipts.
+    await this.scheduleAlarm(Date.now() + 15_000);
+    await collectComputerCommands({
+      storage: this.#commands,
+      workspaceAccess: {
+        withWorkspace: async (operation) => {
+          using workspace = await getWorkspace(this);
+          return await operation(workspace);
+        },
+      },
+    });
+    // Pack downloads can take minutes. Keep them out of the alarm handler so
+    // they cannot block command receipts past the native retention window.
+    this.ctx.waitUntil(this.collectGitPack());
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const jobs = await this.ctx.storage.list<GitPackJob>({
+        prefix: GIT_PACK_JOB_PREFIX,
+      });
+      if (
+        !(
+          (await hasCollectableComputerCommands(this.#commands)) ||
+          [...jobs.values()].some(
+            (job) => job.status === "pending" || job.status === "running"
+          )
+        )
+      ) {
+        await this.ctx.storage.deleteAlarm();
+      }
+    });
+  }
+
+  private async collectGitPack(): Promise<void> {
     const jobs = await this.ctx.storage.list<GitPackJob>({
       prefix: GIT_PACK_JOB_PREFIX,
     });
@@ -536,7 +578,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       errorCode: null,
     };
     await this.ctx.storage.put(key, job);
-    await this.ctx.storage.setAlarm(Date.now() + GIT_PACK_RETRY_AFTER_MS);
+    await this.scheduleAlarm(Date.now() + GIT_PACK_RETRY_AFTER_MS);
     const path = gitPackPath(job);
     try {
       await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
@@ -603,7 +645,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
           (candidate) => candidate.status === "pending"
         )
       ) {
-        await this.ctx.storage.setAlarm(Date.now());
+        await this.scheduleAlarm(Date.now());
       }
     }
   }
