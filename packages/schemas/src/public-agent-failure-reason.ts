@@ -1897,7 +1897,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
-      body: "OpenMeld could not verify this task's file-access boundary with Custom (config.toml), so the task did not start. Choose a supported permission mode in this Agent's settings, then try again.",
+      body: "OpenMeld could not verify file-access limits with this Agent's previous permission settings, so the task did not start. Choose Ask for approval, Approve for me, or Full access in this Agent's settings, then try again.",
       kind: "local_agent_prepare",
       patterns: ["=execution_context.custom_config_file_access_unverified"],
       primaryActionId: "manage_local_agent",
