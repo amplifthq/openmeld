@@ -39,8 +39,35 @@ Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
 compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.
 Worker-shell cannot be interrupted; cleanup cannot infer exit from a Stop request.
-Linux and
-Worker JavaScript use the SDK's retained handles. Backend and launch inputs are
+All backends retain bounded command output in this same receipt owner. New
+receipts use one monotonic observation, including exit and synchronization facts;
+older terminal receipts remain readable. A Computer alarm collects acknowledged
+native dispatches independently of model polling. It never repeats a launch.
+The alarm is armed before external dispatch and stays armed while dispatch is
+pending. Pending dispatch is not evidence that the native record was lost.
+Output cursors select retained slices; clipping is explicit. Native log expiry
+does not invalidate a saved terminal receipt. Command records retain the existing
+seven-day storage policy; this is not an indefinite output archive.
+
+An exit receipt is saved before waiting for file synchronization. Only the SDK's
+explicit synchronization result confirms that step. Stream closure is not proof:
+the SDK also closes its stream when synchronization remains pending. Background
+loss observation and delivery of that error to the model are separate facts.
+Cleanup confirms exact-command absence before accepting a reported missing record;
+an unseen loss still fails the turn. Confirmed losses never replay commands.
+The Computer alarm also schedules Git pack collection without awaiting the pack
+download, so a long transfer cannot block command collection.
+
+The optional `syncPending` response field is additive. Existing consumers keep
+the supported `running` status and continue polling; upgraded consumers can
+distinguish an exited process from unconfirmed file synchronization. No CLI,
+Service, setup, Wake identity, permission or runtime protocol floor changes.
+Older API clients can keep consuming the existing response shape. A Remote Agent
+rollback is different: the older receipt reader does not understand new saved
+observations. Drain active commands before rollback; do not promise retained
+result recovery under the old Worker. The new Worker reads older terminal
+receipts without rewriting them.
+Linux and Worker JavaScript use the SDK's retained handles. Backend and launch inputs are
 bound to the command key; a repeated key cannot select another engine or launch
 different work. Controlled legacy and official file mutations share the Computer
 owner's short mutation queue. Arbitrary native program writes remain outside it.

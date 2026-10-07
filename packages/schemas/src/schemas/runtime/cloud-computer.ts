@@ -115,6 +115,7 @@ export const cloudComputerOperationResultSchema = z.union([
     stderr: z.string().optional(),
     after: z.number().optional(),
     outputPending: z.literal(true).optional(),
+    syncPending: z.literal(true).optional(),
     outputTruncated: z.literal(true).optional(),
     result: z.json().optional(),
     nextAction: z.string().optional(),

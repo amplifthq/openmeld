@@ -26,6 +26,7 @@ import {
   readRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
 import {
+  collectComputerCommands,
   createComputerCommandTool,
   readCommandSlice,
   stopRemoteAgentComputerCommands,
@@ -114,7 +115,19 @@ function handle(
   return Object.assign(stream, {
     id,
     backend: "container",
-    result: vi.fn(),
+    result: vi.fn(() => {
+      const exit = events.find((event) => event.name === "exit");
+      return Promise.resolve({
+        status: "completed",
+        exitCode: exit?.code ?? 0,
+        stdout: "",
+        stderr: "",
+        pushed: 0,
+        pulled: 0,
+        skipped: [],
+        sync: { status: "complete", applied: 0, skipped: [] },
+      });
+    }),
     kill: vi.fn(),
     [Symbol.dispose]: vi.fn(),
   }) as WorkspaceRuntimeExecHandle<"utf8">;
@@ -153,6 +166,108 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it("collects a result without model polls and serves it after native retention expires", async () => {
+    const f = fixture();
+    const started = (await f.tool().execute({
+      action: "start",
+      key: "retention",
+      command: "printf done",
+    })) as { id: string };
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(
+        handle(
+          id,
+          [
+            { id, seq: 1, name: "stdout", value: "done" },
+            { id, seq: 2, name: "exit", code: 0 },
+          ],
+          true
+        )
+      )
+    );
+    await expect(
+      collectComputerCommands({
+        storage: f.storage,
+        workspaceAccess: f.workspaceAccess,
+      })
+    ).resolves.toBe(false);
+    f.getExec.mockRejectedValue(
+      Object.assign(new Error("record expired"), { code: "ENOENT" })
+    );
+    const recovered = f.tool();
+    await expect(
+      recovered.execute({ action: "poll", key: "retention", after: 0 })
+    ).resolves.toMatchObject({
+      id: started.id,
+      status: "completed",
+      stdout: "done",
+      exitCode: 0,
+    });
+    await expect(
+      recovered.execute({ action: "poll", key: "retention", after: 2 })
+    ).resolves.toMatchObject({ status: "completed", stdout: "" });
+    await expect(
+      stopStoredComputerCommands({
+        context: context("execution-a"),
+        storage: f.storage,
+        access: () => f.workspaceAccess,
+      })
+    ).resolves.toEqual({ unfinished: 0, lostDuringCleanup: false });
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
+
+  it("preserves exit and output while the SDK reports pending file synchronization", async () => {
+    const f = fixture();
+    await f
+      .tool()
+      .execute({ action: "start", key: "sync", command: "printf saved" });
+    let synced = false;
+    f.getExec.mockImplementation((id) => {
+      const run = handle(
+        id,
+        [
+          { id, seq: 1, name: "stdout", value: "saved" },
+          { id, seq: 2, name: "exit", code: 0 },
+        ],
+        true
+      );
+      run.result = () =>
+        Promise.resolve({
+          status: "completed",
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          pushed: 0,
+          pulled: 0,
+          skipped: [],
+          sync: synced
+            ? { status: "complete", applied: 0, skipped: [] }
+            : {
+                status: "pending",
+                applied: 0,
+                skipped: [],
+                error: "pull failed",
+              },
+        });
+      return Promise.resolve(run);
+    });
+    await expect(
+      f.tool().execute({ action: "poll", key: "sync" })
+    ).resolves.toMatchObject({
+      status: "running",
+      syncPending: true,
+      exitCode: 0,
+      stdout: "saved",
+      after: 2,
+    });
+    synced = true;
+    await expect(
+      f.tool().execute({ action: "poll", key: "sync", after: 2 })
+    ).resolves.toMatchObject({ status: "completed", exitCode: 0, stdout: "" });
+    expect(f.exec).toHaveBeenCalledOnce();
+  });
+
   it("preserves a shell receipt that completes after cleanup takes its snapshot", async () => {
     const f = fixture();
     await f.tool().execute({ action: "start", key: "a", command: "sleep 20" });
@@ -621,7 +736,10 @@ describe("retained Computer commands", () => {
     expect(f.killExec).toHaveBeenCalledOnce();
     expect(f.killExec.mock.calls[0]?.[0]).toBe(started.id);
   });
-  it("keeps reported lost commands from failing recovered work during cleanup", async () => {
+  it.each([
+    "EEXEC_LOST",
+    "ENOENT",
+  ])("keeps reported %s commands from failing recovered work during cleanup", async (code) => {
     const f = fixture();
     const started = await f
       .tool()
@@ -629,12 +747,15 @@ describe("retained Computer commands", () => {
     // The installed SDK reports a runtime identity mismatch with this code.
     const lost = Object.assign(new Error("Computer runtime replaced"), {
       name: "WorkspaceExecutionLostError",
-      code: "EEXEC_LOST",
+      code,
     });
     f.getExec.mockRejectedValue(lost);
+    if (code === "ENOENT") {
+      f.killExec.mockRejectedValue(lost);
+    }
     await expect(
       f.tool().execute({ action: "poll", key: "lost" })
-    ).rejects.toMatchObject({ code: "EEXEC_LOST" });
+    ).rejects.toMatchObject({ code });
     cleanupAccess.mockReturnValue(f.workspaceAccess);
     await expect(
       stopRemoteAgentComputerCommands({
@@ -643,7 +764,7 @@ describe("retained Computer commands", () => {
         env: { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } },
       })
     ).resolves.toMatchObject({ unfinished: 0 });
-    expect(f.killExec).not.toHaveBeenCalled();
+    expect(f.killExec).toHaveBeenCalledTimes(code === "ENOENT" ? 1 : 0);
     expect(f.exec).toHaveBeenCalledTimes(1);
     expect(started).toMatchObject({ key: "lost", status: "running" });
   });
@@ -818,7 +939,7 @@ describe("retained Computer commands", () => {
   it.each([
     { personal: false, commandCount: 1 },
     { personal: true, commandCount: 4 },
-  ])("publishes one failure after $commandCount exact Computer records disappear (personal=$personal)", async ({
+  ])("publishes one failure for $commandCount losses first discovered by cleanup (personal=$personal)", async ({
     personal,
     commandCount,
   }) => {
@@ -848,18 +969,6 @@ describe("retained Computer commands", () => {
       });
     f.getExec.mockImplementation((id) => Promise.reject(missing(id)));
     f.killExec.mockImplementation((id) => Promise.reject(missing(id)));
-    for (const key of keys) {
-      await expect(
-        f.tool("execution-a", personal).execute({
-          action: "poll",
-          key,
-          waitSeconds: 0,
-        })
-      ).rejects.toMatchObject({ code: "ENOENT" });
-      await expect(
-        f.tool("execution-a", personal).execute({ action: "stop", key })
-      ).rejects.toMatchObject({ code: "ENOENT" });
-    }
     cleanupAccess.mockReturnValue(f.workspaceAccess);
     const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
 
@@ -898,8 +1007,8 @@ describe("retained Computer commands", () => {
       })
     );
     expect(f.exec).toHaveBeenCalledTimes(commandCount);
-    expect(f.getExec).toHaveBeenCalledTimes(commandCount * 2);
-    expect(f.killExec).toHaveBeenCalledTimes(commandCount * 2);
+    expect(f.getExec).toHaveBeenCalledTimes(commandCount);
+    expect(f.killExec).toHaveBeenCalledTimes(commandCount);
   });
 
   it("acknowledges Stop and publishes one aborted outcome when a retained command is gone", async () => {
@@ -997,7 +1106,7 @@ describe("retained Computer commands", () => {
         storage: f.storage,
       })
     ).resolves.toMatchObject({ unfinished: 0 });
-    expect(f.getExec).toHaveBeenCalledTimes(2);
+    expect(f.getExec).toHaveBeenCalledTimes(3);
   });
 
   it("reports a native live subscriber as running and later reads the retained exit", async () => {
@@ -1184,7 +1293,6 @@ describe("retained Computer commands", () => {
       Promise.resolve(
         handle(options.id, [
           { id: options.id, seq: 4.5, name: "stderr", value: "�" },
-          { id: options.id, seq: 5, name: "exit", code: 0 },
         ])
       )
     );
@@ -1194,12 +1302,8 @@ describe("retained Computer commands", () => {
       command: "example",
     })) as { id: string; after: number };
     expect(started.after).toBe(4.5);
-    f.getExec.mockResolvedValueOnce(
-      handle(
-        started.id,
-        [{ id: started.id, seq: 5, name: "exit", code: 0 }],
-        true
-      )
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(handle(id, [{ id, seq: 5, name: "exit", code: 0 }], true))
     );
     const input = parse(
       tool.input as GenericSchema<

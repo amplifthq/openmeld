@@ -436,6 +436,12 @@ Worker replacement. An ambiguous spawn or lost container must never trigger an
 automatic replacement process. Polling is bounded and does not kill the command.
 Completion requires its exit receipt and completed file synchronization; a stop
 acknowledgement is only a request. The Computer remains shared across sessions.
+The Computer collects results without depending on the model's next poll and
+retains bounded output with its command receipt. Native log expiry must not erase
+an already collected result. An exited process with unconfirmed file sync reports
+`syncPending`; it must not be presented as completed. Infrastructure outages or
+container replacement can still prevent collection. Such uncertainty remains an
+explicit error, never an automatic replay or invented success.
 The container's `EEXEC_BUSY` is explicit evidence of a live process with an
 existing output subscriber, not a failed command. A bounded poll can report
 `running` with `outputPending: true` and an unchanged cursor in this case;
@@ -463,6 +469,11 @@ Recovery must record the failed execution even if the Worker restarted after
 the command-loss record was saved but before the failure request was stored.
 Other owned commands still require their own termination evidence; a transient
 inspection failure never becomes a confirmed loss.
+A missing-record error already delivered to the model follows the same recovery
+contract as a replaced runtime. Cleanup still confirms absence for the exact
+command, then preserves the model's subsequent response instead of introducing
+the same failure again. Errors first discovered by cleanup retain their failed
+outcome. The model must explain unresolved work rather than claim it succeeded.
 If the member already requested Stop, the durable cancellation request is
 acknowledged once exact-command absence is confirmed; reconciliation publishes
 the stopped outcome without treating the missing command as a local Service
