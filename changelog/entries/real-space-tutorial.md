@@ -7,8 +7,7 @@ audiences: ["users"]
 ---
 
 New and existing users now get a tutorial in a real Space. Add your Center Agent,
-send a
-prepared greeting, and read its reply. Progress is saved; Help has one Tutorial
+send a prepared greeting, and read its reply. Progress is saved; Help has one Tutorial
 entry with Continue and Replay. Replay creates a new Space when you confirm.
 Computer setup, Plugins, and Routines stay optional. Organization owners and
 admins also get links to Channels, invitations, and team context. Members see
