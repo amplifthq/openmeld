@@ -121,8 +121,8 @@ describe("sidebar-width-cookie", () => {
 		expect(parseSidebarStateCookieValue(null, "outer")).toEqual(
 			OUTER_SIDEBAR_DEFAULT_STATE
 		);
-		// New users get the most informative outer rail until they choose otherwise.
-		expect(parseSidebarStateCookieValue(null, "outer").tier).toBe("expanded");
+		// Contextual lists stay collapsed until the user chooses to open them.
+		expect(parseSidebarStateCookieValue(null, "outer").tier).toBe("hidden");
 		expect(parseSidebarStateCookieValue("garbage")).toEqual({
 			tier: "expanded",
 			width: SIDEBAR_DEFAULT_WIDTH,

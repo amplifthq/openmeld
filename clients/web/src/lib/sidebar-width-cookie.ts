@@ -70,7 +70,7 @@ export const SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 
 export const OUTER_SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 	width: OUTER_SIDEBAR_DEFAULT_WIDTH,
-	tier: "expanded",
+	tier: "hidden",
 };
 
 export type AppSidebarPersistedStates = {
