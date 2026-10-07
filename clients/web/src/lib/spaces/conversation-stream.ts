@@ -1,5 +1,6 @@
 import { isAgentWorkActivityPresentable } from "@openmeld/schemas";
 import type {
+	AgentStreamRecoveryPart,
 	AgentStreamToolPart,
 	LocalAgentReasoningState,
 	SpaceAgentStreamDeltaFrame,
@@ -21,6 +22,7 @@ type SpaceConversationStreamCommon = {
 	triggerMessageId: string;
 	updatedAtMs: number;
 	toolParts?: readonly AgentStreamToolPart[];
+	recovery?: AgentStreamRecoveryPart;
 };
 
 const MAX_LIVE_AGENT_WORK_PARTS = 50;
@@ -143,7 +145,12 @@ function applySpaceConversationStreamPartFrame(input: {
 	}
 	if (
 		input.currentProjection &&
-		input.frame.sequence <= input.currentProjection.sequence
+		input.frame.sequence <= input.currentProjection.sequence &&
+		!(
+			input.frame.sequence === input.currentProjection.sequence &&
+			input.frame.part.type === "recovery" &&
+			!input.currentProjection.recovery
+		)
 	) {
 		return input.current;
 	}
@@ -268,6 +275,10 @@ function toPresenceProjection(input: {
 			? { toolParts: currentStreamingProjection.toolParts }
 			: {}),
 		triggerMessageId: input.presence.triggerMessageId,
+		recovery:
+			(currentStreamingProjection?.sequence ?? 0) > input.presence.sequence
+				? currentStreamingProjection?.recovery
+				: input.presence.recovery,
 		...(currentStreamingProjection
 			? {
 					replyThreadRootSignalId:
@@ -322,6 +333,7 @@ function toStreamingProjection(input: {
 			? input.currentProjection
 			: undefined;
 	return {
+		recovery: currentStreamingProjection?.recovery,
 		createdAtMs: input.createdAtMs,
 		dispatchId: input.frame.dispatchId,
 		observedRevision: input.observedRevision,
@@ -399,19 +411,61 @@ function toStreamingPartProjection(input: {
 	frame: SpaceAgentStreamPartFrame;
 	observedRevision: number;
 }): SpaceConversationVisibleStreamProjection {
+	if (input.frame.part.type === "recovery") {
+		return toRecoveryProjection(input, input.frame.part);
+	}
+	return toToolPartProjection(input, input.frame.part);
+}
+
+function toRecoveryProjection(
+	input: Parameters<typeof toStreamingPartProjection>[0],
+	recovery: AgentStreamRecoveryPart
+): SpaceConversationVisibleStreamProjection {
+	return {
+		...input.currentProjection,
+		createdAtMs: input.createdAtMs,
+		dispatchId: input.frame.dispatchId,
+		observedRevision: input.observedRevision,
+		profileId: input.frame.profileId,
+		reasonCode: null,
+		sequence: input.frame.sequence,
+		spaceId: input.frame.spaceId,
+		status: "streaming",
+		streamId: input.frame.streamId,
+		triggerMessageId: input.frame.triggerMessageId,
+		replyThreadRootSignalId:
+			input.frame.replyThreadRootSignalId !== undefined
+				? input.frame.replyThreadRootSignalId
+				: input.currentProjection?.replyThreadRootSignalId,
+		text:
+			input.currentProjection && "text" in input.currentProjection
+				? input.currentProjection.text
+				: "",
+		textSequence:
+			input.currentProjection?.status === "streaming"
+				? input.currentProjection.textSequence
+				: 0,
+		updatedAtMs: input.frame.updatedAtMs,
+		recovery,
+	};
+}
+
+function toToolPartProjection(
+	input: Parameters<typeof toStreamingPartProjection>[0],
+	toolPart: AgentStreamToolPart
+): SpaceConversationVisibleStreamProjection {
 	const currentToolParts = input.currentProjection?.toolParts ?? [];
 	const partIndex = currentToolParts.findIndex(
-		(part) => part.toolCallId === input.frame.part.toolCallId
+		(part) => part.toolCallId === toolPart.toolCallId
 	);
 	const existingPart =
 		partIndex === -1 ? undefined : currentToolParts[partIndex];
 	let visiblePart: AgentStreamToolPart | null =
-		input.frame.part.work &&
-		isAgentWorkActivityPresentable(input.frame.part.work)
-			? input.frame.part
+		toolPart.work && isAgentWorkActivityPresentable(toolPart.work)
+			? toolPart
 			: null;
 	if (!visiblePart && existingPart?.work) {
-		visiblePart = { ...input.frame.part, work: existingPart.work };
+		visiblePart = { ...toolPart, work: existingPart.work };
 	}
 	const toolParts = [...currentToolParts];
 	if (partIndex === -1) {
@@ -423,6 +477,7 @@ function toStreamingPartProjection(input: {
 	}
 	const boundedToolParts = toolParts.slice(-MAX_LIVE_AGENT_WORK_PARTS);
 	return {
+		recovery: input.currentProjection?.recovery,
 		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.reasoningState
 			? { reasoningState: input.currentProjection.reasoningState }

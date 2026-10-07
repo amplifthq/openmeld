@@ -1,5 +1,6 @@
 import {
   AGENT_REPLY_FINAL_PURPOSE,
+  agentStreamRecoveryPartSchema,
   agentStreamToolPartSchema,
   isAgentWorkActivityPresentable,
   isLegacyAgentActivityWorkCompatible,
@@ -10,6 +11,8 @@ import {
   spaceMessageDetailsWorkingDetailsSchema,
 } from "@openmeld/schemas";
 import type {
+  AgentStreamPart,
+  AgentStreamRecoveryPart,
   AgentStreamToolPart,
   SignalEnvelope,
   SpaceAgentActivity,
@@ -51,7 +54,7 @@ type AgentStreamIdentity = Pick<
 >;
 
 type AgentStreamPartProjection = AgentStreamIdentity & {
-  part: AgentStreamToolPart;
+  part: AgentStreamPart;
   sequence: number;
 };
 
@@ -68,6 +71,7 @@ type StoredAgentPublicProgressDraft = AgentStreamIdentity & {
 };
 
 type AgentStreamCursor = AgentStreamIdentity & {
+  recovery?: AgentStreamRecoveryPart;
   sequence: number;
   gapDetected: boolean;
   createdAtMs: number;
@@ -155,7 +159,7 @@ export type ApplyAgentStreamPartResult =
       status: "accepted";
       lastSequence: number;
       gapDetected: boolean;
-      part: AgentStreamToolPart;
+      part: AgentStreamPart;
     }
   | {
       status: "duplicate_accepted";
@@ -276,7 +280,10 @@ export async function applyAgentStreamPart(input: {
   part: AgentStreamPartProjection;
   nowMs: number;
 }): Promise<ApplyAgentStreamPartResult> {
-  const parsedPart = agentStreamToolPartSchema.parse(input.part.part);
+  const parsedPart =
+    input.part.part.type === "recovery"
+      ? agentStreamRecoveryPartSchema.parse(input.part.part)
+      : agentStreamToolPartSchema.parse(input.part.part);
   return await input.storage.transaction(async (transaction) => {
     const advanced = await advanceAgentStreamSequence({
       event: input.part,
@@ -286,12 +293,19 @@ export async function applyAgentStreamPart(input: {
     if (advanced.status !== "accepted") {
       return advanced;
     }
-    await recordAgentToolActivity({
-      nowMs: input.nowMs,
-      part: parsedPart,
-      stream: input.part,
-      transaction,
-    });
+    if (parsedPart.type === "recovery") {
+      await transaction.put(buildActiveStreamCursorKey(input.part.streamId), {
+        ...advanced.cursor,
+        recovery: parsedPart,
+      });
+    } else {
+      await recordAgentToolActivity({
+        nowMs: input.nowMs,
+        part: parsedPart,
+        stream: input.part,
+        transaction,
+      });
+    }
     return {
       status: "accepted",
       lastSequence: advanced.cursor.sequence,
@@ -1334,6 +1348,7 @@ async function advanceAgentStreamSequence(input: {
   }
 
   const cursor: AgentStreamCursor = {
+    ...(currentCursor?.recovery ? { recovery: currentCursor.recovery } : {}),
     v: input.event.v,
     spaceId: input.event.spaceId,
     streamId: input.event.streamId,
@@ -1360,6 +1375,7 @@ function createCursorFromSnapshot(
   snapshot: SpaceAgentStreamSnapshot
 ): AgentStreamCursor {
   return {
+    ...(snapshot.recovery ? { recovery: snapshot.recovery } : {}),
     v: snapshot.v,
     spaceId: snapshot.spaceId,
     streamId: snapshot.streamId,
@@ -1390,6 +1406,9 @@ function parseAgentStreamCursor(value: unknown): AgentStreamCursor {
     throw new Error("Stored Agent stream cursor must be an object.");
   }
   const cursor = value as Partial<AgentStreamCursor>;
+  if (cursor.recovery !== undefined) {
+    agentStreamRecoveryPartSchema.parse(cursor.recovery);
+  }
   const stringFields = [
     cursor.spaceId,
     cursor.streamId,

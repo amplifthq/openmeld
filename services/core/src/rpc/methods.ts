@@ -360,7 +360,7 @@ import type {
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
   AgentProfileExecutionModeResponse,
-  AgentStreamToolPart,
+  AgentStreamPart,
   AgentTaskCompletionCondition,
   ArchiveProjectRpcInput,
   CenterAgentAction,
@@ -2546,6 +2546,7 @@ export type ApplySpaceAgentStreamDeltaInput =
     );
 
 export type ApplySpaceAgentStreamPartInput = {
+  replyThreadRootSignalId?: string | null;
   v: 1;
   spaceId: string;
   streamId: string;
@@ -2553,7 +2554,7 @@ export type ApplySpaceAgentStreamPartInput = {
   profileId: string;
   triggerMessageId: string;
   dispatchId: string;
-  part: AgentStreamToolPart;
+  part: AgentStreamPart;
 };
 
 export type CloseSpaceAgentStreamInput = {

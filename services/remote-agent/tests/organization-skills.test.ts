@@ -2,6 +2,8 @@ import {
   fauxAssistantMessage,
   fauxProvider,
   fauxToolCall,
+  getCurrentSystemPrompt,
+  getCurrentTools,
 } from "@earendil-works/pi-ai";
 import { init, useModel, useSkill } from "@flue/runtime";
 import { start } from "@flue/runtime/node";
@@ -227,11 +229,15 @@ describe("Organization Skill Flue adapter", () => {
     }
     provider.setResponses([
       (context) => {
-        expect(context.systemPrompt).toContain("release-review");
-        expect(context.tools?.map((tool) => tool.name)).not.toContain(
-          "read_skill_resource"
+        expect(getCurrentSystemPrompt(context.messages)).toContain(
+          "release-review"
         );
-        expect(context.tools?.map((tool) => tool.name)).not.toContain("bash");
+        expect(
+          getCurrentTools(context.messages).map((tool) => tool.name)
+        ).not.toContain("read_skill_resource");
+        expect(
+          getCurrentTools(context.messages).map((tool) => tool.name)
+        ).not.toContain("bash");
         return fauxAssistantMessage(
           fauxToolCall("activate_skill", { name: "release-review" }),
           { stopReason: "toolUse" }

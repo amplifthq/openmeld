@@ -1,6 +1,6 @@
 import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import type {
-  AgentStreamToolPart,
+  AgentStreamPart,
   SpaceAgentStreamSnapshot,
   SpaceAgentStreamTerminal,
 } from "@openmeld/schemas/types";
@@ -27,6 +27,73 @@ const SPACE_ID =
 const PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("Space Agent stream projection", () => {
+  it("persists recovery on the same execution and refuses stale or post-terminal recovery", async () => {
+    const storage = new MemoryProjectionStorage();
+    const recovery = {
+      type: "recovery",
+      state: "waiting",
+      attempt: 3,
+      maxAttempts: 5,
+      nextRetryAtMs: 13_000,
+    } as const;
+    await applyAgentStreamPart({
+      storage,
+      part: createPart({ sequence: 1 }),
+      nowMs: 1000,
+    });
+    const waiting = createPart({ sequence: 2, part: recovery });
+    expect(
+      await applyAgentStreamPart({ storage, part: waiting, nowMs: 2000 })
+    ).toMatchObject({ status: "accepted" });
+    expect(
+      await listActiveAgentStreamPresences({ storage, nowMs: 2500 })
+    ).toEqual([
+      expect.objectContaining({
+        streamId: "stream:sub_1",
+        dispatchId: "dispatch_1",
+        sequence: 2,
+        recovery,
+      }),
+    ]);
+    expect(
+      await applyAgentStreamPart({ storage, part: waiting, nowMs: 2600 })
+    ).toMatchObject({ status: "duplicate_accepted" });
+    await applyAgentStreamPart({
+      storage,
+      part: createPart({
+        sequence: 3,
+        part: { ...recovery, state: "recovered", nextRetryAtMs: 0 },
+      }),
+      nowMs: 3000,
+    });
+    expect(
+      await listActiveAgentStreamPresences({ storage, nowMs: 3500 })
+    ).toEqual([
+      expect.objectContaining({
+        recovery: expect.objectContaining({ state: "recovered" }),
+      }),
+    ]);
+    await closeAgentStreamProjection({
+      storage,
+      streamId: "stream:sub_1",
+      terminal: {
+        kind: "stopped",
+        reasonCode: "agent_stopped",
+        noticeText: "Stopped.",
+      },
+      nowMs: 4000,
+    });
+    expect(
+      await applyAgentStreamPart({
+        storage,
+        part: createPart({ sequence: 4, part: recovery }),
+        nowMs: 5000,
+      })
+    ).toMatchObject({ status: "rejected" });
+    expect(
+      await listActiveAgentStreamPresences({ storage, nowMs: 5000 })
+    ).toEqual([]);
+  });
   it("accepts the explicit text kind used by the stream RPC without persisting it", async () => {
     const storage = new MemoryProjectionStorage();
 
@@ -795,7 +862,7 @@ function createDelta(
 
 function createPart(
   overrides: {
-    part?: AgentStreamToolPart;
+    part?: AgentStreamPart;
     sequence?: number;
     streamId?: string;
   } = {}

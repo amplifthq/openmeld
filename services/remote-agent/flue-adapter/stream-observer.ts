@@ -47,6 +47,7 @@ import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
   extractAssistantText,
+  extractFlueModelRecovery,
   extractFlueStreamDelta,
   extractFlueToolLifecyclePart,
   extractModelId,
@@ -89,6 +90,30 @@ export async function handleCenterAgentObservation(input: {
   const conversationCompactionObserver =
     input.conversationCompactionObserver ??
     remoteAgentConversationCompactionObserver;
+  const recovery = extractFlueModelRecovery(event);
+  if (recovery && event.submissionId) {
+    const { coreWorker, storage } = resolveDependencies(
+      input.resolveDependencies
+    );
+    const context = await resolveRemoteAgentStreamContext({
+      storage,
+      submissionId: event.submissionId,
+    });
+    if (
+      context &&
+      isRemoteAgentStreamEligible(context) &&
+      context.turnEnvelope?.trigger.source !== "message_channel"
+    ) {
+      await input.streamPublisher.pushPart({
+        context,
+        coreWorker,
+        storage,
+        part: recovery,
+        observedAtMs: parseObservationTimestamp(event.timestamp),
+      });
+    }
+    return;
+  }
   if (isConversationCompactionObservation(event)) {
     conversationCompactionObserver.enqueue({
       event,
@@ -717,6 +742,7 @@ function normalizeSubmissionId(
 
 function isRemoteAgentExecutionObservation(event: FlueObservation): boolean {
   return (
+    extractFlueModelRecovery(event) !== null ||
     event.type === "text_delta" ||
     event.type === "thinking_delta" ||
     event.type === "tool_start" ||

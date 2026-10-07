@@ -3328,6 +3328,18 @@ owners.
 
 ### Agent Stream Contracts
 
+Hosted model recovery uses a typed `recovery` stream part from the native runtime,
+with waiting/recovered/exhausted state, retry number, maximum retries, and next
+retry timestamp. It shares the stream's sequence, dispatch identity, reply
+placement, and terminal guard. The Space cursor persists this presentation
+projection; it does not own retry admission or execution truth. Provider error
+text is excluded. Bootstrap includes this optional presence field only when
+the caller requests `includeAgentStreamRecovery=true`; older strict readers
+receive the original presence shape. Older live readers ignore unfamiliar part
+types without dropping the connection. Deploy Web and Gateway readers, then
+Core, then the Remote Agent producer. CLI, Service, and local Skills require no
+new contract floor for this hosted-only capability.
+
 Shared schema surfaces define the hosted Center Agent and workstation Local
 Agent Space-stream paths:
 

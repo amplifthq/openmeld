@@ -714,6 +714,22 @@ Queued preparation failures are counted atomically on the existing runtime
 submission row; a stale failure cannot terminate a ready, claimed, cancelled,
 or already-settled submission. No additional execution ledger is introduced.
 
+Flue 2.2.2 preserves these identities and the eight retained recovery/tool
+contracts. Transient model overload, rate limits, and connection failures use
+Flue's native retry loop with five retries after the initial request. Backoff
+caps are 3, 6, 12, 24, and 30 seconds, with 75–100% jitter. Canonical error
+history keeps the retry budget across resumed execution. Successful model work
+ends that consecutive-failure budget. Permanent errors and user stops do not
+consume automatic retries; Stop interrupts a pending delay. This model budget
+is distinct from the five-attempt platform durability budget above.
+
+The same submission and stream expose bounded recovery progress to the Space:
+Reconnecting, the retry number, and the next retry time. Existing completed tool
+work remains visible. A model response clears Reconnecting; exhaustion follows
+the existing terminal failure path. The UI never schedules execution or hides a
+terminal failure. Result publication continues to use its separate durable
+completion and callback recovery contract.
+
 Recovery reads canonical completion before checking cancellation, the retry
 budget, and positive deadlines. This classification must not require preparing
 Computer, model, or tool resources. A completed result survives an exhausted

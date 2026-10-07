@@ -13,6 +13,7 @@ import {
 } from "../http/space-files";
 import {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
+  agentStreamRecoveryPartSchema,
   agentStreamToolPartSchema,
 } from "../protocol/agent-stream";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
@@ -1012,15 +1013,22 @@ export const remoteAgentStreamDeltaCallbackBodySchema = z.union([
   }),
 ]);
 
-export const remoteAgentStreamPartCallbackBodySchema = z.strictObject({
-  v: z.literal(1),
-  streamId: nonEmptyStringSchema,
-  sequence: z.number().int().positive(),
-  ...remoteAgentStreamDeltaCallbackIdentitySchema,
-  source: z.literal("flue.tool"),
-  part: agentStreamToolPartSchema,
-  observedAtMs: z.number().int().nonnegative(),
-});
+export const remoteAgentStreamPartCallbackBodySchema = z
+  .strictObject({
+    v: z.literal(1),
+    streamId: nonEmptyStringSchema,
+    sequence: z.number().int().positive(),
+    ...remoteAgentStreamDeltaCallbackIdentitySchema,
+    source: z.enum(["flue.tool", "flue.model_recovery"]),
+    part: z.union([agentStreamToolPartSchema, agentStreamRecoveryPartSchema]),
+    observedAtMs: z.number().int().nonnegative(),
+  })
+  .refine(
+    (value) =>
+      (value.source === "flue.model_recovery") ===
+      (value.part.type === "recovery"),
+    { message: "Stream part must match its source", path: ["source"] }
+  );
 
 const remoteAgentStreamLastSequenceSchema = z.number().int().nonnegative();
 const remoteAgentRetryAfterMsSchema = z

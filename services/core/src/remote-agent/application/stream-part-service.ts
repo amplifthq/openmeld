@@ -8,6 +8,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
+import { resolveNativeDeliveryReplyPlacement } from "./reply-placement";
 import {
   buildRemoteAgentStreamRejectedResponse,
   resolveRemoteAgentStreamCallbackTarget,
@@ -28,7 +29,7 @@ export async function submitRemoteAgentStreamPart(
   const target = await resolveRemoteAgentStreamCallbackTarget({
     body: parsed.data,
     env,
-    partKind: "tool",
+    partKind: parsed.data.part.type,
   });
   if (target.kind === "response") {
     return target.response;
@@ -36,14 +37,25 @@ export async function submitRemoteAgentStreamPart(
   if (target.kind !== "space_target") {
     return buildRemoteAgentStreamRejectedResponse({
       body: parsed.data,
-      partKind: "tool",
+      partKind: parsed.data.part.type,
       reasonCode: "agent_stream.unsupported_conversation",
     });
   }
 
   try {
+    const placement = await resolveNativeDeliveryReplyPlacement({
+      env,
+      delivery: target.delivery,
+      lock: false,
+    });
     return remoteAgentStreamDeltaCallbackResponseSchema.parse(
       await target.stub.rpcApplyAgentStreamPart({
+        ...(placement
+          ? {
+              replyThreadRootSignalId:
+                placement.threadContext?.rootSignalId ?? null,
+            }
+          : {}),
         v: parsed.data.v,
         spaceId: parsed.data.spaceId,
         streamId: parsed.data.streamId,

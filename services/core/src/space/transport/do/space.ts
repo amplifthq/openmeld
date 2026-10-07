@@ -7220,6 +7220,37 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
 
+  private async replayAgentRecovery(
+    webSocket: WebSocket,
+    session: Session
+  ): Promise<void> {
+    for (const presence of await this.readActiveAgentStreamPresences()) {
+      if (!presence.recovery) {
+        continue;
+      }
+      const frame = spaceAgentStreamPartFrameSchema.parse({
+        type: "space.agent_stream_part",
+        v: presence.v,
+        spaceId: presence.spaceId,
+        streamId: presence.streamId,
+        sequence: presence.sequence,
+        profileId: presence.profileId,
+        triggerMessageId: presence.triggerMessageId,
+        dispatchId: presence.dispatchId,
+        replyThreadRootSignalId: presence.replyThreadRootSignalId,
+        part: presence.recovery,
+        updatedAtMs: presence.updatedAtMs,
+      });
+      const projected = agentStreamForReplyPlacementReader(
+        frame,
+        session.supportsAgentReplyPlacement === true
+      );
+      if (projected && (await this.authorizeLiveSession(session))) {
+        webSocket.send(JSON.stringify(projected));
+      }
+    }
+  }
+
   private async canReplayTransientStream(
     frame: Extract<
       SpaceAgentStreamDeltaFrame,
@@ -8659,6 +8690,9 @@ export class Space extends DurableObject<CoreBindings> {
         triggerMessageId: input.triggerMessageId,
         dispatchId: input.dispatchId,
         part: result.part,
+        ...(input.replyThreadRootSignalId === undefined
+          ? {}
+          : { replyThreadRootSignalId: input.replyThreadRootSignalId }),
         updatedAtMs: Date.now(),
       });
       this.broadcast(frame);
@@ -14302,6 +14336,7 @@ export class Space extends DurableObject<CoreBindings> {
 
     webSocket.send(JSON.stringify({ type: "system.hello.ack", profile }));
     await this.replayActiveReplyingSignalsToSession(webSocket, session);
+    await this.replayAgentRecovery(webSocket, session);
     const joinSignal = this.buildPresence("presence.join", profile);
     this.publishPresenceSignal(joinSignal);
     this.ctx.waitUntil(this.flushPendingDispatchOutbox());
