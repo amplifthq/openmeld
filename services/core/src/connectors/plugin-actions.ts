@@ -23,7 +23,10 @@ import {
 import { ensurePersonalComputer } from "../computer/personal-computer";
 import type { CoreBindings } from "../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../organizations/organization-context";
-import { createCoreRpcHttpError } from "../rpc/errors";
+import {
+  createCoreRpcHttpError,
+  isRpcReceiverMethodNotImplementedErrorForMethod,
+} from "../rpc/errors";
 import {
   type ConnectorConnectionRecord,
   listConnectorConnections,
@@ -167,10 +170,12 @@ async function openLocalNativeConnection(
     );
   }
   const description = pluginConnectionDescriptionSchema.parse(
-    await runtime.describePluginConnection({
-      service: action.service,
-      connectionName: record.connectionName,
-    })
+    await runtime
+      .describePluginConnection({
+        service: action.service,
+        connectionName: record.connectionName,
+      })
+      .catch(rethrowNativeConnectionReceiverError)
   );
   if (
     !(action.computer && description.nativeHttp) ||
@@ -207,16 +212,33 @@ async function openLocalNativeConnection(
     expiresAtMs,
     authority: { kind: "local", request: input },
   });
-  const result = await runtime.createPluginComputerConnection({
-    computer,
-    grant,
-  });
+  const result = await runtime
+    .createPluginComputerConnection({
+      computer,
+      grant,
+    })
+    .catch(rethrowNativeConnectionReceiverError);
   return pluginActionResponseSchema.parse({
     kind: "native_connection",
     connection,
     ...(result as object),
     expiresAtMs,
   });
+}
+
+function rethrowNativeConnectionReceiverError(error: unknown): never {
+  if (
+    ["describePluginConnection", "createPluginComputerConnection"].some(
+      (method) => isRpcReceiverMethodNotImplementedErrorForMethod(error, method)
+    )
+  ) {
+    throw failure(
+      "plugin.runtime_unavailable",
+      "Plugin connection access is temporarily unavailable during the server update. Try again shortly.",
+      503
+    );
+  }
+  throw error;
 }
 
 /** Internal reauthorization uses the same caller and connection selection as the public operation. */

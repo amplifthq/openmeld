@@ -179,6 +179,17 @@ describe("Local App execution enforces the admitted account, not just guidance",
       connection,
       permission: "read",
     });
+    for (const [method, mock] of [
+      ["describePluginConnection", owner.describe],
+      ["createPluginComputerConnection", owner.native],
+    ] as const) {
+      mock.mockRejectedValueOnce(
+        new Error(`The RPC receiver does not implement the method "${method}".`)
+      );
+      await expect(rpcPluginAction(env, input)).rejects.toThrow(
+        "plugin.runtime_unavailable"
+      );
+    }
     owner.selection.mockResolvedValue(null);
     await expect(authorizeLocalPluginConnection(env, input)).rejects.toThrow(
       "plugin.connection_unavailable"
