@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T13:00:22.799Z",
+  "updatedAt": "2026-10-07T14:45:52.569Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.248",
       "updatePolicy": "available",
-      "reason": "Computer filtering is optional and rolls out after Gateway and Core; existing setup, Wake, and history requests remain compatible."
+      "reason": "Computer inventory filtering requires updated receivers; existing setup and Wake commands are unchanged."
     },
     "service": {
-      "bundleHash": "9adfd8b33b639f11a1c282e49f4cdcf45801a22f40fdd49aa0071f6742b3ccf9",
-      "portableBundleHash": "aec9291102400a8f15051177e8cdda1ba324ec27058c7aaa62fabff3c9c90940",
+      "bundleHash": "d80ef058ed9e6e33cf1a67ca5b9fba40ea5e6ff9abd158f57f3351378f83a499",
+      "portableBundleHash": "6cbb26fdc55a09c4f945bcb74f8db95d91e43401235ff877eaf12b2bdccfc4cd",
       "bundleVersion": "0.3.248",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Codex metadata mapping and in-place route refresh preserve transport payloads, identity checks, and execution authority."
+      "reason": "Conversation access v2 requires matching Core and Gateway receivers; v1 history is unsupported while setup and Wake remain compatible. Legacy history grants require fresh owner consent."
     },
     "skills": {
       "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",

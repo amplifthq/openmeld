@@ -8835,11 +8835,19 @@ the current execution token and exact dispatch/binding scope. Hosted calls need
 the active native delivery and its frozen, verified human root. Only verified
 one-hop delegation is supported; missing provenance fails closed.
 
-The additive `x-openmeld-session-history: session-history-v1` handshake is
+The additive `x-openmeld-session-history: session-history-v2` handshake is
 independent of File access. An old Service returns unsupported and receives no
 new frame. Requests use `daemon.session_history.request`; replies use
 `daemon.session_history.request_result`. Pending operations and response bodies
 stay in memory; HTTP results use `Cache-Control: no-store`.
+
+Version 2 removes the per-Agent allowlist. The single enabled flag applies to
+human reads and every verified owner-delegated reader within selected Project
+connections. Old settings are projected as disabled and written in the v2 local
+store format on the next mutation; old binaries fail closed on that format.
+Old v1 Services are not admitted to the v2 history channel. Deploy Core/Gateway
+before the updated Service and Web. Rolling back requires matching clients and
+receivers; never reinterpret an existing v2 grant as a legacy allowlist.
 
 Contract impact: deploy receiving Core/Gateway and hosted tools before exposing
 new clients. Existing CLI/Service/Skills continue their previous setup, Wake,

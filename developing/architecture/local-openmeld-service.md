@@ -3661,7 +3661,7 @@ or claim a Wake outcome.
   detection alone.
 ## On-demand Codex history
 
-The optional `session-history-v1` transport capability admits bounded read-only
+The optional `session-history-v2` transport capability admits bounded read-only
 Codex history requests. The Service owns the local Organization-scoped policy
 and the latest 200 metadata-only access records. Grants pin Project connection
 generations; reconnecting requires renewed consent. File access restrictions

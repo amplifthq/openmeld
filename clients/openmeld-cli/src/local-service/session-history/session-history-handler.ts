@@ -162,12 +162,7 @@ export async function handleSessionHistoryFrame(input: {
     const revision = store.policy.revision;
     const authorizePath = async (cwd: string) => {
       const current = await readSessionHistoryStore(path);
-      if (
-        !current.policy.enabled ||
-        current.policy.revision !== revision ||
-        (requester.readerProfileId &&
-          !current.policy.readerProfileIds.includes(requester.readerProfileId))
-      ) {
+      if (!current.policy.enabled || current.policy.revision !== revision) {
         throw new HistoryDenied();
       }
       const bindings = await listProjectBindings({ rootDir: input.rootDir });
@@ -211,11 +206,7 @@ export async function handleSessionHistoryFrame(input: {
         throw new HistoryDenied();
       }
     };
-    if (
-      !store.policy.enabled ||
-      (requester.readerProfileId &&
-        !store.policy.readerProfileIds.includes(requester.readerProfileId))
-    ) {
+    if (!store.policy.enabled) {
       throw new HistoryDenied();
     }
     const history = await (input.readHistory ?? readCodexHistory)({

@@ -560,8 +560,11 @@ changes use the [PostgreSQL workflow](../engineering/postgresql.md).
 
 Session history is an optional Computer capability, separate from Activity
 metadata and File access. It is disabled by default. The Computer owner selects
-connected Project folders and permitted reader Agent Profiles for each
-Organization. Removing and reconnecting a folder requires a new grant.
+connected Project folders for each Organization and uses one access switch for
+human reads and all verified owner-delegated agents. There is no per-Agent
+allowlist. Removing and reconnecting a folder requires a new grant. Upgrading
+legacy per-Agent settings leaves access off until the owner enables it again;
+an existing narrow grant must not silently expand.
 
 The first version reads bounded Codex user and assistant messages through the
 source Computer's live Service. Sessions do not need an OpenMeld Agent Profile.
@@ -579,6 +582,11 @@ destination; private source messages are not automatically shared with a Space.
 
 The Computer page holds Session history access and owner-only Access history
 beside File access. Service stores settings and bounded access metadata locally.
+Settings, conversation titles, and recent access load when the page opens.
+Switches save immediately, with confirmed state and inline failure recovery.
+Long lists use the shared Fluid Scroll Area with fades. Conversation bodies load
+only after an explicit Read action, in a bounded reader that clears its body on
+close. There are no separate manage, browse, or reveal-audit gates.
 Computer-scoped inventory queries filter sessions and source coverage before
 pagination. Discovery failure or incomplete coverage must remain visible; an
 empty page does not establish that the Computer has no Codex sessions. Personal

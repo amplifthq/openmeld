@@ -3,7 +3,7 @@ import { openMeldRequestContextSchema } from "./profile-identity";
 import { runtimeCoordinatorExecutionTokenEchoSchema } from "./runtime-coordinator-execution-token";
 import { daemonServiceLaneSchema } from "./service-contract";
 
-export const SESSION_HISTORY_RUNTIME_CAPABILITY = "session-history-v1";
+export const SESSION_HISTORY_RUNTIME_CAPABILITY = "session-history-v2";
 export const SESSION_HISTORY_CAPABILITY_HEADER = "x-openmeld-session-history";
 const id = z.string().trim().min(1).max(512);
 export const sessionHistoryConnectionSchema = z.strictObject({
@@ -13,7 +13,6 @@ export const sessionHistoryConnectionSchema = z.strictObject({
 export const sessionHistoryPolicyInputSchema = z.strictObject({
   enabled: z.boolean(),
   connections: z.array(sessionHistoryConnectionSchema).max(128),
-  readerProfileIds: z.array(id).max(64),
 });
 export const sessionHistoryPolicySchema =
   sessionHistoryPolicyInputSchema.extend({
