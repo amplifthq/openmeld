@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T15:12:40.000Z",
+  "updatedAt": "2026-10-07T05:38:41.987Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -115,7 +115,6 @@
         {
           "id": "gpt-6.1-sol",
           "displayName": "GPT-6.1 Sol",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "low",
@@ -276,7 +275,6 @@
         {
           "id": "claude-sonnet-5-5",
           "displayName": "Claude Sonnet 5.5",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": "2.1.284"
@@ -385,7 +383,6 @@
         {
           "id": "claude-sonnet-5-5[context=300k,reasoning_effort=high]",
           "displayName": "Claude Sonnet 5.5",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -428,6 +425,41 @@
         {
           "id": "gemini-3.8-flash[reasoning_effort=high]",
           "displayName": "Gemini 3.8 Flash",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "gemini-3.7-flash[effort=high]",
+          "displayName": "Gemini 3.7 Flash — High",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "gemini-3.6-flash[effort=high]",
+          "displayName": "Gemini 3.6 Flash — High",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "kimi-k3[reasoning=max]",
+          "displayName": "Kimi K3 — Max",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "glm-5p3[reasoning=high]",
+          "displayName": "GLM 5.3 — High",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "glm-5p3-flash[reasoning=high]",
+          "displayName": "GLM 5.3 Flash — High",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -669,6 +701,22 @@
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
         {
+          "id": "opencode/mistral-large-4",
+          "displayName": "OpenCode Mistral Large 4",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["none", "high"],
+          "minCliVersion": "1.18.35"
+        },
+        {
+          "id": "opencode/exo-free",
+          "displayName": "OpenCode Exo Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": "1.18.35"
+        },
+        {
           "id": "opencode/fledge-alpha-free",
           "displayName": "OpenCode Fledge Alpha Free",
           "badgeLabel": "New",
@@ -693,7 +741,6 @@
         {
           "id": "opencode-go/longcat-2.5-preview-free",
           "displayName": "LongCat 2.5 Preview Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
           "minCliVersion": null
@@ -701,7 +748,6 @@
         {
           "id": "opencode-go/space-bunny",
           "displayName": "Space Bunny",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": "1.18.34"
@@ -779,7 +825,6 @@
         {
           "id": "openai/gpt-6.1-sol",
           "displayName": "GPT-6.1 Sol",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -787,7 +832,6 @@
         {
           "id": "openai/gpt-6.1-sol-fast",
           "displayName": "GPT-6.1 Sol Fast",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -837,7 +881,6 @@
         {
           "id": "opencode/ling-3.1-flash-free",
           "displayName": "OpenCode Ling 3.1 Flash Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
           "minCliVersion": "1.18.34"
@@ -852,7 +895,6 @@
         {
           "id": "opencode/longcat-2.5-preview-free",
           "displayName": "OpenCode LongCat 2.5 Preview Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
           "minCliVersion": "1.18.33"
@@ -1298,7 +1340,7 @@
           "id": "opencode-go/qwen3.7-plus",
           "displayName": "Qwen3.7 Plus",
           "unavailable": false,
-          "supportedReasoningLevels": [],
+          "supportedReasoningLevels": ["high", "max"],
           "minCliVersion": null
         },
         {
@@ -1328,7 +1370,6 @@
         {
           "id": "openai/gpt-6.1-sol-pro",
           "displayName": "GPT-6.1 Sol (Pro mode)",
-          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["image", "text"],
@@ -1343,7 +1384,6 @@
         {
           "id": "openai/gpt-6.1-sol",
           "displayName": "GPT-6.1 Sol",
-          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["image", "text"],
@@ -1358,7 +1398,6 @@
         {
           "id": "anthropic/claude-sonnet-5.5",
           "displayName": "Claude Sonnet 5.5",
-          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["text", "image"],
