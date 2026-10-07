@@ -1300,6 +1300,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       coreReceiverFirst:
         isWorkingFolderRecoveryDiff(changedPaths) ||
+        isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
         deployOrderProfile === "core-worker-response-reader-first" ||
         isInboxSourceTargetReceiverFirstDiff(changedPaths),
       deployOrderProfile,
