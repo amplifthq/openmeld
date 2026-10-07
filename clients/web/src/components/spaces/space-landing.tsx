@@ -45,6 +45,8 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
+import { useWalkthroughSpaceProgress } from "#/components/onboarding/walkthrough/use-walkthrough-space-progress";
+import { useWalkthrough } from "#/components/onboarding/walkthrough/walkthrough-context";
 import { CenterAgentChatHistory } from "#/components/organizations/center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
@@ -1424,12 +1426,17 @@ export function SpaceLanding(input: SpaceLandingInput) {
 		focusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 	});
 	return (
-		<SpaceLandingContent
-			{...input}
-			initialFocusThreadRootSignalId={
-				input.initialFocusThreadRootSignalId ?? target?.rootSignalId
-			}
-		/>
+		<div
+			className="flex h-full min-h-0 w-full flex-col"
+			data-walkthrough="conversation"
+		>
+			<SpaceLandingContent
+				{...input}
+				initialFocusThreadRootSignalId={
+					input.initialFocusThreadRootSignalId ?? target?.rootSignalId
+				}
+			/>
+		</div>
 	);
 }
 
@@ -1440,6 +1447,7 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 	});
 	const state = useSpaceLandingState(input);
 	const { controller } = state;
+	useWalkthroughSpaceProgress(input.spaceId, controller);
 	useSpaceOpenPaint(input.spaceId, spaceOpenFailureMilestone(controller.mode));
 	if (controller.mode === "loading" && input.loadingFallback) {
 		return typeof input.loadingFallback === "function"
@@ -2122,6 +2130,13 @@ function SpaceLandingConversation({
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
+	const tutorial = useWalkthrough();
+	const tutorialActive = Boolean(
+		tutorial?.record &&
+			tutorial.record.spaceId === input.spaceId &&
+			!tutorial.record.paused &&
+			tutorial.record.step !== "complete"
+	);
 	const welcomeRecipients = useMemo(
 		() =>
 			welcomeStep
@@ -2316,6 +2331,9 @@ function SpaceLandingConversation({
 			profileControl={composerProfileControl}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) => {
+				if (tutorialActive && presentation === "banner") {
+					return null;
+				}
 				if (!(controller.isCurrentAccessConfirmed && input.orgSlug)) {
 					return null;
 				}

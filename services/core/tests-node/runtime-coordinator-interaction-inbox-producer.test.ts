@@ -54,7 +54,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
       await harness.query(
         await readFile(
           new URL(
-            "../../../packages/db/postgresql/migrations/0023_ended_inbox_requests.sql",
+            "../../../packages/db/postgresql/migrations/0026_ended_inbox_requests.sql",
             import.meta.url
           ),
           "utf8"
@@ -285,7 +285,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
           title = 'Approval required', preview = 'Old request'`);
         const migration = await readFile(
           new URL(
-            "../../../packages/db/postgresql/migrations/0023_ended_inbox_requests.sql",
+            "../../../packages/db/postgresql/migrations/0026_ended_inbox_requests.sql",
             import.meta.url
           ),
           "utf8"

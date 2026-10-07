@@ -27,6 +27,7 @@ import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
 // Reviewed additions after the frozen D1 journal. These have no source rows.
 const postgresqlOnlyTables = [
+  { name: "first_work_experiences" },
   { name: "cloud_computers" },
   { name: "account_deletion_requests" },
 ];

@@ -5,6 +5,7 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimesResponse,
 } from "@openmeld/schemas/types";
+import { Badge } from "@openmeld/ui/components/badge";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import {
@@ -12,7 +13,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
+import {
+	resolveStatusToneBadgeClassName,
+	resolveStatusToneIndicatorClassName,
+} from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { DesktopTowerIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -42,6 +46,7 @@ import {
 import { startQueryKeys } from "#/query/query-keys";
 
 type CurrentComputerPresentation = {
+	connected?: boolean;
 	attentionLabel?: string;
 	status: ComputerSummaryStatus | null;
 	destination?: string;
@@ -166,7 +171,39 @@ function useCurrentComputerPresentation(
 		? `Open ${deviceLabel} details, ${statusLabel}`
 		: "Connect this Computer";
 
-	return { status, destination, deviceLabel, statusLabel, accessibleLabel };
+	return {
+		status,
+		destination,
+		deviceLabel,
+		statusLabel,
+		accessibleLabel,
+		connected: deviceId ? readiness?.service.connected : false,
+	};
+}
+export function CurrentComputerMenuStatus() {
+	const computer = useCurrentComputer();
+	if (!computer) {
+		return null;
+	}
+	if (
+		computer.status?.tone === "warning" ||
+		computer.status?.tone === "danger"
+	) {
+		return <CurrentComputerAttentionIndicator status={computer.status} />;
+	}
+	if (computer.connected === undefined) {
+		return null;
+	}
+	return (
+		<Badge
+			className={resolveStatusToneBadgeClassName(
+				computer.connected ? "ready" : "muted"
+			)}
+			variant="secondary"
+		>
+			{computer.connected ? "Connected" : "Not connected"}
+		</Badge>
+	);
 }
 export function CurrentComputerToolbarLauncher() {
 	const computer = useCurrentComputer();

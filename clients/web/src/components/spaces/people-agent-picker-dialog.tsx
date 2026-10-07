@@ -40,6 +40,7 @@ export function PeopleAgentPickerDialog(input: {
 	submitLabel: string;
 	emptySelectionLabel?: string;
 	canSubmit: boolean;
+	secondaryAction?: ReactNode;
 	isSubmitting: boolean;
 	selectionDisabled?: boolean;
 	isLoading: boolean;
@@ -70,6 +71,7 @@ export function PeopleAgentPickerDialog(input: {
 		>
 			<DialogContent
 				className="@container flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-2xl"
+				data-walkthrough="people-agent-picker"
 				finalFocus={input.finalFocus}
 				id={input.id}
 			>
@@ -170,16 +172,17 @@ export function PeopleAgentPickerDialog(input: {
 									: `${input.selectedProfileIds.size} selected`}
 							</span>
 							<span className="flex @min-[20rem]:w-auto w-full items-center gap-2">
-								{input.selectedProfileIds.size > 0 && (
-									<Button
-										disabled={input.isSubmitting || input.selectionDisabled}
-										onClick={input.onClear}
-										size="xs"
-										variant="ghost"
-									>
-										Clear
-									</Button>
-								)}
+								{input.secondaryAction ??
+									(input.selectedProfileIds.size > 0 && (
+										<Button
+											disabled={input.isSubmitting || input.selectionDisabled}
+											onClick={input.onClear}
+											size="xs"
+											variant="secondary"
+										>
+											Clear
+										</Button>
+									))}
 								<Button
 									className="min-w-0 @min-[20rem]:flex-none flex-1"
 									disabled={!input.canSubmit || input.isSubmitting}

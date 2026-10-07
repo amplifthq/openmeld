@@ -38,6 +38,7 @@ export type WelcomeJoinableSpace = {
 export type WelcomeJoinableStatus = "loading" | "error" | "ready";
 
 export type WelcomeSpaceScreenProps = {
+	defaultName?: string;
 	onDiscover?: () => void;
 	contextKind?: "organization" | "personal";
 	computerSetupActions?: {
@@ -164,6 +165,7 @@ function WelcomeSpaceModeContent(input: {
 		return (
 			<CreateSpaceForm
 				contextKind={input.props.contextKind ?? "organization"}
+				defaultName={input.props.defaultName}
 				errorMessage={input.props.errorMessage}
 				isPending={input.props.isPending}
 				onCreate={input.props.onCreate}
@@ -184,6 +186,7 @@ function WelcomeSpaceModeContent(input: {
 				icon={<PlusIcon aria-hidden="true" className="size-5 shrink-0" />}
 				onClick={() => input.setMode("create")}
 				title="Create a Space"
+				walkthroughTarget="create-space"
 			/>
 			<SpaceChoiceCard
 				description={input.joinDescription}
@@ -244,13 +247,15 @@ function WelcomeJoinSpaceList(input: {
 }
 
 function CreateSpaceForm(props: {
+	defaultName?: string;
 	contextKind: "organization" | "personal";
 	errorMessage?: string | null;
 	isPending: boolean;
 	onCreate: WelcomeSpaceScreenProps["onCreate"];
 }) {
 	const createStartedRef = useRef(false);
-	const [name, setName] = useState("");
+	const [draftName, setName] = useState<string | null>(null);
+	const name = draftName ?? props.defaultName ?? "";
 	const [visibility, setVisibility] =
 		useState<SpaceOrganizationVisibility>("private");
 	const trimmedName = name.trim();
@@ -288,7 +293,11 @@ function CreateSpaceForm(props: {
 	};
 
 	return (
-		<form className="grid gap-4" onSubmit={handleCreate}>
+		<form
+			className="grid gap-4"
+			data-walkthrough="create-space-form"
+			onSubmit={handleCreate}
+		>
 			<div className="grid gap-2">
 				<Label htmlFor={SPACE_NAME_INPUT_ID}>Name</Label>
 				<Input
@@ -342,6 +351,7 @@ function AddComputerChoiceCard(props: {
 }
 
 function SpaceChoiceCard(props: {
+	walkthroughTarget?: string;
 	title: string;
 	description: string;
 	icon: ReactNode;
@@ -360,6 +370,7 @@ function SpaceChoiceCard(props: {
 		>
 			<button
 				className="flex w-full items-start gap-3 rounded-md border border-transparent p-4 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed"
+				data-walkthrough={props.walkthroughTarget}
 				disabled={props.disabled}
 				onClick={props.onClick}
 				type="button"
