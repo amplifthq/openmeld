@@ -245,8 +245,8 @@ export function SpaceDirectory(input: {
 			id={`spaces-directory-panel-${input.tab === 1 ? 2 : 0}`}
 			role="tabpanel"
 		>
-			<div className="flex h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)]">
-				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
+			<div className="flex min-h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)] py-3">
+				<div className="flex min-h-10 min-w-0 flex-wrap items-center justify-end gap-1">
 					{!discovering && (
 						<FluidNavMenu
 							activeValue={layout}
@@ -566,7 +566,9 @@ function DirectoryGroupLayout(input: {
 		<FluidCardGroup className="px-2">
 			<FluidNavMenu
 				activeValue={null}
-				aria-label={`${input.label} Spaces`}
+				aria-label={
+					input.label === "Spaces" ? "Spaces" : `${input.label} Spaces`
+				}
 				className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] [&_[data-sidebar=menu]]:gap-3"
 			>
 				{input.children}
@@ -875,22 +877,33 @@ function MemberPreview(input: {
 	appearances: ReadonlyMap<string, SpaceMemberAppearance>;
 	orgSlug: string;
 }) {
+	const triggerProps = {
+		"aria-label": `Preview members of ${input.item.spaceName}`,
+		"aria-description":
+			input.item.activeMemberCount === null
+				? undefined
+				: `${input.item.activeMemberCount} members`,
+	};
 	return (
 		<Popover>
 			<PopoverTrigger
 				delay={250}
 				openOnHover
 				render={
-					<Button
-						aria-label={`Preview members of ${input.item.spaceName}`}
-						className={
-							input.layout === "card"
-								? "h-auto max-w-full p-0 hover:bg-transparent"
-								: "max-w-full gap-1 px-0"
-						}
-						size="sm"
-						variant="ghost"
-					/>
+					input.layout === "card" ? (
+						<button
+							{...triggerProps}
+							className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							type="button"
+						/>
+					) : (
+						<Button
+							{...triggerProps}
+							className="max-w-full gap-1 px-0"
+							size="sm"
+							variant="ghost"
+						/>
+					)
 				}
 			>
 				{input.item.memberPreviews?.length ? (
@@ -901,7 +914,17 @@ function MemberPreview(input: {
 						members={input.item.memberPreviews}
 					/>
 				) : (
-					<UsersThreeIcon />
+					<span
+						className={
+							input.layout === "card"
+								? "grid size-24 place-items-center text-muted-foreground"
+								: undefined
+						}
+					>
+						<UsersThreeIcon
+							className={input.layout === "card" ? "size-10" : undefined}
+						/>
+					</span>
 				)}
 			</PopoverTrigger>
 			<PopoverContent className="w-64 rounded-lg" side="top">

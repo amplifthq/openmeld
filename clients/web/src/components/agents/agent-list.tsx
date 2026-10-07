@@ -474,7 +474,7 @@ export function AgentList(input: {
 							{selection.trigger}
 						</div>
 					)}
-					{!input.hideControls && (
+					{!collapsed && (
 						<div
 							className={`flex items-center gap-1 ${search || override ? "" : "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 has-[[data-popup-open]]:opacity-100 has-[input]:opacity-100 [@media(hover:none)]:opacity-100"}`}
 							hidden={collapsed}
@@ -488,25 +488,32 @@ export function AgentList(input: {
 									setPresentation(expandAll ? "grouped" : "expanded");
 								}}
 							/>
-							<DirectorySearch
-								label={`Search ${input.label}`}
-								onChange={(value) => {
-									selection.reset();
-									setSearch(value);
-								}}
-								value={search}
-							/>
-							<AgentListControls
-								items={globallyFiltered}
-								label={`${input.label} settings`}
-								onChange={changeView}
-								onReset={() => {
-									selection.reset();
-									setOverride(null);
-								}}
-								resetValue={{ ...defaults, filters: EMPTY_AGENT_LIST_FILTERS }}
-								value={view}
-							/>
+							{!input.hideControls && (
+								<>
+									<DirectorySearch
+										label={`Search ${input.label}`}
+										onChange={(value) => {
+											selection.reset();
+											setSearch(value);
+										}}
+										value={search}
+									/>
+									<AgentListControls
+										items={globallyFiltered}
+										label={`${input.label} settings`}
+										onChange={changeView}
+										onReset={() => {
+											selection.reset();
+											setOverride(null);
+										}}
+										resetValue={{
+											...defaults,
+											filters: EMPTY_AGENT_LIST_FILTERS,
+										}}
+										value={view}
+									/>
+								</>
+							)}
 						</div>
 					)}
 					{input.collapsible && (

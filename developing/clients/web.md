@@ -218,6 +218,18 @@ competing highlights. Spaces and its contextual sidebar heading always open
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
 Discover, in that order (Discover is absent in personal workspaces).
 
+Your Spaces defaults to Cards and offers Table in the directory toolbar.
+Both presentations consume the same saved sections, ordering, filters,
+membership previews, unread destinations, and current work indicators. Cards
+show up to three member avatars and the remaining member count, retain the
+Space name, access labels and latest-message preview, and open the canonical
+Space destination. Member previews and action menus keep independent targets.
+The existing browser preference store remembers this choice per Human Profile
+and Organization. Direct messages and Discover retain their existing layouts.
+The Agents directory uses the same store to remember grouped versus expanded
+presentation per viewer, Organization, and person. Search and temporary filters
+do not become saved layout preferences.
+
 The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal
 workspaces) and Agent creation route. Its adjacent Filter people menu retains

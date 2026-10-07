@@ -145,6 +145,7 @@ export function SpaceMemberAvatars(input: {
 							profileId={member.profileId}
 							profileName={member.profileName}
 							size={size}
+							variant={grid ? "plain" : undefined}
 						/>
 					)}
 				</span>
