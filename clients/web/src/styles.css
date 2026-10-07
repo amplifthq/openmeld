@@ -644,7 +644,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
    before hydration, so hidden or unavailable rails do not move messages. */
 @media (min-width: 640px) {
   [data-space-history-rail="true"] {
-    --space-history-rail-width: 2rem;
+    --space-history-rail-width: 2.25rem;
   }
   html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     width: calc(100% - var(--space-history-rail-width));
@@ -659,7 +659,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
 .space-history-navigation {
   position: absolute;
   z-index: 25;
-  inset-inline-start: .25rem;
+  inset-inline-start: .5rem;
   top: 50%;
   translate: 0 -50%;
   width: 1.75rem;
@@ -686,7 +686,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
   .space-history-preview { animation: none !important; }
 }
 @media (pointer: coarse) {
-  [data-space-history-rail="true"] { --space-history-rail-width: 3rem; }
+  [data-space-history-rail="true"] { --space-history-rail-width: 3.25rem; }
   .space-history-navigation { top: 3.5rem; bottom: auto; height: auto !important; translate: none; }
   .space-history-touch-trigger { display: grid; place-items: center; width: 44px; height: 44px; }
   .space-history-ticks { display: none; }
