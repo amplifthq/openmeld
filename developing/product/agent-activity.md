@@ -582,11 +582,15 @@ destination; private source messages are not automatically shared with a Space.
 
 The Computer page holds Session history access and owner-only Access history
 beside File access. Service stores settings and bounded access metadata locally.
-Settings, conversation titles, and recent access load when the page opens.
+The compact card shows access status and one Manage access entry. Settings load
+with the page; conversation titles and recent access load when its drawer opens.
+The drawer groups settings, Conversations, and Recent access. Provider names
+belong on conversation rows; the current Codex-only read support is explicit.
 Switches save immediately, with confirmed state and inline failure recovery.
 Long lists use the shared Fluid Scroll Area with fades. Conversation bodies load
 only after an explicit Read action, in a bounded reader that clears its body on
-close. There are no separate manage, browse, or reveal-audit gates.
+close or return to the list. Reading replaces the drawer contents, without a
+nested dialog. There are no separate browse or reveal-audit gates inside it.
 Computer-scoped inventory queries filter sessions and source coverage before
 pagination. Discovery failure or incomplete coverage must remain visible; an
 empty page does not establish that the Computer has no Codex sessions. Personal

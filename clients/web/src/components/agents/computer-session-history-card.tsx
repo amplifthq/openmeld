@@ -19,6 +19,7 @@ import {
 	SheetDescription,
 	SheetHeader,
 	SheetTitle,
+	SheetTrigger,
 } from "@openmeld/ui/components/sheet";
 import { Switch } from "@openmeld/ui/components/switch";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
@@ -34,7 +35,7 @@ type Props = PeopleComputerTarget & {
 	computerId: string;
 	profiles: readonly { openMeldProfileId: string; profileName: string }[];
 };
-function useConversationAccess(input: Props) {
+function useConversationAccess(input: Props, open: boolean) {
 	// Private responses stay in mounted component memory, never the persisted
 	// query cache. Opening the page loads metadata only, not conversation bodies.
 	const [settings, setSettings] = useState<Settings | null>(null);
@@ -126,12 +127,16 @@ function useConversationAccess(input: Props) {
 	);
 	useEffect(() => {
 		loadSettings();
-		loadSessions();
-		loadAudit();
 		return () => {
 			readGeneration.current += 1;
 		};
-	}, [loadSettings, loadSessions, loadAudit]);
+	}, [loadSettings]);
+	useEffect(() => {
+		if (open) {
+			loadSessions();
+			loadAudit();
+		}
+	}, [open, loadSessions, loadAudit]);
 	function closeHistory() {
 		readGeneration.current += 1;
 		setSelected(null);
@@ -226,16 +231,73 @@ function useConversationAccess(input: Props) {
 }
 type State = ReturnType<typeof useConversationAccess>;
 export function ComputerSessionHistoryCard(input: Props) {
-	const state = useConversationAccess(input);
+	const [open, setOpen] = useState(false);
+	const state = useConversationAccess(input, open);
+	let status = "Connecting…";
+	if (state.settingsError) {
+		status = "Unavailable";
+	} else if (state.settings) {
+		status = state.settings.policy.enabled ? "On" : "Off";
+	}
 	return (
-		<Card>
-			<CardContent className="space-y-4 pt-4">
-				<AccessSettings state={state} />
-				<ConversationList state={state} />
-				<AccessLog profiles={input.profiles} state={state} />
-			</CardContent>
-			<ConversationReader state={state} />
-		</Card>
+		<Sheet
+			onOpenChange={(value) => {
+				setOpen(value);
+				if (!value) {
+					state.closeHistory();
+				}
+			}}
+			open={open}
+		>
+			<Card>
+				<CardContent className="flex items-center justify-between gap-4 pt-4">
+					<div className="space-y-1">
+						<CardTitle>Conversation access</CardTitle>
+						<p className="text-muted-foreground text-sm">
+							{status} · Local agent conversations
+						</p>
+					</div>
+					<SheetTrigger render={<Button size="sm" variant="secondary" />}>
+						Manage access
+					</SheetTrigger>
+				</CardContent>
+			</Card>
+			<SheetContent className="data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
+				{state.selected ? (
+					<>
+						<div className="px-4 pt-4 pr-12">
+							<Button
+								onClick={state.closeHistory}
+								size="sm"
+								variant="secondary"
+							>
+								Back to conversations
+							</Button>
+						</div>
+						<ConversationReader state={state} />
+					</>
+				) : (
+					<>
+						<SheetHeader className="pr-12">
+							<SheetTitle>Conversation access</SheetTitle>
+							<SheetDescription>
+								Control what you and your agents can read. Currently supports
+								Codex.
+							</SheetDescription>
+						</SheetHeader>
+						<ScrollArea
+							className="min-h-0 flex-1"
+							contentClassName="space-y-4 p-4"
+							viewportProps={{ "aria-label": "Conversation access details" }}
+						>
+							<AccessSettings state={state} />
+							<ConversationList state={state} />
+							<AccessLog profiles={input.profiles} state={state} />
+						</ScrollArea>
+					</>
+				)}
+			</SheetContent>
+		</Sheet>
 	);
 }
 function AccessSettings({ state }: { state: State }) {
@@ -245,9 +307,7 @@ function AccessSettings({ state }: { state: State }) {
 	return (
 		<section aria-label="Conversation access settings" className="space-y-4">
 			<div className="flex items-center justify-between gap-4">
-				<CardTitle id="conversation-access-label">
-					Conversation access
-				</CardTitle>
+				<CardTitle id="conversation-access-label">Allow access</CardTitle>
 				<Switch
 					aria-describedby="conversation-access-help"
 					aria-labelledby="conversation-access-label"
@@ -262,7 +322,8 @@ function AccessSettings({ state }: { state: State }) {
 				className="text-muted-foreground text-sm"
 				id="conversation-access-help"
 			>
-				Read Codex conversations yourself or through agents acting for you.
+				Only you and agents acting on your requests. Other members do not get
+				access.
 			</p>
 			{saving || !(settings || settingsError) ? (
 				<output className="block text-muted-foreground text-xs">
@@ -366,12 +427,9 @@ function ConversationList({ state }: { state: State }) {
 	} = state;
 	const notice = inventoryNotice(coverage);
 	return (
-		<section
-			aria-label="Codex conversations"
-			className="space-y-2 border-t pt-4"
-		>
+		<section aria-label="Conversations" className="space-y-2 border-t pt-4">
 			<div className="flex items-center justify-between gap-3">
-				<h3 className="font-medium text-sm">Codex conversations</h3>
+				<h3 className="font-medium text-sm">Conversations</h3>
 				<Button
 					disabled={sessionsLoading}
 					onClick={() => loadSessions()}
@@ -456,7 +514,7 @@ function ConversationRow({
 					{session.nativeSessionTitle ?? "Untitled conversation"}
 				</p>
 				<p className="text-muted-foreground text-xs">
-					{session.project.name}
+					Codex · {session.project.name}
 					{session.dataState === "stale" ? " · Last known conversation" : ""}
 					{settings?.policy.enabled && !allowed ? " · Project access off" : ""}
 				</p>
@@ -580,76 +638,67 @@ function AccessLogRow({
 	);
 }
 function ConversationReader({ state }: { state: State }) {
-	const { selected, history, reading, readError, closeHistory, read } = state;
+	const { selected, history, reading, readError, read } = state;
 	return (
-		<Sheet
-			onOpenChange={(open) => {
-				if (!open) {
-					closeHistory();
-				}
-			}}
-			open={selected !== null}
-		>
-			<SheetContent className="w-full sm:max-w-xl">
-				<SheetHeader className="pr-12">
-					<SheetTitle>
-						{selected?.nativeSessionTitle ?? "Conversation"}
-					</SheetTitle>
-					<SheetDescription>
-						{selected?.project.name} · Read-only Codex conversation
-					</SheetDescription>
-				</SheetHeader>
-				<ScrollArea
-					className="min-h-0 flex-1"
-					contentClassName="space-y-5 p-4"
-					viewportProps={{ "aria-label": "Conversation messages" }}
-				>
-					<p className="text-muted-foreground text-xs">
-						Only user and assistant messages are shown. Tool output, internal
-						reasoning, and attachments are omitted.
+		<>
+			<SheetHeader className="pr-12">
+				<SheetTitle>
+					{selected?.nativeSessionTitle ?? "Conversation"}
+				</SheetTitle>
+				<SheetDescription>
+					{selected?.project.name} · Read-only Codex conversation
+				</SheetDescription>
+			</SheetHeader>
+			<ScrollArea
+				className="min-h-0 flex-1"
+				contentClassName="space-y-5 p-4"
+				viewportProps={{ "aria-label": "Conversation messages" }}
+			>
+				<p className="text-muted-foreground text-xs">
+					Only user and assistant messages are shown. Tool output, internal
+					reasoning, and attachments are omitted.
+				</p>
+				{history?.messages.map((message, index) => (
+					<div
+						className="space-y-2"
+						key={`${selected?.nativeSessionId}/${index}`}
+					>
+						<p className="font-medium text-xs">
+							{message.role === "user" ? "You" : "Codex"}
+						</p>
+						<p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+							{message.text}
+							{message.truncated ? "\n[Message shortened]" : ""}
+						</p>
+					</div>
+				))}
+				{history?.messages.length === 0 ? (
+					<p className="text-muted-foreground text-sm">
+						No user or assistant messages in this conversation.
 					</p>
-					{history?.messages.map((message, index) => (
-						<div
-							className="space-y-2"
-							key={`${selected?.nativeSessionId}/${index}`}
-						>
-							<p className="font-medium text-xs">
-								{message.role === "user" ? "You" : "Codex"}
-							</p>
-							<p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-								{message.text}
-								{message.truncated ? "\n[Message shortened]" : ""}
-							</p>
-						</div>
-					))}
-					{history?.messages.length === 0 ? (
-						<p className="text-muted-foreground text-sm">
-							No user or assistant messages in this conversation.
-						</p>
-					) : null}
-					{reading ? (
-						<output className="block text-muted-foreground text-sm">
-							Reading from this computer…
-						</output>
-					) : null}
-					{readError ? (
-						<p className="text-destructive text-sm" role="alert">
-							{readError}
-						</p>
-					) : null}
-					{history && history.nextOffset !== null && selected ? (
-						<Button
-							disabled={reading}
-							onClick={() => read(selected, history.nextOffset ?? 0)}
-							size="sm"
-							variant="secondary"
-						>
-							Load more messages
-						</Button>
-					) : null}
-				</ScrollArea>
-			</SheetContent>
-		</Sheet>
+				) : null}
+				{reading ? (
+					<output className="block text-muted-foreground text-sm">
+						Reading from this computer…
+					</output>
+				) : null}
+				{readError ? (
+					<p className="text-destructive text-sm" role="alert">
+						{readError}
+					</p>
+				) : null}
+				{history && history.nextOffset !== null && selected ? (
+					<Button
+						disabled={reading}
+						onClick={() => read(selected, history.nextOffset ?? 0)}
+						size="sm"
+						variant="secondary"
+					>
+						Load more messages
+					</Button>
+				) : null}
+			</ScrollArea>
+		</>
 	);
 }
 function errorText(error: unknown) {
