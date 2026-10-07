@@ -2138,8 +2138,9 @@ belong in the selected tool contract instead of repeated always-on recipes.
 Observation progress compares the full result by default. A read owner may
 project its progress value to exclude response-envelope metadata, without
 changing the evidence returned to the model. The Organization directory excludes
-only its generated-at timestamp; member activity, readiness observations,
-pagination and all other facts still count. Never recursively strip timestamps
+its page/readiness generation timestamps and Core's projection timestamp for
+withheld, not-requested route evidence. Member activity, actual readiness
+observations, pagination and all other facts still count. Never recursively strip timestamps
 or suppress changes to business evidence across the catalog.
 The generated Code Mode catalog still contains every active direct tool,
 and every direct or inner call re-enters the same

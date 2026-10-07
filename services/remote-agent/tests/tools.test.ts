@@ -233,6 +233,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       source: "not_checked",
     };
     teamReadiness.primaryBinding = null;
+    teamReadiness.wakeRouteEvidence = {
+      observedAt: ISO_NOW,
+      reasonCode: "not_requested",
+      status: "unavailable",
+    };
     const directory = organizationDirectoryResponseSchema.parse({
       ...organizationDirectoryResponse(),
       members: Array.from({ length: 19 }, (_, index) => ({
@@ -304,6 +309,17 @@ describe("remote agent OpenMeld tool catalog", () => {
         progressValue?.({
           ...page,
           generatedAt: "2026-10-07T14:00:00.000Z",
+          agentProfiles: page.agentProfiles.map((agent) => ({
+            ...agent,
+            readiness: {
+              ...agent.readiness,
+              generatedAt: "2026-10-07T14:00:00.000Z",
+              wakeRouteEvidence: {
+                ...agent.readiness.wakeRouteEvidence,
+                observedAt: "2026-10-07T14:00:00.000Z",
+              },
+            },
+          })),
         })
       );
       expect(progressValue?.(page)).not.toEqual(
