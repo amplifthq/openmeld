@@ -25,6 +25,7 @@ import {
   pluginConnectionContinuationResponseSchema,
 } from "@openmeld/schemas";
 import type {
+  ConnectorConnection,
   ConnectorCredentialConnectBody,
   ConnectorService,
   CreateConnectorAppRequestBody,
@@ -769,16 +770,40 @@ async function reconcileConnectorConnections(
       openConnector,
     });
   }
-  return await c.var.coreRpc.reconcileCurrentOrganizationConnectorConnections({
-    availableConnectionNames: connections
-      .filter(
-        (connection) =>
-          connection.service === input.service && connection.configured
-      )
-      .map((connection) => connection.connectionName),
-    context: buildCoreRpcContext(c),
-    expectedOrganizationId: input.expectedOrganizationId,
-    service: input.service,
+  const result =
+    await c.var.coreRpc.reconcileCurrentOrganizationConnectorConnections({
+      availableConnectionNames: connections
+        .filter(
+          (connection) =>
+            connection.service === input.service && connection.configured
+        )
+        .map((connection) => connection.connectionName),
+      context: buildCoreRpcContext(c),
+      expectedOrganizationId: input.expectedOrganizationId,
+      service: input.service,
+    });
+  return {
+    ...result,
+    connections: projectConnectionHealth(c, result.connections, connections),
+  };
+}
+
+function projectConnectionHealth(
+  c: Context<HonoBindings>,
+  registered: ConnectorConnection[],
+  available: OpenConnectorConnection[]
+) {
+  // Published clients use strict schemas. Only opted-in clients receive the new field.
+  if (c.req.query("includeConnectionHealth") !== "true") {
+    return registered;
+  }
+  return registered.map((connection) => {
+    const health = available.find(
+      (item) =>
+        item.connectionName === connection.connectionName &&
+        item.service === connection.service
+    )?.health;
+    return health ? { ...connection, health } : connection;
   });
 }
 
@@ -985,7 +1010,11 @@ async function reconcileCatalogConnections(
   );
   const identity = stored;
   return {
-    connections: serviceResponses.flatMap((response) => response.connections),
+    connections: projectConnectionHealth(
+      c,
+      serviceResponses.flatMap((response) => response.connections),
+      connectorConnections
+    ),
     currentUserId: identity.currentUserId,
     organizationId: identity.organizationId,
   };

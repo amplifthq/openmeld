@@ -170,7 +170,7 @@ export async function updateAgentProfileControllerPermissionMode(input: {
 	agentControllerPermissionMode: AgentControllerPermissionMode;
 	context: AgentProfileEditActionContext;
 }) {
-	await runAgentProfileBindingUpdate({
+	return await runAgentProfileBindingUpdate({
 		context: input.context,
 		matchesRequestedBinding: (binding) =>
 			binding.agentControllerPermissionMode ===
@@ -358,6 +358,7 @@ async function runAgentProfileBindingUpdate(input: {
 		binding: response.binding,
 		context: input.context,
 	});
+	return response.binding;
 }
 
 async function commitAgentProfileBindingUpdate(input: {

@@ -1,6 +1,5 @@
 import { OpenMeldWordmark } from "@openmeld/ui/components/openmeld-wordmark";
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
-import { gitConfig } from "./shared";
 
 export function baseOptions(): BaseLayoutProps {
   return {
@@ -13,9 +12,13 @@ export function baseOptions(): BaseLayoutProps {
       ),
     },
     links: [
-      { text: "Website", url: import.meta.env.VITE_WEBSITE_URL },
+      { text: "Guides", url: "/docs" },
+      { text: "Downloads", url: "/docs/start/downloads" },
+      {
+        text: "Changelog",
+        url: `${import.meta.env.VITE_WEBSITE_URL}/changelog`,
+      },
       { text: "Open app", url: import.meta.env.VITE_APP_URL },
     ],
-    githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };
 }

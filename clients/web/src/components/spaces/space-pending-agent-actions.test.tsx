@@ -14,7 +14,7 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	partitionSpacePendingAgentActions,
-	resolveSpacePermissionModeShortcut,
+	resolveSpacePermissionModeOptions,
 } from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 
@@ -104,16 +104,17 @@ describe("SpacePendingAgentActions", () => {
 						title: "Allow the second command?",
 					}),
 				]}
+				onPermissionModeUpdate={vi.fn()}
 				onRespond={vi.fn().mockResolvedValue(undefined)}
-				permissionModeShortcutsByProfileId={createPermissionModeShortcuts()}
+				permissionModeOptionsByProfileId={createPermissionModeOptions()}
 			/>
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "2 actions need you" }));
 		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
 		fireEvent.click(
-			screen.getByRole("checkbox", {
-				name: "Also use Auto mode for future requests",
+			screen.getByRole("radio", {
+				name: "Auto mode",
 			})
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
@@ -125,8 +126,8 @@ describe("SpacePendingAgentActions", () => {
 				.getAttribute("aria-checked")
 		).toBe("false");
 		expect(
-			screen.queryByRole("checkbox", {
-				name: "Also use Auto mode for future requests",
+			screen.queryByRole("radio", {
+				name: "Auto mode",
 			})
 		).toBeNull();
 
@@ -224,29 +225,37 @@ describe("SpacePendingAgentActions", () => {
 		expect(document.activeElement).toBe(trigger);
 	});
 
-	it("resumes the Wake before starting the optional background permission-mode save", async () => {
-		let resolveApproval!: () => void;
-		const approval = new Promise<void>((resolve) => {
-			resolveApproval = resolve;
+	it("saves the mode before releasing approval and sends its canonical Binding reference", async () => {
+		let resolveSave!: (value: {
+			bindingId: string;
+			mode: "claude-code:auto";
+		}) => void;
+		const saved = new Promise<{
+			bindingId: string;
+			mode: "claude-code:auto";
+		}>((resolve) => {
+			resolveSave = resolve;
 		});
-		const onRespond = vi.fn(() => approval);
-		const onPermissionModeUpdate = vi.fn();
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+		const onPermissionModeUpdate = vi.fn(() => saved);
 
 		render(
 			<SpacePendingAgentActions
 				items={[createPermissionItem({ interactionId: "interaction-mode" })]}
 				onPermissionModeUpdate={onPermissionModeUpdate}
 				onRespond={onRespond}
-				permissionModeShortcutsByProfileId={
+				permissionModeOptionsByProfileId={
 					new Map([
 						[
 							"agent-runner",
-							{
-								description:
-									"Let Claude Code automatically run actions it considers safe.",
-								label: "Auto mode",
-								permissionMode: "claude-code:auto" as const,
-							},
+							[
+								{
+									description:
+										"Let Claude Code automatically run actions it considers safe.",
+									label: "Auto mode",
+									permissionMode: "claude-code:auto" as const,
+								},
+							],
 						],
 					])
 				}
@@ -256,25 +265,116 @@ describe("SpacePendingAgentActions", () => {
 		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
 		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
 		fireEvent.click(
-			screen.getByRole("checkbox", {
-				name: "Also use Auto mode for future requests",
+			screen.getByRole("radio", {
+				name: "Auto mode",
 			})
 		);
 		fireEvent.click(
 			screen.getByRole("button", { name: "Approve and continue" })
 		);
 
-		expect(onRespond).toHaveBeenCalledTimes(1);
-		expect(onPermissionModeUpdate).not.toHaveBeenCalled();
-		resolveApproval();
+		expect(onRespond).not.toHaveBeenCalled();
+		expect(onPermissionModeUpdate).toHaveBeenCalledTimes(1);
+		const reference = {
+			bindingId: "binding-1",
+			mode: "claude-code:auto" as const,
+		};
+		resolveSave(reference);
 
 		expect(
 			await screen.findByText("Waiting for @Runner to continue.")
 		).toBeTruthy();
+		expect(onRespond).toHaveBeenCalledWith(
+			expect.objectContaining({
+				response: {
+					kind: "permission",
+					optionId: "allow-once",
+					permissionModeUpdate: reference,
+				},
+			})
+		);
 		expect(onPermissionModeUpdate).toHaveBeenCalledWith({
 			permissionMode: "claude-code:auto",
 			profileId: "agent-runner",
 		});
+	});
+
+	it("requires Full access confirmation and keeps approval pending when saving fails", async () => {
+		const onRespond = vi.fn();
+		const onPermissionModeUpdate = vi
+			.fn()
+			.mockRejectedValue(new Error("Permission settings could not be saved."));
+		render(
+			<SpacePendingAgentActions
+				items={[createPermissionItem({ interactionId: "full-access" })]}
+				onPermissionModeUpdate={onPermissionModeUpdate}
+				onRespond={onRespond}
+				permissionModeOptionsByProfileId={
+					new Map([
+						[
+							"agent-runner",
+							[
+								{
+									label: "Full access",
+									permissionMode: "codex:fullAccess",
+									description: "Applies to the next task.",
+									requiresExplicitConfirmation: true,
+								},
+							],
+						],
+					])
+				}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Full access" }));
+		const submit = screen.getByRole("button", { name: "Approve and continue" });
+		expect((submit as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(
+			screen.getByRole("checkbox", {
+				name: "I trust this Agent to use Full access.",
+			})
+		);
+		fireEvent.click(submit);
+		expect(
+			await screen.findByText("Permission settings could not be saved.")
+		).toBeTruthy();
+		expect(onRespond).not.toHaveBeenCalled();
+		expect((submit as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	it.each([
+		"older Service",
+		"missing edit handler",
+	])("does not offer mode updates for %s", (reason) => {
+		const item = createPermissionItem({ interactionId: "legacy-service" });
+		if (
+			reason === "older Service" &&
+			item.pendingInteraction?.request?.kind === "permission"
+		) {
+			item.pendingInteraction.request.supportsPermissionModeUpdate = undefined;
+		}
+		render(
+			<SpacePendingAgentActions
+				items={[item]}
+				onPermissionModeUpdate={
+					reason === "missing edit handler" ? undefined : vi.fn()
+				}
+				onRespond={vi.fn()}
+				permissionModeOptionsByProfileId={createPermissionModeOptions()}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		expect(screen.queryByRole("radio", { name: "Auto mode" })).toBeNull();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Approve and continue",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
 	});
 
 	it("keeps the next request actionable after the previous request was submitted", async () => {
@@ -431,38 +531,40 @@ describe("SpacePendingAgentActions", () => {
 	});
 });
 
-describe("resolveSpacePermissionModeShortcut", () => {
+describe("resolveSpacePermissionModeOptions", () => {
 	it("uses the controller-native low-interruption mode and skips an already-saved mode", () => {
 		expect(
-			resolveSpacePermissionModeShortcut({
+			resolveSpacePermissionModeOptions({
 				agentControllerPermissionMode: "claude-code:default",
 				agentControllerRef: "builtin:claude-code",
 			})
-		).toMatchObject({
-			label: "Auto mode",
-			permissionMode: "claude-code:auto",
-		});
+		).toMatchObject([
+			{
+				label: "Auto mode",
+				permissionMode: "claude-code:auto",
+			},
+		]);
 		expect(
-			resolveSpacePermissionModeShortcut({
+			resolveSpacePermissionModeOptions({
 				agentControllerPermissionMode: "claude-code:auto",
 				agentControllerRef: "builtin:claude-code",
 			})
-		).toBeNull();
+		).toEqual([]);
 	});
 
 	it("does not invent a generic permission mode for OpenCode or unknown controllers", () => {
 		expect(
-			resolveSpacePermissionModeShortcut({
+			resolveSpacePermissionModeOptions({
 				agentControllerPermissionMode: undefined,
 				agentControllerRef: "builtin:opencode",
 			})
-		).toBeNull();
+		).toEqual([]);
 		expect(
-			resolveSpacePermissionModeShortcut({
+			resolveSpacePermissionModeOptions({
 				agentControllerPermissionMode: undefined,
 				agentControllerRef: "builtin:future-controller",
 			})
-		).toBeNull();
+		).toEqual([]);
 	});
 });
 
@@ -555,6 +657,7 @@ function createPermissionItem(input: {
 					expiresAtMs: Date.UTC(2026, 7, 30),
 					interactionId: input.interactionId,
 					kind: "permission",
+					supportsPermissionModeUpdate: true,
 					options: [
 						{
 							intent: "allow_once",
@@ -602,16 +705,18 @@ function createPermissionItem(input: {
 	};
 }
 
-function createPermissionModeShortcuts() {
+function createPermissionModeOptions() {
 	return new Map([
 		[
 			"agent-runner",
-			{
-				description:
-					"Let Claude Code automatically run actions it considers safe.",
-				label: "Auto mode",
-				permissionMode: "claude-code:auto" as const,
-			},
+			[
+				{
+					description:
+						"Let Claude Code automatically run actions it considers safe.",
+					label: "Auto mode",
+					permissionMode: "claude-code:auto" as const,
+				},
+			],
 		],
 	]);
 }

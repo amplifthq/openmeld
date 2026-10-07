@@ -143,7 +143,7 @@ describe("public agent failure reason mapping", () => {
         "execution_context.custom_config_file_access_unverified"
       )
     ).toBe(
-      "OpenMeld could not verify this task's file-access boundary with Custom (config.toml), so the task did not start. Choose a supported permission mode in this Agent's settings, then try again."
+      "OpenMeld could not verify file-access limits with this Agent's previous permission settings, so the task did not start. Choose Ask for approval, Approve for me, or Full access in this Agent's settings, then try again."
     );
   });
   it("links a missing Claude project container to Agent setup", () => {
@@ -505,6 +505,13 @@ describe("public agent failure reason mapping", () => {
   });
 
   it("maps exact Usage exhaustion without exposing provider wording", () => {
+    expect(resolvePublicAgentAvailabilityCopy("usage_exhausted")).toMatchObject(
+      {
+        availabilityBadgeLabel: "Usage Limit reached",
+        availabilitySummary:
+          "This agent reached a Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+      }
+    );
     expect(resolveMappedPublicAgentFailureReason("usage_exhausted")).toBe(
       "This agent reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again."
     );

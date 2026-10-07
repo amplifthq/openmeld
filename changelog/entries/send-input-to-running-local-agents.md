@@ -1,5 +1,8 @@
 ---
 id: send-input-to-running-local-agents
+publishedAt: 2026-10-07
+release: v0.3.246
+evidence: ["pr:1540","commit:28242f81d13293ddb3154ac27fe36137f4cef7eb","workflow:37512193993","dispatch:8e50474d-da2c-4d3d-9a60-15e57e952212"]
 title: Send extra instructions while Claude Code is working
 kind: improved
 areas: ["agents", "spaces", "openmeld-service"]

@@ -1465,6 +1465,40 @@ describe("OpenMeld Core", () => {
       expect(result.safeContext).toEqual({});
     }
   });
+  it("reads entry participation from current Space membership after authorization", async () => {
+    const spaceId = await createSpace({ accessMode: "public" });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const context = createRpcContext({
+      requestId: "entry-participation",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    expect(await stub.rpcGetEntryAccess({ spaceId, context })).toMatchObject({
+      meta: { spaceId, accessMode: "public" },
+      activeMember: true,
+    });
+    expect(
+      await stub.rpcGetEntryAccess({
+        spaceId,
+        spaceAccess: createAnonymousViewerSpaceAccessContext({
+          spaceId,
+          requestId: "entry-anonymous",
+        }),
+      })
+    ).toMatchObject({ activeMember: false });
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE space_members SET status = 'removed' WHERE owner_user_id_snapshot = ?",
+        "owner-test-default"
+      );
+    });
+    expect(await stub.rpcGetEntryAccess({ spaceId, context })).toMatchObject({
+      activeMember: false,
+    });
+  });
   it("routes Wake Stop POST requests to a typed response instead of 404", async () => {
     const spaceId = await createSpace();
     const response = await fetchWithOpenMeldAuth(

@@ -643,6 +643,7 @@ export function createExecutionHostRuntime(input: {
         input.onWorkStateChange?.(false);
       }
       handleExecutionHostFrame({
+        readRouteByProfileId: () => routeCatalogState.routeByProfileId,
         computerFileAccessStorePath,
         contextStore,
         currentSocketRef,

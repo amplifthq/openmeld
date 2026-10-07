@@ -1052,6 +1052,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isWorkingFolderRecoveryDiff(input.changedPaths) &&
+      !input.coreCurrentCliProjection &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isPersonalCloudComputerDiff(input.changedPaths) &&
       !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
@@ -1154,6 +1155,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isWorkingFolderRecoveryDiff(input.changedPaths) &&
+    !input.coreCurrentCliProjection &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPersonalCloudComputerDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
@@ -1298,6 +1300,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       coreReceiverFirst:
         isWorkingFolderRecoveryDiff(changedPaths) ||
+        isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
+        deployOrderProfile === "core-worker-response-reader-first" ||
         isInboxSourceTargetReceiverFirstDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
@@ -1556,6 +1560,8 @@ function resolveProductionDeployScopeOrder(
       isWorkingFolderRecoveryDiff(changedPaths) ||
       isNpmSetupArtifactDiff(changedPaths) ||
       isRemoteAiUsageDiff(changedPaths) ||
+      isCenterAgentEvidenceDiff(changedPaths) ||
+      isSpaceMessageSearchReceiverFirstDiff(changedPaths) ||
       isInboxNotificationObservationDiff(changedPaths)
     )
   ) {
@@ -1623,6 +1629,9 @@ function resolveProductionDeployOrderProfile(
       ),
       taskInboxRetired
     );
+    if (otherProfile === "core-worker-response-reader-first") {
+      return otherProfile;
+    }
     if (otherProfile !== "default-auth-receiver-first") {
       throw new Error(
         `Space message search/evidence receiver order conflicts with ${otherProfile}; review and split incompatible releases.`
@@ -2399,6 +2408,31 @@ function isReviewedProviderConnectionMissingResponseAddition(input) {
   }
 }
 
+function isWorkspaceProxyExportOnlyChange(input) {
+  if (!(input.base && input.sourceSha)) {
+    return false;
+  }
+  try {
+    const file = "services/remote-agent/.flue/cloudflare.ts";
+    const before = input.readGitFile(input.base, file);
+    const after = input.readGitFile(input.sourceSha, file);
+    return (
+      before !== after &&
+      after
+        .replace(
+          'export { WorkspaceServiceProxy } from "@cloudflare/computer";',
+          'export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";'
+        )
+        .replace(
+          'export { WorkspaceProxy } from "../flue-adapter/computer-workspace-proxy";\n',
+          ""
+        ) === before
+    );
+  } catch {
+    return false;
+  }
+}
+
 function resolveProductionReleaseContext(input) {
   const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
   const sourceSha = input.sourceSha ?? readHeadSha();
@@ -2437,6 +2471,11 @@ function resolveProductionReleaseContext(input) {
       (file) =>
         file !== "services/remote-agent/.flue/cloudflare.ts" &&
         file !== "services/remote-agent/.flue/agents/center-agent.ts"
+    );
+  }
+  if (isWorkspaceProxyExportOnlyChange(compatibilityContext)) {
+    compatibilityChangedPaths = compatibilityChangedPaths.filter(
+      (file) => file !== "services/remote-agent/.flue/cloudflare.ts"
     );
   }
   const taskInboxRetired = inspectTaskInboxRetirement({
@@ -2491,6 +2530,20 @@ function describeProductionReleaseImpact(context) {
 // affected components cannot safely be deployed together. Only the planner
 // and stage admission own that ordering decision.
 export function buildProductionReleaseImpact(input) {
+  if (["website", "docs"].includes(input.componentScope)) {
+    const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
+    return {
+      changedPaths,
+      scopes: resolveAutomaticReleaseScopes({
+        affectedPackages:
+          input.affectedPackages ?? resolveAffectedPackages(changedPaths),
+        changedPaths,
+      }).filter((scope) => scope === input.componentScope),
+      compatibilityDependencies: [],
+      compatibilityBridges: [],
+      compatibilityReceiverWitnesses: [],
+    };
+  }
   return describeProductionReleaseImpact(
     resolveProductionReleaseContext(input)
   );
@@ -2561,6 +2614,8 @@ export function buildProductionReleasePlan(input) {
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
+      coreCurrentCliProjection:
+        deployOrderProfile === "core-worker-response-reader-first",
       databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
       changedPaths,
       releaseSha: sourceSha,
@@ -2568,6 +2623,8 @@ export function buildProductionReleasePlan(input) {
       taskInboxRetired,
     }),
     verifySteps: buildProductionVerifyStepSpecs({
+      coreCurrentCliProjection:
+        deployOrderProfile === "core-worker-response-reader-first",
       changedPaths,
       scopes,
       taskInboxRetired,

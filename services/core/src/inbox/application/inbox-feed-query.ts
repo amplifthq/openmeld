@@ -6,8 +6,9 @@ import { inboxMentionSql } from "./inbox-attention-predicates";
 import {
   currentInboxAgentFactExistsSql,
   currentInboxSourceFactsSql,
+  INBOX_FEED_PERSONAL_AGENTS_CTE,
 } from "./inbox-current-source-facts";
-import { INBOX_ATTENTION_PRESENTATION_FILTER } from "./inbox-service";
+import { inboxAttentionPresentationFilterSql } from "./inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
 export type InboxFeedScope = {
@@ -37,18 +38,18 @@ export function inboxFeedCte(
       scope.throughRowId,
       ...(scope.snapshotId ? [scope.snapshotId] : []),
     ],
-    sql: `WITH source_rows AS (
+    sql: `WITH ${INBOX_FEED_PERSONAL_AGENTS_CTE}, source_rows AS (
       SELECT id, organization_id, recipient_user_id, source_kind,
         source_target_json, source_facts_json, kind, attention, importance,
         read_at_ms, resolution_status, occurred_at_ms
       FROM "openmeld"."inbox_items"
       WHERE (organization_id = $1 OR organization_id IS NULL) AND recipient_user_id = $2 AND cleared_at_ms IS NULL AND sequence <= $3
         ${scope.snapshotId ? 'AND EXISTS (SELECT 1 FROM "openmeld"."inbox_feed_snapshot_members" WHERE snapshot_id = $4 AND item_id = inbox_items.id)' : ""}
-        AND ${buildCurrentInboxSourceAccessSql("inbox_items", canManageOrganization)}
-        AND ${INBOX_ATTENTION_PRESENTATION_FILTER}
+        AND ${buildCurrentInboxSourceAccessSql("inbox_items", canManageOrganization, true)}
+        AND ${inboxAttentionPresentationFilterSql(true)}
     ), classified AS ${materializeClassification ? "MATERIALIZED" : "NOT MATERIALIZED"} (
       SELECT *,
-        ${inboxMentionSql()} AS is_mention,
+        ${inboxMentionSql(true)} AS is_mention,
         (coalesce(jsonb_array_length((source_facts_json)::jsonb #> '{agentProfileIds}'), 0) > 0
           OR kind IN ('agent_reply', 'agent_interaction', 'center_agent_update', 'center_agent_task', 'wake_outcome')
           OR ((source_target_json)::jsonb #>> '{kind}') IN ('agent_profile', 'agent_interaction', 'center_agent', 'center_agent_task')) AS is_agent,
@@ -58,7 +59,7 @@ export function inboxFeedCte(
           THEN 'review' ELSE 'action' END ELSE NULL END AS request_category,
         CASE WHEN attention = 'action_required' AND resolution_status = 'open' AND importance = 'urgent' THEN 0
           WHEN attention = 'update' AND read_at_ms IS NULL AND (importance = 'urgent'
-            OR ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds")}) THEN 0
+            OR ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds", true)}) THEN 0
           WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 2 END AS priority_rank,
         CASE WHEN source_kind = 'space_signal' AND attention = 'update'
           AND kind IN ('space_message', 'space_mention', 'space_reference', 'agent_reply')
@@ -176,7 +177,7 @@ export function inboxFeedRowsSql(
       anchors.section_rank, anchors.item_count, anchors.unread_count,
       anchors.latest_occurred_at_ms, anchors.request_category,
       anchors.conversation_count,
-      ${currentInboxSourceFactsSql("items")} AS current_source_facts
+      ${currentInboxSourceFactsSql("items", true)} AS current_source_facts
     FROM anchors JOIN "openmeld"."inbox_items" AS items ON items.id = anchors.id
   ) SELECT page.*, to_jsonb(feed_counts) AS feed_counts
     FROM feed_counts LEFT JOIN page ON true

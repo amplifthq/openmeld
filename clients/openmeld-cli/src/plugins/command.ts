@@ -102,6 +102,10 @@ function renderRequestAuthorization(
 }
 
 function renderPluginResponse(response: PluginActionResponse) {
+  if (response.kind === "native_connection") {
+    outLine(JSON.stringify(response, null, 2));
+    return;
+  }
   if (response.kind === "authorization_required") {
     renderRequestAuthorization(response);
     return;

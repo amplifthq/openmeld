@@ -4,7 +4,7 @@ import { parseAsStringLiteral } from "nuqs";
 const PAGE_TAB_OPTIONS = { history: "push", scroll: false } as const;
 
 export const routineScopeParser = parseAsStringLiteral(["personal", "team"])
-	.withDefault("personal")
+	.withDefault("team")
 	.withOptions(PAGE_TAB_OPTIONS);
 export const fileViewParser = parseAsStringLiteral([
 	"team",

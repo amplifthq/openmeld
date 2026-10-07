@@ -519,8 +519,10 @@ stored on the Binding. It tells OpenMeld how to launch the selected Agent Contro
 for this Agent Profile using the controller's native permission model. Claude
 Code uses its `--permission-mode` values (`default`, `acceptEdits`, `plan`,
 `auto`, `dontAsk`, `bypassPermissions`). Codex uses its own permission modes
-(`Ask for approval`, `Approve for me`, `Full access`, and
-`Custom (config.toml)`) backed by sandbox, approval, and config settings. The
+(`Ask for approval`, `Approve for me`, and `Full access`) backed by sandbox
+and approval settings. Existing Custom bindings keep their native configuration
+and display as `Previous settings` until their owner selects a current mode;
+Custom is no longer offered in permission pickers. The
 labels and execution flags must stay controller-native, because Claude Code,
 Codex, Grok Build, and future controllers use different permission names and
 enforcement models. Grok Build uses its native `default`, `acceptEdits`, `plan`,
@@ -559,6 +561,31 @@ convergence after an accepted Binding write must not turn that saved write into
 a visible failure. Web shows the saved outcome, refreshes canonical Core
 readiness, and lets that readiness projection decide whether the Agent Profile
 is Available, Checking, Offline, or Unavailable.
+
+Codex app-server versions at or above `0.153.0-alpha.4` can switch the active
+turn's reviewer between Ask for approval and Approve for me. OpenMeld uses
+`turn/settings/update` and requires its `applied` acknowledgement. Full access
+changes the sandbox and approval policy; it remains a next-task setting. A
+running `turn/start` call does not replace that turn's sandbox. OpenMeld does
+not interrupt and replay commands to simulate a live sandbox change. Legacy
+Custom configurations also stay launch-only because their native policy is not
+known from the saved mode name. Claude SDK sessions permit an explicit owner
+switch to bypass permissions after launch, except in repair execution. Cursor
+ACP supports live Default, Ask, and Plan transitions; Auto review and Force
+remain launch-only on this transport.
+
+Pending approvals remain explicit decisions. On a Service that advertises
+permission-mode update sequencing, the owner can choose a mode in the approval
+card; Full access requires explicit confirmation. Web saves the canonical Binding
+before sending the selected approval with the Binding id and saved mode. Service
+waits briefly for the matching canonical route, attempts supported native updates,
+and then delivers the selected approval. It never treats response metadata as
+permission authority, never replaces a newer saved choice, and never claims
+native application from a successful save. Save failure leaves the approval
+pending. Native rejection or delayed catalog delivery retains the current mode
+and still delivers the owner's explicit approval. Older Service requests keep
+the ordinary approval controls without this additional mode selector.
+
 Changing or unbinding the Agent Controller and changing the local working folder
 are different because they change the execution target underneath future work
 and can interrupt an accepted Wake. Every maintenance surface must read the

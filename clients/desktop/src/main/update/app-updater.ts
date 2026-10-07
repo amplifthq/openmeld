@@ -1,12 +1,14 @@
 import {
   type DesktopReleasePlatform,
   type DesktopUpdaterAction,
+  type DesktopUpdaterFailureDiagnostic,
   type DesktopUpdaterState,
   desktopPlatformUpdateFeedUrl,
   desktopUpdaterFeedSchemaForPlatform,
 } from "@openmeld/schemas";
 import type { MacUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
 import { assertMacUpdateBundlePath } from "./mac-bundle-path";
+import { describeUpdateFailure } from "./update-failure-diagnostic";
 
 export function assertDesktopUpdateFiles(
   info: UpdateInfo,
@@ -47,6 +49,7 @@ export function createAppUpdater(input: {
   currentVersion: string;
   currentAppBundle?: string | null;
   recordMacInstallRequested?: (targetVersion: string) => void;
+  recordFailure?: (record: DesktopUpdaterFailureDiagnostic) => void;
   publish: (state: DesktopUpdaterState) => void;
   prepareRestart: () => Promise<boolean>;
   setInstalling: (value: boolean) => void;
@@ -80,7 +83,18 @@ export function createAppUpdater(input: {
     stage: NonNullable<DesktopUpdaterState["errorStage"]>,
     error: unknown
   ) => {
-    console.error("[openmeld.desktop.update_failed]", { stage, error });
+    const diagnostic = describeUpdateFailure({
+      error,
+      stage,
+      currentVersion: input.currentVersion,
+      targetVersion: state.version,
+    });
+    console.error("[openmeld.desktop.update_failed]", diagnostic);
+    try {
+      input.recordFailure?.(diagnostic);
+    } catch {
+      console.warn("[openmeld.desktop.update_diagnostic_write_failed]");
+    }
     // MacUpdater has no public cancellation for its pending native install.
     // Once accepted, keep the saved renderer frozen and normal quit enabled.
     publish({ status: "error", errorStage: stage, percent: null });

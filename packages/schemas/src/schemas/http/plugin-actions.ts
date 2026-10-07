@@ -1,7 +1,11 @@
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { runtimeCoordinatorExecutionTokenEchoSchema } from "../daemon/runtime-coordinator-execution-token";
-import { openConnectorRuntimeActionListSchema } from "../runtime/openconnector-runtime";
+import {
+  openConnectorRuntimeActionListSchema,
+  pluginConnectionDescriptionSchema,
+  pluginConnectionHealthSchema,
+} from "../runtime/openconnector-runtime";
 import {
   centerAgentConnectorActionExecutionConnectionSchema,
   centerAgentConnectorActionOperationStatusSchema,
@@ -15,6 +19,7 @@ import { pluginActionRequestViewSchema } from "./plugin-action-requests";
 const selectedAccountSchema =
   centerAgentConnectorActionExecutionConnectionSchema.extend({
     permission: z.enum(["read", "write"]),
+    health: pluginConnectionHealthSchema.optional(),
   });
 const selection = {
   service: connectorServiceSchema,
@@ -34,6 +39,12 @@ export const pluginActionRequestSchema = z.strictObject({
     }),
     z.strictObject({ operation: z.literal("actions"), ...selection }),
     z.strictObject({
+      operation: z.literal("connection"),
+      ...selection,
+      key: z.string().min(1).max(256),
+      computer: z.boolean().optional(),
+    }),
+    z.strictObject({
       operation: z.literal("execute"),
       ...selection,
       actionId: z.string().trim().min(1).max(160),
@@ -52,6 +63,15 @@ export const pluginActionRpcInputSchema = z.strictObject({
   request: pluginActionRequestSchema,
 });
 export const pluginActionResponseSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("native_connection"),
+    connection: selectedAccountSchema,
+    description: pluginConnectionDescriptionSchema,
+    baseUrl: z.string().url().optional(),
+    expiresAtMs: z.number().optional(),
+    environment: z.record(z.string(), z.string()).optional(),
+    nextAction: z.string(),
+  }),
   z.strictObject({
     kind: z.literal("authorization_required"),
     request: pluginActionRequestViewSchema,

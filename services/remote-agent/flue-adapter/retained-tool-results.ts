@@ -610,14 +610,20 @@ async function reserveSnapshotSlot(
       }
       continue;
     }
-    if (
-      await storage.compareAndSetExpiring(
-        key,
-        previous,
-        reservation,
-        reservation.expiresAtMs
-      )
-    ) {
+    const reserved =
+      previous === undefined
+        ? await storage.putIfAbsentExpiring(
+            key,
+            reservation,
+            reservation.expiresAtMs
+          )
+        : await storage.compareAndSetExpiring(
+            key,
+            previous,
+            reservation,
+            reservation.expiresAtMs
+          );
+    if (reserved) {
       return key;
     }
   }

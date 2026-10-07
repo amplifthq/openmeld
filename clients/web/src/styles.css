@@ -21,7 +21,7 @@ html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presen
 	}
 	[data-app-rail-item],
 	[data-app-rail-link] {
-		height: 2.5rem;
+		height: 2.25rem;
 	}
 }
 

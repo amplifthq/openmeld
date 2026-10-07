@@ -8,6 +8,7 @@ import {
 } from "#/components/profiles/human-presence";
 
 const SPACE_PROFILE_ICON_SIZE_CLASS_NAMES = {
+	card: "size-14",
 	inline: "size-3.5",
 	lg: "size-16",
 	md: "size-12",
@@ -16,6 +17,7 @@ const SPACE_PROFILE_ICON_SIZE_CLASS_NAMES = {
 	xs: "size-5",
 } as const;
 const SPACE_PROFILE_ICON_SIZE_PIXELS = {
+	card: 56,
 	inline: 14,
 	lg: 64,
 	md: 48,

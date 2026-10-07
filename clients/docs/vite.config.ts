@@ -24,6 +24,9 @@ const origins = publicOrigins[process.env.CLOUDFLARE_ENV ?? ""] ?? {
 
 export default defineConfig({
   define: {
+    "import.meta.env.VITE_DOCS_INDEXABLE": JSON.stringify(
+      process.env.CLOUDFLARE_ENV === "prod"
+    ),
     "import.meta.env.VITE_APP_URL": JSON.stringify(
       process.env.VITE_APP_URL ?? origins.app
     ),

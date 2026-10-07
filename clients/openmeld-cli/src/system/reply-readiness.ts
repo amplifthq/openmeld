@@ -696,7 +696,7 @@ export function formatReplyReadinessSummary(input: {
   reasonCodes?: readonly ReplyReadinessReasonCode[];
 }): string {
   if (input.replyReadiness === "ready") {
-    return REPLY_READINESS_COPY.canReplyLabel;
+    return REPLY_READINESS_COPY.localSetupReadyLabel;
   }
   if (input.reasonCodes?.[0] === "profile.unbound") {
     return formatReplyReadinessUnavailableLabelCopy(

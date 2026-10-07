@@ -189,7 +189,7 @@ export async function collectProductionReleaseStatus(input = {}) {
 
   const plansByBase = new Map();
   const components = [];
-  const missingSources = [];
+  const unknownSources = [];
   const pendingScopes = [];
   for (const scope of RELEASE_SCOPES) {
     const hasPublicPackage = {
@@ -210,7 +210,7 @@ export async function collectProductionReleaseStatus(input = {}) {
       webReleaseSource: sources.get("web"),
     });
     if (component.state === "unknown") {
-      missingSources.push(scope);
+      unknownSources.push(scope);
     }
     if (component.state !== "current") {
       pendingScopes.push(scope);
@@ -242,16 +242,16 @@ export async function collectProductionReleaseStatus(input = {}) {
     });
   }
   const scopeBasis = currentChange ? "current-change" : "global-backlog";
-  const relevantMissingSources = currentChange
-    ? missingSources.filter((scope) => currentChange.scopes.includes(scope))
-    : missingSources;
+  const relevantUnknownSources = currentChange
+    ? unknownSources.filter((scope) => currentChange.scopes.includes(scope))
+    : unknownSources;
   const blockers = buildReleaseStatusBlockers({
-    missingSources: relevantMissingSources,
+    unknownSources: relevantUnknownSources,
     components,
     pushCheckBlockers,
   });
   const globalBlockers = buildReleaseStatusBlockers({
-    missingSources,
+    unknownSources,
     components,
     pushCheckBlockers,
   });
@@ -312,16 +312,23 @@ function readRecordedAt(source, label) {
 
 function buildReleaseStatusBlockers(input) {
   const blockers = [...input.pushCheckBlockers];
-  if (input.missingSources.length > 0) {
+  const missingSources = input.components
+    .filter(
+      (component) =>
+        input.unknownSources.includes(component.scope) &&
+        component.reason === "No successful deployment history was found."
+    )
+    .map((component) => component.scope);
+  if (missingSources.length > 0) {
     blockers.push({
-      detail: `missing successful deployment history for ${input.missingSources.join(", ")}`,
+      detail: `missing successful deployment history for ${missingSources.join(", ")}`,
       name: "Deployment history",
-      scopes: input.missingSources,
+      scopes: missingSources,
       url: undefined,
     });
   }
   for (const component of input.components ?? []) {
-    if (input.missingSources.includes(component.scope) && component.reason) {
+    if (input.unknownSources.includes(component.scope) && component.reason) {
       blockers.push({
         name: `${component.scope} deployment evidence`,
         detail: component.reason,
@@ -454,6 +461,10 @@ function describeInitialDocsPublication(input) {
   };
 }
 
+function componentImpactCacheKey(sha, scope) {
+  return ["website", "docs"].includes(scope) ? `${sha}:${scope}` : sha;
+}
+
 function describeReleaseComponent(input) {
   const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
     input;
@@ -509,18 +520,23 @@ function describeReleaseComponent(input) {
       `Local release is ${receipt.status}/${receipt.application}; ${guidance}`
     );
   }
-  let entry = plansByBase.get(releaseSource.sha);
+  const impactKey = componentImpactCacheKey(releaseSource.sha, scope);
+  let entry = plansByBase.get(impactKey);
   if (!entry) {
     try {
       entry = {
-        plan: adapters.buildImpact({ base: releaseSource.sha, sourceSha }),
+        plan: adapters.buildImpact({
+          base: releaseSource.sha,
+          sourceSha,
+          componentScope: scope,
+        }),
       };
     } catch (error) {
       entry = {
         error: `Source impact from ${releaseSource.sha} failed: ${error.message}`,
       };
     }
-    plansByBase.set(releaseSource.sha, entry);
+    plansByBase.set(impactKey, entry);
   }
   if (entry.error) {
     return unknown(
@@ -1100,9 +1116,10 @@ function defaultAdapters() {
         scope: "auto",
         sourceSha,
       }),
-    buildImpact: ({ base, sourceSha }) =>
+    buildImpact: ({ base, sourceSha, componentScope }) =>
       buildProductionReleaseImpact({
         base,
+        componentScope,
         changedPaths: splitLines(
           runGit(["diff", "--name-only", `${base}...${sourceSha}`])
         ),

@@ -877,6 +877,8 @@ export const remoteAgentTurnRuntimeEvidenceSchema = z.strictObject({
   firstProviderResponseHeadersAtMs: nullableNonNegativeIntegerSchema,
   firstVisibleContentAtMs: nullableNonNegativeIntegerSchema,
   lastModelCompletedAtMs: nullableNonNegativeIntegerSchema,
+  // Legacy wire name: counts completed agent prompt operations, including
+  // their tool loop. providerRequestCount counts individual provider requests.
   modelCallCount: z.number().int().nonnegative(),
   modelId: nullableNonEmptyStringSchema,
   providerAvailableToolCount: z.number().int().nonnegative(),
