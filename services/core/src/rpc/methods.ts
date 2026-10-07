@@ -19550,7 +19550,6 @@ export async function rpcGetSpaceEntryResolution(
       organizationId: indexed.organizationId,
     });
   const access = await resolveSpaceEntryAccess({
-    context,
     env,
     spaceAccess,
     spaceId: target.spaceId,
@@ -19655,7 +19654,6 @@ async function resolveSpaceEntryOrganizationAudience(input: {
   return { organizationMember: true, organizationSlug };
 }
 async function resolveSpaceEntryAccess(input: {
-  context?: CoreRpcContextInput;
   env: CoreBindings;
   spaceAccess: SpaceAccessContext;
   spaceId: string;
