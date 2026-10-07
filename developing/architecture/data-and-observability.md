@@ -297,6 +297,20 @@ older receiver may lose only diagnostics, with no effect on API results, access,
 setup, Wake, or publication. No CLI, Service, Core, or Gateway protocol changes
 or deployment are required by this Web-only telemetry extension.
 
+## Read-path timing
+
+Core uses native Cloudflare trace spans for Inbox preparation, invitation
+reconciliation, snapshot creation/read, and page SQL (`inbox.prepare`,
+`inbox.invitations`, `inbox.snapshot`, `inbox.page`). Auth marks its single
+owner-profile lineage read with `auth.profile-lineage.read`. These spans use
+the existing trace sampling configuration; they do not record SQL parameters,
+message bodies, identities, or credentials.
+
+Database-call elapsed time includes connection and network work. It is not
+origin SQL execution time or proof of Hyperdrive queue delay. Compare it with
+PlanetScale query insights and parent/caller spans before assigning a cause.
+Overlapping spans must not be added together.
+
 ## Boundary
 
 OpenMeld data and observability exist to support the main product chain:

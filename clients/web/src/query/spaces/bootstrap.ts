@@ -44,13 +44,15 @@ export async function readSpaceBootstrap(input: {
 			},
 			...(input.signal === undefined ? {} : { signal: input.signal }),
 		});
+		const envelopes = response.history.signals.flatMap((item) => {
+			const envelope = parseEnvelope(item);
+			return envelope ? [envelope] : [];
+		});
 		return {
 			...response,
 			history: {
-				envelopes: response.history.signals.flatMap((item) => {
-					const envelope = parseEnvelope(item);
-					return envelope ? [envelope] : [];
-				}),
+				confirmedCursor: envelopes.at(-1)?.id ?? null,
+				envelopes,
 				nextCursor: response.history.nextCursor,
 			},
 		};

@@ -2506,6 +2506,7 @@ export {
   resolveInitialSpaceAccessMode,
   spaceCreatorSchema,
   spaceDirectMessageMetaSchema,
+  spaceEntryAccessResponseSchema,
   spaceMetaSchema,
   spaceOrganizationVisibilitySchema,
   spaceStorageUsageSchema,

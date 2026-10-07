@@ -1204,6 +1204,7 @@ export type {
 export type {
   PatchSpaceMetaBody,
   SpaceCreator,
+  SpaceEntryAccessResponse,
   SpaceMeta,
   SpaceOrganizationVisibility,
   SpaceStorageUsage,
