@@ -160,6 +160,12 @@ function resolveSpaceReadFailureHints(
       return ["openmeld space members <space-id-or-url>"];
     case "status":
       return ["openmeld space status <space-id-or-url>"];
+    case "wake-progress":
+      return ["openmeld space wake-progress <space-id-or-url>"];
+    case "result":
+      return [
+        "openmeld service trace --space <space-id> --dispatch <dispatch-id> --view agent",
+      ];
     default:
       return null;
   }
@@ -178,7 +184,14 @@ function resolveInvalidSpaceReadTargetHints(input: {
 
 function resolveSpaceReadCommandName(
   entryName: ReturnType<typeof resolveCommandEntryNameFromTokens>
-): "board" | "history" | "members" | "status" | null {
+):
+  | "board"
+  | "history"
+  | "members"
+  | "status"
+  | "wake-progress"
+  | "result"
+  | null {
   switch (entryName) {
     case "space.board":
       return "board";
@@ -188,6 +201,10 @@ function resolveSpaceReadCommandName(
       return "members";
     case "space.status":
       return "status";
+    case "space.wake_progress":
+      return "wake-progress";
+    case "space.result":
+      return "result";
     default:
       return null;
   }

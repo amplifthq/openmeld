@@ -509,3 +509,25 @@ test("Core upload recovery passes status and stage admission without claiming de
     UNRESOLVED
   );
 });
+
+test("keeps verified history when current impact analysis is unavailable", async () => {
+  const { result } = await report({
+    buildImpact: () => {
+      throw new Error("impact unavailable");
+    },
+  });
+  const web = result.components.find((entry) => entry.scope === "web");
+  assert.equal(web.state, "unknown");
+  assert.equal(web.sha, WEB);
+  assert.ok(
+    result.globalBlockers.some((entry) =>
+      entry.detail.includes("impact unavailable")
+    )
+  );
+  assert.ok(
+    !result.globalBlockers.some(
+      (entry) =>
+        entry.name === "Deployment history" && entry.scopes.includes("web")
+    )
+  );
+});

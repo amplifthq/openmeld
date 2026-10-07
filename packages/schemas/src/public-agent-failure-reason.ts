@@ -1158,6 +1158,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       kind: "account_access",
       mappedReasonBody: (targetName) =>
         `${targetName} reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.`,
+      availabilityBadgeLabel: "Usage Limit reached",
+      availabilitySummary:
+        "This agent reached a Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+      availabilityTooltip: "Usage Limit reached. Review Usage Limits.",
       patterns: ["=usage_exhausted"],
       primaryActionId: "review_agent_settings",
       preferMappedReasonOverDetail: true,

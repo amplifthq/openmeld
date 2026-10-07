@@ -254,6 +254,8 @@ export async function runServiceTrace(
     ? targetContext.guidance
     : null;
 
+  emitRuntimeCounterGuide(input.details, traceResponse, presenter);
+
   const payload = {
     ...(traceResponse.nativeDeliveryTrace
       ? { nativeDeliveryTrace: traceResponse.nativeDeliveryTrace }
@@ -1310,13 +1312,28 @@ function buildHumanTraceRows(input: {
   return rows;
 }
 
+function emitRuntimeCounterGuide(
+  details: boolean | undefined,
+  response: SpaceDispatchTraceResponse,
+  presenter: ServiceTracePresenter
+): void {
+  if (!(details && response.remoteAgentRuntimeDiagnostics)) {
+    return;
+  }
+  presenter.line({
+    code: "service.trace.runtime_counter_guide",
+    text: "Runtime counters: modelCallCount counts completed agent prompt operations, including their tool loops. providerRequestCount counts individual model-provider requests. conversationCompaction counts retained-history compactions. These counters do not prove delivery.",
+  });
+}
+
 function formatLocalReplyEvidenceLabel(value: string): string {
   if (
+    value === "Local setup ready" ||
     value === "Ready" ||
     value === "Available for Wake" ||
     value === "Can reply"
   ) {
-    return "Local evidence: reply-capable";
+    return "Local evidence: setup ready";
   }
   const replyCapableDetail = firstPrefixedDetail(value, [
     "Ready · ",
@@ -1324,7 +1341,7 @@ function formatLocalReplyEvidenceLabel(value: string): string {
     "Can reply · ",
   ]);
   if (replyCapableDetail !== null) {
-    return `Local evidence: reply-capable · ${replyCapableDetail}`;
+    return `Local evidence: setup ready · ${replyCapableDetail}`;
   }
   if (value === "Not ready" || value === "Unavailable" || value === "Blocked") {
     return "Local evidence: not reply-capable";
@@ -2734,7 +2751,7 @@ function buildAgentTraceCompactSummary(input: {
       currentState: "final_projection_pending",
       delivered: false,
       nextAction:
-        "wait - if the target computer is offline, this Wake is delivered automatically when its OpenMeld Service reconnects; rerun trace with the same selector to confirm",
+        "wait, then rerun trace with the same selector; use --details to inspect execution evidence",
       reasonCode: trace.finalVisibleMessageLinkage.reasonCode,
       visibleOutcome: finalVisibleOutcome.status,
     };
