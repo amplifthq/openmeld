@@ -425,8 +425,8 @@ leaves the active work list. A legacy head without an execution-context assignme
 cannot supply a verified fork source and projects Skip instead. The owner permits
 Skip for an already authorized legacy fork only after validating that exact source
 head still has no context; it does not make an arbitrary authorized continuation
-skippable. Direct Message continuation accepts implicit addressing only for the
-original pair and a source written before any conversion, with the same exact
+skippable. Continuation uses the retained dispatch as the original addressing
+fact, including implicit automatic Wakes, with the same exact
 dispatch/source/target checks as explicit Wakes.
 
 A structured `usage_exhausted` terminal outcome is the deliberate exception to

@@ -6227,27 +6227,6 @@ export class Space extends DurableObject<CoreBindings> {
       Space.#executeRpcStartUsageExhaustedContinuation(this, input)
     );
   }
-  private isContinuationWakeSource(
-    signal: SignalEnvelope,
-    targetProfileId: string
-  ): boolean {
-    if (readWakeActivationTargetProfileIds(signal).includes(targetProfileId)) {
-      return true;
-    }
-    if (signal.type !== "signal.text" || signal.data.messageEnvelope) {
-      return false;
-    }
-    // A Direct Message implicitly addresses its other participant. Its retained
-    // dispatch still has to match the exact source and target below.
-    const meta = this.readSpaceMetaRecord();
-    return Boolean(
-      meta?.purpose === "openmeld_dm_space" &&
-        meta.directMessage?.pairKey ===
-          [signal.profile.profileId, targetProfileId].sort().join(":") &&
-        (!meta.directMessage.convertedAt ||
-          signal.ts <= Date.parse(meta.directMessage.convertedAt))
-    );
-  }
   static async #executeRpcStartUsageExhaustedContinuation(
     owner: Space,
     input: StartUsageExhaustedContinuationInput
@@ -6272,6 +6251,9 @@ export class Space extends DurableObject<CoreBindings> {
     const sourceSignal = owner.readSourceTextSignalById(
       input.interruptedSourceSignalId
     );
+    // The retained dispatch proves the original recipient, including automatic
+    // Wake and listen-all sources with no explicit mention. Recomputing that
+    // decision from today's membership would reject valid retained work.
     if (
       !(trace && sourceSignal) ||
       trace.dispatch.dispatchId !== input.interruptedDispatchId ||
@@ -6280,8 +6262,7 @@ export class Space extends DurableObject<CoreBindings> {
       sourceSignal.spaceId !== owner.spaceId ||
       normalizeOptionalText(sourceSignal.data.meta?.clientMessageId) !==
         input.interruptedClientMessageId ||
-      (sourceSignal.data.attachments?.length ?? 0) > 0 ||
-      !owner.isContinuationWakeSource(sourceSignal, input.targetProfileId)
+      (sourceSignal.data.attachments?.length ?? 0) > 0
     ) {
       throw new Error(
         "agent_profile_work_recovery.continuation_source_mismatch"

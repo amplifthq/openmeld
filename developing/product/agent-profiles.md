@@ -1286,9 +1286,10 @@ promise that another app has stopped modifying shared files.
 Legacy Binding-only conversations without a retained per-Wake context offer Skip,
 not a fork that cannot verify its source. A previously authorized legacy fork
 that never acquired a context can also be skipped. A new task establishes the
-context required for later branch recovery. Direct Messages validate their
-implicit recipient against the original participant pair and retained dispatch;
-they do not require an explicit Wake chip in the source message.
+context required for later branch recovery. Continuations validate the original
+recipient against the retained dispatch and exact source-message identity.
+Implicitly addressed messages do not require an explicit Wake chip; the original
+recipient is not recomputed from current Space membership.
 
 Agent Profile Operational Context is the read projection that composes Agent
 Profile identity, Wakeability, current workload, applied execution settings,

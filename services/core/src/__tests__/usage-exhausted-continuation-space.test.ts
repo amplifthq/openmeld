@@ -19,8 +19,9 @@ const CONTINUATION_CLIENT_MESSAGE_ID =
 describe("Usage-exhausted Space continuation", () => {
   it.each([
     "explicit",
-    "direct-message",
-    "wrong-pair",
+    "implicit",
+    "wrong-target",
+    "wrong-source",
   ])("replays the frozen %s Wake through one deterministic exactly-once writer identity", async (sourceKind) => {
     const posts: Record<string, unknown>[] = [];
     const persistedClientMessageIds = new Set<string>();
@@ -71,26 +72,17 @@ describe("Usage-exhausted Space continuation", () => {
     if (sourceKind !== "explicit") {
       Reflect.deleteProperty(sourceSignal.data, "messageEnvelope");
     }
-    space.readSpaceMetaRecord = vi.fn(() => ({
-      purpose: "openmeld_dm_space",
-      directMessage: {
-        pairKey: [
-          sourceSignal.profile.profileId,
-          sourceKind === "wrong-pair"
-            ? REFERENCE_PROFILE_ID
-            : TARGET_PROFILE_ID,
-        ]
-          .sort()
-          .join(":"),
-      },
-    }));
     space.readSourceTextSignalById = vi.fn(() => sourceSignal);
     space.rpcGetDispatchTrace = vi.fn(async () => ({
       trace: {
         dispatch: {
           dispatchId: "dispatch-interrupted",
-          sourceEventId: SOURCE_SIGNAL_ID,
-          targetProfileId: TARGET_PROFILE_ID,
+          sourceEventId:
+            sourceKind === "wrong-source" ? "another-source" : SOURCE_SIGNAL_ID,
+          targetProfileId:
+            sourceKind === "wrong-target"
+              ? REFERENCE_PROFILE_ID
+              : TARGET_PROFILE_ID,
         },
       },
     }));
@@ -107,7 +99,7 @@ describe("Usage-exhausted Space continuation", () => {
     );
     const input = continuationInput();
 
-    if (sourceKind === "wrong-pair") {
+    if (sourceKind === "wrong-target" || sourceKind === "wrong-source") {
       await expect(
         space.rpcStartUsageExhaustedContinuation(input)
       ).rejects.toThrow("continuation_source_mismatch");
@@ -377,7 +369,6 @@ type UsageContinuationSpaceHarness = {
     };
   };
   readSourceTextSignalById: ReturnType<typeof vi.fn>;
-  readSpaceMetaRecord: ReturnType<typeof vi.fn>;
   rpcGetDispatchTrace: ReturnType<typeof vi.fn>;
   postSignalOnceByClientMessageId: ReturnType<typeof vi.fn>;
   rpcStartUsageExhaustedContinuation: (
