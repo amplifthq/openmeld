@@ -4,6 +4,8 @@ title: Explore how people and agents work together
 kind: improved
 areas: ["website"]
 audiences: ["users", "admins"]
+publishedAt: 2026-10-07
+evidence: ["pr:1545", "commit:24193c9ac916cb6063e893d2a7cf19502a5b74f1", "workflow:37673007923"]
 ---
 
 Explore OpenMeld from the homepage without creating an account. The demo uses
