@@ -26,7 +26,7 @@ const serverSnapshot = () => false;
 const groupClassName =
 	"flex w-fit flex-row gap-0 rounded-full border border-border p-px";
 const itemClassName =
-	"size-6 min-w-6 justify-center rounded-full! p-0! text-muted-foreground hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-interaction-active data-checked:text-foreground aria-pressed:bg-interaction-active aria-pressed:text-foreground transition-none [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden";
+	"size-5 min-w-5 justify-center rounded-full! p-0! text-muted-foreground hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-interaction-active data-checked:text-foreground aria-pressed:bg-interaction-active aria-pressed:text-foreground transition-none [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden";
 
 /** One appearance preference and icon set, with the owning surface's keyboard semantics. */
 export function ThemeSelector({ inMenu = false }: { inMenu?: boolean }) {
@@ -63,7 +63,7 @@ export function ThemeSelector({ inMenu = false }: { inMenu?: boolean }) {
 						key={choice}
 						value={choice}
 					>
-						<Icon aria-hidden="true" className="size-3.5" />
+						<Icon aria-hidden="true" className="size-3" />
 					</FluidDropdownMenuRadioItem>
 				))}
 			</DropdownMenuRadioGroup>
@@ -91,7 +91,7 @@ export function ThemeSelector({ inMenu = false }: { inMenu?: boolean }) {
 					render={<FluidActionListItem index={index} />}
 					value={choice}
 				>
-					<Icon aria-hidden="true" className="size-3.5" />
+					<Icon aria-hidden="true" className="size-3" />
 				</ToggleGroupItem>
 			))}
 		</ToggleGroup>
