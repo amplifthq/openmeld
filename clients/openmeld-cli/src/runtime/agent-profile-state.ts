@@ -197,7 +197,7 @@ export function buildAgentProfileRuntimeRows(
       value: formatTransportModeDisplay(runtimeState.transportMode),
     },
     {
-      label: "Can Reply in Space",
+      label: "Local Reply Setup",
       value: formatHumanReplyReadinessLabel(runtimeState.replyReadinessLabel),
     },
     ...(runtimeState.wakeRouteEvidence
@@ -347,7 +347,7 @@ function formatHumanReplyReadinessReason(reason: string): string {
 function formatHumanReplyReadinessLabel(label: string): string {
   const normalized = label.trim();
   if (normalized === "ready") {
-    return "Can reply";
+    return "Local setup ready";
   }
   if (normalized === "blocked") {
     return "Blocked";

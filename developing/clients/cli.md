@@ -1849,7 +1849,8 @@ computer. It does not prove that a specific Agent Profile can reply in a
 specific Space.
 
 Service status and setup diagnostics may include `localServiceDiagnostics`. This
-is local OpenMeld Service evidence only. It must not be labeled as final
+is local OpenMeld Service evidence only. Local readiness labels say "Local setup
+ready", not "Can reply". Access and current Usage admission remain Core-owned. It must not be labeled as final
 Wakeability, final Wake truth, or final Space delivery truth.
 
 Reply-recovery copy may use shared Agent Profile recovery semantics. The CLI
@@ -1904,6 +1905,13 @@ projection when the selected dispatch used the hosted Center Agent. The caller
 still supplies only the normal Space and dispatch selectors. Core resolves the
 frozen runtime conversation generation; the CLI must not accept or reconstruct
 that generation identity.
+
+Detailed trace explains the retained runtime counters. `modelCallCount` is the
+legacy field for completed agent prompt operations, each of which can contain
+many tool-loop requests. `providerRequestCount` counts individual model-provider
+requests. Conversation compaction is separate retained-history evidence. None
+of these counters proves Space delivery. A pending final projection does not
+establish that a Computer is offline, for either runtime family.
 
 Center Agent self-diagnostics use the same exact runtime-conversation boundary
 for Message Channel turns. The projection distinguishes retained runtime
