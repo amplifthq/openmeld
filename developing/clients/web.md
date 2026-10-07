@@ -1242,9 +1242,16 @@ Organization root redirect there, preserving their intent.
 Direct messages at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
 It stays on a conversation directory, sharing sidebar grouping, sort order,
 previews, and unread projections. Loading never presents a false empty state
-or automatically opens a conversation. A genuinely empty list offers New chat.
-New chat and Space members share the people-and-agents picker, including search
-and nested agent ownership. One explicit selection opens a direct conversation;
+or automatically opens a conversation. A genuinely empty list offers New message.
+New message and Space members share the people-and-agents picker, including search
+and nested agent ownership. Both entry points offer **New Agent** through the
+same inline creation step. Back preserves the current query and selection.
+Successful creation returns to the picker, clears its search, refreshes the
+Organization directory, and selects the new Agent alongside any existing
+selection. Creation alone does not open a conversation or add Space membership.
+If the New message directory refresh fails, show that the Agent was created and
+offer a retry without repeating creation. One explicit selection opens a direct
+conversation;
 multiple selections create a new private, members-only Space through the existing
 Space creation and directory membership APIs. A successfully created Space is
 retained while retrying failed member additions. Selecting an agent alone does
