@@ -1990,6 +1990,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           expectedInterruptedTargetWakeLifecycleId:
             parsed.data.expectedInterruptedTargetWakeLifecycleId,
           forkInterruptedConversation: parsed.data.forkInterruptedConversation,
+          requireAutomaticForkEligibility:
+            parsed.data.requireAutomaticForkEligibility,
           nowMs: Date.now(),
           ownerUserId: parsed.data.ownerUserId,
           storage: this.ctx.storage,

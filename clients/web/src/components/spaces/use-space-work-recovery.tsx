@@ -1,6 +1,10 @@
 import type { ProfileDetailsRecoveryAction } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import {
+	formatMutationError,
+	isAgentProfileWorkAwaitingOriginalStopError,
+} from "#/components/agents/agents-page-formatters";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { executeAgentProfileWorkRecovery } from "#/lib/profiles/agent-profile-work-recovery";
 import {
@@ -22,6 +26,7 @@ export function useSpaceWorkRecovery(spaceId: string) {
 	);
 	const [pending, setPending] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [waitingWakeId, setWaitingWakeId] = useState<string | null>(null);
 	const rows = (overview.data?.agentProfiles ?? []).flatMap((agent) => {
 		const work = agent.operationalContext;
 		const profile = context?.profilesById.get(agent.profileId);
@@ -57,6 +62,7 @@ export function useSpaceWorkRecovery(spaceId: string) {
 		}
 		setPending(profileId);
 		setError(null);
+		setWaitingWakeId(null);
 		try {
 			await executeAgentProfileWorkRecovery({
 				agentProfileId: profileId,
@@ -66,11 +72,13 @@ export function useSpaceWorkRecovery(spaceId: string) {
 					action.expectedInterruptedTargetWakeLifecycleId,
 			});
 		} catch (cause) {
-			setError(
-				cause instanceof Error
-					? cause.message
-					: "Couldn't update this task. Try again."
-			);
+			if (isAgentProfileWorkAwaitingOriginalStopError(cause)) {
+				setWaitingWakeId(action.expectedInterruptedTargetWakeLifecycleId);
+			} else {
+				setError(
+					formatMutationError(cause, "Couldn't update this task. Try again.")
+				);
+			}
 		} finally {
 			await Promise.allSettled([
 				queryClient.invalidateQueries({
@@ -114,6 +122,14 @@ export function useSpaceWorkRecovery(spaceId: string) {
 					<p className="px-3 py-2 text-destructive text-xs" role="alert">
 						{error}
 					</p>
+				) : null}
+				{rows.some(
+					({ action }) =>
+						action.expectedInterruptedTargetWakeLifecycleId === waitingWakeId
+				) ? (
+					<output className="block px-3 py-2 text-muted-foreground text-xs">
+						Your choice is saved. Waiting for the original request to stop.
+					</output>
 				) : null}
 			</>
 		),

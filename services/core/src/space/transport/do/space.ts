@@ -721,6 +721,7 @@ import {
   blockQueuedSpaceInputsAfterDispatch,
   claimQueuedSpaceExecutionInput,
   completeQueuedSpaceInputHandoff,
+  continueQueuedSpaceInputs,
   deleteQueuedSpaceExecutionInput,
   insertSpaceExecutionInput,
   listDueSpaceExecutionInputs,
@@ -728,6 +729,7 @@ import {
   listReadySpaceInputIds,
   readNextSpaceExecutionInputAlarm,
   readSpaceExecutionInput,
+  rebindQueuedSpaceInput,
   reorderQueuedSpaceExecutionInputs,
   settleQueuedSpaceExecutionInput,
   updateSpaceExecutionInput,
@@ -5220,7 +5222,7 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     if (input.threadContext) {
-      return await owner.rpcPostThreadedTextSignal(
+      return await owner.postAuthorizedTextSignal(
         {
           ...input,
           ...(agentStreamId ? { agentStreamId } : {}),
@@ -5517,9 +5519,23 @@ export class Space extends DurableObject<CoreBindings> {
     }
     return { repository, clientId };
   }
-  async rpcPostSignalOnceByClientMessageId(
+  rpcPostSignalOnceByClientMessageId(
     input: PostSignalOnceByClientMessageIdInput
   ): Promise<SignalEnvelope> {
+    return this.postSignalOnceByClientMessageId(input);
+  }
+  private async postSignalOnceByClientMessageId(
+    input: PostSignalOnceByClientMessageIdInput,
+    workRecoveryQueueHandoff?: SignalPublishContext["workRecoveryQueueHandoff"]
+  ): Promise<SignalEnvelope> {
+    const postSignal = workRecoveryQueueHandoff
+      ? (post: PostSignalInput) =>
+          this.postAuthorizedTextSignal(
+            post,
+            String(post.text ?? "").trim(),
+            workRecoveryQueueHandoff
+          )
+      : (post: PostSignalInput) => this.rpcPostSignal(post);
     return await withPostgresRequest(
       this.bindings.OPENMELD_POSTGRESQL,
       async () => {
@@ -5595,14 +5611,13 @@ export class Space extends DurableObject<CoreBindings> {
             ) {
               return { status: "rejected" };
             }
+            const postInput = this.buildIdempotentPostSignalInput({
+              agentStreamId,
+              clientMessageId,
+              input,
+            });
             return {
-              signal: await this.rpcPostSignal(
-                this.buildIdempotentPostSignalInput({
-                  agentStreamId,
-                  clientMessageId,
-                  input,
-                })
-              ),
+              signal: await postSignal(postInput),
               status: "accepted",
             };
           }
@@ -5834,9 +5849,10 @@ export class Space extends DurableObject<CoreBindings> {
         ?.profileNameSnapshot
     );
   }
-  private async rpcPostThreadedTextSignal(
+  private async postAuthorizedTextSignal(
     input: PostSignalInput,
-    normalizedText: string
+    normalizedText: string,
+    workRecoveryQueueHandoff?: SignalPublishContext["workRecoveryQueueHandoff"]
   ): Promise<SignalEnvelope> {
     const author = await authorizeRpcSignalWrite({
       authorizeSpacePasswordAccess:
@@ -5851,6 +5867,10 @@ export class Space extends DurableObject<CoreBindings> {
       await this.mergePublishedAuthorProfile(author, input.profile),
       normalizedText,
       {
+        ...(input.contextSelection
+          ? { contextSelection: input.contextSelection }
+          : {}),
+        ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
         ...(input.attachments ? { attachments: input.attachments } : {}),
         ...(input.files
           ? { files: this.resolveSpaceMessageFileReferences(input.files) }
@@ -5865,6 +5885,7 @@ export class Space extends DurableObject<CoreBindings> {
     const spacePassword = resolveRpcInputSpacePassword(input);
     try {
       await this.publishTextSignal(signal, {
+        workRecoveryQueueHandoff,
         ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
         authoringPolicy: input.authoringPolicy,
         ...(input.finalOutcomeAuthority
@@ -5879,7 +5900,7 @@ export class Space extends DurableObject<CoreBindings> {
         supportsCurrentSpaceAddressing:
           input.spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION,
         threadContext: input.threadContext,
-        threadPlacement: "thread",
+        ...(input.threadContext ? { threadPlacement: "thread" as const } : {}),
       });
     } catch (error) {
       if (error instanceof SpaceSignalAuthoringError) {
@@ -6206,6 +6227,27 @@ export class Space extends DurableObject<CoreBindings> {
       Space.#executeRpcStartUsageExhaustedContinuation(this, input)
     );
   }
+  private isContinuationWakeSource(
+    signal: SignalEnvelope,
+    targetProfileId: string
+  ): boolean {
+    if (readWakeActivationTargetProfileIds(signal).includes(targetProfileId)) {
+      return true;
+    }
+    if (signal.type !== "signal.text" || signal.data.messageEnvelope) {
+      return false;
+    }
+    // A Direct Message implicitly addresses its other participant. Its retained
+    // dispatch still has to match the exact source and target below.
+    const meta = this.readSpaceMetaRecord();
+    return Boolean(
+      meta?.purpose === "openmeld_dm_space" &&
+        meta.directMessage?.pairKey ===
+          [signal.profile.profileId, targetProfileId].sort().join(":") &&
+        (!meta.directMessage.convertedAt ||
+          signal.ts <= Date.parse(meta.directMessage.convertedAt))
+    );
+  }
   static async #executeRpcStartUsageExhaustedContinuation(
     owner: Space,
     input: StartUsageExhaustedContinuationInput
@@ -6239,9 +6281,7 @@ export class Space extends DurableObject<CoreBindings> {
       normalizeOptionalText(sourceSignal.data.meta?.clientMessageId) !==
         input.interruptedClientMessageId ||
       (sourceSignal.data.attachments?.length ?? 0) > 0 ||
-      !readWakeActivationTargetProfileIds(sourceSignal).includes(
-        input.targetProfileId
-      )
+      !owner.isContinuationWakeSource(sourceSignal, input.targetProfileId)
     ) {
       throw new Error(
         "agent_profile_work_recovery.continuation_source_mismatch"
@@ -6269,41 +6309,51 @@ export class Space extends DurableObject<CoreBindings> {
       targetProfileId: input.targetProfileId,
     });
     try {
-      await owner.rpcPostSignalOnceByClientMessageId({
-        authoringPolicy: "user_authored",
-        clientMessageId: continuationClientMessageId,
-        context: continuationContext,
-        ...(input.contextSelection
-          ? { contextSelection: input.contextSelection }
-          : {}),
-        messageEnvelope: {
-          activationTargets: [input.targetProfileId],
-          referenceTargets:
-            sourceSignal.data.messageEnvelope?.referenceTargets ?? [],
-          ...(sourceSignal.data.messageEnvelope?.mentionTargets
+      await owner.postSignalOnceByClientMessageId(
+        {
+          authoringPolicy: "user_authored",
+          clientMessageId: continuationClientMessageId,
+          context: continuationContext,
+          ...(input.contextSelection
+            ? { contextSelection: input.contextSelection }
+            : {}),
+          messageEnvelope: {
+            activationTargets: [input.targetProfileId],
+            referenceTargets:
+              sourceSignal.data.messageEnvelope?.referenceTargets ?? [],
+            ...(sourceSignal.data.messageEnvelope?.mentionTargets
+              ? {
+                  mentionTargets:
+                    sourceSignal.data.messageEnvelope.mentionTargets,
+                }
+              : {}),
+            text: sourceSignal.data.text,
+          },
+          meta: { clientMessageId: continuationClientMessageId },
+          password: getSpaceAccessPassword(verifiedReplayAccess),
+          profile: sourceSignal.profile,
+          spaceAccess: verifiedReplayAccess,
+          spaceId: owner.spaceId,
+          text: sourceSignal.data.text,
+          ...(sourceSignal.data.files
+            ? { files: sourceSignal.data.files }
+            : {}),
+          ...(thread
             ? {
-                mentionTargets:
-                  sourceSignal.data.messageEnvelope.mentionTargets,
+                threadContext: {
+                  rootSignalId: thread.rootSignalId,
+                  threadId: thread.threadId,
+                },
               }
             : {}),
-          text: sourceSignal.data.text,
         },
-        meta: { clientMessageId: continuationClientMessageId },
-        password: getSpaceAccessPassword(verifiedReplayAccess),
-        profile: sourceSignal.profile,
-        spaceAccess: verifiedReplayAccess,
-        spaceId: owner.spaceId,
-        text: sourceSignal.data.text,
-        ...(sourceSignal.data.files ? { files: sourceSignal.data.files } : {}),
-        ...(thread
+        input.contextSelection?.mode === "fork"
           ? {
-              threadContext: {
-                rootSignalId: thread.rootSignalId,
-                threadId: thread.threadId,
-              },
+              previousDispatchId: input.interruptedDispatchId,
+              targetProfileId: input.targetProfileId,
             }
-          : {}),
-      });
+          : undefined
+      );
     } catch (error) {
       if (!isUsageContinuationSourceValidationError(error)) {
         throw error;
@@ -6324,6 +6374,7 @@ export class Space extends DurableObject<CoreBindings> {
       status: "started",
     };
   }
+
   private async inspectExecutionRecoveryForCommand(input: {
     command: ExecuteExecutionRecoveryInput["body"];
     context?: CoreRpcContextInput;
@@ -7971,51 +8022,13 @@ export class Space extends DurableObject<CoreBindings> {
       await this.assertLocalQueuedInputAuthority(existing.request);
       return;
     }
-    // The delivery outbox retires after handoff. The Coordinator's admitted
-    // command below owns the exact execution and original source author; a
-    // live response must not depend on the conveyor row still existing.
-    const db = getPostgresDatabase(this.bindings);
-    const execution = db
-      ? await readRuntimeCoordinatorExecutionProjectionByDispatch({
-          db,
-          dispatchId: target.dispatchId,
-          spaceId: this.spaceId,
-          targetProfileId: target.targetProfileId,
-        })
-      : null;
-    if (
-      !(execution && supportsLocalExecutionInput(execution.agentControllerRef))
-    ) {
-      throw invalid();
-    }
-    const ownerUserId = await this.readRuntimeOwnerUserId(
-      execution.openMeldServiceRuntimeId.value
-    );
-    if (!ownerUserId) {
-      throw invalid();
-    }
-    const binding = localExecutionInputBindingSchema.safeParse(
-      await callRuntimeTransportApi({
-        env: this.bindings,
-        ownerUserId,
-        path: "/runtime-coordinator/execution-input/resolve",
-        body: {
-          ownerUserId,
-          runtimeCoordinatorExecutionId:
-            execution.runtimeCoordinatorExecutionId,
-          dispatchId: target.dispatchId,
-          targetProfileId: target.targetProfileId,
-          spaceId: this.spaceId,
-          authorProfileId: signal.profile.profileId,
-        },
-      })
-    );
-    if (!binding.success) {
-      throw invalid();
-    }
+    const binding = await this.resolveLocalQueuedInputBinding({
+      ...target,
+      authorProfileId: signal.profile.profileId,
+    });
     const request: LocalSpaceExecutionInput = {
       kind: "local",
-      target: { ...binding.data, spaceId: this.spaceId },
+      target: { ...binding, spaceId: this.spaceId },
       inputId,
       authorProfileId: signal.profile.profileId,
       requesterUserId,
@@ -8059,6 +8072,59 @@ export class Space extends DurableObject<CoreBindings> {
         queued: true,
       });
     });
+  }
+
+  private async resolveLocalQueuedInputBinding(target: {
+    dispatchId: string;
+    targetProfileId: string;
+    authorProfileId: string;
+  }) {
+    const invalid = () =>
+      new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 409,
+        message:
+          "This response can't accept updates right now. Try again in a moment.",
+      });
+    // Resolve authority again for a successor. Never copy an old execution token.
+    const db = getPostgresDatabase(this.bindings);
+    const execution = db
+      ? await readRuntimeCoordinatorExecutionProjectionByDispatch({
+          db,
+          dispatchId: target.dispatchId,
+          spaceId: this.spaceId,
+          targetProfileId: target.targetProfileId,
+        })
+      : null;
+    if (
+      !(execution && supportsLocalExecutionInput(execution.agentControllerRef))
+    ) {
+      throw invalid();
+    }
+    const ownerUserId = await this.readRuntimeOwnerUserId(
+      execution.openMeldServiceRuntimeId.value
+    );
+    if (!ownerUserId) {
+      throw invalid();
+    }
+    const binding = localExecutionInputBindingSchema.safeParse(
+      await callRuntimeTransportApi({
+        env: this.bindings,
+        ownerUserId,
+        path: "/runtime-coordinator/execution-input/resolve",
+        body: {
+          ...target,
+          ownerUserId,
+          spaceId: this.spaceId,
+          runtimeCoordinatorExecutionId:
+            execution.runtimeCoordinatorExecutionId,
+        },
+      })
+    );
+    if (!binding.success) {
+      throw invalid();
+    }
+    return binding.data;
   }
 
   private async deliverLocalQueuedInput(
@@ -8175,7 +8241,10 @@ export class Space extends DurableObject<CoreBindings> {
           )
           .map((item) => ({
             inputId: item.inputId,
-            target: item.signal.data.meta?.centerAgentExecutionInput,
+            target: {
+              ...item.signal.data.meta?.centerAgentExecutionInput,
+              dispatchId: item.afterDispatchId,
+            },
             authorProfileId: item.request.authorProfileId,
             text: item.request.text,
             state: item.state,
@@ -8333,7 +8402,7 @@ export class Space extends DurableObject<CoreBindings> {
     } else {
       const target = item.signal.data.meta?.centerAgentExecutionInput;
       if (
-        target?.dispatchId !== mutation.target.dispatchId ||
+        item.afterDispatchId !== mutation.target.dispatchId ||
         target?.targetProfileId !== mutation.target.targetProfileId
       ) {
         return Response.json(
@@ -8351,13 +8420,45 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
-    const item = listQueuedSpaceExecutionInputs(this.ctx.storage.sql).find(
+    let item = listQueuedSpaceExecutionInputs(this.ctx.storage.sql).find(
       (candidate) => candidate.inputId === inputId
     );
     if (item) {
       this.assertQueuedInputMembers(item.signal);
       if (isLocalSpaceExecutionInput(item.request)) {
         await this.assertLocalQueuedInputAuthority(item.request);
+        if (
+          item.state === "queued" &&
+          item.request.target.dispatchId !== item.afterDispatchId
+        ) {
+          const binding = await this.resolveLocalQueuedInputBinding({
+            dispatchId: item.afterDispatchId,
+            targetProfileId: item.request.target.targetProfileId,
+            authorProfileId: item.request.authorProfileId,
+          });
+          const request = {
+            ...item.request,
+            target: { ...binding, spaceId: this.spaceId },
+          };
+          const signal = structuredClone(item.signal);
+          signal.data.meta = {
+            ...signal.data.meta,
+            centerAgentExecutionInput: {
+              dispatchId: item.afterDispatchId,
+              targetProfileId: request.target.targetProfileId,
+            },
+          };
+          if (
+            !rebindQueuedSpaceInput(this.ctx.storage.sql, {
+              request,
+              signal,
+              dispatchId: item.afterDispatchId,
+            })
+          ) {
+            return;
+          }
+          item = { ...item, request, signal };
+        }
       }
     }
     if (
@@ -20378,6 +20479,17 @@ export class Space extends DurableObject<CoreBindings> {
       callerContext
     );
     const queuedHandoff = signalContext?.queuedInputHandoff;
+    const recoveryHandoff = signalContext?.workRecoveryQueueHandoff;
+    if (
+      recoveryHandoff &&
+      (preparedDispatchOutboxPlan.outboxRecords.length !== 1 ||
+        preparedDispatchOutboxPlan.outboxRecords[0]?.targetProfileId !==
+          recoveryHandoff.targetProfileId)
+    ) {
+      throw new Error(
+        "agent_profile_work_recovery.continuation_dispatch_unavailable"
+      );
+    }
     if (
       queuedHandoff &&
       (callerContext?.relationship !== "internal" ||
@@ -20461,6 +20573,28 @@ export class Space extends DurableObject<CoreBindings> {
               dispatchMessages,
               stoppedNotices
             );
+            if (recoveryHandoff) {
+              const dispatch = dispatchMessages[0];
+              if (!dispatch || dispatchMessages.length !== 1) {
+                throw new Error("Recovery dispatch was not persisted.");
+              }
+              const identity = projectTargetWakeLifecycleIdentity({
+                spaceId: this.spaceId,
+                sourceSignalId: signal.id,
+                targetProfileId: recoveryHandoff.targetProfileId,
+                dispatchId: dispatch.dispatchId,
+                clientMessageId:
+                  signal.type === "signal.text"
+                    ? (signal.data.meta?.clientMessageId ?? null)
+                    : null,
+              });
+              continueQueuedSpaceInputs(this.ctx.storage.sql, {
+                ...recoveryHandoff,
+                authorProfileId: signal.profile.profileId,
+                dispatchId: dispatch.dispatchId,
+                sourceWakeId: identity.targetWakeLifecycleId,
+              });
+            }
             if (queuedHandoff) {
               const dispatch = dispatchMessages[0];
               if (!dispatch || dispatchMessages.length !== 1) {

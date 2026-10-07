@@ -318,7 +318,11 @@ describe("runtime reporting Core RPC write", () => {
     }
   });
 
-  it("marks a definitive continuation source mismatch once and leaves queued work behind the review gate", async () => {
+  it.each([
+    "usage",
+    "occupied",
+    "scope-changed",
+  ] as const)("keeps %s continuation fenced after withdrawal and source validation", async (scenario) => {
     const harness = await createPostgresHarness();
     try {
       const agentProfileId = buildTestAgentProfileId(1);
@@ -335,7 +339,11 @@ describe("runtime reporting Core RPC write", () => {
           status: "updated",
         });
       const readRecovery = vi.fn().mockResolvedValue({
-        action: "continue_interrupted_work",
+        action:
+          scenario === "usage"
+            ? "continue_interrupted_work"
+            : "fork_interrupted_work",
+        automaticForkEligible: scenario === "occupied",
         authorizedContinuationClientMessageId: "continuation-client-1",
         interruptedClientMessageId: "client-interrupted",
         interruptedDispatchId: "dispatch-interrupted",
@@ -344,6 +352,19 @@ describe("runtime reporting Core RPC write", () => {
         spaceId: "a".repeat(64),
         status: "available",
       });
+      if (scenario === "scope-changed") {
+        readRecovery.mockResolvedValueOnce({
+          action: "fork_interrupted_work",
+          automaticForkEligible: true,
+          authorizedContinuationClientMessageId: "continuation-client-1",
+          interruptedClientMessageId: "client-interrupted",
+          interruptedDispatchId: "dispatch-interrupted",
+          interruptedSourceSignalId: "signal-interrupted",
+          interruptedTargetWakeLifecycleId: "twl-interrupted",
+          spaceId: "a".repeat(64),
+          status: "available",
+        });
+      }
       const markContinuationNeedsAttention = vi.fn().mockResolvedValue({
         status: "marked",
       });
@@ -430,8 +451,20 @@ describe("runtime reporting Core RPC write", () => {
       expect(first.reports[0]).toMatchObject({ status: "accepted" });
       expect(retry.reports[0]).toMatchObject({ status: "accepted" });
       expect(markUsageAvailable).toHaveBeenCalledTimes(2);
-      expect(readRecovery).toHaveBeenCalledOnce();
+      expect(readRecovery).toHaveBeenCalledTimes(scenario === "usage" ? 1 : 2);
+      if (scenario === "scope-changed") {
+        expect(startContinuation).not.toHaveBeenCalled();
+        expect(markContinuationNeedsAttention).not.toHaveBeenCalled();
+        return;
+      }
       expect(startContinuation).toHaveBeenCalledOnce();
+      if (scenario === "occupied") {
+        expect(startContinuation).toHaveBeenCalledWith(
+          expect.objectContaining({
+            contextSelection: { mode: "fork", sourceWakeId: "twl-interrupted" },
+          })
+        );
+      }
       expect(markContinuationNeedsAttention).toHaveBeenCalledOnce();
       expect(markContinuationNeedsAttention).toHaveBeenCalledWith({
         expectedInterruptedTargetWakeLifecycleId: "twl-interrupted",

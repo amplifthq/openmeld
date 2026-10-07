@@ -1262,6 +1262,34 @@ unchanged fast path.
 
 ## Agent Profile Operational Context
 
+The Space composer also consumes this existing owner projection for paused work
+in the current Space. It places the existing continuation/skip confirmation beside
+pending inputs in the same tray. Sorting, Send now, editing, and deletion retain
+their existing controls. Non-owners receive no recovery controls, and a task in
+another Space is not presented as this conversation's interrupted work.
+
+After the existing occupied-conversation waiting period, fresh available Usage
+reports may trigger one automatic native fork for Codex work that never began a
+turn. This is limited to automatically selected, explicitly read-only or
+Space-only contexts. Writable tasks, inherited unrestricted permissions,
+explicit source selections, and already forked contexts keep manual recovery.
+The continuation still waits for the original local attempt's withdrawal and
+uses the verified completed-history cutoff. Missing evidence never grants a retry.
+
+On fork continuation, untouched pending inputs from the original source author
+follow the replacement in their existing order. They keep their input identities.
+Claimed, delivered, rejected, or uncertain inputs retain their original delivery
+records; they are not replayed. Send now resolves a fresh execution binding before
+the first delivery to a successor. A continuation is not a file rollback or a
+promise that another app has stopped modifying shared files.
+
+Legacy Binding-only conversations without a retained per-Wake context offer Skip,
+not a fork that cannot verify its source. A previously authorized legacy fork
+that never acquired a context can also be skipped. A new task establishes the
+context required for later branch recovery. Direct Messages validate their
+implicit recipient against the original participant pair and retained dispatch;
+they do not require an explicit Wake chip in the source message.
+
 Agent Profile Operational Context is the read projection that composes Agent
 Profile identity, Wakeability, current workload, applied execution settings,
 Usage, and recovery actions. It does not own those facts and cannot decide

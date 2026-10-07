@@ -7627,6 +7627,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).resolves.toEqual({
       action: "continue_interrupted_work",
       authorizedContinuationClientMessageId: null,
+      automaticForkEligible: false,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
       // The computer never acknowledged that the interrupted attempt is gone,
@@ -7656,6 +7657,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
               },
             ],
             recoveryAction: "continue_interrupted_work",
+            currentWorkReference: {
+              sourceSignalId: "signal-1",
+              spaceId: HEX_SPACE_ID,
+            },
             recoveryTargetWakeLifecycleId:
               buildRuntimeCoordinatorHeadAcceptRequest()
                 .targetWakeLifecycleIdentity.targetWakeLifecycleId,
@@ -8179,6 +8184,34 @@ describe("runtime transport runtime coordinator transport contract", () => {
       if (!queuedWork) {
         throw new Error("Expected queued work behind the occupied Wake.");
       }
+      const sourceHeadKey = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        admission.recoveryGate.interruptedWork.targetWakeLifecycleId
+      );
+      const sourceHead = storageRecords.get(
+        sourceHeadKey
+      ) as RuntimeCoordinatorHeadLifecycleRecord;
+      const snapshot =
+        sourceHead.acceptedDispatchSnapshot ??
+        buildAcceptedDispatchSnapshot({ fingerprint: "a" });
+      storageRecords.set(sourceHeadKey, {
+        ...sourceHead,
+        acceptedDispatchSnapshot: {
+          ...snapshot,
+          executionContext: {
+            version: 1,
+            id: "11111111-1111-4111-8111-111111111111",
+            access: "workspace",
+            workspace: "current",
+            scope: {
+              organizationId: "org-1",
+              requesterProfileId: "human-1",
+              spaceId: HEX_SPACE_ID,
+              targetProfileId: TARGET_AGENT_PROFILE_ID,
+              threadId: null,
+            },
+          },
+        },
+      });
       storageRecords.set(admissionKey, {
         ...admission,
         recoveryGate: {
@@ -11404,6 +11437,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).resolves.toEqual({
       action: "continue_interrupted_work",
       authorizedContinuationClientMessageId: null,
+      automaticForkEligible: false,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
       // The computer never acknowledged that the interrupted attempt is gone,
@@ -11428,6 +11462,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           operationalContext: {
             queuedWorkReferences: [],
             recoveryAction: "continue_interrupted_work",
+            currentWorkReference: {
+              sourceSignalId: "signal-1",
+              spaceId: HEX_SPACE_ID,
+            },
             recoveryTargetWakeLifecycleId:
               buildRuntimeCoordinatorHeadAcceptRequest()
                 .targetWakeLifecycleIdentity.targetWakeLifecycleId,
@@ -20813,6 +20851,133 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).resolves.toMatchObject({
         interruptedLocalAttempt: "withdrawn",
       });
+      // Exercise eligibility through the owner RPC after real occupancy and
+      // withdrawal transitions. A writable folder or an explicit source choice
+      // requires the owner's decision even when no turn started.
+      if (!occupiedTargetWakeLifecycleId) {
+        throw new Error("Missing occupied Wake");
+      }
+      const headKey = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        occupiedTargetWakeLifecycleId
+      );
+      const originalHead = storageRecords.get(
+        headKey
+      ) as RuntimeCoordinatorHeadLifecycleRecord;
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileOperationalContexts: (input: {
+              includeWorkReferences: boolean;
+              ownerUserId: string;
+              targetProfileIds: string[];
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileOperationalContexts({
+          includeWorkReferences: true,
+          ownerUserId: "owner-1",
+          targetProfileIds: [TARGET_AGENT_PROFILE_ID],
+        })
+      ).resolves.toMatchObject({
+        contexts: [
+          {
+            operationalContext: {
+              status: "paused",
+              currentWorkReference: {
+                sourceSignalId:
+                  originalHead.targetWakeLifecycleIdentity.sourceSignalId,
+                spaceId: originalHead.targetWakeLifecycleIdentity.spaceId,
+              },
+            },
+          },
+        ],
+      });
+      const originalSnapshot = buildAcceptedDispatchSnapshot({
+        fingerprint: "a",
+      });
+      const scope = {
+        organizationId: "org-1",
+        requesterProfileId: "human-1",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        threadId: null,
+      };
+      const readRecovery = () =>
+        (
+          hub as unknown as {
+            rpcReadAgentProfileWorkRecovery: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileWorkRecovery({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        });
+      for (const [access, explicit, eligible] of [
+        ["read_only", false, true],
+        ["space_context", false, true],
+        ["workspace", false, false],
+        ["read_only", true, false],
+      ] as const) {
+        storageRecords.set(headKey, {
+          ...originalHead,
+          acceptedDispatchSnapshot: {
+            ...originalSnapshot,
+            contextRequest: {
+              scope,
+              selection: explicit
+                ? { mode: "resume", sourceWakeId: "chosen-source" }
+                : { mode: "auto" },
+            },
+            executionContext: {
+              version: 1,
+              id: "11111111-1111-4111-8111-111111111111",
+              scope,
+              access,
+              workspace: "current",
+            },
+          },
+        });
+        await expect(readRecovery()).resolves.toMatchObject({
+          automaticForkEligible: eligible,
+        });
+      }
+      storageRecords.set(headKey, originalHead);
+      await expect(readRecovery()).resolves.toMatchObject({
+        action: "skip_interrupted_work",
+        automaticForkEligible: false,
+      });
+      const legacyAdmission = storageRecords.get(admissionKey) as Record<
+        string,
+        unknown
+      > & {
+        recoveryGate: Record<string, unknown>;
+      };
+      storageRecords.set(admissionKey, {
+        ...legacyAdmission,
+        recoveryGate: {
+          ...legacyAdmission.recoveryGate,
+          status: "continuation_authorized",
+          forkInterruptedConversation: true,
+          continuationClientMessageId: "unavailable-legacy-fork",
+        },
+      });
+      await expect(
+        (
+          hub as unknown as {
+            rpcSkipAgentProfileInterruptedWork: (input: {
+              expectedInterruptedTargetWakeLifecycleId: string;
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcSkipAgentProfileInterruptedWork({
+          expectedInterruptedTargetWakeLifecycleId:
+            occupiedTargetWakeLifecycleId,
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({ status: "skipped" });
     } finally {
       nowSpy.mockRestore();
     }

@@ -51,8 +51,9 @@ export function readSpaceExecutionInput(sql: SqlStorage, inputId: string) {
       request_json: string;
       signal_json: string;
       queue_state: string | null;
+      queue_after_dispatch_id: string | null;
     }>(
-      "SELECT request_json, signal_json, queue_state FROM space_execution_input_outbox WHERE input_id = ?",
+      "SELECT request_json, signal_json, queue_state, queue_after_dispatch_id FROM space_execution_input_outbox WHERE input_id = ?",
       inputId
     )
     .toArray()[0];
@@ -62,6 +63,7 @@ export function readSpaceExecutionInput(sql: SqlStorage, inputId: string) {
   return {
     queued: row.queue_state !== null,
     state: row.queue_state,
+    afterDispatchId: row.queue_after_dispatch_id,
     request: spaceExecutionInputRequestSchema.parse(
       JSON.parse(row.request_json)
     ),
@@ -199,6 +201,58 @@ export function blockQueuedSpaceInputsAfterDispatch(
     AND json_extract(signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId') = ?`,
     dispatchId,
     targetProfileId
+  );
+}
+
+/** Move only untouched drafts. Delivery receipts and their original bindings never move. */
+export function continueQueuedSpaceInputs(
+  sql: SqlStorage,
+  input: {
+    previousDispatchId: string;
+    dispatchId: string;
+    sourceWakeId: string;
+    targetProfileId: string;
+    authorProfileId: string;
+  }
+): void {
+  sql.exec(
+    `UPDATE space_execution_input_outbox
+    SET queue_after_dispatch_id = ?, queue_blocked = 0,
+      signal_json = json_set(signal_json, '$.data.contextSelection', json(?))
+    WHERE queue_state = 'queued' AND queue_claim IS NULL
+      AND queue_after_dispatch_id = ?
+      AND json_extract(request_json, '$.kind') = 'local'
+      AND json_extract(request_json, '$.authorProfileId') = ?
+      AND json_extract(request_json, '$.target.targetProfileId') = ?`,
+    input.dispatchId,
+    JSON.stringify({ mode: "resume", sourceWakeId: input.sourceWakeId }),
+    input.previousDispatchId,
+    input.authorProfileId,
+    input.targetProfileId
+  );
+}
+
+/** Compare-and-set before the first delivery to the successor's native turn. */
+export function rebindQueuedSpaceInput(
+  sql: SqlStorage,
+  input: {
+    request: SpaceExecutionInputRequest;
+    signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+    dispatchId: string;
+  }
+): boolean {
+  return (
+    sql
+      .exec(
+        `UPDATE space_execution_input_outbox SET request_json = ?, signal_json = ?
+    WHERE input_id = ? AND queue_state = 'queued' AND queue_claim IS NULL
+      AND queue_after_dispatch_id = ? RETURNING input_id`,
+        JSON.stringify(input.request),
+        JSON.stringify(input.signal),
+        input.request.inputId,
+        input.dispatchId
+      )
+      .toArray().length === 1
   );
 }
 

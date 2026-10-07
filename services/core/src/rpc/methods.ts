@@ -5540,7 +5540,11 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
         );
       if (
         recovery.status !== "available" ||
-        recovery.action !== "continue_interrupted_work"
+        (recovery.action !== "continue_interrupted_work" &&
+          !(
+            recovery.action === "fork_interrupted_work" &&
+            recovery.automaticForkEligible === true
+          ))
       ) {
         continue;
       }
@@ -5549,6 +5553,12 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
       await executeAgentProfileWorkContinuation({
         context: input.context,
         env: input.env,
+        ...(recovery.action === "fork_interrupted_work"
+          ? {
+              forkInterruptedConversation: true,
+              requireAutomaticForkEligibility: true as const,
+            }
+          : {}),
         ownerShard,
         ownerUserId: input.ownerUserId,
         recovery,
@@ -5616,6 +5626,7 @@ async function executeAgentProfileWorkContinuation(input: {
   env: CoreBindings;
   expectedInterruptedTargetWakeLifecycleId?: string;
   forkInterruptedConversation?: boolean;
+  requireAutomaticForkEligibility?: true;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   recovery: Extract<
@@ -5688,6 +5699,7 @@ async function executeAgentProfileWorkContinuation(input: {
         ...(forkInterruptedConversation
           ? { forkInterruptedConversation: true }
           : {}),
+        requireAutomaticForkEligibility: input.requireAutomaticForkEligibility,
         ownerUserId: input.ownerUserId,
         requireAcceptedExecutionTargetRevision: true,
         targetProfileId: input.targetProfileId,
@@ -5715,6 +5727,23 @@ async function executeAgentProfileWorkContinuation(input: {
     withdrawal.status !== "withdrawn"
   ) {
     return "deferred";
+  }
+  if (input.requireAutomaticForkEligibility) {
+    const current =
+      runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
+        await input.ownerShard.rpcReadAgentProfileWorkRecovery({
+          ownerUserId: input.ownerUserId,
+          targetProfileId: input.targetProfileId,
+        })
+      );
+    if (
+      current.status !== "available" ||
+      current.automaticForkEligible !== true ||
+      current.interruptedTargetWakeLifecycleId !==
+        input.recovery.interruptedTargetWakeLifecycleId
+    ) {
+      return "deferred";
+    }
   }
   await stub.rpcStartUsageExhaustedContinuation({
     continuationClientMessageId,

@@ -426,6 +426,8 @@ describe("Center Agent execution input in the Space owner", () => {
     "not_found",
     "revoked",
     "consume",
+    "recover",
+    "rebind",
     "enqueue",
     "delete-retired-target",
     "claude-applied",
@@ -562,7 +564,12 @@ describe("Center Agent execution input in the Space owner", () => {
         expect(transport).not.toHaveBeenCalled();
         return;
       }
-      if (result === "consume" || result === "enqueue") {
+      if (
+        result === "consume" ||
+        result === "enqueue" ||
+        result === "recover" ||
+        result === "rebind"
+      ) {
         vi.spyOn(instance, "flushPendingDispatchOutbox").mockResolvedValue();
         vi.spyOn(instance, "readSpaceCallerContext").mockResolvedValue({
           relationship: "internal",
@@ -570,12 +577,73 @@ describe("Center Agent execution input in the Space owner", () => {
           audience: "organization",
         });
       }
-      if (result === "enqueue") {
-        const runtimeId = crypto.randomUUID();
+      if (result === "recover") {
+        const continuation = structuredClone(signal);
+        continuation.id = crypto.randomUUID();
+        continuation.data.meta = { clientMessageId: crypto.randomUUID() };
+        continuation.data.messageEnvelope = {
+          text: continuation.data.text,
+          activationTargets: [request.agentProfileId],
+          referenceTargets: [],
+        };
+        const publish = () =>
+          instance.publishTextSignal(continuation, {
+            authoringPolicy: "user_authored",
+            workRecoveryQueueHandoff: {
+              previousDispatchId: request.dispatchId,
+              targetProfileId: request.agentProfileId,
+            },
+          });
         state.storage.sql.exec(
-          "DELETE FROM space_execution_input_outbox WHERE input_id = ?",
-          inputId
+          `CREATE TRIGGER fail_recovery_queue BEFORE UPDATE OF queue_after_dispatch_id ON space_execution_input_outbox BEGIN SELECT RAISE(ABORT, 'recovery unavailable'); END`
         );
+        await expect(publish()).rejects.toThrow("recovery unavailable");
+        expect(
+          listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.afterDispatchId
+        ).toBe(request.dispatchId);
+        expect(
+          state.storage.sql
+            .exec("SELECT id FROM space_signals WHERE id = ?", continuation.id)
+            .toArray()
+        ).toEqual([]);
+        expect(
+          state.storage.sql
+            .exec(
+              "SELECT dispatch_id FROM openMeldDaemon_outbox WHERE source_event_id = ?",
+              continuation.id
+            )
+            .toArray()
+        ).toEqual([]);
+        state.storage.sql.exec("DROP TRIGGER fail_recovery_queue");
+        await publish();
+        await publish();
+        const dispatches = state.storage.sql
+          .exec<{ dispatch_id: string }>(
+            "SELECT dispatch_id FROM openMeldDaemon_outbox WHERE source_event_id = ?",
+            continuation.id
+          )
+          .toArray();
+        expect(dispatches).toHaveLength(1);
+        const pending = listQueuedSpaceExecutionInputs(state.storage.sql);
+        expect(pending).toHaveLength(1);
+        expect(pending[0]?.afterDispatchId).toBe(dispatches[0]?.dispatch_id);
+        expect(pending[0]?.request.target).toMatchObject({
+          dispatchId: request.dispatchId,
+        });
+        expect(pending[0]?.signal.data.contextSelection).toMatchObject({
+          mode: "resume",
+        });
+        expect(transport).not.toHaveBeenCalled();
+        return;
+      }
+      if (result === "enqueue" || result === "rebind") {
+        const runtimeId = crypto.randomUUID();
+        if (result === "enqueue") {
+          state.storage.sql.exec(
+            "DELETE FROM space_execution_input_outbox WHERE input_id = ?",
+            inputId
+          );
+        }
         const parent = structuredClone(signal);
         parent.id = crypto.randomUUID();
         parent.data.meta = { clientMessageId: crypto.randomUUID() };
@@ -643,6 +711,52 @@ describe("Center Agent execution input in the Space owner", () => {
           ...binding,
           dispatchId: dispatch.dispatch_id,
         });
+        if (result === "rebind") {
+          state.storage.sql.exec(
+            "UPDATE space_execution_input_outbox SET queue_after_dispatch_id = ? WHERE input_id = ?",
+            dispatch.dispatch_id,
+            inputId
+          );
+          transport
+            .mockResolvedValueOnce({
+              ...binding,
+              dispatchId: dispatch.dispatch_id,
+              attemptId: "successor-attempt",
+              runtimeCoordinatorRunId: "successor-run",
+            })
+            .mockResolvedValue({
+              inputId,
+              status: "applied",
+              taskId: "successor-task",
+              threadId: "successor-thread",
+              turnId: "successor-turn",
+            });
+          const response = await instance.handleInputQueue(
+            {
+              action: "steer",
+              inputId,
+              target: {
+                dispatchId: dispatch.dispatch_id,
+                targetProfileId: request.agentProfileId,
+              },
+            },
+            context
+          );
+          expect(response.status).toBe(200);
+          expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+          expect(transport).toHaveBeenCalledTimes(2);
+          expect(transport.mock.calls[1]?.[0]).toMatchObject({
+            body: {
+              operation: "apply",
+              request: {
+                attemptId: "successor-attempt",
+                runtimeCoordinatorRunId: "successor-run",
+                dispatchId: dispatch.dispatch_id,
+              },
+            },
+          });
+          return;
+        }
         const mutation = {
           action: "enqueue",
           inputId,
@@ -652,7 +766,7 @@ describe("Center Agent execution input in the Space owner", () => {
             targetProfileId: request.agentProfileId,
           },
         };
-        const context: CoreRpcContextInput = {
+        const enqueueContext: CoreRpcContextInput = {
           activeOrganizationId: request.organizationId,
           actorContext: {
             requestId: "local-enqueue",
@@ -663,10 +777,10 @@ describe("Center Agent execution input in the Space owner", () => {
           },
         };
         expect(
-          (await instance.handleInputQueue(mutation, context)).status
+          (await instance.handleInputQueue(mutation, enqueueContext)).status
         ).toBe(200);
         expect(
-          (await instance.handleInputQueue(mutation, context)).status
+          (await instance.handleInputQueue(mutation, enqueueContext)).status
         ).toBe(200);
         expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toHaveLength(
           1

@@ -26,7 +26,12 @@ vi.mock("./use-space-input-queue", () => ({
 		mutate: queue.mutate,
 	}),
 }));
-beforeEach(() => queue.mutate.mockReset());
+vi.mock("./use-space-work-recovery", () => ({
+	useSpaceWorkRecovery: () => ({ visible: false, content: null }),
+}));
+beforeEach(() => {
+	queue.mutate.mockReset();
+});
 afterEach(cleanup);
 
 async function edit() {
