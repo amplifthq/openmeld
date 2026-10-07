@@ -10,6 +10,7 @@ import {
   fauxAssistantMessage,
   fauxProvider,
   fauxToolCall,
+  getCurrentSystemPrompt,
 } from "@earendil-works/pi-ai";
 import { defineTool, init, useModel, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
@@ -440,7 +441,7 @@ describe("retained Computer commands", () => {
       provider.setResponses(
         Array.from({ length: 14 }, () => (ctx) => {
           if (
-            ctx.systemPrompt?.startsWith(
+            getCurrentSystemPrompt(ctx.messages)?.startsWith(
               "You are a context summarization assistant"
             )
           ) {
@@ -450,7 +451,10 @@ describe("retained Computer commands", () => {
               "A Computer command was started. Recover its receipt and collect its result."
             );
           }
-          const call = (name: string, args: Record<string, unknown>) =>
+          const call = (
+            name: string,
+            args: Parameters<typeof fauxToolCall>[1]
+          ) =>
             fauxAssistantMessage(fauxToolCall(name, args), {
               stopReason: "toolUse",
             });

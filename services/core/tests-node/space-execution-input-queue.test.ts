@@ -6,12 +6,15 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   claimQueuedSpaceExecutionInput,
+  continueQueuedSpaceInputs,
   deleteQueuedSpaceExecutionInput,
   ensureSpaceExecutionInputOutbox,
   insertSpaceExecutionInput,
   listQueuedSpaceExecutionInputs,
+  listReadySpaceInputIds,
   readNextSpaceExecutionInputAlarm,
   readSpaceExecutionInput,
+  rebindQueuedSpaceInput,
   reorderQueuedSpaceExecutionInputs,
   settleQueuedSpaceExecutionInput,
 } from "../src/space/infrastructure/sql/space-execution-input-repo";
@@ -71,6 +74,126 @@ function enqueue(sql: SqlStorage, inputId: string, queued = true) {
 }
 
 describe("Space pending input ownership", () => {
+  it("carries only untouched local drafts to a continuation and preserves uncertain delivery on its original task", () => {
+    fixture((sql) => {
+      for (const id of ["pending", "uncertain", "delivered", "other"]) {
+        enqueue(sql, id);
+        const item = readSpaceExecutionInput(sql, id);
+        if (!item) {
+          throw new Error("Missing fixture input");
+        }
+        sql.exec(
+          "UPDATE space_execution_input_outbox SET request_json = ? WHERE input_id = ?",
+          JSON.stringify({
+            kind: "local",
+            inputId: id,
+            authorProfileId: id === "other" ? "other-author" : "human-1",
+            requesterUserId: "owner",
+            sourceSignalId: item.signal.id,
+            text: id,
+            target: {
+              spaceId: "space",
+              ownerUserId: "owner",
+              dispatchId: "dispatch",
+              targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+              runtimeCoordinatorExecutionId: "execution",
+              attemptId: "attempt",
+              runtimeCoordinatorRunId: "run",
+            },
+          }),
+          id
+        );
+      }
+      expect(claimQueuedSpaceExecutionInput(sql, "delivered", "steer")).toBe(
+        true
+      );
+      expect(
+        settleQueuedSpaceExecutionInput(sql, "delivered", "steer", "applied")
+      ).toBe(true);
+      expect(claimQueuedSpaceExecutionInput(sql, "uncertain", "steer")).toBe(
+        true
+      );
+      expect(
+        settleQueuedSpaceExecutionInput(
+          sql,
+          "uncertain",
+          "steer",
+          "unconfirmed"
+        )
+      ).toBe(true);
+      const move = {
+        previousDispatchId: "dispatch",
+        dispatchId: "successor",
+        sourceWakeId: "successor-wake",
+        targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+        authorProfileId: "human-1",
+      };
+      continueQueuedSpaceInputs(sql, move);
+      continueQueuedSpaceInputs(sql, move);
+      expect(readSpaceExecutionInput(sql, "pending")).toMatchObject({
+        afterDispatchId: "successor",
+        state: "queued",
+        signal: {
+          data: {
+            contextSelection: {
+              mode: "resume",
+              sourceWakeId: "successor-wake",
+            },
+          },
+        },
+      });
+      for (const id of ["uncertain", "delivered", "other"]) {
+        expect(readSpaceExecutionInput(sql, id)?.afterDispatchId).toBe(
+          "dispatch"
+        );
+      }
+      const pending = readSpaceExecutionInput(sql, "uncertain");
+      if (!pending) {
+        throw new Error("Missing pending input");
+      }
+      expect(claimQueuedSpaceExecutionInput(sql, "pending", "steer")).toBe(
+        true
+      );
+      expect(
+        rebindQueuedSpaceInput(sql, {
+          request: pending.request,
+          signal: pending.signal,
+          dispatchId: "dispatch",
+        })
+      ).toBe(false);
+      expect(readSpaceExecutionInput(sql, "uncertain")?.state).toBe(
+        "unconfirmed"
+      );
+    });
+  });
+
+  it("does not let another task's pending or uncertain input block a completed task's Queue", () => {
+    fixture((sql) => {
+      ensureSpaceSqlSchema(sql);
+      for (const id of ["a", "b", "b-later"]) {
+        enqueue(sql, id);
+      }
+      sql.exec(
+        "UPDATE space_execution_input_outbox SET queue_after_dispatch_id = 'b-dispatch', request_json = json_set(request_json, '$.authorProfileId', 'human-2'), signal_json = json_set(signal_json, '$.profile.profileId', 'human-2') WHERE input_id IN ('b', 'b-later')"
+      );
+      sql.exec(
+        "INSERT INTO space_final_reply_claims (dispatch_id, profile_id, signal_id, created_at) VALUES ('b-dispatch', 'agt_11111111-1111-4111-8111-111111111111', 'b-reply', 1)"
+      );
+      expect(listReadySpaceInputIds(sql)).toEqual(["b"]);
+      expect(claimQueuedSpaceExecutionInput(sql, "a", "steer")).toBe(true);
+      expect(
+        settleQueuedSpaceExecutionInput(sql, "a", "steer", "unconfirmed")
+      ).toBe(true);
+      expect(listReadySpaceInputIds(sql)).toEqual(["b"]);
+      expect(claimQueuedSpaceExecutionInput(sql, "b-later", "consume")).toBe(
+        false
+      );
+      expect(claimQueuedSpaceExecutionInput(sql, "b", "consume")).toBe(true);
+      expect(listReadySpaceInputIds(sql)).toEqual([]);
+      expect(readSpaceExecutionInput(sql, "a")?.state).toBe("unconfirmed");
+    });
+  });
+
   it("reorders only the caller's slots without moving another author's message", () => {
     fixture((sql) => {
       for (const id of ["a", "other", "b"]) {

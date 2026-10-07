@@ -2093,10 +2093,16 @@ async function persistCommittedRemoteSessionRefresh(input: {
   }
 
   try {
-    await assertStoredAccessTokenReloads({
-      accessToken: refresh.nextSession.accessToken,
-      tokenRef: refresh.nextTokenRef,
-    });
+    // An expiry-only renewal retains the credential already verified by this
+    // process and Auth. Only a newly stored credential needs read-back proof.
+    if (
+      !areStoredTokenRefsEqual(refresh.currentTokenRef, refresh.nextTokenRef)
+    ) {
+      await assertStoredAccessTokenReloads({
+        accessToken: refresh.nextSession.accessToken,
+        tokenRef: refresh.nextTokenRef,
+      });
+    }
     await writeSessionPayloadAtomically(authSessionPath(), refresh.nextPayload);
   } catch (error) {
     await cleanupFailedRemoteSessionRefresh(refresh);
@@ -2145,10 +2151,14 @@ async function persistPendingCandidateRemoteSessionRefresh(input: {
   };
 
   try {
-    await assertStoredAccessTokenReloads({
-      accessToken: refresh.nextSession.accessToken,
-      tokenRef: refresh.nextTokenRef,
-    });
+    if (
+      !areStoredTokenRefsEqual(refresh.currentTokenRef, refresh.nextTokenRef)
+    ) {
+      await assertStoredAccessTokenReloads({
+        accessToken: refresh.nextSession.accessToken,
+        tokenRef: refresh.nextTokenRef,
+      });
+    }
     await writeAuthSessionTransitionJournalIfOwned(input.journal, nextJournal);
   } catch (error) {
     await cleanupFailedRemoteSessionRefresh(refresh);

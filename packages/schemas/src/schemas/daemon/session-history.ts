@@ -3,8 +3,15 @@ import { openMeldRequestContextSchema } from "./profile-identity";
 import { runtimeCoordinatorExecutionTokenEchoSchema } from "./runtime-coordinator-execution-token";
 import { daemonServiceLaneSchema } from "./service-contract";
 
-export const SESSION_HISTORY_RUNTIME_CAPABILITY = "session-history-v1";
+export const SESSION_HISTORY_RUNTIME_CAPABILITY = "session-history-v3";
 export const SESSION_HISTORY_CAPABILITY_HEADER = "x-openmeld-session-history";
+export const SESSION_HISTORY_PROVIDERS = [
+  "codex",
+  "claude-code",
+  "opencode",
+  "grok-build",
+] as const;
+export const sessionHistoryProviderSchema = z.enum(SESSION_HISTORY_PROVIDERS);
 const id = z.string().trim().min(1).max(512);
 export const sessionHistoryConnectionSchema = z.strictObject({
   projectId: id,
@@ -13,7 +20,6 @@ export const sessionHistoryConnectionSchema = z.strictObject({
 export const sessionHistoryPolicyInputSchema = z.strictObject({
   enabled: z.boolean(),
   connections: z.array(sessionHistoryConnectionSchema).max(128),
-  readerProfileIds: z.array(id).max(64),
 });
 export const sessionHistoryPolicySchema =
   sessionHistoryPolicyInputSchema.extend({
@@ -22,6 +28,7 @@ export const sessionHistoryPolicySchema =
   });
 export const sessionHistoryReadSchema = z.strictObject({
   operation: z.literal("read_session"),
+  provider: sessionHistoryProviderSchema.optional(),
   projectId: id,
   sessionId: id,
   offset: z.number().int().min(0).max(100_000).default(0),
@@ -48,6 +55,7 @@ export const sessionHistoryRequesterSchema = z.strictObject({
   audience: z.enum(["owner_private", "space", "externally_shared"]),
 });
 export const sessionHistoryAuditSchema = z.strictObject({
+  provider: sessionHistoryProviderSchema.optional(),
   requestId: id,
   atMs: z.number().int().nonnegative(),
   requester: sessionHistoryRequesterSchema,
@@ -59,6 +67,7 @@ export const sessionHistoryAuditSchema = z.strictObject({
 });
 export const sessionHistoryPageSchema = z.strictObject({
   kind: z.literal("session"),
+  provider: sessionHistoryProviderSchema.optional(),
   sessionId: id,
   requester: sessionHistoryRequesterSchema,
   messages: z

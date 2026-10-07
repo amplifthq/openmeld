@@ -140,6 +140,7 @@ export type {
 } from "./feedback/types";
 export type { FileRootLocation } from "./file-root/api";
 export { createFileRootApi } from "./file-root/api";
+export { createFirstWorkApi } from "./first-work";
 export { createInboxApi } from "./inbox/api";
 export { isInboxItemInOrganizationScope } from "./inbox/item-scope";
 export {

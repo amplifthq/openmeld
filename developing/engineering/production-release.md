@@ -839,6 +839,12 @@ projection when Core is released alone. This permits a verified Core receiver
 stage before Remote Agent and later CLI publication, including the local
 PostgreSQL release lane.
 
+Local Service receiver changes keep that same current stable CLI projection
+when another compatible contract orders Remote Agent first. Release Remote
+Agent, then use the guarded local Core/Gateway/Web stage, and finish with the
+GitHub CLI workflow. The aggregate deployment-order profile must not replace
+the Service receiver's projection policy.
+
 The planner selects `local-service-runtime-receiver-first` when one diff changes
 the strict Runtime Transport schema, a Core Runtime Transport receiver, and a
 local OpenMeld Service producer together. Within the selected scopes it deploys

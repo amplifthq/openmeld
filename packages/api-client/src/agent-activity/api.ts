@@ -24,6 +24,9 @@ export const createAgentActivityApi: CreateAgentActivityApi = (
     const query = requireValidInput(
       agentActivitySessionInventoryQuerySchema,
       {
+        ...(input.computerId === undefined
+          ? {}
+          : { computerId: input.computerId }),
         ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
         ...(input.limit === undefined ? {} : { limit: input.limit }),
         ...(input.memberUserId === undefined

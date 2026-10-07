@@ -4,6 +4,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Context, Provider } from "@earendil-works/pi-ai";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { instrument } from "@flue/runtime";
 import { expect, it, vi } from "vitest";
 import { parseJsoncObject } from "../../../packages/db/src/tooling/parse-jsonc";
@@ -219,7 +220,7 @@ it.skipIf(
       try {
         for (let round = 0; round < 6; round++) {
           const response = await provider
-            .streamSimple(model, context, {
+            .streamSimple(model, normalizeContext(context), {
               apiKey: "unused",
               maxTokens: 1024,
               reasoning: "low",
@@ -344,7 +345,7 @@ it.skipIf(
       const reply = await provider
         .streamSimple(
           model,
-          {
+          normalizeContext({
             messages: [
               {
                 role: "user",
@@ -352,7 +353,7 @@ it.skipIf(
                 timestamp: Date.now(),
               },
             ],
-          },
+          }),
           { apiKey: "unused", maxTokens: 64, reasoning: "low" }
         )
         .result();

@@ -124,12 +124,17 @@ export function registerAgentActivityCommands(
   activity
     .command("history")
     .description(
-      "Read an authorized page of Codex messages from a connected Computer."
+      "Read an authorized page of local agent messages from a connected Computer."
     )
     .requiredOption("--device <id>", "Source Computer device ID")
     .requiredOption("--lane <lane>", "Source Computer environment")
     .requiredOption("--project-id <id>", "Authorized Project ID")
-    .requiredOption("--session <id>", "Codex native session ID")
+    .requiredOption("--session <id>", "Native session ID")
+    .option(
+      "--provider <provider>",
+      "codex, claude-code, opencode, or grok-build",
+      "codex"
+    )
     .option("--offset <number>", "Message offset", "0")
     .option("--limit <number>", "Maximum messages (1–50)", "20")
     .option("--json", "Print one machine-readable JSON envelope.", false)
@@ -233,6 +238,7 @@ function addActivitySessionsOptions(command: Command) {
     )
     .option("--origin <origin>", "Filter by openmeld, local, or unknown")
     .option("--native-session <id>", "Locate one Native Session ID")
+    .option("--computer <id>", "Filter by connected Computer ID")
     .option("--query <text>", "Search Native Session title or ID")
     .option("--limit <count>", "Page size, from 1 through 100", "50")
     .option("--cursor <cursor>", "Continue from a prior page cursor")

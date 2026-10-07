@@ -272,13 +272,16 @@ export function prepareResolveInboxItemsBySourceStatements(input: {
   markRead?: boolean;
   sourceGuard?: InboxSourceWriteGuard;
 }): QueryConfig[] {
+  const endedInteraction =
+    input.sourceKind === "runtime_coordinator_interaction";
   const itemUpdate = {
     text: `
         UPDATE "openmeld"."inbox_items"
         SET
           resolution_status = 'resolved',
           resolved_at_ms = $1,
-          ${input.markRead ? "read_at_ms = coalesce(read_at_ms, $1)," : ""}
+          ${input.markRead || endedInteraction ? "read_at_ms = coalesce(read_at_ms, $1)," : ""}
+          ${endedInteraction ? "title = 'Request ended', preview = 'This request no longer needs a response.'," : ""}
           updated_at_ms = GREATEST(updated_at_ms, $2)
         WHERE organization_id = $3
           AND source_kind = $4

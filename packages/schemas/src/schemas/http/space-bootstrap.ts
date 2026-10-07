@@ -24,4 +24,5 @@ export const spaceBootstrapResponseSchema = z.strictObject({
 export const spaceBootstrapQuerySchema = z.strictObject({
   includeAgentReadiness: optionalBooleanQuerySchema,
   includeAgentStreamPresence: optionalBooleanQuerySchema,
+  includeAgentStreamRecovery: optionalBooleanQuerySchema,
 });

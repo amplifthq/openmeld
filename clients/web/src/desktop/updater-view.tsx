@@ -34,7 +34,7 @@ export function DesktopUpdaterView(input: {
 				action={view.action}
 				label={view.label}
 				onAction={input.onAction}
-				pending={input.pending}
+				pending={input.pending && view.action !== "cancel"}
 				settings={settings}
 			/>
 		) : null;
@@ -80,10 +80,11 @@ export function DesktopUpdaterView(input: {
 					</div>
 					{action || progress || (view.busy && !input.readError) ? (
 						<div
-							className="@lg/desktop-update:w-auto w-full @lg/desktop-update:min-w-36 shrink-0"
+							className="@lg/desktop-update:w-auto w-full @lg/desktop-update:min-w-36 shrink-0 space-y-3"
 							data-slot="desktop-update-action"
 						>
-							{action ?? progress ?? <BusyStatus label={headline} />}
+							{progress}
+							{action || (!progress && <BusyStatus label={headline} />)}
 						</div>
 					) : null}
 				</div>
@@ -129,7 +130,11 @@ function UpdateAction(input: {
 	return (
 		<Button
 			aria-busy={input.pending || undefined}
-			className={input.settings ? "@lg/desktop-update:w-auto w-full" : "w-full"}
+			className={
+				input.settings && input.action !== "cancel"
+					? "@lg/desktop-update:w-auto w-full"
+					: "w-full"
+			}
 			disabled={input.pending}
 			onClick={() => input.onAction(input.action)}
 			size={input.settings ? "default" : "lg"}

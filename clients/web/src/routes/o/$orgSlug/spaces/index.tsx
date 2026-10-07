@@ -25,7 +25,7 @@ import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
-import { DirectMessagesIndexContent } from "#/components/spaces/direct-messages-index";
+import { ChatsDirectory } from "#/components/spaces/chats-directory";
 import { SpaceDirectory } from "#/components/spaces/space-directory";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpacePendingInvitations } from "#/components/spaces/space-pending-invitations";
@@ -113,17 +113,8 @@ function AppSpacesIndexPendingRoute() {
 }
 
 function AppSpacesIndexRoute() {
-	const { view } = Route.useSearch();
 	const { orgSlug } = Route.useParams();
 	const { sidebarStates } = Route.useLoaderData();
-	if (view === "messages") {
-		return (
-			<DirectMessagesIndexContent
-				initialSidebarStates={sidebarStates}
-				orgSlug={orgSlug}
-			/>
-		);
-	}
 	return (
 		<AppSpacesIndexContent
 			initialSidebarStates={sidebarStates}
@@ -136,6 +127,8 @@ export function AppSpacesIndexContent(input: {
 	initialSidebarStates?: AppSidebarPersistedStates;
 	orgSlug: string;
 }) {
+	// Keep the shell mounted and read the same immediate URL state as its tabs.
+	const [view] = useQueryState("view", spacesViewParser);
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { activeOrganization, currentOrganization } = useAppOrganization();
@@ -310,7 +303,7 @@ export function AppSpacesIndexContent(input: {
 
 	return (
 		<AppSpaceShell
-			browseSpacesActive
+			browseSpacesActive={view !== "messages"}
 			currentProfileId={profileId}
 			currentSpaceId=""
 			initialOuterSidebarState={
@@ -319,7 +312,7 @@ export function AppSpacesIndexContent(input: {
 			initialSidebarState={
 				input.initialSidebarStates?.inner ?? APP_SIDEBAR_DEFAULT_STATES.inner
 			}
-			showSpacesSidebar={showSpacesSidebar}
+			showSpacesSidebar={view === "messages" || showSpacesSidebar}
 		>
 			<SpaceIndexContentState
 				accountProfiles={profilesQuery.data ?? []}
@@ -523,6 +516,9 @@ type SpaceIndexContentStateInput = {
 
 function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 	const [view] = useQueryState("view", spacesViewParser);
+	if (view === "messages") {
+		return <ChatsDirectory />;
+	}
 	const tab = view === "discover" && !input.isPersonalContext ? 1 : 0;
 	const body = resolveSpaceIndexBody(input, tab);
 

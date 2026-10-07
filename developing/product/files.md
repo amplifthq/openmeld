@@ -76,6 +76,8 @@ Files can show managed objects, but ordinary file mutations never bypass their o
 
 Team and Space use the same Finder-style file browser and shared viewer components, with OpenMeld's Fluid controls, tokens, and radius. A file browser fills its owning page rather than adding a second framed application inside it. The initial viewer set is read-only; editors are added only after version, conflict, and save behavior is correct. Viewer availability is separate from Agent read capability.
 
+Space Files includes both chat attachments and manually uploaded files by default. File origin is provenance, not a visibility filter. The file browser does not present the structured work-handoff workflow as a generic send-file action.
+
 Center, Hosted Remote, and Local Agents use the same logical file operations and exact revision references as people. The root service enforces the represented human's authorization at the time of each read or write. A private file may enter a Hosted Agent turn only when the audience and execution path keep it private. A one-to-one conversation alone does not prove that a shared Computer, cache, history, or published output is isolated.
 
 Skill instructions load on activation and individual resources load on demand from an immutable release. Neither a model-side lazy API nor a UI preview proves backend lazy retrieval; storage fetches and decoding must also be deferred. Storage, upload, package validation, enabled catalog, and task working-set budgets remain separate.

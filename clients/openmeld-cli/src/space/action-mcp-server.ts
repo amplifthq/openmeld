@@ -515,7 +515,7 @@ export function createDispatchSpaceTools(
       {
         title: "Share public progress in the current OpenMeld Space",
         description:
-          "Share one brief, concrete update while this Wake is still running. Use this only when you start meaningful work, confirm a useful fact, change direction, or begin verification. Do not include private reasoning, protected information, credentials, raw commands, or unverified claims. Exact retries are idempotent. This does not post a final reply, close the Wake, or resume a parent task.",
+          "Share one brief, concrete update while this Wake is still running. Use this when you start meaningful work, confirm a useful fact, encounter a blocker, change direction, or begin verification. For a blocker, explain its effect on the request and the next step. Do not repeat an unchanged update or include private reasoning, protected information, credentials, raw commands, or unverified claims. Exact retries are idempotent. This does not post a final reply, close the Wake, or resume a parent task.",
         inputSchema: {
           update: z.string().trim().min(1).max(600),
         },

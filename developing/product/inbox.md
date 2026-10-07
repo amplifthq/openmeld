@@ -142,6 +142,20 @@ when read but remain pending; priority open requests stay yellow until resolved.
 First-contact information is yellow only while unread. Ended requests are
 history, never persistent priority.
 
+When RuntimeCoordinator confirms that an Agent interaction request has ended
+(approval, plan review, or question), Core marks that request read and presents
+it as **Request ended**, with no continuing request for a response. Existing read
+timestamps, dismissal and history remain intact. Migration `0023` applies this
+rule to already-resolved interactions; historical D1 import applies the same
+correction. Failure notifications, final outcomes, connection incidents and model
+issues retain their own read semantics. Reading never resolves an open request.
+
+Single unread items expose **Mark as read** beside the overflow menu. Single,
+group and frozen-view reads immediately update loaded rows and unread counts,
+including the toolbar preview. Unread-only views immediately remove read items.
+A failed mutation rolls back only its own change; concurrent successful reads
+and later arrivals remain intact. Core remains the durable read-state owner.
+
 Confirmed model issues reuse `system_attention_event` with an exact Agent target
 and `agent-model:` source namespace. The model/Binding owner reconciles them on
 normal controller reports, successful user model edits, and explicit unbinding.

@@ -534,26 +534,67 @@ describe("Agent Profile work recovery Core RPC", () => {
     }
   });
 
-  it("skips occupied work when recovery action is fork_interrupted_work", async () => {
+  it.each([
+    "owner",
+    "requester",
+    "other-task",
+  ] as const)("scopes occupied work skip to %s", async (actor) => {
     const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
     });
+    const spaceStub = {
+      rpcInputQueue: vi.fn(async () => ({
+        items: [],
+        recoveries:
+          actor === "requester"
+            ? [
+                {
+                  targetProfileId: AGENT_PROFILE_ID,
+                  profileName: "Agent One",
+                  action: "fork_interrupted_work" as const,
+                  expectedInterruptedTargetWakeLifecycleId:
+                    TARGET_WAKE_LIFECYCLE_ID,
+                },
+              ]
+            : [],
+      })),
+    };
     try {
-      await expect(
-        rpcExecuteAgentProfileWorkRecovery(
-          createEnv({ db: harness.db, runtimeTransportStub }),
-          {
-            agentProfileId: AGENT_PROFILE_ID,
-            body: {
-              action: "skip_interrupted_work",
-              expectedInterruptedTargetWakeLifecycleId:
-                TARGET_WAKE_LIFECYCLE_ID,
-            },
-            context: CONTEXT,
-          }
-        )
-      ).resolves.toEqual({
+      const result = rpcExecuteAgentProfileWorkRecovery(
+        createEnv({ db: harness.db, runtimeTransportStub, spaceStub }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: {
+            action: "skip_interrupted_work",
+            ...(actor !== "owner" ? { spaceId: SPACE_ID } : {}),
+            expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+          },
+          context:
+            actor === "owner"
+              ? CONTEXT
+              : {
+                  ...CONTEXT,
+                  actorContext: {
+                    ...CONTEXT.actorContext,
+                    ownerUserId: "requester-owner",
+                  },
+                },
+        }
+      );
+      if (actor === "other-task") {
+        await expect(result).rejects.toMatchObject({
+          code: "agent_profile_work_recovery.not_allowed",
+        });
+        expect(
+          runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+        ).not.toHaveBeenCalled();
+        expect(
+          runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal
+        ).not.toHaveBeenCalled();
+        return;
+      }
+      await expect(result).resolves.toEqual({
         action: "skip_interrupted_work",
         status: "accepted",
       });
@@ -563,6 +604,10 @@ describe("Agent Profile work recovery Core RPC", () => {
       expect(
         runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
       ).toHaveBeenCalledWith({
+        requesterProfileId:
+          actor === "requester"
+            ? CONTEXT.actorContext.openMeldProfileId
+            : undefined,
         expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
         ownerUserId: "owner-1",
         targetProfileId: AGENT_PROFILE_ID,

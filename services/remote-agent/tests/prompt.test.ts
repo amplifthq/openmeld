@@ -393,10 +393,7 @@ describe("remote agent system prompt", () => {
       "copy nativeSessionId, projectId, computerId, and agentControllerRef from that same current Session row"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      'bindingState "unbound" is valid and expected for Fork'
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Never fall back to a new Session or claim that Fork is unavailable before Core evaluates the complete selection."
+      "Never substitute a new Session."
     );
   });
 
@@ -1051,24 +1048,21 @@ describe("remote agent system prompt", () => {
     );
   });
 
-  it("explains Local and Remote creation contracts without requiring the same setup workflow", () => {
+  it("routes setup details to the selected tool without a mandatory discovery checklist", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "openmeld_create_agent_profile_request accepts Local and Remote selection"
+      "describe openmeld_create_agent_profile_request and use its Local, Remote, Resume, or Fork contract"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      'connectionSelection { kind: "remote" }'
+      "Read only the setup facts needed for the chosen path"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "createdAgentProfileId is an identity fact, not a canReply fact"
+      "Preserve created IDs and pending operation references across steps"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "Default Project alone does not set the working folder"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "openmeld_update_agent_profile_runtime_settings with workspacePath"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Omit requestedSpaceId when no Space is needed"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).not.toContain(
       "Then use openmeld_create_configured_agent_profile"

@@ -209,11 +209,12 @@ change must leave those signals cleaner and less ambiguous.
   then follow the linked lifecycle and component-specific release rules. Do not
   infer a second delivery process from workflow YAML, tool output, or old task
   history.
-- Record firsthand problems from released, supported OpenMeld product use through
-  [Agent Experience Occurrence Feedback](developing/engineering/agent-native-delivery.md#agent-experience-occurrence-feedback).
-  Apply its production-use eligibility, occurrence, and authorized Profile rules.
-  Keep unreleased development and validation findings in the owning task or PR;
-  a normal failure is not automatically a product defect.
+- Use [Agent Experience Feedback](developing/engineering/agent-native-delivery.md#agent-experience-feedback)
+  only for firsthand product bugs or experience gaps confirmed in current
+  `origin/main` that you will not take on and that have no existing repair owner.
+  Apply the owner's evidence, duplicate-check, and authorized Profile rules.
+  Keep self-owned repairs, uncertain symptoms, and development or validation
+  findings in the owning task or PR, even before a repair PR exists.
 - Use focused checks while implementation or blocker-capable review can still
   change the code. Treat broad affected, integration, release-ready, and Final
   Candidate runs as closeout evidence after the practical scope is stable, not

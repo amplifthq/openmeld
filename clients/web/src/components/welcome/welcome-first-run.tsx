@@ -1,8 +1,4 @@
-import type {
-	AuthProfileView,
-	SpaceAccessMode,
-	SpaceOrganizationVisibility,
-} from "@openmeld/schemas/types";
+import type { AuthProfileView } from "@openmeld/schemas/types";
 import { buildOnboardingPlan } from "@openmeld/start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -10,6 +6,11 @@ import { useEffect } from "react";
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
 import { FullPagePending } from "#/components/app/full-page-pending";
 import { useStartFlowState } from "#/components/app/start-flow-state";
+import {
+	isActiveWalkthroughStep,
+	useWalkthrough,
+} from "#/components/onboarding/walkthrough/walkthrough-context";
+import { nextWelcomeSpaceName } from "#/components/onboarding/walkthrough/walkthrough-space-name";
 import { useUpdateUserName } from "#/hooks/account.hooks";
 import { useAuthSession } from "#/hooks/auth.hooks";
 import { resolveOnboardingFacts } from "#/lib/onboarding/onboarding-facts";
@@ -23,13 +24,17 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { listActiveProfilesByKind } from "#/lib/profiles/human-profiles";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
+import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import {
-	createSpaceInOrganization,
 	ORGANIZATION_SPACE_SCOPE_ERROR_MESSAGE,
 	OrganizationSpaceScopeError,
 } from "#/lib/spaces/create-space-in-organization";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
+import {
+	type SpaceCreationInput,
+	useCreateSpace,
+} from "#/query/spaces/space-creation";
 import {
 	selectWelcomeScreen,
 	type WelcomeScreen,
@@ -60,7 +65,7 @@ function resolveCreateSpaceErrorMessage(error: Error | null): string | null {
 	}
 	return error instanceof OrganizationSpaceScopeError
 		? ORGANIZATION_SPACE_SCOPE_ERROR_MESSAGE
-		: "Couldn't create the space. Try again.";
+		: "Couldn't confirm that the Space was created. Check Spaces before trying again.";
 }
 
 function resolveWelcomeScreen(input: {
@@ -98,22 +103,13 @@ function resolveWelcomeBackHandler(
 }
 
 function renderWelcomeSpaceStep(input: {
+	defaultName?: string;
+	initialDraft?: SpaceCreationInput;
 	onDiscover?: () => void;
 	accountSpacesIsError: boolean;
 	accountSpacesIsSuccess: boolean;
 	contextKind: "organization" | "personal";
-	createSpace: ReturnType<
-		typeof useMutation<
-			unknown,
-			Error,
-			{
-				accessMode: SpaceAccessMode;
-				name: string;
-				password?: string;
-				visibility: SpaceOrganizationVisibility;
-			}
-		>
-	>;
+	createSpace: ReturnType<typeof useCreateSpace>;
 	centerAgentPath: string;
 	handleConnectComputer: () => void;
 	handleBack: () => void;
@@ -134,7 +130,9 @@ function renderWelcomeSpaceStep(input: {
 					: undefined
 			}
 			contextKind={input.contextKind}
+			defaultName={input.defaultName}
 			errorMessage={resolveCreateSpaceErrorMessage(input.createSpace.error)}
+			initialDraft={input.initialDraft}
 			isPending={input.createSpace.isPending}
 			joinableSpaces={input.joinableSpaces}
 			joinableStatus={resolveJoinableStatus(
@@ -157,10 +155,13 @@ function renderWelcomeSpaceStep(input: {
  * `selectWelcomeScreen`, so first-run never re-derives onboarding rules.
  */
 export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
+	const walkthrough = useWalkthrough();
+	const guideRecord = walkthrough?.record;
+	const guidedCreation = isActiveWalkthroughStep(guideRecord, "create-space");
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
-	const queryClient = useQueryClient();
 	const { storageScope } = useStartFlowState();
 	const sessionQuery = useAuthSession();
 	const { selectedHumanProfile, profilesQuery } = useSelectedHumanProfile({
@@ -209,6 +210,11 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 				name: item.spaceName,
 			}))
 		: [];
+	const suggestedSpaceName = resolveGuidedName(
+		guidedCreation,
+		accountSpaceSections,
+		currentOrganization.id
+	);
 
 	const screen = resolveWelcomeScreen({
 		actingProfile,
@@ -223,6 +229,7 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 			return;
 		}
 		navigate({
+			replace: guideRecord?.spaceId === spaceId,
 			to: buildOrganizationSpacePath({
 				orgSlug,
 				search: { profileId: actingProfile.openMeldProfileId },
@@ -243,26 +250,13 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 		}).catch(() => undefined);
 	};
 
-	// Create Space as a tracked mutation: one in-flight create at a time (the
-	// button disables while pending) and a surfaced error instead of a silent
-	// failure that would let the user retry into duplicate Spaces.
-	const createSpace = useMutation({
-		mutationFn: (input: {
-			accessMode: SpaceAccessMode;
-			name: string;
-			password?: string;
-			visibility: SpaceOrganizationVisibility;
-		}) => {
-			if (actingProfile === null) {
-				return Promise.reject(
-					new Error("No usable profile to create a space.")
-				);
+	// Tutorial creation must reuse the Core-reserved run and Space identity.
+	const guidedCreateSpace = useMutation({
+		mutationFn: (space: SpaceCreationInput) => {
+			if (!(walkthrough && guidedCreation && actingProfile)) {
+				throw new Error("Open the tutorial from Help to continue.");
 			}
-			return createSpaceInOrganization({
-				actingProfile,
-				organizationId: currentOrganization.id,
-				space: input,
-			});
+			return walkthrough.create(space).then((spaceId) => ({ spaceId }));
 		},
 		onSuccess: async (response) => {
 			try {
@@ -287,6 +281,14 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 			openSpace(response.spaceId);
 		},
 	});
+	const ordinaryCreateSpace = useCreateSpace({
+		actingProfile,
+		organizationId: currentOrganization.id,
+		orgSlug,
+	});
+	const createSpace = guidedCreation
+		? { ...guidedCreateSpace, initialDraft: undefined }
+		: ordinaryCreateSpace;
 
 	if (sessionQuery.isPending || profilesQuery.isPending) {
 		return <WelcomeLoading />;
@@ -314,6 +316,7 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 
 	if (screen === "space") {
 		return renderWelcomeSpaceStep({
+			initialDraft: createSpace.initialDraft,
 			onDiscover:
 				currentOrganization.isPersonal === true
 					? undefined
@@ -330,6 +333,7 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 			contextKind:
 				currentOrganization.isPersonal === true ? "personal" : "organization",
 			createSpace,
+			defaultName: suggestedSpaceName,
 			handleConnectComputer,
 			handleBack,
 			joinableSpaces,
@@ -347,6 +351,21 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 
 function WelcomeLoading() {
 	return <FullPagePending label="Loading" />;
+}
+
+function resolveGuidedName(
+	guided: boolean,
+	sections: AccountSpaceSections | undefined,
+	organizationId: string
+) {
+	if (!guided) {
+		return undefined;
+	}
+	return nextWelcomeSpaceName(
+		[...(sections?.pinnedItems ?? []), ...(sections?.spaceItems ?? [])]
+			.filter((item) => item.organizationId === organizationId)
+			.map((item) => item.spaceName)
+	);
 }
 
 function WelcomeDoneRedirect(input: { orgSlug: string }) {

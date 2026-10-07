@@ -2710,7 +2710,10 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
       shouldAck: nativeDelivery.shouldAck,
     };
   }
-  if (nativeDelivery.status === "submitted") {
+  // An ambiguous RPC or an unpersisted admission ACK must remain dispatching.
+  // The Space outbox resumes that exact attempt through hosted recovery;
+  // waiting_result would make its claim look like an already running Wake.
+  if (nativeDelivery.status === "submitted" && nativeDelivery.shouldAck) {
     await input.timing.measure(
       {
         description: "Persist that hosted admission is waiting for a result",
@@ -2726,15 +2729,13 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
           taskId: input.dispatchMessage.taskId,
         })
     );
-    if (nativeDelivery.shouldAck) {
-      input.ctx.waitUntil(
-        emitHostedCenterAgentNativeDeliveryReplyingHint({
-          db: input.db,
-          dispatchMessage: input.dispatchMessage,
-          env: input.env,
-        })
-      );
-    }
+    input.ctx.waitUntil(
+      emitHostedCenterAgentNativeDeliveryReplyingHint({
+        db: input.db,
+        dispatchMessage: input.dispatchMessage,
+        env: input.env,
+      })
+    );
   }
   if (!nativeDelivery.shouldAck) {
     retryQueueMessageWithBackoff(
