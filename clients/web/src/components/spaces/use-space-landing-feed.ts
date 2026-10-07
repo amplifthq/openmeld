@@ -119,6 +119,11 @@ async function reconcileFromRecentWindow(
 			input.confirmedCatchUpCursorRef.current = getLatestSignalEnvelopeId(
 				snapshot.envelopes
 			);
+			writeSpaceHistoryEnvelopesToCache({
+				...input,
+				envelopes: snapshot.envelopes,
+				confirmedCursor: input.confirmedCatchUpCursorRef.current,
+			});
 			input.markReconcileHealthy();
 		}
 	} catch (error) {
@@ -174,6 +179,11 @@ async function drainSpaceUpdatesFromAnchor(
 		}
 		cursor = nextCursor;
 		input.confirmedCatchUpCursorRef.current = cursor;
+		writeSpaceHistoryEnvelopesToCache({
+			...input,
+			envelopes: updates.signals,
+			confirmedCursor: cursor,
+		});
 		if (updates.signals.length < SPACE_UPDATES_LIMIT) {
 			input.markReconcileHealthy();
 			return;
@@ -214,6 +224,7 @@ export function useSpaceLandingFeed(input: {
 		isError: boolean;
 		data?: {
 			envelopes: readonly SignalEnvelope[];
+			confirmedCursor?: string | null;
 		};
 	};
 }) {
@@ -234,7 +245,7 @@ export function useSpaceLandingFeed(input: {
 		feedIdentity,
 		signalId:
 			!input.history.isPending && input.history.isSuccess
-				? getLatestSignalEnvelopeId(input.history.data?.envelopes ?? [])
+				? (input.history.data?.confirmedCursor ?? null)
 				: null,
 	});
 	const {
@@ -320,7 +331,7 @@ export function useSpaceLandingFeed(input: {
 			feedIdentity,
 			signalId:
 				!input.history.isPending && input.history.isSuccess
-					? getLatestSignalEnvelopeId(input.history.data?.envelopes ?? [])
+					? (input.history.data?.confirmedCursor ?? null)
 					: null,
 		};
 		mountReconcileStartedIdentityRef.current = null;
@@ -696,7 +707,8 @@ export function useSpaceLandingFeed(input: {
 		}
 
 		const incoming = input.history.data?.envelopes ?? [];
-		confirmedCatchUpCursorRef.current ??= getLatestSignalEnvelopeId(incoming);
+		confirmedCatchUpCursorRef.current ??=
+			input.history.data?.confirmedCursor ?? null;
 		const newSignals =
 			timelineEnvelopesRef.current.length > 0
 				? listNewSignals({

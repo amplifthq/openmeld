@@ -201,6 +201,7 @@ function renderFeed(
 			),
 			{
 				envelopes: initialHistory.data.envelopes,
+				confirmedCursor: initialHistory.data.confirmedCursor,
 				nextCursor: null,
 			}
 		);
@@ -251,7 +252,7 @@ function createReadyFeedHistory(
 		isPending: false,
 		isSuccess: true,
 		isError: false,
-		data: { envelopes },
+		data: { envelopes, confirmedCursor: envelopes.at(-1)?.id ?? null },
 	};
 }
 
@@ -1484,8 +1485,8 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 			nextCursor: null,
 		});
 
-		const { view } = renderFeed({
-			seededEnvelopes: [createTextSignal({ id: "sig-1", ts: 10 })],
+		const { view, queryClient } = renderFeed({
+			seededEnvelopes: [createTextSignal({ id: "stale-tail", ts: 100 })],
 		});
 
 		const firstSocket = FakeWebSocket.latest;
@@ -1502,7 +1503,30 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(view.result.current.liveState).toBe("connected");
 		expect(
 			view.result.current.timelineEnvelopes.map((signal) => signal.id)
-		).toEqual(["sig-1", "sig-9"]);
+		).toEqual(["sig-1", "sig-9", "stale-tail"]);
+		const saved = queryClient.getQueryData<SpaceHistorySnapshot>(
+			spaceQueryKeys.history(
+				"space-123",
+				"11111111-1111-1111-1111-111111111111"
+			)
+		);
+		expect(saved?.confirmedCursor).toBe("sig-9");
+		view.unmount();
+		readSpaceUpdatesMock.mockReset().mockResolvedValue({ signals: [] });
+		readSpaceHistoryMock.mockClear();
+		renderFeed({
+			history: {
+				isPending: false,
+				isSuccess: true,
+				isError: false,
+				data: saved,
+			},
+		});
+		await openLatestSocket();
+		expect(readSpaceUpdatesMock).toHaveBeenCalledWith(
+			expect.objectContaining({ afterSignalId: "sig-9" })
+		);
+		expect(readSpaceHistoryMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps recovery interrupted until catch-up succeeds after reconnect", async () => {
