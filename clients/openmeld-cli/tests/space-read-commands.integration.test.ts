@@ -3857,8 +3857,7 @@ describe("space read commands", () => {
         code: "space.dispatch_result.not_found",
         requestId: "req-result-404",
         status: 404,
-        message:
-          "No archived dispatch result was found. `space result` reads archived dispatch results only. Use `openmeld service trace` to inspect Wake execution and the final visible Space outcome.",
+        message: expect.stringContaining("This does not mean the Wake failed."),
       });
     });
   });
@@ -3906,8 +3905,7 @@ describe("space read commands", () => {
         code: "upstream_error",
         requestId: "req-result-upstream-404",
         status: 404,
-        message:
-          "No archived dispatch result was found. `space result` reads archived dispatch results only. Use `openmeld service trace` to inspect Wake execution and the final visible Space outcome.",
+        message: expect.stringContaining("This does not mean the Wake failed."),
       });
     });
   });
@@ -3955,7 +3953,9 @@ describe("space read commands", () => {
         code: "space.dispatch_result.not_found",
         requestId: "req-result-agent-404",
         status: 404,
-        message: "dispatch result not found",
+        message: expect.stringContaining(
+          `--dispatch 'dispatch-missing' --profile '${PROFILE.openMeldProfileId}' --view agent`
+        ),
       });
     });
   });
