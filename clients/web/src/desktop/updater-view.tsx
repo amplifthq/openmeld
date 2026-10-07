@@ -130,7 +130,11 @@ function UpdateAction(input: {
 	return (
 		<Button
 			aria-busy={input.pending || undefined}
-			className={input.settings ? "@lg/desktop-update:w-auto w-full" : "w-full"}
+			className={
+				input.settings && input.action !== "cancel"
+					? "@lg/desktop-update:w-auto w-full"
+					: "w-full"
+			}
 			disabled={input.pending}
 			onClick={() => input.onAction(input.action)}
 			size={input.settings ? "default" : "lg"}
