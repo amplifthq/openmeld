@@ -5210,6 +5210,8 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
   if (
     input.outcome === "succeeded" &&
     coordinator.recoveryGate?.status === "continuation_running" &&
+    coordinator.workItems[0]?.targetWakeLifecycleId ===
+      input.targetWakeLifecycleId &&
     coordinator.recoveryGate.forkInterruptedConversation &&
     coordinator.recoveryGate.interruptedWork.executionContextId &&
     currentItem.executionContextId
