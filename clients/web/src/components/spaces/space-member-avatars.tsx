@@ -138,6 +138,7 @@ function SpaceMemberAvatarSlots(
 						!(grid || horizontal) &&
 							`absolute bg-sidebar ring-1 ring-sidebar ${positions[index]}`
 					)}
+					data-slot="space-member-avatar"
 					key={member.profileId}
 					style={{
 						borderRadius:
@@ -187,7 +188,10 @@ function SpaceMemberAvatarSlots(
 				</span>
 			))}
 			{grid && remaining > 0 && (
-				<span className="grid place-items-center text-muted-foreground text-sm tabular-nums">
+				<span
+					className="grid place-items-center text-muted-foreground text-sm tabular-nums"
+					data-slot="space-member-avatar"
+				>
 					+{remaining}
 				</span>
 			)}

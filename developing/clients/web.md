@@ -238,6 +238,10 @@ hover previews. Empty conversations have no preview footer. The opt-in directory
 projection reads eight members and two message previews from the authorized account
 index, with no per-card Space history fan-out. Member previews and action menus
 keep independent targets.
+Card member previews open only over an avatar or the overflow count. Gaps and
+unused avatar slots remain part of the Space navigation target. The member
+popover also has a primary Open Space link in its header; keyboard activation
+of the member trigger remains available.
 The existing browser preference store remembers this choice per Human Profile
 and Organization, shared across Your Spaces and Direct messages. Direct message
 cards keep peer and Center Agent session identity, unread destinations, groups,

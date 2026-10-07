@@ -690,7 +690,7 @@ function JoinedRow(input: {
 							<div className="pointer-events-none absolute top-2 right-2 z-20 [&_button]:pointer-events-auto">
 								{actions}
 							</div>
-							<div className="relative z-10 w-fit">
+							<div className="pointer-events-none relative z-10 w-fit">
 								<MemberPreview
 									appearances={input.appearances}
 									item={item}
@@ -911,7 +911,7 @@ function MemberPreview(input: {
 					input.layout === "card" ? (
 						<button
 							{...triggerProps}
-							className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							className="pointer-events-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring [&_[data-slot=space-member-avatar]]:pointer-events-auto"
 							type="button"
 						/>
 					) : (
@@ -946,9 +946,26 @@ function MemberPreview(input: {
 				)}
 			</PopoverTrigger>
 			<PopoverContent align="start" className="w-64 rounded-lg" side="top">
-				<p className="px-2 font-medium">
-					Members {input.item.activeMemberCount ?? ""}
-				</p>
+				<div className="flex items-center justify-between gap-2 px-2">
+					<p className="font-medium">
+						Members {input.item.activeMemberCount ?? ""}
+					</p>
+					<Button
+						render={
+							<Link
+								search={{ profileId: input.item.openProfileId }}
+								to={buildOrganizationSpacePath({
+									orgSlug: input.orgSlug,
+									spaceId: input.item.spaceId,
+								})}
+							/>
+						}
+						size="xs"
+						variant="default"
+					>
+						Open Space
+					</Button>
+				</div>
 				<FluidNavMenu activeValue={null} aria-label="Space members">
 					{input.item.memberPreviews?.map((member, index) => (
 						<FluidNavMenuItem
