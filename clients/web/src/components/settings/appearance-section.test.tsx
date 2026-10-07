@@ -89,19 +89,22 @@ describe("AppearanceSection", () => {
 
 	it("keeps the history slider setting across Appearance mounts", () => {
 		renderAppearance();
-		const toggle = screen.getByRole("switch", { name: "Show history slider" });
-		expect(toggle.getAttribute("aria-checked")).toBe("true");
-		fireEvent.click(toggle);
+		expect(
+			screen.getByRole("radio", { name: "Show" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Hide" }));
 		expect(
 			document.documentElement.getAttribute("data-space-history-slider")
 		).toBe("off");
 		cleanup();
 		renderAppearance();
 		expect(
-			screen
-				.getByRole("switch", { name: "Show history slider" })
-				.getAttribute("aria-checked")
-		).toBe("false");
+			screen.getByRole("radio", { name: "Hide" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Show" }));
+		expect(
+			document.documentElement.getAttribute("data-space-history-slider")
+		).toBe("on");
 	});
 
 	it("shows the saved theme and changes it from the compact selector", () => {
