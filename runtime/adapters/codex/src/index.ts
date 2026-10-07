@@ -15,6 +15,7 @@ import {
   type AdapterPreviewCallback,
   type AdapterRuntimeProcessEvent,
   type AdapterTransportMode,
+  agentExecutionSteerRequestSchema,
   bridgeAgentControllerConversationRef,
   buildAdapterCancelRequest,
   buildExecutableLaunchContract,
@@ -78,7 +79,7 @@ export type CodexCancelSignalFn = (
 
 type CodexAppServerActiveTurn = Pick<
   CodexAppServerActiveTurnRegistration,
-  "interrupt" | "threadId" | "turnId"
+  "interrupt" | "steer" | "threadId" | "turnId" | "updatePermissionMode"
 >;
 
 export type CodexAdapterOptions = {
@@ -101,6 +102,7 @@ export type CodexAdapterOptions = {
 export {
   type CodexInstalledLaunchCandidatesOptions,
   isCodexHostApplicationCommandPath,
+  refreshCodexPersistedLaunchContract,
   resolveCodexTimeoutMs,
   resolveInstalledCodexLaunchCandidates,
   resolveInstalledCodexLaunchContract,
@@ -217,7 +219,9 @@ export const createCodexAdapter = (
     registration: CodexAppServerActiveTurnRegistration
   ) => {
     const activeTurn = {
+      updatePermissionMode: registration.updatePermissionMode,
       interrupt: registration.interrupt,
+      steer: registration.steer,
       threadId: registration.threadId,
       turnId: registration.turnId,
     };
@@ -268,6 +272,10 @@ export const createCodexAdapter = (
       return {
         accepted: true,
         deliveryPath: "cancel",
+        // The wait was aborted with no turn running, so nothing can start for
+        // this task any more. That is the one answer here strong enough for
+        // work that replaces this attempt.
+        localAttemptOutcome: "withdrawn_before_start",
         reasonCode: "accepted",
         signalDelivery: "sent",
         taskId: request.taskId,
@@ -289,7 +297,15 @@ export const createCodexAdapter = (
         turnWasRunning,
       });
     }
-    return result;
+    // A turn that had already started keeps its own result and effects. The
+    // interrupt is a request, not a completion barrier, so this says what was
+    // asked for rather than claiming the attempt is gone.
+    return turnWasRunning && result.accepted
+      ? {
+          ...result,
+          localAttemptOutcome: "stop_requested_after_start" as const,
+        }
+      : result;
   };
   const interrupt: RuntimeAdapter["interrupt"] = async (request) => {
     const occupiedDispatchAborted = abortOccupiedCodexDispatch({
@@ -347,6 +363,22 @@ export const createCodexAdapter = (
         options.waitForThreadWriterAvailability ??
         waitForCodexThreadWriterAvailability,
     });
+
+  const steer: NonNullable<RuntimeAdapter["steer"]> = async (request) => {
+    const parsed = agentExecutionSteerRequestSchema.safeParse(request);
+    if (!parsed.success) {
+      throw new Error("execution_input.invalid");
+    }
+    const activeTurn = activeAppServerTurns.get(parsed.data.taskId);
+    if (!activeTurn || stoppedDispatches.has(parsed.data.taskId)) {
+      return {
+        status: "not_applied",
+        taskId: parsed.data.taskId,
+        reasonCode: "execution_input.target_unavailable",
+      };
+    }
+    return await activeTurn.steer(parsed.data);
+  };
 
   const verifyComputerFileAccessBoundary: NonNullable<
     RuntimeAdapter["verifyComputerFileAccessBoundary"]
@@ -412,7 +444,12 @@ export const createCodexAdapter = (
           verification.ok
             ? { supported: true }
             : {
-                reasonCode: "computer.file_access.capability_unverified",
+                // Preserve a useful failure class without exposing stderr or
+                // the private paths in the requested permission profile.
+                reasonCode:
+                  verification.failureKind === "completed_negative"
+                    ? "computer.file_access.launch_rejected"
+                    : "computer.file_access.capability_unverified",
                 supported: false,
               }
         )
@@ -447,6 +484,17 @@ export const createCodexAdapter = (
       cancel,
       dispatch,
       interrupt,
+      steer,
+      updatePermissionMode: async (input) => {
+        const activeTurn = activeAppServerTurns.get(input.taskId);
+        return activeTurn
+          ? await activeTurn.updatePermissionMode(input)
+          : {
+              status: "not_applied",
+              taskId: input.taskId,
+              reasonCode: "adapter.task_not_active",
+            };
+      },
       verifyComputerFileAccessBoundary,
     } satisfies RuntimeAdapter,
     {
@@ -829,6 +877,7 @@ const resolveDefaultCodexAppServerInvoke = (input: {
         dispatchInput.agentControllerPermissionMode,
       cancellationSignal: dispatchInput.cancellationSignal,
       computerFileAccessBoundary: dispatchInput.computerFileAccessBoundary,
+      executionContext: dispatchInput.executionContext,
       launchContract,
       codexTimeoutMs,
       codexWorkdir:
@@ -837,6 +886,7 @@ const resolveDefaultCodexAppServerInvoke = (input: {
       env: dispatchInput.env,
       executionMode: dispatchInput.executionMode,
       instructionPrompt: dispatchInput.instructionPrompt,
+      spaceActionTools: dispatchInput.spaceActionTools,
       newSessionTitle: dispatchInput.newSessionTitle,
       onActiveTurn: input.registerAppServerTurn,
       ...(dispatchInput.onInteractionRequest

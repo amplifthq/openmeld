@@ -1,14 +1,14 @@
 import { MENTION_DISPATCH_ERROR_CODES } from "@openmeld/schemas";
 import type { OpenMeldDaemonMentionDispatchResultPayload } from "@openmeld/schemas/types";
+import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceMemberRecord } from "../space/infrastructure/sql/space-member-repo";
 import { authorizeSpaceDeletion } from "../space/rules/access/space-deletion-policy";
 import { authorizeSpaceMemberRemoval } from "../space/rules/access/space-member-management-policy";
 import {
-  applyDirectMessageDispatchPromptContext,
-  buildDirectMessageDispatchReadyDecisions,
-  OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-} from "../space/rules/dispatch/direct-message-dispatch";
+  applyAutomaticWakeDispatchPromptContext,
+  buildAutomaticWakeDispatchReadyDecisions,
+} from "../space/rules/dispatch/automatic-wake-dispatch";
 import {
   buildMentionFailureHintText,
   isSpaceHistoryEligibleMentionFailureDecision,
@@ -32,17 +32,21 @@ const createContext = (input: {
   },
 });
 
-const createMeta = (creator: {
-  kind: "human" | "agent";
-  profileId: string;
-  ownerUserId?: string;
+const createMeta = (input: {
+  creator: {
+    kind: "human" | "agent";
+    profileId: string;
+    ownerUserId?: string;
+  };
+  ownerUserIds?: string[];
 }) => ({
   v: 1 as const,
   spaceId: "space-1",
   organizationId: "org-1",
   visibility: "private" as const,
   accessMode: "public" as const,
-  creator,
+  creator: input.creator,
+  ownerUserIds: input.ownerUserIds ?? [],
   createdAt: NOW_ISO,
   updatedAt: NOW_ISO,
 });
@@ -192,7 +196,7 @@ const createDmSignal = (input: {
   },
 });
 
-describe("Direct Message dispatch rules", () => {
+describe("Automatic human-to-agent dispatch rules", () => {
   const humanMember = createDispatchRulesSpaceMemberRecord({
     profileId: "human-felix",
     profileKind: "human",
@@ -204,8 +208,31 @@ describe("Direct Message dispatch rules", () => {
     profileName: "Center Agent",
   });
 
+  it.each([
+    "builtin:codex",
+    "hosted:remote-agent",
+    "hosted:center-agent",
+  ])("honors Reference instead of the implicit Direct Message Wake for %s", (controllerRefSnapshot) => {
+    const signal = createDmSignal({
+      profileId: "human-felix",
+      profileKind: "human",
+    });
+    signal.data.messageEnvelope.referenceTargets = [agentMember.profileId];
+    expect(
+      buildAutomaticWakeDispatchReadyDecisions({
+        activeMemberRecords: [
+          humanMember,
+          { ...agentMember, controllerRefSnapshot },
+        ],
+        senderProfileId: "human-felix",
+        signal,
+        spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+      })
+    ).toEqual([]);
+  });
+
   it("auto-dispatches a human-authored 1:1 human-agent Direct Message with prompt context", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
       activeMemberRecords: [humanMember, agentMember],
       senderProfileId: "human-felix",
       signal: createDmSignal({
@@ -222,20 +249,23 @@ describe("Direct Message dispatch rules", () => {
       throw new Error("Expected one Direct Message dispatch decision.");
     }
     expect(decision).toMatchObject({
-      ruleId: "space_direct_message.auto_agent.v1",
+      ruleId: "space_one_human_agent.auto_agent.v1",
       targetProfileId: "agt-center",
     });
     expect(
-      applyDirectMessageDispatchPromptContext({
+      applyAutomaticWakeDispatchPromptContext({
         decision,
         sourceText: "Can you help me plan this?",
       })
-    ).toContain("This is a direct message with Felix");
+    ).toContain("This Space has one human, Felix, and one Agent, you");
   });
 
-  it("does not auto-dispatch agent-authored messages in a Direct Message", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
-      activeMemberRecords: [humanMember, agentMember],
+  it.each([
+    humanMember,
+    { ...agentMember, profileId: "agt-peer" },
+  ])("never auto-dispatches agent-authored messages with peer $profileId", (peer) => {
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
+      activeMemberRecords: [peer, agentMember],
       senderProfileId: "agt-center",
       signal: createDmSignal({
         profileId: "agt-center",
@@ -249,7 +279,7 @@ describe("Direct Message dispatch rules", () => {
   });
 
   it("does not auto-dispatch human-human Direct Messages", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
       activeMemberRecords: [
         humanMember,
         createDispatchRulesSpaceMemberRecord({
@@ -269,10 +299,13 @@ describe("Direct Message dispatch rules", () => {
     expect(decisions).toEqual([]);
   });
 
-  it("stops when a third member joins and resumes when the Space returns to 1:1", () => {
+  it.each([
+    "human",
+    "agent",
+  ] as const)("stops when a third %s joins and resumes after they leave", (profileKind) => {
     const thirdMember = createDispatchRulesSpaceMemberRecord({
       profileId: "human-third",
-      profileKind: "human",
+      profileKind,
       profileName: "Third",
     });
     const signal = createDmSignal({
@@ -281,7 +314,7 @@ describe("Direct Message dispatch rules", () => {
     });
 
     expect(
-      buildDirectMessageDispatchReadyDecisions({
+      buildAutomaticWakeDispatchReadyDecisions({
         activeMemberRecords: [humanMember, agentMember, thirdMember],
         senderProfileId: "human-felix",
         signal,
@@ -290,7 +323,7 @@ describe("Direct Message dispatch rules", () => {
     ).toEqual([]);
 
     expect(
-      buildDirectMessageDispatchReadyDecisions({
+      buildAutomaticWakeDispatchReadyDecisions({
         activeMemberRecords: [humanMember, agentMember],
         senderProfileId: "human-felix",
         signal,
@@ -299,9 +332,16 @@ describe("Direct Message dispatch rules", () => {
     ).toHaveLength(1);
   });
 
-  it("never auto-dispatches ordinary two-member Spaces without Direct Message origin", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
-      activeMemberRecords: [humanMember, agentMember],
+  it.each([
+    "builtin:codex",
+    "hosted:remote-agent",
+    "hosted:center-agent",
+  ])("auto-dispatches an ordinary one-human one-agent Space for %s", (controllerRefSnapshot) => {
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
+      activeMemberRecords: [
+        humanMember,
+        { ...agentMember, controllerRefSnapshot },
+      ],
       senderProfileId: "human-felix",
       signal: createDmSignal({
         profileId: "human-felix",
@@ -310,11 +350,11 @@ describe("Direct Message dispatch rules", () => {
       spacePurpose: "ordinary_private_space",
     });
 
-    expect(decisions).toEqual([]);
+    expect(decisions).toHaveLength(1);
   });
 
   it("does not auto-dispatch a legacy Welcoming Space", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
       activeMemberRecords: [humanMember, agentMember],
       senderProfileId: "human-felix",
       signal: createDmSignal({
@@ -330,13 +370,17 @@ describe("Direct Message dispatch rules", () => {
 });
 
 describe("space deletion policy", () => {
-  it("allows human creator deleting their own space", () => {
+  it("allows a human Space owner to delete the Space", () => {
     const result = authorizeSpaceDeletion({
       meta: createMeta({
-        kind: "human",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          profileId: "human-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
+        ownerUserId: "owner-1",
         profileId: "human-owner",
         profileKind: "human",
       }),
@@ -344,13 +388,17 @@ describe("space deletion policy", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it("rejects non-creator deleting a human-created space", () => {
+  it("rejects a non-owner deleting a human-created Space", () => {
     const result = authorizeSpaceDeletion({
       meta: createMeta({
-        kind: "human",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          profileId: "human-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
+        ownerUserId: "owner-2",
         profileId: "human-other",
         profileKind: "human",
       }),
@@ -358,16 +406,19 @@ describe("space deletion policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.forbidden",
-      message: "only space creator can delete this space",
+      message: "Only a Space owner can delete this Space.",
     });
   });
 
   it("allows owner human deleting agent-created space", () => {
     const result = authorizeSpaceDeletion({
       meta: createMeta({
-        kind: "agent",
-        profileId: "agt-owner",
-        ownerUserId: "owner-1",
+        creator: {
+          kind: "agent",
+          profileId: "agt-owner",
+          ownerUserId: "owner-1",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         profileId: "human-owner",
@@ -381,9 +432,12 @@ describe("space deletion policy", () => {
   it("requires human confirmation when requester is an agent", () => {
     const result = authorizeSpaceDeletion({
       meta: createMeta({
-        kind: "agent",
-        profileId: "agt-owner",
-        ownerUserId: "owner-1",
+        creator: {
+          kind: "agent",
+          profileId: "agt-owner",
+          ownerUserId: "owner-1",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         profileId: "agt-other",
@@ -393,18 +447,21 @@ describe("space deletion policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.human_confirmation_required",
-      message: "agent-created spaces require owner human confirmation",
+      message: "A Space owner must confirm deletion.",
     });
   });
 });
 
 describe("space member management policy", () => {
-  it("allows a human creator account to remove members from a human-created space", () => {
+  it("allows a human Space owner to remove members", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "human",
-        ownerUserId: "owner-1",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          ownerUserId: "owner-1",
+          profileId: "human-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         ownerUserId: "owner-1",
@@ -419,9 +476,12 @@ describe("space member management policy", () => {
   it("allows the owner human to remove members from an agent-created space", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "agent",
-        ownerUserId: "owner-1",
-        profileId: "agt-owner",
+        creator: {
+          kind: "agent",
+          ownerUserId: "owner-1",
+          profileId: "agt-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         ownerUserId: "owner-1",
@@ -436,9 +496,12 @@ describe("space member management policy", () => {
   it("rejects agents even when they belong to the creator account", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "agent",
-        ownerUserId: "owner-1",
-        profileId: "agt-owner",
+        creator: {
+          kind: "agent",
+          ownerUserId: "owner-1",
+          profileId: "agt-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         ownerUserId: "owner-1",
@@ -450,16 +513,19 @@ describe("space member management policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.forbidden",
-      message: "member removal is only allowed for the owner human",
+      message: "Only a Space owner can manage members.",
     });
   });
 
-  it("rejects humans outside the creator account", () => {
+  it("rejects humans outside the Space owner set", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "human",
-        ownerUserId: "owner-1",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          ownerUserId: "owner-1",
+          profileId: "human-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         ownerUserId: "owner-2",
@@ -471,15 +537,17 @@ describe("space member management policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.forbidden",
-      message: "member removal is only allowed for the creator account human",
+      message: "Only a Space owner can manage members.",
     });
   });
 
-  it("fails closed when the creator owner is missing", () => {
+  it("fails closed when the Space owner set is empty", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "human",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          profileId: "human-owner",
+        },
       }),
       context: createContext({
         ownerUserId: "owner-1",
@@ -491,7 +559,7 @@ describe("space member management policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.forbidden",
-      message: "member removal is only allowed for the creator account human",
+      message: "Only a Space owner can manage members.",
     });
   });
 });

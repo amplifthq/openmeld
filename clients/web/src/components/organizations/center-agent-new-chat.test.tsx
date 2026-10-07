@@ -258,9 +258,7 @@ it("starts a conversation from the shared starter card", async () => {
 		})
 	);
 	expect(createSession).toHaveBeenCalledTimes(1);
-	expect(save.mock.calls[0][0].chats.titles["chat-1"]).toContain(
-		"I'm new to OpenMeld."
-	);
+	expect(save).not.toHaveBeenCalled();
 });
 
 it("does not clear a newer draft when an earlier navigation finishes", async () => {
@@ -330,6 +328,12 @@ it.each([
 		);
 	}
 	mount();
+	fireEvent.click(screen.getByRole("button", { name: "Rename chat" }));
+	fireEvent.change(screen.getByRole("textbox", { name: "Chat name" }), {
+		target: { value: "My chat" },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Save" }));
+	await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	fireEvent.change(
 		screen.getByRole("textbox", { name: "Message Center Agent" }),
 		{ target: { value: "Slow connection draft" } }
@@ -346,7 +350,43 @@ it.each([
 	});
 	await waitFor(() => expect(navigate).toHaveBeenCalled());
 	expect(createSession).toHaveBeenCalledTimes(1);
+	expect(save).toHaveBeenCalledTimes(1);
 	expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("stops a new chat before creation returns and preserves the draft for a new attempt", async () => {
+	let finishCreation: ((value: unknown) => void) | undefined;
+	createSession.mockImplementationOnce(
+		() =>
+			new Promise((resolve) => {
+				finishCreation = resolve;
+			})
+	);
+	mount();
+	fireEvent.change(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{
+			target: { value: "Keep this draft" },
+		}
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await waitFor(() => expect(createSession).toHaveBeenCalledOnce());
+	fireEvent.click(screen.getByRole("button", { name: "Stop Center Agent" }));
+	expect(screen.getByText("Stopped", { exact: true })).toBeTruthy();
+	expect(
+		(
+			screen.getByRole("textbox", {
+				name: "Message Center Agent",
+			}) as HTMLTextAreaElement
+		).value
+	).toBe("Keep this draft");
+	finishCreation?.({ spaceId: "cancelled-chat" });
+	await Promise.resolve();
+	expect(navigate).not.toHaveBeenCalled();
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+	expect(createSession).toHaveBeenCalledTimes(2);
+	expect(navigate.mock.calls[0]?.[0].to).not.toContain("cancelled-chat");
 });
 
 it("does not navigate back after the user leaves during creation", async () => {

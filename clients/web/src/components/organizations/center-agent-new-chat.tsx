@@ -10,15 +10,13 @@ import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery"
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
-import {
-	SpaceHeaderIdentityIcon,
-	SpaceWindowHeader,
-} from "#/components/spaces/space-header";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import type { SpaceView } from "#/components/spaces/space-view";
 import {
 	ComposerFileDiscoveryError,
 	useSpaceComposerFiles,
 } from "#/components/spaces/use-space-composer-attachments";
+import { useAccountAvatar } from "#/hooks/account.hooks";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
 	type ComposerDraftScope,
@@ -30,17 +28,18 @@ import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld
 import { readOrCreateChatIntent } from "#/lib/organizations/center-agent-chat-intent";
 import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
 import {
+	clearCenterAgentPendingMessage,
 	type createPendingCenterAgentMessage,
 	writeCenterAgentPendingMessage,
 } from "#/lib/organizations/center-agent-pending-message";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
+import { resolveRequestedStopUiStatus } from "#/lib/spaces/wake-stop-target";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
-import {
-	CenterAgentHeaderMenu,
-	CenterAgentHeaderTabs,
-} from "./center-agent-header-navigation";
+import { postWebSpaceWakeStop } from "#/query/spaces/wake-stop";
+import { CenterAgentChatHistory } from "./center-agent-chat-history";
+import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
 
@@ -49,6 +48,12 @@ function clearSentDraft(scope: ComposerDraftScope, updatedAtMs: number) {
 		removeComposerDraft(scope);
 	}
 }
+
+type NewChatSendAttempt = {
+	cancelled: boolean;
+	clientMessageId?: string;
+	session?: { spaceId: string; centerAgentProfileId: string };
+};
 
 /** Opening this composer is local; only an intentional first send creates a chat. */
 export function CenterAgentNewChat({
@@ -63,14 +68,16 @@ export function CenterAgentNewChat({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const sidebar = useSidebarPreferences(
-		defaultHumanProfile?.openMeldProfileId ?? "",
-		organization.id
-	);
+	const { data: accountAvatar } = useAccountAvatar();
+	const sidebar = useSidebarPreferences(organization.id);
 	const [message, setMessage] = useState<ReturnType<
 		typeof createPendingCenterAgentMessage
 	> | null>(null);
 	const sending = useRef(false);
+	const activeAttempt = useRef<NewChatSendAttempt | null>(null);
+	const [stopStatus, setStopStatus] = useState<
+		"stopping" | "stopped" | "unconfirmed"
+	>();
 	const [error, setError] = useState<string | null>(null);
 	const attachments = useSpaceComposerFiles({
 		organizationSlug: organization.slug,
@@ -100,14 +107,25 @@ export function CenterAgentNewChat({
 		scope: draftScope ? { ...draftScope, sessionId: "new-chat-title" } : null,
 	});
 	const send = useMutation({
-		mutationFn: async (starterPrompt?: string) => {
+		mutationFn: async ({
+			starterPrompt,
+			attempt,
+		}: {
+			starterPrompt?: string;
+			attempt: NewChatSendAttempt;
+		}) => {
 			const text = (starterPrompt ?? draft.content.text).trim();
 			if (!text && attachments.files.length === 0) {
 				return;
 			}
 			const intent = readOrCreateChatIntent(sessionStorage, intentKey, text);
 			const intentValue = sessionStorage.getItem(intentKey);
+			attempt.clientMessageId = intent.message.clientMessageId;
+			setMessage(intent.message);
 			const fileDrafts = await attachments.readFileDrafts();
+			if (attempt.cancelled || !mounted.current) {
+				return;
+			}
 			const pendingMessage = {
 				...intent.message,
 				files: fileDrafts.map((draft) => draft.file),
@@ -122,39 +140,38 @@ export function CenterAgentNewChat({
 			const session = await api.createSession({
 				creationId: intent.creationId,
 			});
-			if (!mounted.current) {
+			if (attempt.cancelled || !mounted.current) {
 				return;
 			}
-			sidebar
-				.updateAsync((preferences) => {
-					const chats = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
-					return {
-						...preferences,
-						chats: {
-							...chats,
-							titles: {
-								...chats.titles,
-								[session.spaceId]: (
-									titleDraft.content.text ||
-									text ||
-									attachments.files[0]?.fileName ||
-									"New chat"
-								).slice(0, 160),
+			if (titleDraft.content.text || group) {
+				sidebar
+					.updateAsync((preferences) => {
+						const chats = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
+						return {
+							...preferences,
+							chats: {
+								...chats,
+								titles: titleDraft.content.text
+									? {
+											...chats.titles,
+											[session.spaceId]: titleDraft.content.text.slice(0, 160),
+										}
+									: chats.titles,
+								groups: chats.groups.map((item) =>
+									item.id === group && !item.spaceIds.includes(session.spaceId)
+										? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
+										: item
+								),
 							},
-							groups: chats.groups.map((item) =>
-								item.id === group && !item.spaceIds.includes(session.spaceId)
-									? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
-									: item
-							),
-						},
-					};
-				})
-				.catch((cause: unknown) => {
-					console.error("Could not name or group the new chat", cause);
-					toast.error(
-						"Your chat is open, but its name and group couldn't be saved. You can update them in the sidebar."
-					);
-				});
+						};
+					})
+					.catch((cause: unknown) => {
+						console.error("Could not name or group the new chat", cause);
+						toast.error(
+							"Your chat is open, but its name and group couldn't be saved. You can update them in the sidebar."
+						);
+					});
+			}
 			queryClient.setQueryData(
 				centerAgentDirectMessageSpaceProjectionQueryOptions({
 					enabled: true,
@@ -183,6 +200,7 @@ export function CenterAgentNewChat({
 				},
 				pendingMessage
 			);
+			attempt.session = session;
 			queryClient.invalidateQueries({
 				queryKey: [
 					"center-agent",
@@ -197,6 +215,9 @@ export function CenterAgentNewChat({
 				}),
 				replace: true,
 			});
+			if (attempt.cancelled) {
+				return;
+			}
 			// Navigation unmounts this composer; clearing React state would not persist.
 			if (draftScope) {
 				clearSentDraft(draftScope, draft.record.updatedAtMs);
@@ -209,7 +230,10 @@ export function CenterAgentNewChat({
 				sessionStorage.removeItem(intentKey);
 			}
 		},
-		onError: (cause) => {
+		onError: (cause, { attempt }) => {
+			if (attempt.cancelled || activeAttempt.current !== attempt) {
+				return;
+			}
 			setMessage(null);
 			setError(
 				cause instanceof ComposerFileDiscoveryError
@@ -223,21 +247,70 @@ export function CenterAgentNewChat({
 			return;
 		}
 		sending.current = true;
+		const attempt: NewChatSendAttempt = { cancelled: false };
+		activeAttempt.current = attempt;
+		setStopStatus(undefined);
 		setError(null);
 		try {
-			await send.mutateAsync(prompt);
+			await send.mutateAsync({ starterPrompt: prompt, attempt });
 		} catch {
 			/* The mutation reports the failure inline and retains the draft. */
 		} finally {
-			sending.current = false;
+			if (activeAttempt.current === attempt) {
+				sending.current = false;
+			}
 		}
 	};
+	const stopSend = async () => {
+		const attempt = activeAttempt.current;
+		if (!attempt || stopStatus === "stopping") {
+			return;
+		}
+		attempt.cancelled = true;
+		sending.current = false;
+		sessionStorage.removeItem(intentKey);
+		if (!(attempt.session && attempt.clientMessageId)) {
+			setStopStatus("stopped");
+			return;
+		}
+		setStopStatus("stopping");
+		const session = attempt.session;
+		clearCenterAgentPendingMessage(queryClient, {
+			organizationId: organization.id,
+			organizationSlug: organization.slug,
+			sessionId: session.spaceId,
+		});
+		try {
+			const response = await postWebSpaceWakeStop({
+				openMeldProfileId: defaultHumanProfile?.openMeldProfileId ?? "",
+				spaceId: session.spaceId,
+				body: {
+					target: {
+						by: "client_message",
+						clientMessageId: attempt.clientMessageId,
+						targetProfileId: session.centerAgentProfileId,
+					},
+				},
+			});
+			if (activeAttempt.current === attempt) {
+				const status = resolveRequestedStopUiStatus(response.status);
+				setStopStatus(
+					status === "stopping" || status === "stopped" ? status : "unconfirmed"
+				);
+			}
+		} catch {
+			if (activeAttempt.current === attempt) {
+				setStopStatus("unconfirmed");
+			}
+		}
+	};
+	const isSending = send.isPending && stopStatus !== "stopped";
 	useLayoutEffect(
 		() =>
 			registerClientVersionRecoveryBlocker(
-				() => attachments.files.length > 0 || send.isPending
+				() => attachments.files.length > 0 || isSending
 			),
-		[attachments.files.length, send.isPending]
+		[attachments.files.length, isSending]
 	);
 	return (
 		<div className="flex min-h-0 w-full flex-1 flex-col">
@@ -248,12 +321,12 @@ export function CenterAgentNewChat({
 			)}
 			<CenterAgentOptimisticConversation
 				attachments={attachments}
-				composerText={send.isPending ? "" : draft.content.text}
+				composerText={isSending ? "" : draft.content.text}
 				empty
 				emptyContent={
 					view === "messages" ? (
 						<CenterAgentDirectMessageIntro
-							disabled={send.isPending}
+							disabled={isSending}
 							isPersonalContext={organization.isPersonal === true}
 							onSelectStarterAction={startSend}
 							onStartComputerSetup={() => {
@@ -277,10 +350,6 @@ export function CenterAgentNewChat({
 				}
 				header={
 					<SpaceWindowHeader
-						actions={
-							<CenterAgentHeaderMenu organizationSlug={organization.slug} />
-						}
-						leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
 						navigation={
 							<CenterAgentHeaderTabs
 								activeSectionId="chat"
@@ -299,37 +368,46 @@ export function CenterAgentNewChat({
 						}
 						secondaryContentClassName="overflow-x-auto"
 						title={titleDraft.content.text || "New chat"}
-						titleAdornment={
-							<ChatTitleEditor
-								disabled={send.isPending}
-								onSave={(title) => {
-									titleDraft.setContent((current) => ({
-										...current,
-										text: title,
-									}));
-								}}
+						titleControl={
+							<CenterAgentChatHistory
+								disabled={isSending}
 								title={titleDraft.content.text || "New chat"}
+								titleAction={
+									<ChatTitleEditor
+										disabled={isSending}
+										onSave={(title) => {
+											titleDraft.setContent((current) => ({
+												...current,
+												text: title,
+											}));
+										}}
+										title={titleDraft.content.text || "New chat"}
+									/>
+								}
 							/>
 						}
 					/>
 				}
 				onComposerChange={(text) => {
-					if (!send.isPending) {
+					if (!isSending) {
 						setMessage(null);
 						draft.setContent((current) => ({ ...current, text }));
 					}
 				}}
 				onSend={() => {
 					if (
-						!send.isPending &&
+						!isSending &&
 						(draft.content.text.trim() || attachments.files.length)
 					) {
 						setError(null);
 						startSend();
 					}
 				}}
-				pendingMessage={send.isPending ? message : null}
+				onStop={stopSend}
+				pendingMessage={message}
+				selfAvatarImageUrl={accountAvatar?.avatar}
 				selfProfile={defaultHumanProfile}
+				stopStatus={stopStatus}
 			/>
 		</div>
 	);

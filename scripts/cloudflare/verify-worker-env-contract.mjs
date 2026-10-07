@@ -11,17 +11,20 @@ import { parseJsoncObject as parseJsoncSource } from "../../packages/db/src/tool
 import { ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMIT } from "../../services/auth/src/lib/organization-join-link-accept-rate-limit.ts";
 import { FEEDBACK_SUBMIT_RATE_LIMITS } from "../../services/gateway/src/feedback/feedback-submit-rate-limiter.ts";
 import { SPACE_PASSWORD_RATE_LIMIT } from "../../services/gateway/src/lib/space-password-rate-limiter.ts";
+import { verifyPostgresqlEnvironment } from "../../tooling/postgresql/verify.mjs";
 
 const repoRoot = path.resolve(
   process.env.OPENMELD_VERIFICATION_ROOT ??
     path.resolve(import.meta.dirname, "../..")
 );
+const hasCoreAccountDeletion = existsSync(
+  path.join(repoRoot, "services/core/src/organizations/account-deletion.ts")
+);
 const verificationProfile = parseVerificationProfile(process.argv.slice(2));
+verifyPostgresqlEnvironment(repoRoot);
 const verifiesStaging = verificationProfile === "all";
 const DEV_VAR_KEY_PATTERN = /^([A-Z0-9_]+)=/u;
 const CONFIG_ENV_LABEL_PREFIX_PATTERN = /^env\./u;
-const OPENCONNECTOR_GOOGLE_ACTION_PATTERN =
-  /^(?:gmail|googlecalendar|googledrive)\./u;
 const OBSERVABILITY_ANALYTICS_BINDING = "OPENMELD_OBSERVABILITY";
 const OBSERVABILITY_ANALYTICS_DATASET = "openmeld_runtime_evidence";
 const OBSERVABILITY_ANALYTICS_STAGING_DATASET = "openmeld_runtime_evidence_stg";
@@ -94,9 +97,8 @@ const GATEWAY_RATE_LIMIT_BINDINGS = [
   },
 ];
 
-// Per-domain bindings remain split-ready aliases to the one greenfield
-// production database. A future observability-only split would change only
-// OPENMELD_WAKE_EVIDENCE_DB after a separate capacity decision.
+// Current product aliases remain on shared D1 until the separately authorized
+// PostgreSQL cutover. Isolated foundation provisioning must not change them.
 const AUTH_IDENTITY_DB_BINDING = {
   binding: "OPENMELD_IDENTITY_DB",
   database_name: SHARED_DB_DATABASE_NAME,
@@ -126,6 +128,49 @@ const D1_BINDING_NAMES = [
 ];
 
 const workerPackages = [
+  {
+    name: "openmeld-docs",
+    packageJsonPath: "clients/docs/package.json",
+    wranglerConfigPath: "clients/docs/wrangler.jsonc",
+    generatedTypesPath: "clients/docs/worker-configuration.d.ts",
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
+    secretOwned: false,
+    stagingSecretOwned: false,
+    requiredConfigEnvironments: ["stg", "prod"],
+    expectedGeneratedBindings: ["OPENMELD_OBSERVABILITY"],
+    forbiddenGeneratedBindings: [...D1_BINDING_NAMES, "APP", "AUTH_SERVICE"],
+    expectedD1Bindings: () => [],
+    expectedR2Bindings: () => [],
+  },
+  {
+    name: "openmeld-website",
+    packageJsonPath: "clients/website/package.json",
+    wranglerConfigPath: "clients/website/wrangler.jsonc",
+    generatedTypesPath: "clients/website/worker-configuration.d.ts",
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
+    secretOwned: false,
+    stagingSecretOwned: false,
+    requiredVarNames: ["APP_URL", "OPENMELD_GATEWAY_URL"],
+    requiredConfigEnvironments: ["stg", "prod"],
+    expectedGeneratedBindings: ["APP", "OPENMELD_OBSERVABILITY"],
+    forbiddenGeneratedBindings: D1_BINDING_NAMES,
+    expectedD1Bindings: () => [],
+    expectedR2Bindings: () => [],
+  },
   {
     name: "openmeld-web",
     packageJsonPath: "clients/web/package.json",
@@ -192,6 +237,7 @@ const workerPackages = [
     ],
     expectedGeneratedBindings: [
       "AUTH_EMAIL",
+      "OPENMELD_POSTGRESQL",
       "OPENMELD_AUTH_KV",
       "OPENMELD_DB",
       "OPENMELD_IDENTITY_DB",
@@ -199,10 +245,19 @@ const workerPackages = [
       "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ environment, wranglerConfigPath }) => [
-      buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment),
-      buildAliasedD1Binding(AUTH_IDENTITY_DB_BINDING.binding, environment),
-    ],
+    expectedD1Bindings: ({ environment, wranglerConfigPath }) =>
+      environment === "stg"
+        ? [
+            buildSharedD1BindingForWorkerConfig(
+              wranglerConfigPath,
+              environment
+            ),
+            buildAliasedD1Binding(
+              AUTH_IDENTITY_DB_BINDING.binding,
+              environment
+            ),
+          ]
+        : [],
     expectedR2Bindings: () => [],
     expectedRateLimitBindings: AUTH_RATE_LIMIT_BINDINGS,
   },
@@ -222,6 +277,7 @@ const workerPackages = [
     secretOwned: true,
     requiredSecretNames: [
       "GITHUB_OPENMELD_API_TOKEN",
+      "GITHUB_OPENMELD_WEBHOOK_SECRET",
       "SLACK_OPENMELD_BOT_TOKEN",
       "SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
       "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
@@ -243,6 +299,7 @@ const workerPackages = [
       "OPENMELD_AUTH_WORKER",
       "OPENMELD_REMOTE_AGENT_WORKER",
       "OPENMELD_RUNTIME_TRANSPORT",
+      "OPENMELD_POSTGRESQL",
       "OPENMELD_DB",
       "OPENMELD_LOCAL_STATE_DB",
       "OPENMELD_WAKE_EVIDENCE_DB",
@@ -261,18 +318,34 @@ const workerPackages = [
       "OPENMELD_FEISHU_CHANNEL_ENABLED",
       "OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS",
       "GITHUB_OPENMELD_API_TOKEN",
+      "GITHUB_OPENMELD_WEBHOOK_SECRET",
       "SLACK_OPENMELD_BOT_TOKEN",
       "SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
       "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
       "ZEP_OPENMELD_API_KEY",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ environment, wranglerConfigPath }) => [
-      buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment),
-      buildAliasedD1Binding(CORE_LOCAL_STATE_DB_BINDING.binding, environment),
-      buildAliasedD1Binding(CORE_WAKE_EVIDENCE_DB_BINDING.binding, environment),
-      buildAliasedD1Binding(CORE_PROJECTIONS_DB_BINDING.binding, environment),
-    ],
+    expectedD1Bindings: ({ environment, wranglerConfigPath }) =>
+      environment === "stg"
+        ? [
+            buildSharedD1BindingForWorkerConfig(
+              wranglerConfigPath,
+              environment
+            ),
+            buildAliasedD1Binding(
+              CORE_LOCAL_STATE_DB_BINDING.binding,
+              environment
+            ),
+            buildAliasedD1Binding(
+              CORE_WAKE_EVIDENCE_DB_BINDING.binding,
+              environment
+            ),
+            buildAliasedD1Binding(
+              CORE_PROJECTIONS_DB_BINDING.binding,
+              environment
+            ),
+          ]
+        : [],
     expectedR2Bindings: ({ environment }) => [
       {
         binding: SPACE_ATTACHMENTS_R2_BINDING,
@@ -287,6 +360,23 @@ const workerPackages = [
           stg: SPACE_ATTACHMENTS_R2_STAGING_BUCKET,
         }),
       },
+      ...(hasCoreAccountDeletion
+        ? [
+            {
+              binding: ACCOUNT_AVATARS_R2_BINDING,
+              bucket_name: expectedResourceName(environment, {
+                local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+                prod: ORGANIZATION_LOGOS_R2_BUCKET,
+                stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+              }),
+              preview_bucket_name: expectedResourceName(environment, {
+                local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+                prod: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+                stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+              }),
+            },
+          ]
+        : []),
       {
         binding: ORGANIZATION_SKILLS_R2_BINDING,
         bucket_name: expectedResourceName(environment, {
@@ -519,57 +609,9 @@ function readDefinedEnvKeys(relativePath) {
 const openConnectorWrangler = parseJsoncObject(
   "config/openconnector/wrangler.production.jsonc"
 );
-const expectedOpenConnectorGoogleReadActions = [
-  "gmail.search_threads",
-  "gmail.list_threads",
-  "gmail.fetch_emails",
-  "gmail.get_message",
-  "gmail.fetch_message_by_message_id",
-  "gmail.fetch_message_by_thread_id",
-  "gmail.get_profile",
-  "gmail.list_history",
-  "googlecalendar.list_calendars",
-  "googlecalendar.get_calendar_list_entry",
-  "googlecalendar.get_calendar",
-  "googlecalendar.list_events",
-  "googlecalendar.list_events_all_calendars",
-  "googlecalendar.get_event",
-  "googlecalendar.list_event_instances",
-  "googlecalendar.sync_events",
-  "googlecalendar.free_busy_query",
-  "googlecalendar.find_free_slots",
-  "googlecalendar.get_colors",
-  "googlecalendar.find_event",
-  "googledrive.about.get",
-  "googledrive.apps.get",
-  "googledrive.changes.getStartPageToken",
-  "googledrive.changes.list",
-  "googledrive.comments.get",
-  "googledrive.comments.list",
-  "googledrive.drives.get",
-  "googledrive.drives.list",
-  "googledrive.files.export",
-  "googledrive.files.get",
-  "googledrive.files.list",
-  "googledrive.files.listLabels",
-  "googledrive.permissions.get",
-  "googledrive.permissions.list",
-  "googledrive.replies.get",
-  "googledrive.replies.list",
-  "googledrive.revisions.get",
-  "googledrive.revisions.list",
-  "googledrive.accessproposals.list",
-  "googledrive.approvals.list",
-];
-const configuredOpenConnectorGoogleActions = String(
-  openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS ?? ""
-)
-  .split(",")
-  .filter((action) => OPENCONNECTOR_GOOGLE_ACTION_PATTERN.test(action));
 ensure(
-  JSON.stringify(configuredOpenConnectorGoogleActions) ===
-    JSON.stringify(expectedOpenConnectorGoogleReadActions),
-  "OpenConnector production must expose only the reviewed read-only Google action baseline."
+  openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS === "*",
+  "OpenConnector must expose provider actions through the existing Plugin access and action policy, not a duplicate service allowlist."
 );
 ensure(
   openConnectorWrangler.workers_dev === false &&
@@ -641,7 +683,10 @@ if (verifiesStaging) {
         openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS &&
       stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_ACTIONS ===
         openConnectorWrangler.vars?.OOMOL_CONNECT_BLOCKED_ACTIONS &&
-      stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*",
+      stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*" &&
+      openConnectorWrangler.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*" &&
+      stagingConnector.main === ".openmeld-working-copy-worker.mjs" &&
+      openConnectorWrangler.main === ".openmeld-working-copy-worker.mjs",
     "OpenConnector staging must preserve the reviewed production capability and credential contracts."
   );
 }

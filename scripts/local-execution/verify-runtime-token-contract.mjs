@@ -12,7 +12,7 @@ export const RUNTIME_TOKEN_CONTRACT_CHECKS = [
     id: "shared_epoch_requires_runtime_transport_hub",
     file: "packages/schemas/src/schemas/daemon/runtime-transport.ts",
     pattern:
-      /CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH\s*=\s*"runtime-transport-epoch-2026-07-default-project"/u,
+      /CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH\s*=\s*"runtime-transport-epoch-2026-09-space-files-1gib"/u,
   },
   {
     id: "cli_strategy_reports_shared_epoch",
@@ -81,7 +81,8 @@ export const RUNTIME_TOKEN_CONTRACT_CHECKS = [
       'authoringPolicy: "user_authored"',
       "if (!policyResult.ok)",
       "return respondBadRequest({",
-      "signal = await c.var.coreRpc.postSignal(",
+      "await c.var.coreRpc.postDeviceWaitingSignal(",
+      "await c.var.coreRpc.postSignal(",
     ],
   },
   {
@@ -178,7 +179,7 @@ export const RUNTIME_TOKEN_CONTRACT_CHECKS = [
     file: "clients/web/src/lib/profiles/agent-profile-runtime-binding.test.ts",
     orderedSubstrings: [
       "daemon.runtime_contract.mismatch",
-      "Update OpenMeld Service before connecting that local agent.",
+      "Update OpenMeld on your computer before connecting that local agent.",
     ],
   },
   {

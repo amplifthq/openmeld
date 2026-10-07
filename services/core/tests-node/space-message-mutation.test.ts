@@ -91,6 +91,45 @@ function fixture() {
 }
 
 describe("message editing and recall", () => {
+  it("finds a message after more than one scan page of transient signals", () => {
+    const f = fixture();
+    const insert = f.db.prepare(
+      "INSERT INTO space_signals VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    for (let index = 0; index < 251; index++) {
+      const signal = {
+        ...f.original,
+        id: `transient-${index}`,
+        ts: 101 + index,
+        data: { text: "Working", meta: { transient: true } },
+      };
+      insert.run(
+        signal.id,
+        signal.ts,
+        signal.type,
+        "human-1",
+        "human",
+        JSON.stringify(signal)
+      );
+    }
+    const reply = { ...f.original, id: "reply-1", ts: 400 };
+    insert.run(
+      reply.id,
+      reply.ts,
+      reply.type,
+      "human-1",
+      "human",
+      JSON.stringify(reply)
+    );
+
+    const updates = readSpaceUpdatesUseCase({
+      sql: f.sql,
+      afterSignalId: f.original.id,
+      limit: 50,
+    });
+    expect(updates.signals.map((signal) => signal.id)).toEqual(["reply-1"]);
+  });
+
   it("finds an old message's Wake even after more than 500 newer dispatches", () => {
     const f = fixture();
     f.db.exec(

@@ -9,7 +9,7 @@ import {
   groupPeopleComputerDevices,
   selectPeopleComputerDisplayDevice,
 } from "../people-computers/identity";
-import type { OwnedDeviceExecutionTargetRecord } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import type { OwnedDeviceExecutionTargetRecord } from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import type { OwnedDeviceRegistryRecord } from "../start/application/owned-device-registry-service";
 import { resolveOrganizationMemberOpenMeldServiceState } from "./organization-member-openmeld-service-status";
 
@@ -106,6 +106,9 @@ function projectMemberComputers(input: {
     });
     return {
       computerId: device.deviceId,
+      ...(device.connectedComputerId
+        ? { connectedComputerId: device.connectedComputerId }
+        : {}),
       deviceDisplayName:
         device.userDisplayName ?? device.observedDisplayName ?? "Computer",
       deviceType: device.deviceType ?? "unknown",

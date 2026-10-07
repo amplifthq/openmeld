@@ -1,0 +1,13 @@
+{
+  "title": "Team and tools",
+  "defaultOpen": false,
+  "pages": [
+    "workspaces",
+    "channels",
+    "plugins",
+    "skills",
+    "knowledge",
+    "access",
+    "usage"
+  ]
+}

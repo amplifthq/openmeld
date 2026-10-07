@@ -1,36 +1,37 @@
 "use client";
 
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
+import { HOSTED_REMOTE_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
+import type { ModelCatalog } from "@openmeld/schemas/types";
 import { BrainIcon, CheckIcon } from "@phosphor-icons/react";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
+import {
+	HostedModelSelect,
+	HostedReasoningSelect,
+	personalRemoteModelChoices,
+} from "#/components/models/hosted-model-select";
 import {
 	AgentConfigurationCard,
 	AgentConfigurationGrid,
 } from "./agent-configuration-card";
 import { AgentNameEditor } from "./agent-name-editor";
-import type { CreateProfileFormProps } from "./create-profile-form";
 
 export function PersonalRemoteAgentConfiguration(input: {
-	form: CreateProfileFormProps;
+	isSubmitting: boolean;
+	modelCatalog: ModelCatalog | null;
 	name: string;
 	model: string;
+	reasoningLevel: string;
 	onNameChange: (name: string) => void;
 	onModelChange: (model: string) => void;
+	onReasoningLevelChange: (level: string) => void;
 }) {
-	const catalog = input.form.modelCatalog?.agentControllers["center-agent"];
-	const models =
-		catalog?.models.filter(
-			(choice) => choice.hostedRuntime && !choice.unavailable
-		) ?? [];
-	const modelId = input.model || catalog?.defaultModelId || "";
+	const catalog = input.modelCatalog?.agentControllers["center-agent"];
+	const models = personalRemoteModelChoices(input.modelCatalog);
+	const modelId = input.model;
+	const selectedModel = catalog?.models.find((model) => model.id === modelId);
 	const modelName =
-		models.find((choice) => choice.id === modelId)?.displayName ??
-		"Loading models…";
+		models.find((choice) => choice.value === modelId)?.label ??
+		(catalog ? "Choose a model" : "Loading models…");
 	return (
 		<div className="grid min-w-0 gap-5">
 			<div className="grid justify-items-start gap-2 pt-2">
@@ -40,8 +41,9 @@ export function PersonalRemoteAgentConfiguration(input: {
 					role="img"
 				>
 					<RemoteAgentAvatar
-						animated
+						agentControllerRef={HOSTED_REMOTE_AGENT_CONTROLLER_REF}
 						animateOnHover={false}
+						modelId={modelId}
 						profileName={input.name}
 						size={64}
 					/>
@@ -52,7 +54,7 @@ export function PersonalRemoteAgentConfiguration(input: {
 				<span className="font-medium text-xs">OpenMeld Remote Agent</span>
 			</div>
 			<AgentNameEditor
-				disabled={input.form.isSubmitting}
+				disabled={input.isSubmitting}
 				maxLength={80}
 				onChange={input.onNameChange}
 				value={input.name}
@@ -60,31 +62,29 @@ export function PersonalRemoteAgentConfiguration(input: {
 			<AgentConfigurationGrid className="@min-[64rem]/agent-creation:grid-cols-3">
 				<AgentConfigurationCard
 					description="Choose the model this Agent uses."
-					disabled={input.form.isSubmitting || !catalog}
+					disabled={input.isSubmitting || !catalog}
 					icon={<BrainIcon aria-hidden="true" />}
 					itemId="model"
 					label="Model"
 					summary={modelName}
 				>
-					<Select
-						disabled={input.form.isSubmitting || !catalog}
-						onValueChange={input.onModelChange}
-						value={modelId}
-					>
-						<SelectTrigger
-							aria-label="Model"
-							className="h-10 w-full px-3 text-sm"
-							displayValue={modelName}
+					<div className="grid gap-5">
+						<HostedModelSelect
+							choices={models}
+							disabled={input.isSubmitting || !catalog}
+							onValueChange={input.onModelChange}
+							value={modelId}
 						/>
-						<SelectContent className="max-h-64">
-							{models.map((choice, index) => (
-								<SelectItem index={index} key={choice.id} value={choice.id}>
-									{choice.displayName}
-									{choice.id === catalog?.defaultModelId ? " (default)" : ""}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						{selectedModel?.hostedRuntime ? (
+							<HostedReasoningSelect
+								defaultLevel={selectedModel.hostedRuntime.reasoningLevel}
+								disabled={input.isSubmitting}
+								levels={selectedModel.supportedReasoningLevels}
+								onValueChange={input.onReasoningLevelChange}
+								value={input.reasoningLevel}
+							/>
+						) : null}
+					</div>
 				</AgentConfigurationCard>
 			</AgentConfigurationGrid>
 		</div>

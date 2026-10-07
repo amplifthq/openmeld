@@ -8,10 +8,7 @@ import {
 } from "#/components/spaces/space-header";
 import { resolveCenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import {
-	CenterAgentHeaderMenu,
-	CenterAgentHeaderTabs,
-} from "./center-agent-header-navigation";
+import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 import {
 	type CenterAgentRouteState,
 	CenterAgentRouteStateProvider,
@@ -32,11 +29,6 @@ export function CenterAgentSectionFrame(input: {
 			bodySlotName="center-agent-section-scroll"
 			header={
 				<SpaceWindowHeader
-					actions={
-						<CenterAgentHeaderMenu
-							organizationSlug={currentOrganization.slug}
-						/>
-					}
 					leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
 					navigation={
 						<CenterAgentHeaderTabs

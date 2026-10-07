@@ -10,7 +10,9 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import {
   cliBinaryCompressedReleaseSchema,
   cliBinaryManifestSchema,
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
 } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
+import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
 import { smokeSignedMacOsSecureStorage } from "../e2e/signed-cli-macos-secure-storage-smoke.mjs";
 import {
   buildCliBinary,
@@ -32,7 +34,8 @@ export const CLI_R2_OBJECT_PREFIX = "cli";
 export const CLI_MANIFEST_OBJECT_KEY = "cli/manifest.json";
 export const DEFAULT_CLI_DOWNLOAD_BASE_URL = "https://openmeld.ai/cli/download";
 export const CLI_MANIFEST_SCHEMA_VERSION = 1;
-export const CLI_BINARY_CODE_IDENTIFIER = "sh.openmeld.cli";
+export const CLI_BINARY_CODE_IDENTIFIER =
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier;
 const LOCAL_COMPONENTS_MANIFEST_PATH = "release/local-components.json";
 const PRODUCTION_CLI_MANIFEST_URL = `${new URL(DEFAULT_CLI_DOWNLOAD_BASE_URL).origin}/${CLI_MANIFEST_OBJECT_KEY}`;
 
@@ -61,6 +64,9 @@ export function buildCliManifest(input) {
     channels: {
       stable: {
         version: input.version,
+        ...(input.componentPolicy
+          ? { componentPolicy: input.componentPolicy }
+          : {}),
         minRequiredCliVersion: input.minRequiredCliVersion,
         ...(input.service ? { service: input.service } : {}),
         platforms: {
@@ -84,6 +90,18 @@ export function buildCliManifest(input) {
       },
     },
   });
+}
+
+// Staging/custom carriers must not be labelled with production release policy.
+// Production and retained pairs carry metadata only when both identities match.
+export function resolveCliBinaryComponentPolicy(input) {
+  const release = localComponentsReleaseManifestSchema.parse(
+    input.releaseManifest
+  );
+  return release.components.cli.packageVersion === input.cliVersion &&
+    release.components.service.bundleVersion === input.serviceVersion
+    ? { cli: release.components.cli, service: release.components.service }
+    : undefined;
 }
 
 export function createCompressedCliBinary(input) {
@@ -171,6 +189,14 @@ export async function uploadCliBinary(input = {}) {
     smokeSignedSecureStorage:
       input.smokeSignedSecureStorage ?? smokeSignedMacOsSecureStorage,
   });
+  if (
+    built.notarization.teamId !==
+    OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier
+  ) {
+    throw new Error(
+      "Signed CLI publisher does not match the trusted OpenMeld Apple team."
+    );
+  }
   const archive = (input.compressBinary ?? createCompressedCliBinary)({
     artifactName: built.artifactName,
     outFile: built.outFile,
@@ -183,7 +209,22 @@ export async function uploadCliBinary(input = {}) {
     manifestObjectKey: CLI_MANIFEST_OBJECT_KEY,
   });
   const minRequiredCliVersion = resolveCliMinRequiredVersion();
+  const releasePolicy = localComponentsReleaseManifestSchema.parse(
+    JSON.parse(
+      readFileSync(
+        path.join(input.repoRoot ?? REPO_ROOT, LOCAL_COMPONENTS_MANIFEST_PATH),
+        "utf8"
+      )
+    )
+  );
   const manifest = buildCliManifest({
+    componentPolicy:
+      input.componentPolicy ??
+      resolveCliBinaryComponentPolicy({
+        releaseManifest: releasePolicy,
+        cliVersion: built.version,
+        serviceVersion: service?.version ?? built.version,
+      }),
     archiveArtifactName: archive.artifactName,
     archiveSha256: archive.sha256,
     archiveSizeBytes: archive.sizeBytes,

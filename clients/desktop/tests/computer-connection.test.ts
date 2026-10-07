@@ -23,12 +23,15 @@ vi.mock("node:child_process", async () => {
     }),
   };
 });
-vi.mock("../src/main/cli/managed-binary", () => ({
-  installManagedBinary: mocks.install,
+vi.mock("../src/main/cli/computer-tools", () => ({
+  installComputerTools: mocks.install,
 }));
 
 describe("Desktop computer connection admission", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.install.mockResolvedValue("/test-owned/installed/npm/openmeld.js");
+  });
   it.each([
     "cancelled",
     "account changed",
@@ -241,6 +244,9 @@ describe("Desktop computer connection admission", () => {
     }
     if (scenario === "missing_tools") {
       expect(mocks.install).toHaveBeenCalledOnce();
+      expect(mocks.exec.mock.calls.at(-1)?.[0]).toBe(
+        "/test-owned/installed/npm/openmeld.js"
+      );
     } else {
       expect(mocks.install).not.toHaveBeenCalled();
     }
@@ -323,6 +329,7 @@ describe("Prepare diagnostic continuity", () => {
         openMeldBin: "/test-owned/openmeld",
         env: {
           OPENMELD_ENV_PRESET: "dev-local",
+          OPENMELD_AUTH_CLIENT_ID: "openmeld-cli-dev",
           OPENMELD_HOME: "/test-owned",
           OPENMELD_AUTH_URL: "http://lane.localhost:8788",
           OPENMELD_GATEWAY_URL: "http://lane.localhost:8080",
@@ -335,6 +342,9 @@ describe("Prepare diagnostic continuity", () => {
       confirmSwitch: async () => false,
     });
     const result = await connect({ expectedAccount: "account-a" });
+    expect(mocks.grant).toHaveBeenCalledWith(expect.any(Function), {
+      clientId: "openmeld-cli-dev",
+    });
     expect(result).toMatchObject({
       status: "failed",
       diagnosticId: "diagnostic-a",

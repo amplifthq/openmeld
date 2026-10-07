@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
   centerAgentInstallOrganizationSkillResponseSchema,
   centerAgentInstallOrganizationSkillRpcInputSchema,
@@ -20,19 +24,28 @@ import {
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { writeCenterAgentAuditEntry } from "../center-agent/center-agent-audit";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center-agent/center-agent-repository";
-import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
-  beginCenterAgentOrganizationSkillOperation,
+  listOrganizationSkillImportBatches,
+  readOrganizationSkillImportBatch,
+} from "./organization-skill-import-batch";
+import {
+  beginOrganizationSkillOperation,
   buildCenterAgentOrganizationSkillOperationKey,
-  buildCenterAgentOrganizationSkillRequestSignature,
-  type CenterAgentOrganizationSkillOperationRecord,
-  deletePendingCenterAgentOrganizationSkillOperation,
-  prepareCompleteCenterAgentOrganizationSkillOperationStatement,
-  readCenterAgentOrganizationSkillOperation,
-} from "./center-agent-organization-skill-operation-repository";
+  buildOrganizationSkillRequestSignature,
+  deletePendingOrganizationSkillOperation,
+  type OrganizationSkillOperationRecord,
+  prepareCompleteOrganizationSkillOperationStatement,
+  readOrganizationSkillOperation,
+} from "./organization-skill-operation-repository";
+import {
+  beginSkillImportBatchForActor,
+  importGitHubSkillInBatch,
+} from "./organization-skill-rpc";
 import {
   createOrganizationSkillService,
+  describeOrganizationSkillBundleLimitations,
   type OrganizationSkillActor,
   type OrganizationSkillReadActor,
 } from "./organization-skill-service";
@@ -44,13 +57,12 @@ type PreparedCenterAgentOrganizationSkillRequest = {
     ReturnType<typeof prepareCenterAgentRepresentedMemberRequest>
   >["authorization"];
   bucket: R2Bucket;
-  db: D1Database;
+  db: PostgresDatabase;
   representedHuman: Awaited<
     ReturnType<typeof prepareCenterAgentRepresentedMemberRequest>
   >["representedHuman"];
   sourceNativeDeliveryId: string | null;
 };
-
 export async function rpcCenterAgentReadOrganizationSkills(
   env: CoreBindings,
   input: CenterAgentReadOrganizationSkillsRpcInput
@@ -59,17 +71,62 @@ export async function rpcCenterAgentReadOrganizationSkills(
     centerAgentReadOrganizationSkillsRpcInputSchema,
     input
   );
+  if (
+    request.action === "get_import_batch" ||
+    request.action === "list_import_batches"
+  ) {
+    const prepared = await prepareRequest({
+      context: request.context,
+      env,
+      speakerMember: request.speakerMember,
+    });
+    requireManager(prepared.actor);
+    const scope = {
+      db: prepared.db,
+      organizationId: prepared.actor.organizationId,
+      userId: prepared.actor.userId,
+    };
+    const result =
+      request.action === "get_import_batch"
+        ? {
+            batch: await requireImportBatch({
+              ...scope,
+              batchId: request.batchId,
+            }),
+          }
+        : { batches: await listOrganizationSkillImportBatches(scope) };
+    await writeCenterAgentAuditEntry({
+      action: "read_org_skills",
+      authorization: prepared.authorization,
+      onBehalfOfProfileId: prepared.representedHuman.profileId,
+      resource: {
+        id: prepared.actor.organizationId,
+        type: "organization_skill_import_batch",
+      },
+      sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+    });
+    return parseReadResponse({
+      action: request.action,
+      organizationId: prepared.actor.organizationId,
+      ...result,
+    });
+  }
   const prepared = await prepareReadRequest({
     context: request.context,
     env,
     speakerMember: request.speakerMember,
   });
-  if (request.action === "preview_github" && !prepared.member.profileId) {
+  if (
+    (request.action === "preview_github" ||
+      request.action === "preview_github_repository") &&
+    !prepared.member.profileId
+  ) {
     throw openMeldIdentityRequiredError();
   }
   const service = createOrganizationSkillService({
     bucket: prepared.bucket,
     db: prepared.db,
+    fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
     githubToken: env.GITHUB_OPENMELD_API_TOKEN,
   });
   if (request.action === "list") {
@@ -106,6 +163,27 @@ export async function rpcCenterAgentReadOrganizationSkills(
       skill,
     });
   }
+  if (request.action === "preview_github_repository") {
+    const preview = await service.previewRepositoryFromGitHub(
+      requireOpenMeldIdentity(prepared.actor),
+      request.url
+    );
+    await writeCenterAgentAuditEntry({
+      action: "preview_org_skill",
+      authorization: prepared.authorization,
+      onBehalfOfProfileId: prepared.member.profileId,
+      resource: {
+        id: preview.commitSha,
+        type: "organization_skill_github_preview",
+      },
+      sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
+    });
+    return parseReadResponse({
+      action: request.action,
+      organizationId: prepared.actor.organizationId,
+      preview,
+    });
+  }
   const preview = await service.previewFromGitHub(
     requireOpenMeldIdentity(prepared.actor),
     request.url
@@ -121,12 +199,11 @@ export async function rpcCenterAgentReadOrganizationSkills(
     sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
   });
   return parseReadResponse({
-    action: "preview_github",
+    action: request.action,
     organizationId: prepared.actor.organizationId,
     preview,
   });
 }
-
 export async function rpcCenterAgentInstallOrganizationSkill(
   env: CoreBindings,
   input: CenterAgentInstallOrganizationSkillRpcInput
@@ -141,6 +218,89 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     speakerMember: request.speakerMember,
   });
   requireManager(prepared.actor);
+  if (
+    request.action === "begin_import_batch" ||
+    request.action === "install_batch_item"
+  ) {
+    const service = createOrganizationSkillService({
+      bucket: prepared.bucket,
+      db: prepared.db,
+      fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
+      githubToken: env.GITHUB_OPENMELD_API_TOKEN,
+    });
+    const organizationId = prepared.actor.organizationId;
+    if (request.action === "begin_import_batch") {
+      const result = await beginSkillImportBatchForActor({
+        actor: prepared.actor,
+        env,
+        request,
+        service,
+      });
+      return parseInstallResponse({
+        action: request.action,
+        organizationId,
+        ...result,
+      });
+    }
+    const batch = await requireImportBatch({
+      batchId: request.batchId,
+      db: prepared.db,
+      organizationId,
+      userId: prepared.actor.userId,
+    });
+    const candidate = batch.preview.skills.find(
+      (item) => item.path === request.path
+    );
+    if (!candidate) {
+      throw createCoreRpcHttpError({
+        code: "organization_skill.batch_conflict",
+        reason: "This Skill is not part of the saved install plan.",
+        status: 409,
+      });
+    }
+    const { skill } = await importGitHubSkillInBatch({
+      actor: prepared.actor,
+      actorProfileId: prepared.representedHuman.profileId,
+      env,
+      request: {
+        batchId: batch.batchId,
+        expectedCommitSha: batch.preview.commitSha,
+        url: candidate.url,
+      },
+    });
+    const auditId = await buildOrganizationSkillRequestSignature({
+      batchId: batch.batchId,
+      path: candidate.path,
+      organizationId,
+      userId: prepared.actor.userId,
+    });
+    await prepared.db.query(
+      prepareCenterAgentAuditJournalEntryIfMissingStatement({
+        action: "install_org_skill",
+        actorProfileId: prepared.actorProfileId,
+        attribution: {
+          actorProfileId: prepared.actorProfileId,
+          onBehalfOf: {
+            displayName: prepared.representedHuman.displayName,
+            profileId: prepared.representedHuman.profileId,
+            userId: prepared.representedHuman.userId,
+          },
+        },
+        db: prepared.db,
+        id: `audit_skill_batch_${auditId}`,
+        nowMs: Date.now(),
+        organizationId,
+        resource: { id: skill.id, type: "organization_skill" },
+        sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+      })
+    );
+    return parseInstallResponse({
+      action: request.action,
+      organizationId,
+      skill: toSkillSummary(skill),
+      ...describeOrganizationSkillBundleLimitations(skill.bundle),
+    });
+  }
   const operationKey = await buildCenterAgentOrganizationSkillOperationKey({
     action: request.action,
     actorProfileId: prepared.actorProfileId,
@@ -148,15 +308,15 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     organizationId: prepared.actor.organizationId,
     representedUserId: prepared.representedHuman.userId,
   });
-  const requestSignature =
-    await buildCenterAgentOrganizationSkillRequestSignature({
-      action: request.action,
-      actorProfileId: prepared.actorProfileId,
-      payload: installPayload(request),
-      representedUserId: prepared.representedHuman.userId,
-    });
-  const begin = await beginCenterAgentOrganizationSkillOperation({
+  const requestSignature = await buildOrganizationSkillRequestSignature({
+    action: request.action,
+    actorProfileId: prepared.actorProfileId,
+    payload: installPayload(request),
+    representedUserId: prepared.representedHuman.userId,
+  });
+  const begin = await beginOrganizationSkillOperation({
     db: prepared.db,
+    kind: "center_agent",
     nowMs: Date.now(),
     operationKey,
     organizationId: prepared.actor.organizationId,
@@ -168,13 +328,18 @@ export async function rpcCenterAgentInstallOrganizationSkill(
   if (begin.outcome === "pending_in_progress") {
     throw operationInProgressError();
   }
-
-  const skillId = `org_skill_${requestSignature.slice(0, 32)}`;
-  const releaseId = `org_skill_release_${requestSignature.slice(32)}`;
+  // Distinct operations must not share release object keys: a failed writer
+  // may clean up only the objects that its own operation created.
+  const releaseIdentity = await buildOrganizationSkillRequestSignature({
+    operationKey,
+  });
+  const skillId = `org_skill_${releaseIdentity.slice(0, 32)}`;
+  const releaseId = `org_skill_release_${releaseIdentity.slice(32)}`;
   const ids = [skillId, releaseId];
   const service = createOrganizationSkillService({
     bucket: prepared.bucket,
     db: prepared.db,
+    fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
     githubToken: env.GITHUB_OPENMELD_API_TOKEN,
     newId: () => {
       const id = ids.shift();
@@ -204,20 +369,28 @@ export async function rpcCenterAgentInstallOrganizationSkill(
       .get(prepared.actor, skillId)
       .catch(() => null);
     if (recovered?.activeRelease.id !== releaseId) {
-      await deletePendingCenterAgentOrganizationSkillOperation({
+      await deletePendingOrganizationSkillOperation({
         db: prepared.db,
+        kind: "center_agent",
         operation: begin.operation,
       });
       throw error;
     }
     skill = recovered;
   }
-
-  const response = parseInstallResponse({
+  const baseResponse = {
     action: request.action,
     organizationId: prepared.actor.organizationId,
     skill: toSkillSummary(skill),
-  });
+  };
+  const response = parseInstallResponse(
+    request.action === "import_github_with_report"
+      ? {
+          ...baseResponse,
+          ...describeOrganizationSkillBundleLimitations(skill.bundle),
+        }
+      : baseResponse
+  );
   return await completeOperation({
     operation: begin.operation,
     prepared,
@@ -225,7 +398,6 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     skillId,
   });
 }
-
 async function prepareRequest(input: {
   context: CenterAgentReadOrganizationSkillsRpcInput["context"];
   env: CoreBindings;
@@ -241,7 +413,7 @@ async function prepareRequest(input: {
         "Organization Skills require a verified active human Organization member.",
     }
   );
-  const db = organizationSkillsDb(input.env);
+  const db = getPostgresDatabase(input.env);
   const bucket = input.env.OPENMELD_ORGANIZATION_SKILLS;
   if (!(db && bucket)) {
     throw createCoreRpcHttpError({
@@ -265,7 +437,6 @@ async function prepareRequest(input: {
     sourceNativeDeliveryId: represented.sourceNativeDeliveryId,
   };
 }
-
 async function prepareReadRequest(input: {
   context: CenterAgentReadOrganizationSkillsRpcInput["context"];
   env: CoreBindings;
@@ -284,7 +455,7 @@ async function prepareReadRequest(input: {
     input.context,
     input.speakerMember
   );
-  const db = organizationSkillsDb(input.env);
+  const db = getPostgresDatabase(input.env);
   const bucket = input.env.OPENMELD_ORGANIZATION_SKILLS;
   if (!(db && bucket)) {
     throw createCoreRpcHttpError({
@@ -306,7 +477,6 @@ async function prepareReadRequest(input: {
     member: prepared.member,
   };
 }
-
 function openMeldIdentityRequiredError(): Error {
   return createCoreRpcHttpError({
     code: CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
@@ -315,45 +485,53 @@ function openMeldIdentityRequiredError(): Error {
     status: 403,
   });
 }
-
 async function completeOperation(input: {
-  operation: CenterAgentOrganizationSkillOperationRecord;
+  operation: OrganizationSkillOperationRecord;
   prepared: PreparedCenterAgentOrganizationSkillRequest;
   response: CenterAgentInstallOrganizationSkillResponse;
   skillId: string;
 }): Promise<CenterAgentInstallOrganizationSkillResponse> {
   const nowMs = Date.now();
-  const results = await input.prepared.db.batch([
-    prepareCenterAgentAuditJournalEntryIfMissingStatement({
-      action: "install_org_skill",
-      actorProfileId: input.prepared.actorProfileId,
-      attribution: {
-        actorProfileId: input.prepared.actorProfileId,
-        onBehalfOf: {
-          displayName: input.prepared.representedHuman.displayName,
-          profileId: input.prepared.representedHuman.profileId,
-          userId: input.prepared.representedHuman.userId,
-        },
-      },
-      db: input.prepared.db,
-      id: `audit_${input.operation.operationKey}`,
-      nowMs,
-      organizationId: input.prepared.actor.organizationId,
-      resource: { id: input.skillId, type: "organization_skill" },
-      sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
-    }),
-    prepareCompleteCenterAgentOrganizationSkillOperationStatement({
-      db: input.prepared.db,
-      nowMs,
-      operation: input.operation,
-      responseJson: JSON.stringify(input.response),
-    }),
-  ]);
-  if (Number(results[1]?.meta.changes ?? 0) === 1) {
+  const results = await input.prepared.db.transaction(
+    async (client) =>
+      [
+        await client.query(
+          prepareCenterAgentAuditJournalEntryIfMissingStatement({
+            action: "install_org_skill",
+            actorProfileId: input.prepared.actorProfileId,
+            attribution: {
+              actorProfileId: input.prepared.actorProfileId,
+              onBehalfOf: {
+                displayName: input.prepared.representedHuman.displayName,
+                profileId: input.prepared.representedHuman.profileId,
+                userId: input.prepared.representedHuman.userId,
+              },
+            },
+            db: input.prepared.db,
+            id: `audit_${input.operation.operationKey}`,
+            nowMs,
+            organizationId: input.prepared.actor.organizationId,
+            resource: { id: input.skillId, type: "organization_skill" },
+            sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
+          })
+        ),
+        await client.query(
+          prepareCompleteOrganizationSkillOperationStatement({
+            db: input.prepared.db,
+            kind: "center_agent",
+            nowMs,
+            operation: input.operation,
+            responseJson: JSON.stringify(input.response),
+          })
+        ),
+      ] as const
+  );
+  if (Number(results[1].rowCount ?? 0) === 1) {
     return input.response;
   }
-  const current = await readCenterAgentOrganizationSkillOperation({
+  const current = await readOrganizationSkillOperation({
     db: input.prepared.db,
+    kind: "center_agent",
     operationKey: input.operation.operationKey,
     organizationId: input.operation.organizationId,
   });
@@ -362,9 +540,11 @@ async function completeOperation(input: {
   }
   throw operationInProgressError();
 }
-
 function installPayload(
-  request: CenterAgentInstallOrganizationSkillRpcInput
+  request: Extract<
+    CenterAgentInstallOrganizationSkillRpcInput,
+    { operationId: string }
+  >
 ): unknown {
   const {
     context: _context,
@@ -373,6 +553,20 @@ function installPayload(
     ...payload
   } = request;
   return payload;
+}
+
+async function requireImportBatch(
+  input: Parameters<typeof readOrganizationSkillImportBatch>[0]
+) {
+  const batch = await readOrganizationSkillImportBatch(input);
+  if (!batch) {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.batch_missing",
+      reason: "This Skill install batch was not found.",
+      status: 404,
+    });
+  }
+  return batch;
 }
 
 function toSkillSummary(skill: OrganizationSkill) {
@@ -384,11 +578,9 @@ function toSkillSummary(skill: OrganizationSkill) {
   } = skill;
   return summary;
 }
-
 function isManager(actor: Pick<OrganizationSkillActor, "role">): boolean {
   return actor.role === "owner" || actor.role === "admin";
 }
-
 function requireOpenMeldIdentity(
   actor: OrganizationSkillReadActor
 ): OrganizationSkillActor {
@@ -397,7 +589,6 @@ function requireOpenMeldIdentity(
   }
   throw openMeldIdentityRequiredError();
 }
-
 function requireManager(actor: OrganizationSkillActor): void {
   if (isManager(actor)) {
     return;
@@ -409,14 +600,19 @@ function requireManager(actor: OrganizationSkillActor): void {
     status: 403,
   });
 }
-
 function parseRequest<T>(
   schema: {
-    safeParse(
-      value: unknown
-    ):
-      | { data: T; success: true }
-      | { error: { message: string }; success: false };
+    safeParse(value: unknown):
+      | {
+          data: T;
+          success: true;
+        }
+      | {
+          error: {
+            message: string;
+          };
+          success: false;
+        };
   },
   value: unknown
 ): T {
@@ -430,7 +626,6 @@ function parseRequest<T>(
   }
   return parsed.data;
 }
-
 function parseReadResponse(
   value: unknown
 ): CenterAgentReadOrganizationSkillsResponse {
@@ -443,7 +638,6 @@ function parseReadResponse(
   }
   return parsed.data;
 }
-
 function parseInstallResponse(
   value: unknown
 ): CenterAgentInstallOrganizationSkillResponse {
@@ -456,9 +650,8 @@ function parseInstallResponse(
   }
   return parsed.data;
 }
-
 function parseCompletedResponse(
-  operation: CenterAgentOrganizationSkillOperationRecord
+  operation: OrganizationSkillOperationRecord
 ): CenterAgentInstallOrganizationSkillResponse {
   if (!operation.responseJson) {
     throw new Error(
@@ -467,7 +660,6 @@ function parseCompletedResponse(
   }
   return parseInstallResponse(JSON.parse(operation.responseJson));
 }
-
 function operationInProgressError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.operation_in_progress",

@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
+  buildOrganizationSkillFilesImportPath,
+  buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
+  buildOrganizationSkillRepositoryPreviewPath,
   buildOrganizationSkillsPath,
   createOpenMeldApiClient,
   createOrganizationSkillsApi,
@@ -56,6 +60,69 @@ const {
 } = SKILL;
 
 describe("api-client Organization Skills API", () => {
+  it("reads one exact release resource as bytes", async () => {
+    const bytes = Uint8Array.of(0, 1, 2);
+    const transport = vi.fn<OpenMeldApiClientTransport>(
+      async () => new Response(bytes, { headers: { "content-length": "3" } })
+    );
+    const api = createOrganizationSkillsApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect(
+      await api.readResource({
+        skillId: SKILL_ID,
+        releaseId: "release-1",
+        path: "references/My notes.md",
+      })
+    ).toEqual(bytes);
+    expect(transport.mock.calls[0]?.[0].url).toContain(
+      "/releases/release-1/resources?path=references%2FMy%20notes.md"
+    );
+  });
+  it("previews a repository catalog through the shared Organization Skill API", async () => {
+    const preview = {
+      catalogLimitBytes: 1024,
+      commitSha: "b".repeat(40),
+      repository: "https://github.com/openmeld/example",
+      skills: [
+        {
+          blocker: null,
+          fileCount: 1,
+          path: "support-risk-review",
+          totalBytes: 42,
+          url: `https://github.com/openmeld/example/tree/${"b".repeat(40)}/support-risk-review`,
+          warnings: [],
+        },
+      ],
+      totalDeclaredBytes: 42,
+      warnings: [],
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(async () =>
+      jsonResponse({ organizationId: ORGANIZATION_ID, preview })
+    );
+    const api = createOrganizationSkillsApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect(
+      await api.previewRepositoryFromGitHub({
+        expectedOrganizationId: ORGANIZATION_ID,
+        url: "https://github.com/openmeld/example",
+      })
+    ).toEqual({ organizationId: ORGANIZATION_ID, preview });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "organization_skill.preview_github_repository",
+        url: `https://gateway.openmeld.invalid${buildOrganizationSkillRepositoryPreviewPath()}`,
+        init: expect.objectContaining({ method: "POST" }),
+      })
+    );
+  });
   it("builds encoded Organization Skill routes", () => {
     expect(buildOrganizationSkillsPath()).toBe(
       "/v1/organizations/current/skills"
@@ -63,11 +130,23 @@ describe("api-client Organization Skills API", () => {
     expect(buildOrganizationSkillPath(SKILL_ID)).toBe(
       "/v1/organizations/current/skills/skill%2Fwith%20spaces"
     );
+    expect(buildOrganizationSkillCatalogPath(SKILL_ID)).toBe(
+      "/v1/organizations/current/skills/skill%2Fwith%20spaces/catalog"
+    );
     expect(buildOrganizationSkillGitHubImportPath()).toBe(
       "/v1/organizations/current/skills/import-github"
     );
+    expect(buildOrganizationSkillFilesImportPath()).toBe(
+      "/v1/organizations/current/skills/import-files"
+    );
+    expect(buildOrganizationSkillFilesPreviewPath()).toBe(
+      "/v1/organizations/current/skills/preview-files"
+    );
     expect(buildOrganizationSkillGitHubPreviewPath()).toBe(
       "/v1/organizations/current/skills/preview-github"
+    );
+    expect(buildOrganizationSkillRepositoryPreviewPath()).toBe(
+      "/v1/organizations/current/skills/preview-github-repository"
     );
     expect(buildOrganizationSkillEnabledPath(SKILL_ID)).toBe(
       "/v1/organizations/current/skills/skill%2Fwith%20spaces/enabled"
@@ -92,9 +171,30 @@ describe("api-client Organization Skills API", () => {
           }),
       ],
       [`GET ${skillUrl}`, () => jsonResponse({ skill: SKILL })],
+      [
+        `GET ${skillUrl}/catalog`,
+        () =>
+          jsonResponse({
+            organizationId: ORGANIZATION_ID,
+            releases: [
+              {
+                digest: RELEASE.digest,
+                releaseId: RELEASE.id,
+                skillId: SKILL_ID,
+                files: [],
+                instructions: BUNDLE.instructions,
+                portable: BUNDLE.portable,
+              },
+            ],
+          }),
+      ],
       [`POST ${skillsUrl}`, () => jsonResponse({ skill: SKILL }, 201)],
       [
         `POST ${skillsUrl}/import-github`,
+        () => jsonResponse({ skill: SKILL }, 201),
+      ],
+      [
+        `POST ${skillsUrl}/import-files`,
         () => jsonResponse({ skill: SKILL }, 201),
       ],
       [
@@ -112,6 +212,19 @@ describe("api-client Organization Skills API", () => {
                 path: "support-risk-review",
                 repository: "https://github.com/openmeld/example",
               },
+              warnings: [],
+            },
+          }),
+      ],
+      [
+        `POST ${skillsUrl}/preview-files`,
+        () =>
+          jsonResponse({
+            organizationId: ORGANIZATION_ID,
+            preview: {
+              files: [],
+              instructionsCharacters: BUNDLE.instructions.length,
+              portable: BUNDLE.portable,
               warnings: [],
             },
           }),
@@ -150,6 +263,7 @@ describe("api-client Organization Skills API", () => {
 
     await api.list();
     await api.get({ skillId: SKILL_ID });
+    await api.getCatalog({ skillId: SKILL_ID });
     await api.create({
       description: BUNDLE.portable.description,
       expectedOrganizationId: ORGANIZATION_ID,
@@ -159,11 +273,38 @@ describe("api-client Organization Skills API", () => {
     await api.importFromGitHub({
       expectedCommitSha: "b".repeat(40),
       expectedOrganizationId: ORGANIZATION_ID,
+      operationId: "install-review-skill",
       url: "https://github.com/openmeld/example/tree/main/support-risk-review",
+    });
+    await api.importFromFiles({
+      expectedOrganizationId: ORGANIZATION_ID,
+      files: [
+        {
+          content:
+            "---\nname: support-risk-review\ndescription: Review support risks every week.\n---\n# Review support risks",
+          encoding: "utf8",
+          mediaType: "text/markdown",
+          path: "SKILL.md",
+          size: 105,
+        },
+      ],
     });
     await api.previewFromGitHub({
       expectedOrganizationId: ORGANIZATION_ID,
       url: "https://github.com/openmeld/example/tree/main/support-risk-review",
+    });
+    await api.previewFromFiles({
+      expectedOrganizationId: ORGANIZATION_ID,
+      files: [
+        {
+          content:
+            "---\nname: support-risk-review\ndescription: Review support risks every week.\n---\n# Review support risks",
+          encoding: "utf8",
+          mediaType: "text/markdown",
+          path: "SKILL.md",
+          size: 105,
+        },
+      ],
     });
     await api.update({
       bundle: BUNDLE,
@@ -211,6 +352,12 @@ describe("api-client Organization Skills API", () => {
         url: skillUrl,
       },
       {
+        body: undefined,
+        method: "GET",
+        operation: "organization_skill.get_catalog",
+        url: `${skillUrl}/catalog`,
+      },
+      {
         body: JSON.stringify({
           description: BUNDLE.portable.description,
           expectedOrganizationId: ORGANIZATION_ID,
@@ -225,6 +372,7 @@ describe("api-client Organization Skills API", () => {
         body: JSON.stringify({
           expectedCommitSha: "b".repeat(40),
           expectedOrganizationId: ORGANIZATION_ID,
+          operationId: "install-review-skill",
           url: "https://github.com/openmeld/example/tree/main/support-risk-review",
         }),
         method: "POST",
@@ -234,11 +382,47 @@ describe("api-client Organization Skills API", () => {
       {
         body: JSON.stringify({
           expectedOrganizationId: ORGANIZATION_ID,
+          files: [
+            {
+              content:
+                "---\nname: support-risk-review\ndescription: Review support risks every week.\n---\n# Review support risks",
+              encoding: "utf8",
+              mediaType: "text/markdown",
+              path: "SKILL.md",
+              size: 105,
+            },
+          ],
+        }),
+        method: "POST",
+        operation: "organization_skill.import_files",
+        url: `${skillsUrl}/import-files`,
+      },
+      {
+        body: JSON.stringify({
+          expectedOrganizationId: ORGANIZATION_ID,
           url: "https://github.com/openmeld/example/tree/main/support-risk-review",
         }),
         method: "POST",
         operation: "organization_skill.preview_github",
         url: `${skillsUrl}/preview-github`,
+      },
+      {
+        body: JSON.stringify({
+          expectedOrganizationId: ORGANIZATION_ID,
+          files: [
+            {
+              content:
+                "---\nname: support-risk-review\ndescription: Review support risks every week.\n---\n# Review support risks",
+              encoding: "utf8",
+              mediaType: "text/markdown",
+              path: "SKILL.md",
+              size: 105,
+            },
+          ],
+        }),
+        method: "POST",
+        operation: "organization_skill.preview_files",
+        url: `${skillsUrl}/preview-files`,
       },
       {
         body: JSON.stringify({

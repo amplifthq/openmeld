@@ -1,6 +1,11 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "@openmeld/adapter-core/process-environment";
 import type { DesktopInstalledTarget } from "@openmeld/schemas";
+import { WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL } from "@openmeld/schemas";
 import type { CommandDeps } from "./cli/commands";
 
 declare const __OPENMELD_DESKTOP_COMPUTER_ENVIRONMENT__: {
@@ -8,6 +13,7 @@ declare const __OPENMELD_DESKTOP_COMPUTER_ENVIRONMENT__: {
   auth: string;
   gateway: string;
 } | null;
+declare const __OPENMELD_DESKTOP_INTERNAL_PREVIEW__: boolean;
 
 /** Fixed managed carrier and lane. The connection operation owns bootstrap. */
 export function installedCommandEnvironment(
@@ -15,10 +21,14 @@ export function installedCommandEnvironment(
   userData: string
 ): CommandDeps {
   const env: NodeJS.ProcessEnv = {};
+  const source = normalizeCommandEnvironment(process.env);
   const computer =
     typeof __OPENMELD_DESKTOP_COMPUTER_ENVIRONMENT__ === "undefined"
       ? null
       : __OPENMELD_DESKTOP_COMPUTER_ENVIRONMENT__;
+  const internalPreview =
+    typeof __OPENMELD_DESKTOP_INTERNAL_PREVIEW__ !== "undefined" &&
+    __OPENMELD_DESKTOP_INTERNAL_PREVIEW__;
   for (const key of [
     "PATH",
     "HOME",
@@ -28,9 +38,10 @@ export function installedCommandEnvironment(
     "TMPDIR",
     "LANG",
     "LC_ALL",
+    ...(process.platform === "win32" ? WINDOWS_RUNTIME_ENV_KEYS : []),
   ]) {
-    if (process.env[key]) {
-      env[key] = process.env[key];
+    if (source[key]) {
+      env[key] = source[key];
     }
   }
   const home =
@@ -38,16 +49,23 @@ export function installedCommandEnvironment(
       ? join(homedir(), ".openmeld")
       : (computer?.home ?? join(userData, "unconfigured-service"));
   return {
-    openMeldBin: join(home, "bin", "openmeld"),
+    openMeldBin: join(
+      home,
+      "bin",
+      process.platform === "win32" ? "openmeld.exe" : "openmeld"
+    ),
     env: {
       ...env,
       OPENMELD_HOME: home,
       OPENMELD_ENV_PRESET: target.kind === "production" ? "prod" : "dev-local",
       WEB_APP_URL: target.webOrigin,
       OPENMELD_CLI_BINARY_MANIFEST_URL: new URL(
-        "/cli/manifest.json",
+        internalPreview
+          ? WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
+          : "/cli/manifest.json",
         target.webOrigin
       ).href,
+      ...(internalPreview ? { OPENMELD_WINDOWS_INTERNAL_PREVIEW: "1" } : {}),
       ...(target.kind === "disposable" && computer
         ? {
             OPENMELD_AUTH_URL: computer.auth,

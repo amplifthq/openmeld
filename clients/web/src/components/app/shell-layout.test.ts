@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
 import {
 	APP_PAGE_FRAME_CLASS_NAME,
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
+} from "@openmeld/ui/lib/page-frame";
+import { describe, expect, it } from "vitest";
+import {
 	APP_SPACE_FRAME_CLASS_NAME,
 	appShellStaticData,
 	resolveAppOuterRailDestinationFromMatches,
@@ -57,6 +59,8 @@ describe("app shell layout", () => {
 		[appShellStaticData.organizations, null],
 		[appShellStaticData.people, "people"],
 		[appShellStaticData.plugins, "people"],
+		[appShellStaticData.skills, "people"],
+		[appShellStaticData.files, "people"],
 		[appShellStaticData.projects, "projects"],
 		[appShellStaticData.settings, "settings"],
 		[appShellStaticData.space, "spaces"],

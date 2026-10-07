@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { pauseActiveCenterAgentNativeDeliveries } from "../src/center-agent/center-agent-operating-state-service";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
 
 describe("Center Agent operating state", () => {
   it("requests cancellation for every active Center Agent delivery across the Organization", async () => {
@@ -38,7 +39,8 @@ describe("Center Agent operating state", () => {
       submissionId: "submission-slack",
       v: 1,
     });
-    expect(String(db.prepare.mock.calls[0]?.[0])).toContain(
+    const query = vi.mocked(db.query).mock.calls[0]?.[0];
+    expect(typeof query === "string" ? query : query?.text).toContain(
       "status IN ('submitted', 'accepted', 'retry_observed')"
     );
   });
@@ -101,30 +103,19 @@ function executionState(status: "cancellation_requested" | "completed") {
   };
 }
 
-function activeDeliveriesDb(): D1Database & {
-  prepare: ReturnType<typeof vi.fn>;
-} {
-  const prepare = vi.fn(() => ({
-    bind: vi.fn(() => ({
-      all: vi.fn(async () => ({
-        results: [
-          {
-            idempotency_key: "turn-space",
-            organization_id: "org-1",
-            space_id: "space-1",
-            submission_id: "submission-space",
-          },
-          {
-            idempotency_key: "turn-slack",
-            organization_id: "org-1",
-            space_id: "slack-conversation-1",
-            submission_id: "submission-slack",
-          },
-        ],
-      })),
-    })),
-  }));
-  return { prepare } as unknown as D1Database & {
-    prepare: ReturnType<typeof vi.fn>;
-  };
+function activeDeliveriesDb() {
+  return createProjectionPostgresDatabase(() => [
+    {
+      idempotency_key: "turn-space",
+      organization_id: "org-1",
+      space_id: "space-1",
+      submission_id: "submission-space",
+    },
+    {
+      idempotency_key: "turn-slack",
+      organization_id: "org-1",
+      space_id: "slack-conversation-1",
+      submission_id: "submission-slack",
+    },
+  ]);
 }

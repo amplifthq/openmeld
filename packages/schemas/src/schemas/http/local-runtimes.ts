@@ -1,4 +1,5 @@
 import * as z from "../../lazy-zod";
+import { executionHostObservationSchema } from "../daemon/computer-care";
 import {
   localAgentInstallationOptionSchema,
   openMeldDaemonSyncRouteCatalogPayloadSchema,
@@ -287,6 +288,7 @@ export const localRuntimeReplyReadinessPrimaryBlockerSchema = z.enum([
   "service_not_connected",
   "service_update_required",
   "service_unavailable",
+  "execution_host_unavailable",
 ]);
 
 export const localRuntimeReplyReadinessNextActionSchema = z.enum([
@@ -327,6 +329,7 @@ export const currentLocalRuntimeReplyReadinessResponseSchema = z.strictObject({
   }),
   service: z.strictObject({
     connected: z.boolean(),
+    executionHost: executionHostObservationSchema.nullable().optional(),
     executionCompatibility: daemonExecutionCompatibilitySchema.nullable(),
     matchingCurrentRuntime: z.boolean(),
     reasonCodes: z.array(reasonCodeSchema),

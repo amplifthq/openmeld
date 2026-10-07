@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   type DeletedAgentActivitySessionInventoryMemberProjection,
   readAgentActivitySessionInventoryMemberCleanupRequests,
@@ -5,19 +6,16 @@ import {
   recordAgentActivitySessionInventoryMemberCleanupWaiting,
   requestAgentActivitySessionInventoryMemberCleanup,
 } from "./activity-session-inventory-repository";
-
 export type AgentActivitySessionInventoryMemberCleanupMembershipState =
   | "active"
   | "removed"
   | "unavailable";
-
 type ResolveMembershipState = (input: {
   organizationId: string;
   ownerUserId: string;
 }) => Promise<AgentActivitySessionInventoryMemberCleanupMembershipState>;
-
 export async function acceptAgentActivitySessionInventoryMemberCleanup(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   ownerUserId: string;
@@ -41,9 +39,8 @@ export async function acceptAgentActivitySessionInventoryMemberCleanup(input: {
   });
   return { deleted, pending };
 }
-
 export async function retryAgentActivitySessionInventoryMemberCleanups(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit?: number;
   nowMs: number;
   resolveMembershipState: ResolveMembershipState;
@@ -116,7 +113,6 @@ export async function retryAgentActivitySessionInventoryMemberCleanups(input: {
     waitingForRemoval,
   };
 }
-
 async function resolveMembershipStateSafely(input: {
   organizationId: string;
   ownerUserId: string;

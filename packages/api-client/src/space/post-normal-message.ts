@@ -2,6 +2,7 @@ import {
   postNormalMessageBodySchema,
   postNormalMessageResponseSchema,
   toCompatibleSpaceAddressingRequestWireValue,
+  toLegacySpaceImageGeometryWireValue,
 } from "@openmeld/schemas";
 import type {
   PostNormalMessageBody,
@@ -41,7 +42,9 @@ export async function postSpaceNormalMessage(
     method: "POST",
     headers: currentSpaceAddressingHeaders("application/json"),
     body: JSON.stringify(
-      toCompatibleSpaceAddressingRequestWireValue(parsedBody.data)
+      toLegacySpaceImageGeometryWireValue(
+        toCompatibleSpaceAddressingRequestWireValue(parsedBody.data)
+      )
     ),
     requestContext: input.requestContext,
     signal: input.signal,
@@ -66,6 +69,8 @@ function buildPostNormalMessageBody(input: {
 }): PostNormalMessageBody {
   return {
     text: input.text,
+    ...(input.meta?.workHandoff ? { workHandoffVersion: 1 as const } : {}),
+    ...(input.meta?.evidenceRefs ? { evidenceRefsVersion: 1 as const } : {}),
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }

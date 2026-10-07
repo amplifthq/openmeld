@@ -5,6 +5,7 @@ import {
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { ConnectorActionOutcomeUnknownError } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentExecutionIdentity,
   completeRemoteAgentExecutionState,
@@ -20,7 +21,7 @@ import {
   RemoteAgentToolCallBudgetExceededError,
   RemoteAgentToolProgressStateInvalidError,
 } from "../agent-core/tool-progress";
-import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
+import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
   assertRemoteAgentTurnAllowsToolExecution,
   cleanupExpiredRemoteAgentTurnEndMarkers,
@@ -37,27 +38,166 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const SUBMISSION_ID = "submission-turn-end";
 
 describe("Remote Agent tool execution", () => {
-  it("fails an oversized direct tool result explicitly without retaining its payload", () => {
-    let thrown: unknown;
-    try {
-      toBoundedRemoteAgentToolResult({
-        toolName: "github_list_pull_request_files",
-        value: { patch: "A".repeat(200_000) },
-      });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(RemoteAgentToolResultTooLargeError);
-    expect(thrown).toMatchObject({
-      limitBytes: 131_072,
-      reasonCode: "remote_agent.tool_result_too_large",
-      toolName: "github_list_pull_request_files",
+  it.each([
+    {
+      source: "direct",
+      window: "unverified",
+      replay: { allowed: false, reason: "window_unverified" },
+    },
+    {
+      source: "code_mode",
+      window: "unverified",
+      replay: { allowed: false, reason: "window_unverified" },
+    },
+    {
+      source: "direct",
+      window: "active",
+      replay: {
+        allowed: true,
+        maxAttempts: 1,
+        remainingWindowMs: expect.any(Number),
+      },
+    },
+    {
+      source: "code_mode",
+      window: "active",
+      replay: {
+        allowed: true,
+        maxAttempts: 1,
+        remainingWindowMs: expect.any(Number),
+      },
+    },
+    {
+      source: "direct",
+      window: "expired",
+      replay: { allowed: false, reason: "window_expired" },
+    },
+    {
+      source: "code_mode",
+      window: "replayed",
+      replay: { allowed: false, reason: "already_replayed" },
+    },
+  ] as const)("preserves $window replay permission through $source without exposing provider details", async ({
+    source,
+    window,
+    replay,
+  }) => {
+    const { storage } = await createToolExecutionTestContext();
+    const result = await executeRemoteAgentToolDefinition({
+      source,
+      storage,
+      submissionId: SUBMISSION_ID,
+      toolInput: {},
+      definition: {
+        description: "Attempt an authorized comment.",
+        name: "github_create_issue_comment",
+        input: object({}),
+        execute: () =>
+          Promise.reject(
+            new ConnectorActionOutcomeUnknownError({
+              actionId: "github.create_issue_comment",
+              operationId: "comment-1",
+              cause: new Error("synthetic-private-provider-detail"),
+              operationReplayExpiresAtMs:
+                window === "unverified"
+                  ? undefined
+                  : performance.now() + (window === "expired" ? -1 : 60_000),
+              operationReplayed: window === "replayed",
+              replay:
+                window === "active" || window === "expired"
+                  ? { allowed: true, remainingWindowMs: 60_000, maxAttempts: 1 }
+                  : undefined,
+            })
+          ),
+      },
     });
-    expect((thrown as Error).message).toContain(
-      "Narrow the request with search, filters, pagination, or segmented file reads"
+    expect(result).toMatchObject({
+      status: "outcome_unknown",
+      operationId: "comment-1",
+      executionConfirmation: "unknown",
+      replay,
+    });
+    const text = JSON.stringify(result);
+    expect(text).toContain("write may already have succeeded");
+    expect(text).toContain(
+      window === "active"
+        ? "You may retry exactly once"
+        : "Do not retry this write"
     );
-    expect(JSON.stringify(thrown)).not.toContain("AAAA");
+    expect(text).toContain("Never repeat the write with a new operationId");
+    expect(text).toContain("Original operationId: comment-1");
+    expect(text).not.toContain("synthetic-private-provider-detail");
+  });
+  it.each([
+    "A",
+    "中文",
+    "😀",
+    '"\\\n\t',
+  ])("returns honest bounded evidence for oversized %j results without inventing a continuation", (text) => {
+    const value = {
+      data: { content: text.repeat(200_000), truncated: true },
+      operationId: "write-1",
+      status: "completed",
+    };
+    const result = toBoundedRemoteAgentToolResult({
+      toolName: "example_write",
+      value,
+    });
+
+    expect(result).toMatchObject({
+      toolName: "example_write",
+      toolExecution: "returned",
+      resultMetadata: { operationId: "write-1", status: "completed" },
+      presentation: {
+        kind: "partial",
+        reasonCode: "remote_agent.tool_result_too_large",
+        continuation: null,
+        originalJsonBytes: new TextEncoder().encode(JSON.stringify(value))
+          .byteLength,
+      },
+    });
+    const preview = (
+      result as { resultPreview: { prefix: string; suffix: string } }
+    ).resultPreview;
+    expect(preview.prefix).toContain('{"data":{"content":');
+    expect(preview.suffix).toContain('"truncated":true');
+    expect(preview.prefix.isWellFormed()).toBe(true);
+    expect(preview.suffix.isWellFormed()).toBe(true);
+    expect(isRemoteAgentToolResultWithinLimit(result)).toBe(true);
+    expect(
+      isRemoteAgentToolResultWithinLimit({ output: JSON.stringify(result) })
+    ).toBe(true);
+    expect(JSON.stringify(result)).toContain("Do not repeat a write");
+  });
+
+  it.each([
+    "completed",
+    "failed",
+  ] as const)("preserves a %s receipt even when preceding metadata consumes the budget", (status) => {
+    const receipt = {
+      operationId: "write-receipt-in-the-middle",
+      providerExecutionId: "provider-receipt-in-the-middle",
+      status,
+      success: status === "completed",
+      replayed: false,
+    };
+    const result = toBoundedRemoteAgentToolResult({
+      toolName: "example_action",
+      value: {
+        metadata: "m".repeat(7980),
+        ...receipt,
+        detail: "x".repeat(200_000),
+      },
+    });
+    expect(result).toMatchObject({
+      toolExecution: "returned",
+      resultMetadata: receipt,
+      presentation: { kind: "partial" },
+    });
+    const preview = (result as { resultPreview: unknown }).resultPreview;
+    expect(JSON.stringify(preview)).not.toContain(receipt.operationId);
+    expect(JSON.stringify(preview)).not.toContain(receipt.providerExecutionId);
+    expect(isRemoteAgentToolResultWithinLimit(result)).toBe(true);
   });
 
   it("preserves every semantic field in a bounded structured result", () => {

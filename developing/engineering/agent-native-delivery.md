@@ -13,20 +13,63 @@
 - Source of truth: This file owns the end-to-end agent-native delivery contract
   for this repository.
 
+## Merge and Release Task
+
+For one PR or a compatible batch:
+
+1. Stabilize the scope and run focused checks. Use one integrated
+   [Final Candidate](#final-candidate) for compatible changes. Pin the pre-merge
+   base and the final product SHA.
+2. [Merge](#merge) against current main. If a merge result is uncertain, read the
+   remote PR state before retrying.
+3. Plan the affected release scopes once. For an unknown backlog, run
+   `pnpm release:status -- --ref <product-sha> --change-base <pre-merge-sha>`.
+   For a known scope, go straight to its guarded release command. Resolve
+   local-component stamping and receiver-first ordering before starting a
+   Core/CLI release. See [production release](production-release.md) for the
+   commands and component rules.
+4. Release the pinned source in dependency order. Parallelize independent
+   stages. Follow workflow results and component receipts; inspect logs on a
+   failure or meaningful state change. Resume an interrupted release through
+   its original guarded command.
+5. Run health checks and real-user smoke for the changed paths. Report what
+   shipped, what was actually tested, and any remaining failure or uncertainty.
+
+Include Desktop or OpenConnector when the requested scope or changed behavior
+requires their own release. Their publication owners are linked from
+[production release](production-release.md). A later release-only version commit
+may carry the pinned product changes.
+
 ## Daily Workflow
 
 The same workflow applies to engineers, Codex, Claude Code, and other coding
 agents. Run `pnpm install --frozen-lockfile` in each checkout to install dependencies
 and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
 
+Reserve `codex/release-*` branches for artifact release preparation: their pushes
+run strict release verification. Use an ordinary `codex/*` name for CI or release
+workflow improvements; those changes do not themselves publish artifacts.
+
 | Stage | Required work | Why |
 | --- | --- | --- |
 | Commit | The hook checks staged files with `lint-staged`. | Catch cheap errors while the change is small. |
-| Push a development branch | The hook runs focused checks on the exact pushed commit and blocks failures. | Find problems before the merge queue. |
-| Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. | A file selector cannot decide product risk. |
+| Push a development branch | The hook checks protected release refs; ordinary pushes stay fast. | Avoid repeating development tests on every push. |
+| Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. Trigger native Windows acceptance only when the change affects Windows behavior. | A file selector cannot decide product risk. |
 | Mark the PR ready | Sync current `main`, resolve conflicts, and validate the affected interactions. Standard FC starts automatically. | Certify the actual next merge. |
 | Merge | Require current-base `OpenMeld Final Candidate` success for the unchanged candidate. | Prevent stale or mismatched green results. |
 | Release | Follow [Production Release](production-release.md), then health and real-user smoke. | Merge success is not deployment or product success. |
+
+For a macOS Desktop production release, the release owner runs the thin native
+A-to-B smoke from [Desktop](../clients/desktop.md#installed-a-to-b-release-acceptance)
+on the local release Mac. GitHub Actions is not a substitute for the installed
+A, Launch Services, Squirrel/MacUpdater, and automatic relaunch boundary. Use the
+expanded Desktop acceptance only when that release changes a high-risk updater,
+packaging/signing, identity, or restart lifecycle boundary.
+
+The native Windows compatibility and internal preview workflows are explicit
+diagnostics, not required PR checks. Ordinary Web or shared-schema PRs do not
+wait for them. Dispatch the relevant workflow only when the change affects
+Windows behavior or when preparing a Windows release, and verify the run's SHA.
 
 Do not bypass hooks to ship a failed check. Diagnose with the smallest failing
 command, fix the cause, and push again. Hooks are local feedback, not remotely
@@ -53,20 +96,34 @@ See [GitHub's issue-linking contract](https://docs.github.com/en/issues/tracking
 
 ## Focused Checks Before Push
 
-Inspect or run the shared local/draft entrypoint:
+Inspect the local feedback plan, then run it when its selected checks match the risk:
 
 ```sh
 pnpm run verify:pr -- --feedback --plan
-pnpm run verify:pr -- --feedback
 ```
 
 It selects changed-file Biome checks, relevant docs/Changelog contracts,
-adjacent Node tests, and related Vitest tests in directly changed workspaces.
-Plain package test aliases retain their own config; unsupported runners use
-the package's test command instead of silently skipping tests. Dependency builds
-use Turbo's cache. Test commands run sequentially, Node test files run serially,
-and related Vitest tests use at most two workers without file parallelism.
+adjacent Node tests, and changed or adjacent Vitest tests in directly changed
+workspaces. Run `pnpm run verify:pr -- --feedback` for that plan, or run just the
+relevant owner commands when the change needs a different boundary. It no longer
+turns one shared component into a whole Web test sweep. The Agent still checks
+affected consumers when the adjacent tests do not cover them.
+Worker TypeScript changes also run the existing Worker-safe Zod import guard
+before package checks; its owner defines the runtime roots for both lanes.
+Plain package runners are left to the Agent's risk-based choice; the feedback
+helper does not turn one changed file into a whole package test suite. Vitest
+source tests build dependencies only. Dependency builds use Turbo's cache. Test
+commands run sequentially, Node test files run serially,
+and selected Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
+
+Focused Vitest execution discovers the selected files through the changed
+workspace's existing `vitest*.config` contracts, including unit and integration
+configs. It preserves the unit script's CLI environment override and runs only
+the selected specifications. A selected file excluded by every config, or
+missing from the completed results, fails feedback even when a config allows
+no tests. Explicit test/platform skips and intentional multi-project ownership
+retain their package-defined meaning; they are not omitted-file failures.
 
 Workers pools need their own runtime limits. Gateway tests share one runtime
 and module cache, clear global/environment stubs, and retain per-test storage
@@ -81,11 +138,12 @@ locally fetched `origin/main`. Missing base history is an error: fetch it.
 Recheck identity and cleanliness after success. Deletions need no tests;
 protected release pushes retain strict release verification.
 
-Draft PR Feedback runs the same focused checks remotely against the full PR
-diff. It is independent feedback, not permission to merge. Keep leaf PRs in
-draft during development and batch preparation. Mark ready only when a green
-FC would make merge the next action. New commits cancel superseded feedback
-and FC runs for that PR.
+Run the planned feedback command against `origin/main` when its selection fits
+the complete PR diff before Ready. This is a local, owner-selected check, not
+an automatic push hook or hosted job on every Draft push. Keep leaf PRs in draft
+during development and batch preparation. Mark ready only after validating
+affected behavior and when a green FC would make merge the next action. New
+commits cancel superseded FC runs for that PR.
 
 Focused selection is deliberately incomplete: a deleted import, a shared
 contract, a dependency change, or platform-specific behavior may need additional
@@ -102,25 +160,93 @@ FC certifies one exact `head SHA + base SHA + tree SHA`. Standard FC retains:
 
 - current-main ancestry and live PR identity;
 - trusted control entrypoints and complete, matching results;
-- repository static contracts and control-code quality;
+- static contracts for changed owners and control-code quality when control changes;
 - database checks when database owner paths change; and
-- deferred or strict local-component release readiness, selected by branch/path.
+- deferred or strict local-component release readiness, selected by the manifest diff.
 
 Standard FC does not repeat broad workspace unit or integration tests. This
 keeps final merge latency separate from development feedback. Full confidence
 is explicit when remaining risk justifies a whole-repository rerun. The printed
 plan is the authority for selected/skipped commands, reasons, and durations:
 
+Release and CI script changes use focused owner tests before Ready; standard FC
+checks their exact diff and control identity without rerunning every repository
+workflow test. Dependency and task-graph controls still select the wider static
+repository contracts.
+
 ```sh
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
+When local resource admission cannot safely start a production client build,
+the existing manual Deep Confidence workflow can run only the required client
+artifacts on an isolated hosted runner:
+
+```sh
+gh workflow run deep-confidence.yml --ref <candidate-branch> \
+  -f scope=release-artifacts -f artifact_scopes=web,desktop
+```
+
+Choose `web`, `website`, or `desktop` when only that artifact is needed. This mode skips
+the broad diagnostic jobs, runs the same exact-source renderer/prerender and
+Workerd SSR entrypoints, and retains their source/input/output receipts. It
+uses read-only repository access and no production credentials. Match the run's
+head SHA to the candidate; these checks do not replace FC or deployed smoke.
+
+For same-run Web artifact handoff acceptance, use the read-only two-job mode:
+
+```sh
+gh workflow run deep-confidence.yml --ref <candidate-branch> -f scope=artifact-handoff
+```
+
+The parent builds and checks a real Web artifact with Workerd SSR. A separate
+runner downloads the immutable snapshot, verifies/restores it, and repeats the
+artifact preflight with `reused: true` and an unchanged output hash. It also
+requires rejection of a wrong-source receipt, corrupted receipt/snapshot, and
+diagnostic evidence presented to the Production verifier. The harness binds
+its actual Deep Confidence identity through the admission test adapter; it
+does not impersonate or widen Production's main-only workflow identity.
+Both jobs retain JSON evidence and use read-only repository access, disposable
+OpenMeld state, and no Production environment, credentials, deploy or publisher.
+This proves that transport and reuse path, not production rollout duration,
+component deployment, CLI/Desktop publication, or Product Smoke.
+
 Trusted control installs only the shared evidence parser's production
 dependencies. The result publisher does not restore the full development store;
 restoring that cache costs more than installing its small runtime. Candidate
-dependencies stay isolated and complete for the selected checks. This setup is
-the same for all PR scopes, confidence levels, merge groups, and local fallback;
-it does not change validation coverage or grant candidate code write credentials.
+dependencies stay isolated and complete for the selected checks. Hosted
+documentation-only plans install root tooling without native rebuilds; signed
+CLI Skills, release readiness, and executable changes keep the workspace install.
+The trusted plan makes this decision for both PRs and merge groups. This changes
+neither validation coverage nor candidate credential isolation.
+
+Hosted `trusted-control-entrypoints` compares the current-main control
+projection, not every workspace or lockfile byte. The isolated installer
+consumes the candidate lockfile with `--frozen-lockfile --ignore-scripts` and
+rebuilds only native dependencies from the trusted `pnpm-workspace.yaml`
+allowlist. A catalog or override that only changes resolved JavaScript packages
+is not control drift. Changes to Final Candidate workflows, trusted
+entrypoints, install wrappers, project `.npmrc`, `package.json`
+`packageManager` or scripts, the Turbo task graph, or workspace fields that
+change what native code may run (`allowBuilds`, `onlyBuiltDependencies`,
+`patchedDependencies`, and equivalents, including the referenced patch files)
+still refuse hosted certification. Native-build and patch settings are parsed
+fail-closed, including valid flow-style and complex-key YAML. The isolated
+command wrapper also forces a trusted `script-shell` so a candidate `.npmrc`
+cannot rewrite how later `pnpm run` checks execute. Those pull requests use
+the documented local explicit bootstrap. When that refuse happens, the
+required `OpenMeld Final Candidate` status names the control refuse and the
+bootstrap path. Trusted current-main control classifies that case before
+candidate dependencies or validation run, so the `Final Candidate Runner`
+check is skipped instead of showing a product-test failure. Its check output
+explains that protected local validation is required and links back to this
+fallback. [GitHub treats a skipped check as non-blocking](https://docs.github.com/en/pull-requests/reference/status-checks),
+so the Runner is not the merge authority: the repository ruleset requires only the separate
+`OpenMeld Final Candidate` commit status, which remains failed until the exact
+candidate passes the protected local bootstrap. Any ordinary test, build,
+runner, classifier, or publisher failure remains a failure and cannot publish
+green. This changes the presentation of an expected trust refusal without
+creating a second delivery process or weakening the merge gate.
 
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a
@@ -133,11 +259,14 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status -
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 ```
 
+Use `wait` for the pending Final Candidate instead of repeatedly polling
+`gh pr checks` for the same unchanged run.
+
 Use the current-main entrypoint, never candidate-owned package scripts.
 GitHub Actions is the normal compute lane; the guarded local lane below is for
 Actions outages or explicit control bootstrap. A failed check, missing evidence,
-identity mismatch, or publication failure cannot become green. Local hook output
-and draft feedback cannot substitute for the required FC status.
+identity mismatch, or publication failure cannot become green. Local focused
+checks cannot substitute for the required FC status.
 
 For a batch, integrate compatible ready leaf changes, sync `main` once, validate
 the combined interactions, and run one FC on the batch PR. Do not pay for leaf
@@ -158,7 +287,11 @@ Full command logs remain in the evidence artifact. The schema owner is
 Existing trusted task-input reuse remains available to specialized affected
 plans; standard FC no longer selects those broad tasks. Full confidence executes
 its full gate. Database/release readiness and deployment/health/smoke results are
-never reused. A green FC proves only its recorded selected checks.
+never reused. The same-run Production train artifact handoff in
+[Production Release](production-release.md) verifies parent admission evidence
+and, for Web, the actual snapshot bytes; it does not reuse FC, deployment,
+reconciliation or smoke evidence. A green FC proves only its recorded selected
+checks.
 
 Each task owns its implementation, risk assessment, and authorized delivery.
 CI does not require a reviewer count, central coordinator, waiting period, or
@@ -191,6 +324,10 @@ including its publisher, to complete. Cancellation acceptance is not completion.
 An unverifiable owner, API failure, or three-minute handoff timeout blocks local
 publication. This prevents an older hosted failure from overwriting local
 certification without hiding failures or trusting a previous green status.
+After a handoff timeout, wait until that exact hosted workflow has completed,
+including its publisher, then rerun the same unchanged candidate command.
+Do not extend ownership assumptions from an accepted cancellation or publish
+the local status manually.
 Later explicit hosted requests are new validations, not permanently suppressed.
 The first hop fetches depth-one main metadata into an isolated temporary Git
 repository, using blob filtering and a sparse checkout of `scripts/` to load
@@ -210,10 +347,17 @@ The local development commands it invokes may wait for shared worktree
 capacity as described in
 [Resource Discipline](development-workflow.md#resource-discipline). Waiting
 affects execution timing, not candidate identity or validation requirements.
-The narrow `Dev lifecycle` workflow additionally exercises process ownership
-and resource arbitration on macOS, Linux and Windows when development scripts
-change. It uses disposable processes, requires no cloud credentials, and does
-not replace Final Candidate.
+The preflight reports macOS warning and critical pressure separately; both
+remain informational here. Development admission owns the quiet-swap observation
+for warning-pressure starts, and broad local builds still wait for normal pressure.
+When process ownership or resource arbitration changes, dispatch the narrow
+`Dev lifecycle` workflow to exercise it on macOS, Linux, and Windows. It uses
+disposable processes and no cloud credentials. Ordinary `scripts/dev` edits do
+not start three optional platform jobs or delay Final Candidate.
+
+```sh
+gh workflow run dev-lifecycle.yml --ref <candidate-branch>
+```
 
 A Final Candidate control-plane change cannot certify itself through a
 candidate-owned entrypoint. When current `main` lacks the new control, inspect
@@ -345,6 +489,13 @@ Anything not run, with reason
   Resume verification without resubmitting an accepted or uncertain publish;
   follow the npm recovery boundary in `production-release.md`.
 
+For CLI publication, source builds and registry version existence do not prove
+that an npm user can install the release. The release owner must validate and
+publish the same portable tarball, as defined in
+[npm submission and availability](production-release.md#npm-submission-and-availability).
+Windows compatibility CI also consumes that artifact and exercises the generated
+PowerShell bootstrap; signed-in computer and Wake acceptance remain separate.
+
 ## Agent Experience Occurrence Feedback
 
 Task collaboration uses focused, agent-chosen `[OpenMeld Dev]` Spaces only when
@@ -353,29 +504,66 @@ they help the actual work. Follow
 for Space naming, CLI-only handoffs, optional membership and Wake, and native
 environment callbacks. The occurrence log below has a different purpose.
 
-Record every firsthand problem an Agent encounters while using or developing
-any OpenMeld product surface, App, client, Service, runtime, integration, or
-delivery path. This includes Web, Desktop, CLI, Spaces, Agents, Center Agent,
-Inbox, Projects, Documents, Agent Activity, Remote Agent, connected Apps,
-Staging, developer workflows, CI/CD, Wake testing, release, validation, and
-agent-worker behavior. Use the non-interactive Space:
+Record firsthand problems an Agent actually encounters while using released,
+supported OpenMeld products in production. This includes production cloud
+surfaces and officially released Desktop, CLI, and Service installations running
+locally. The Agent may be developing software or doing other business work;
+eligibility depends on the product behavior it used, not the task it was doing.
+Use the non-interactive Space:
 
 ```text
 [Agent Experience] OpenMeld CLI, Service & Workflow Feedback
 https://openmeld.ai/o/amplift/spaces/5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378
 ```
 
-Use Felix's authorized Human Profile directly; no Service, Wake, history read,
-duplicate search, or Agent membership is required. Every Agent records what it
-personally encountered even when another Agent may have reported the same
-symptom. Repeated reports are frequency evidence. Recording does not authorize
-or require an immediate fix.
+### What belongs here
 
-Start with `[bug]`, `[friction]`, `[gap]`, `[feature]`, or `[shared-pattern]`.
-Identify the actual Agent, model when known, session or thread ID, UTC time,
-context, expected and observed behavior, impact, non-sensitive evidence, and
-current status. Keep the report brief and continue the main task unless the
-problem is a real blocker. Never include credentials, secrets, private
+- Include bugs, usability problems, missing capabilities, and avoidable work
+  when a real use of the released product shows a concrete impact on the task,
+  correctness, reliability, time, tokens, or user experience. An abstract
+  preference for a different design or "best practice" is not enough.
+- Exclude findings confined to unmerged or merged-but-unreleased changes,
+  development/canary builds, staging, test fixtures, and internal build, CI/CD,
+  release, or validation tooling. Keep them in the owning task, PR, or issue.
+  For example, a new PostgreSQL branch's cache bug belongs in that PR; a
+  released CLI omitting real Space messages during development belongs here.
+- Expected permission, input, quota, and upstream failures are not product
+  defects when OpenMeld handles them correctly. Report concrete OpenMeld
+  mishandling, such as endless retries, lost results, or a false success state.
+  A temporary local tool failure or machine resource shortage alone is not
+  evidence of a general product defect.
+- Judge the version where the problem occurred, not the repair's status. A
+  production occurrence still belongs here when its fix is unmerged, unreleased,
+  or already shipped. An isolated reproduction or code review of released
+  source alone does not establish a production occurrence; keep that finding
+  in the task, PR, or issue, even when it merits an urgent fix. Never reproduce
+  a dangerous fault in production just to qualify for this log.
+
+Identify the affected product surface and environment, with the installed
+version or release evidence when available. If released production use is not
+established, keep the finding with its task until that basic fact is confirmed.
+Reporting an observed symptom does not require a root-cause investigation or a
+deployment SHA for every cloud report.
+
+### One report per occurrence
+
+Use Felix's authorized Human Profile directly; no Service, Wake, history read,
+duplicate search, or Agent membership is required. Report each independent
+production occurrence once, even when the same symptom has happened before.
+Another Agent inspecting the same failure, a diagnostic reproduction, a repair
+update, or an acceptance rerun is not another occurrence. Keep those details
+in a reply to the known report or in the owning task/PR. Link an existing report
+or incident ID when already known; do not add a mandatory history search.
+
+Frequency means independent production occurrences, not message count or the
+number of Agents involved. Recording does not authorize or require an immediate
+fix, and development findings do not need another feedback Space.
+
+Start with `[bug]`, `[friction]`, or `[gap]`. Identify the actual Agent, model
+when known, session or thread ID, UTC time, product environment/version, task,
+expected and observed behavior, concrete impact, brief non-sensitive evidence,
+and current status. Keep the report brief and continue the main task unless
+the problem is a real blocker. Never include credentials, secrets, private
 transcripts, or unrelated user content.
 
 Use this direct command template:
@@ -388,7 +576,8 @@ openmeld space send 5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6c
 Reporter: <agent and model>
 Session: <session or thread ID>
 Observed: <UTC timestamp>
-Context: <command or workflow>
+Product: <production surface or official local product; version when available>
+Context: <real task and command or workflow>
 Expected: <expected result>
 Observed behavior: <what happened>
 Impact: <time, tokens, correctness, or user impact>
@@ -398,7 +587,7 @@ EOF
 ```
 
 The former `OpenMeld CI/CD & Agent Workflow Feedback` Space remains historical;
-use this occurrence log for new reports so Agents have one current destination.
+use this occurrence log only for new reports that meet the production-use scope.
 
 ## Change Checklist
 

@@ -1,14 +1,22 @@
 // biome-ignore-all lint/performance/noBarrelFile: This subpath entrypoint intentionally re-exports the canonical auth db surface.
-import { drizzle } from "drizzle-orm/d1";
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
+import { getPostgresRequestPool } from "../postgresql.ts";
 import { schema as authSchema } from "./schema.ts";
 
-type D1DatabaseLike = Parameters<typeof drizzle>[0];
+export function createAuthDatabase() {
+  return drizzle(getPostgresRequestPool(), { schema: authSchema });
+}
 
-export function createD1Db(database: D1DatabaseLike) {
-  // Dependency note: `drizzle-orm@^0.45.1` is intentionally used and validated
-  // in this workspace lockfile. Do not downgrade unless a concrete
-  // compatibility issue is reproduced.
-  return drizzle(database, { schema: authSchema });
+export function createAuthCodegenDatabase() {
+  // Schema generation has no runtime bindings. This deliberately unreachable
+  // loopback endpoint prevents accidental use of environment database defaults.
+  return drizzle(
+    new pg.Pool({
+      connectionString: "postgresql://codegen@127.0.0.1:9/openmeld_codegen",
+    }),
+    { schema: authSchema }
+  );
 }
 
 export { accountSidebarPreferences } from "./account-sidebar.schema.ts";

@@ -6,22 +6,35 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-
 import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
 import {
   buildCoreBundleEvidenceStepSpec,
   runCoreStartupAdmission,
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
-
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
-import { probeCliReleaseStages } from "./release-cli-resume.mjs";
+import {
+  describeLocalComponentsAvailabilityCatalog,
+  readLocalComponentsAvailabilityCatalog,
+} from "./local-components-availability.mjs";
+import { cutoverConfigArgs } from "./postgresql-cutover-config.mjs";
+import {
+  probeCliBinaryStage,
+  probeCoreProjectionStage,
+} from "./release-cli-resume.mjs";
+import { verifyStableNpmIdentity } from "./stable-npm-identity.mjs";
+import {
+  assertCoreDeploymentContext,
+  recordCoreDeploymentOutput,
+} from "./worker-deployment-evidence.mjs";
 
 const RELEASE_MANIFEST_PATH = "release/local-components.json";
+const CLI_PACKAGE_PATH = "clients/openmeld-cli/package.json";
 const RELEASE_MANIFEST_DEFINE =
   "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON";
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
+const RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/u;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const CORE_WRANGLER_ARGS = [
   "--config",
@@ -37,7 +50,13 @@ export function resolveCurrentCliProjectionReleaseManifest(input) {
     readTagFile: input.readTagFile,
     tagName,
   });
-  return parseReleaseManifest({ channelVersion, source, tagName });
+  return parseReleaseManifest({
+    channelVersion,
+    source,
+    tagName,
+    serviceVersion:
+      input.channelManifest.channels.stable.service?.version ?? channelVersion,
+  });
 }
 
 export function resolveCurrentCliProjectionTarget(input) {
@@ -62,10 +81,36 @@ export function resolveCurrentCliProjectionTarget(input) {
   });
   const releaseManifest = parseReleaseManifest({
     channelVersion,
+    serviceVersion:
+      input.channelManifest.channels.stable.service?.version ?? channelVersion,
     source: releaseManifestSource,
     tagName,
   });
+  const packageSource = readImmutableTagFile({
+    path: CLI_PACKAGE_PATH,
+    readTagFile: input.readTagFile,
+    tagName,
+  });
+  let packageJson;
+  try {
+    packageJson = JSON.parse(packageSource.toString("utf8"));
+  } catch (error) {
+    throw new Error(
+      `Core receiver deploy refused: ${tagName}:${CLI_PACKAGE_PATH} is not valid JSON: ${formatError(error)}`
+    );
+  }
+  const minRequiredCliVersion = packageJson?.openmeld?.minRequiredCliVersion;
+  if (
+    packageJson?.version !== channelVersion ||
+    typeof minRequiredCliVersion !== "string" ||
+    !RELEASE_VERSION_PATTERN.test(minRequiredCliVersion)
+  ) {
+    throw new Error(
+      `Core receiver deploy refused: ${tagName}:${CLI_PACKAGE_PATH} does not declare the stable CLI version and its required floor.`
+    );
+  }
   return {
+    channelManifest: input.channelManifest,
     channelVersion,
     expectedCoreTag: deriveCoreProjectionTag({
       commitSha: tagCommitSha,
@@ -75,21 +120,26 @@ export function resolveCurrentCliProjectionTarget(input) {
     releaseManifestSha256: createHash("sha256")
       .update(releaseManifestSource)
       .digest("hex"),
+    minRequiredCliVersion,
     tagCommitSha,
     tagName,
   };
 }
 
 function readImmutableTagManifest(input) {
+  return readImmutableTagFile({ ...input, path: RELEASE_MANIFEST_PATH });
+}
+
+function readImmutableTagFile(input) {
   let source;
   try {
     source = input.readTagFile({
-      path: RELEASE_MANIFEST_PATH,
+      path: input.path,
       tagName: input.tagName,
     });
   } catch (error) {
     throw new Error(
-      `Core receiver deploy refused: could not read ${RELEASE_MANIFEST_PATH} from immutable tag ${input.tagName}: ${formatError(error)}`
+      `Core receiver deploy refused: could not read ${input.path} from immutable tag ${input.tagName}: ${formatError(error)}`
     );
   }
   return Buffer.isBuffer(source) ? source : Buffer.from(source, "utf8");
@@ -118,7 +168,7 @@ function parseReleaseManifest(input) {
     );
   }
   const manifestServiceVersion = parsed.data.components.service.bundleVersion;
-  if (manifestServiceVersion !== input.channelVersion) {
+  if (manifestServiceVersion !== input.serviceVersion) {
     throw new Error(
       `Core receiver deploy refused: ${input.tagName}:${RELEASE_MANIFEST_PATH} declares OpenMeld Service ${manifestServiceVersion}, but the production channel is ${input.channelVersion}.`
     );
@@ -147,6 +197,14 @@ export function buildCoreCurrentCliProjectionDryRunStepSpec(input) {
       input.expectedCoreTag,
       "--define",
       `${RELEASE_MANIFEST_DEFINE}:${JSON.stringify(manifestJson)}`,
+      ...(input.availabilityCatalog
+        ? [
+            "--define",
+            describeLocalComponentsAvailabilityCatalog(
+              input.availabilityCatalog
+            ).define,
+          ]
+        : []),
       "--dry-run",
     ],
     command: "pnpm",
@@ -154,11 +212,37 @@ export function buildCoreCurrentCliProjectionDryRunStepSpec(input) {
   };
 }
 
-export async function deployCoreWithCurrentCliProjection(input = {}) {
+export async function readCurrentCliProjectionTarget(input = {}) {
   const cwd = input.cwd ?? process.cwd();
-  const env = input.env ?? process.env;
-  const write = input.write ?? ((value) => process.stdout.write(value));
-  const adapters = {
+  const adapters = input.adapters ?? {};
+  return resolveCurrentCliProjectionTarget({
+    channelManifest: await (
+      adapters.fetchChannelManifest ?? fetchCliChannelManifest
+    )(),
+    readTagCommit:
+      adapters.readTagCommit ??
+      ((target) =>
+        execFileSync(
+          resolveCommandBinary("git"),
+          ["rev-parse", "--verify", `refs/tags/${target.tagName}^{commit}`],
+          { cwd, encoding: "utf8" }
+        )),
+    readTagFile:
+      adapters.readTagFile ??
+      ((target) =>
+        execFileSync(
+          resolveCommandBinary("git"),
+          ["show", `${target.tagName}:${target.path}`],
+          { cwd }
+        )),
+  });
+}
+
+function createReceiverAdapters(input, cwd, env) {
+  return {
+    readAvailabilityCatalog:
+      input.adapters?.readAvailabilityCatalog ??
+      readLocalComponentsAvailabilityCatalog,
     fetchChannelManifest:
       input.adapters?.fetchChannelManifest ?? fetchCliChannelManifest,
     readTagCommit:
@@ -195,15 +279,54 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
       input.adapters?.runStartupAdmission ?? runCoreStartupAdmission,
     runStep:
       input.adapters?.runStep ?? ((step) => runStep({ ...step, cwd, env })),
-    verifyAlignment: input.adapters?.verifyAlignment,
   };
+}
 
-  const channelManifest = await adapters.fetchChannelManifest();
-  const target = resolveCurrentCliProjectionTarget({
-    channelManifest,
-    readTagCommit: adapters.readTagCommit,
-    readTagFile: adapters.readTagFile,
+export async function deployCoreWithCurrentCliProjection(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const write = input.write ?? ((value) => process.stdout.write(value));
+  const adapters = createReceiverAdapters(input, cwd, env);
+
+  const target = await readCurrentCliProjectionTarget({ cwd, adapters });
+  if (
+    Number(Boolean(input.dryRun)) +
+      Number(Boolean(input.verifyOnly)) +
+      Number(Boolean(input.deploymentOnly)) !==
+    1
+  ) {
+    throw new Error("Select exactly one receiver execution mode.");
+  }
+  if (!input.dryRun && input.releaseSha !== adapters.readHeadSha()) {
+    throw new Error(
+      "Core receiver release SHA does not match checked-out HEAD."
+    );
+  }
+  if (input.deploymentOnly) {
+    assertCoreDeploymentContext({
+      env,
+      sourceSha: input.releaseSha,
+      projectionTag: target.expectedCoreTag,
+      workerName: "openmeld-core-prod",
+    });
+  }
+  if (input.verifyOnly) {
+    const result = await verifyCurrentCliProjectionAlignment({
+      cwd,
+      env,
+      ...target,
+      adapters: { ...adapters, fetch: input.adapters?.fetch ?? fetch },
+    });
+    write(`${JSON.stringify(result, null, 2)}\n`);
+    return result;
+  }
+  const availabilityCatalog = await adapters.readAvailabilityCatalog({
+    releaseManifest: target.releaseManifest,
+    stableManifest: target.channelManifest,
   });
+  const availability =
+    describeLocalComponentsAvailabilityCatalog(availabilityCatalog);
+  write(`availabilityCatalogSha256=${availability.sha256}\n`);
   write(
     [
       "\n[production-release] Resolved immutable stable CLI projection",
@@ -233,6 +356,7 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
       cwd,
       defines: [
         `${RELEASE_MANIFEST_DEFINE}:${JSON.stringify(JSON.stringify(target.releaseManifest))}`,
+        availability.define,
       ],
       env,
       releaseSha: input.releaseSha,
@@ -244,11 +368,13 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
       buildCoreCurrentCliProjectionDryRunStepSpec({
         expectedCoreTag: target.expectedCoreTag,
         releaseManifest: target.releaseManifest,
+        availabilityCatalog,
       })
     );
     return target;
   }
   const releaseSteps = buildCoreVersionReleaseStepSpecs({
+    configArgs: cutoverConfigArgs("core", { cwd, env }),
     trafficPercent: admissionEvidence.trafficPercent,
     versionId: admissionEvidence.versionId,
     wranglerConfigSource: adapters.readCoreWranglerConfig(),
@@ -268,39 +394,46 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     command: "pnpm",
     label: "Verify Core deployment is visible",
   });
-  await (adapters.verifyAlignment ?? verifyCurrentCliProjectionAlignment)({
-    adapters: {
-      fetch: input.adapters?.fetch ?? fetch,
-      runCommand: adapters.runCommand,
-    },
-    cwd,
+  recordCoreDeploymentOutput({
     env,
-    ...target,
+    sourceSha: input.releaseSha,
+    evidence: admissionEvidence,
+    projectionTag: target.expectedCoreTag,
   });
   return target;
 }
 
 export async function verifyCurrentCliProjectionAlignment(input) {
-  const decisions = await probeCliReleaseStages({
-    adapters: input.adapters,
+  const probe = {
+    adapters: {
+      fetch,
+      runCommand: (command) =>
+        runReadOnlyCommand({ ...command, cwd: input.cwd, env: input.env }),
+      ...input.adapters,
+    },
     cwd: input.cwd,
     env: input.env,
-    tag: {
-      action: "SKIP",
-      criterion: "immutable-stable-channel-tag",
-      reason: `${input.tagName} resolved to ${input.tagCommitSha}`,
-    },
     target: {
       coreTag: input.expectedCoreTag,
       headSha: input.tagCommitSha,
       tagName: input.tagName,
       version: input.channelVersion,
+      serviceVersion: input.releaseManifest.components.service.bundleVersion,
+      minRequiredCliVersion: input.minRequiredCliVersion,
     },
+  };
+  const npm = await verifyStableNpmIdentity({
+    fetch: probe.adapters.fetch,
+    version: input.channelVersion,
+    sourceSha: input.tagCommitSha,
   });
-  if (decisions.alignment.action !== "SKIP") {
+  const core = await probeCoreProjectionStage(probe);
+  const binary = await probeCliBinaryStage(probe);
+  const decisions = { npm, core, binary };
+  if (core.action !== "SKIP" || binary.action !== "SKIP") {
     throw new Error(
       [
-        `Core projection recovery failed final release alignment: ${decisions.alignment.reason}.`,
+        "Core receiver failed immutable stable identity alignment.",
         `R2: ${decisions.binary.reason}`,
         `npm: ${decisions.npm.reason}`,
         `Core: ${decisions.core.reason}`,
@@ -379,6 +512,10 @@ function parseArguments(argumentsList) {
     const value = argumentsList[index + 1];
     if (argument === "--dry-run") {
       options.dryRun = true;
+    } else if (argument === "--deployment-only") {
+      options.deploymentOnly = true;
+    } else if (argument === "--verify-only") {
+      options.verifyOnly = true;
     } else if (argument === "--release-sha") {
       if (!(value && !value.startsWith("--"))) {
         throw new Error("--release-sha requires a value");

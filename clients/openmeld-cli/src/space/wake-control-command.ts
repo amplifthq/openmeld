@@ -142,7 +142,7 @@ export async function runSpaceWakeProgress(input: {
     return;
   }
 
-  renderWakeProgressHumanOutput({ presenter, payload });
+  renderWakeProgressHumanOutput({ presenter, payload, space: input.space });
 }
 
 export async function runSpaceWakeStop(input: {
@@ -193,56 +193,8 @@ export async function runSpaceWakeStop(input: {
     openMeldProfile,
   });
   const spaceApi = createCliSpaceApi(baseUrl);
-  const progressRead = await runSpaceReadWithPasswordRetry({
-    initialPassword: input.password,
-    interactive: interactive && runtime.resolvedView === "human",
-    presenter,
-    execute: async (password) => {
-      const common = {
-        includeWaitReason: true,
-        includeWakeStopEligibility: true,
-        requestContext,
-        spaceId: input.space,
-        targetProfileId: target.targetProfileId,
-        ...(password === undefined ? {} : { spacePassword: password }),
-      };
-      return target.by === "client_message"
-        ? await spaceApi.getWakeProgress({
-            ...common,
-            clientMessageId: target.clientMessageId,
-          })
-        : await spaceApi.getActiveWakeProgress(common);
-    },
-  }).catch((error: unknown) => {
-    emitWakeControlError({
-      error,
-      operation: "space.wake_stop",
-      presenter,
-    });
-    return null;
-  });
-  if (!progressRead) {
-    return;
-  }
-  if (progressRead.status === "cancelled") {
-    return;
-  }
-  try {
-    assertWakeStopEligible({
-      items: progressRead.result.items,
-      target,
-    });
-  } catch (error) {
-    emitWakeControlError({
-      error,
-      operation: "space.wake_stop",
-      presenter,
-    });
-    return;
-  }
-
   const stopRead = await runSpaceWriteWithPasswordRetry({
-    initialPassword: progressRead.password,
+    initialPassword: input.password,
     interactive: interactive && runtime.resolvedView === "human",
     presenter,
     execute: async (password) =>
@@ -321,40 +273,6 @@ function buildWakeStopTarget(input: {
         sourceSignalId,
         targetProfileId,
       };
-}
-
-function assertWakeStopEligible(input: {
-  items: readonly WakeProgressItem[];
-  target: PostSpaceWakeStopBody["target"];
-}): void {
-  const item = input.items.find((candidate) => {
-    if (candidate.targetProfileId !== input.target.targetProfileId) {
-      return false;
-    }
-    return input.target.by === "client_message"
-      ? candidate.clientMessageId === input.target.clientMessageId
-      : candidate.sourceSignalId === input.target.sourceSignalId;
-  });
-  if (!item) {
-    throw createWakeControlCommandError(
-      "space.wake_stop.not_observed",
-      "The selected Wake is not active or its progress is not available. No Stop request was sent."
-    );
-  }
-  if (item.terminal) {
-    throw createWakeControlCommandError(
-      "space.wake_stop.terminal",
-      "The selected Wake is already terminal. No Stop request was sent."
-    );
-  }
-  if (item.wakeStopEligibility?.status !== "eligible") {
-    const reasonCode =
-      item.wakeStopEligibility?.reasonCode ?? "wake_stop_eligibility_missing";
-    throw createWakeControlCommandError(
-      "space.wake_stop.not_eligible",
-      `The selected Wake is not eligible for Stop (${reasonCode}). No Stop request was sent.`
-    );
-  }
 }
 
 function createWakeControlCommandError(code: string, message: string): Error {
@@ -509,6 +427,7 @@ function resolveWakeProgressPollState(input: {
 function renderWakeProgressHumanOutput(input: {
   presenter: Parameters<typeof renderInfoCard>[0]["presenter"];
   payload: WakeProgressPayload;
+  space: string;
 }): void {
   const rows = input.payload.items.flatMap((item) => [
     {
@@ -538,6 +457,16 @@ function renderWakeProgressHumanOutput(input: {
     sanitize: true,
     minContentWidth: 72,
   });
+  if (
+    input.payload.items.some(
+      (item) => !item.terminal && item.pendingInteraction?.canRespond
+    )
+  ) {
+    input.presenter.line({
+      code: "space.wake_progress.respond",
+      text: `A task needs your response. Run \`openmeld space respond ${input.space}\` to review the choices, or open Needs action in your Inbox.`,
+    });
+  }
   input.presenter.line({
     code: "space.wake_progress.boundary",
     text: "This is live progress. Use `space result` for archived results and `service trace` for execution diagnostics.",

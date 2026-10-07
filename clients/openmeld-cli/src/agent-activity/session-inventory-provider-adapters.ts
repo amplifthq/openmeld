@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -6,10 +5,9 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { resolveInstalledClaudeCodeLaunchCandidates } from "@openmeld/adapter-claude-code";
 import { resolveInstalledCodexLaunchCandidates } from "@openmeld/adapter-codex";
-import {
-  buildCliLaunchInvocation,
-  type InstalledLaunchCandidatesFailureReason,
-  type RuntimeAgentControllerLaunchContract,
+import type {
+  InstalledLaunchCandidatesFailureReason,
+  RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
 import { resolveInstalledGrokBuildLaunchCandidates } from "@openmeld/adapter-grok-build";
 import { resolveInstalledOpenCodeLaunchCandidates } from "@openmeld/adapter-opencode";
@@ -19,9 +17,13 @@ import type {
   LocalAgentSessionProvider,
   ObservedLocalAgentSession,
 } from "@openmeld/schemas/types";
+import { createCodexJsonRpcClient } from "./codex-read-client";
 import { readRecentAgentActivityHookStatus } from "./hook-projection-store";
 import { resolveObservedAgentActivityBinding } from "./observer-adapters";
-import { resolveOpenCodeDatabasePath } from "./opencode-storage";
+import {
+  readOpenCodeSessionRows,
+  resolveOpenCodeDatabasePath,
+} from "./opencode-storage";
 import type { ProjectBinding } from "./project-bindings";
 import { normalizeSharedSessionTitle } from "./provider-session-titles";
 import {
@@ -30,11 +32,6 @@ import {
 } from "./session-inventory-origin-store";
 
 const PROVIDER_PROBE_TIMEOUT_MS = 5000;
-const PROVIDER_DISCOVERY_TIMEOUT_MS = 30_000;
-const MAX_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;
-const OPENCODE_SESSION_QUERY = `SELECT id, directory, title, time_created, time_updated, time_archived
-  FROM session
-  ORDER BY time_updated DESC, id ASC`;
 const CODEX_THREAD_SOURCE_KINDS = [
   "cli",
   "vscode",
@@ -248,169 +245,6 @@ async function listAllCodexThreads(
   } finally {
     await client.close();
   }
-}
-
-function createCodexJsonRpcClient(
-  launchContract: RuntimeAgentControllerLaunchContract
-) {
-  const invocation = buildCliLaunchInvocation({
-    args: ["app-server", "--listen", "stdio://"],
-    launchContract,
-  });
-  const child = spawn(invocation.bin, invocation.args, {
-    env: process.env,
-    shell: invocation.shell ?? false,
-    stdio: ["pipe", "pipe", "ignore"],
-  });
-  let nextId = 1;
-  let buffer = "";
-  let closed = false;
-  const pending = new Map<
-    number,
-    {
-      reject(error: unknown): void;
-      resolve(value: unknown): void;
-      timer: NodeJS.Timeout;
-    }
-  >();
-  const rejectPending = (error: Error) => {
-    for (const request of pending.values()) {
-      clearTimeout(request.timer);
-      request.reject(error);
-    }
-    pending.clear();
-  };
-  child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => {
-    buffer = consumeCodexJsonRpcChunk({
-      buffer,
-      chunk,
-      kill: () => child.kill("SIGTERM"),
-      pending,
-      rejectPending,
-    });
-  });
-  child.on("error", (error) => rejectPending(error));
-  child.on("close", () => {
-    closed = true;
-    rejectPending(new Error("Codex app-server closed during discovery."));
-  });
-  return {
-    close: async () => {
-      if (closed) {
-        return;
-      }
-      child.kill("SIGTERM");
-      await new Promise<void>((resolveClose) => {
-        const timer = setTimeout(resolveClose, 1000);
-        child.once("close", () => {
-          clearTimeout(timer);
-          resolveClose();
-        });
-      });
-    },
-    notify: (method: string, params: unknown) => {
-      child.stdin.write(
-        `${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`
-      );
-    },
-    request: (method: string, params: unknown): Promise<unknown> => {
-      if (closed) {
-        return Promise.reject(new Error("Codex app-server is closed."));
-      }
-      const id = nextId;
-      nextId += 1;
-      return new Promise((resolveRequest, rejectRequest) => {
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          rejectRequest(new Error(`Codex ${method} timed out.`));
-        }, PROVIDER_DISCOVERY_TIMEOUT_MS);
-        pending.set(id, {
-          reject: rejectRequest,
-          resolve: resolveRequest,
-          timer,
-        });
-        child.stdin.write(
-          `${JSON.stringify({ id, jsonrpc: "2.0", method, params })}\n`
-        );
-      });
-    },
-  };
-}
-
-function consumeCodexJsonRpcChunk(input: {
-  buffer: string;
-  chunk: string;
-  kill(): void;
-  pending: Map<
-    number,
-    {
-      reject(error: unknown): void;
-      resolve(value: unknown): void;
-      timer: NodeJS.Timeout;
-    }
-  >;
-  rejectPending(error: Error): void;
-}): string {
-  let buffer = input.buffer + input.chunk;
-  if (Buffer.byteLength(buffer) > MAX_JSON_RPC_LINE_BYTES) {
-    input.rejectPending(
-      new Error("Codex app-server response exceeded its bound.")
-    );
-    input.kill();
-    return "";
-  }
-  while (true) {
-    const newline = buffer.indexOf("\n");
-    if (newline < 0) {
-      return buffer;
-    }
-    const line = buffer.slice(0, newline).trim();
-    buffer = buffer.slice(newline + 1);
-    if (!line) {
-      continue;
-    }
-    let message: unknown;
-    try {
-      message = JSON.parse(line);
-    } catch {
-      input.rejectPending(new Error("Codex app-server returned invalid JSON."));
-      input.kill();
-      return "";
-    }
-    settleCodexJsonRpcResponse(message, input.pending);
-  }
-}
-
-function settleCodexJsonRpcResponse(
-  message: unknown,
-  pending: Map<
-    number,
-    {
-      reject(error: unknown): void;
-      resolve(value: unknown): void;
-      timer: NodeJS.Timeout;
-    }
-  >
-): void {
-  if (!isRecord(message) || typeof message.id !== "number") {
-    return;
-  }
-  const request = pending.get(message.id);
-  if (!request) {
-    return;
-  }
-  pending.delete(message.id);
-  clearTimeout(request.timer);
-  if (isRecord(message.error)) {
-    request.reject(
-      new Error(
-        text(message.error.message) ?? "Codex app-server request failed."
-      )
-    );
-    return;
-  }
-  request.resolve(message.result);
 }
 
 async function discoverClaudeCode(input: {
@@ -808,46 +642,6 @@ export async function discoverOpenCodeRetainedSessions(input: {
   return stableSessions(result);
 }
 
-async function readOpenCodeSessionRows(
-  databasePath: string
-): Promise<Record<string, unknown>[]> {
-  if (typeof process.versions.bun === "string") {
-    // @ts-expect-error bun:sqlite exists only in the standalone Bun runtime.
-    const bunSqlite = await import("bun:sqlite");
-    const { Database } = bunSqlite as {
-      Database: new (
-        path: string,
-        options: { create: boolean; readonly: boolean }
-      ) => {
-        close: () => void;
-        query: (sql: string) => { all: () => Record<string, unknown>[] };
-      };
-    };
-    const database = new Database(databasePath, {
-      create: false,
-      readonly: true,
-    });
-    try {
-      return database.query(OPENCODE_SESSION_QUERY).all();
-    } finally {
-      database.close();
-    }
-  }
-  const { default: Database } = await import("better-sqlite3");
-  const database = new Database(databasePath, {
-    fileMustExist: true,
-    readonly: true,
-  });
-  try {
-    return database.prepare(OPENCODE_SESSION_QUERY).all() as Record<
-      string,
-      unknown
-    >[];
-  } finally {
-    database.close();
-  }
-}
-
 async function discoverGrokBuild(input: {
   bindings: readonly ProjectBinding[];
   homeDir: string;
@@ -1002,6 +796,7 @@ async function executeJsonCommand(input: {
       env: process.env,
       shell: invocation.shell ?? false,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     let stdout = "";
     const timer = setTimeout(() => {
@@ -1205,3 +1000,9 @@ function isNodeError(
     error instanceof Error && (error as NodeJS.ErrnoException).code === code
   );
 }
+
+import { spawn } from "node:child_process";
+import { buildCliLaunchInvocation } from "@openmeld/adapter-core";
+
+const PROVIDER_DISCOVERY_TIMEOUT_MS = 30_000;
+const MAX_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;

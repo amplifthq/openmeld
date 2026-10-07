@@ -37,6 +37,8 @@ export const inboxQueryKeys = {
 		[...inboxQueryKeys.all, organizationId] as const,
 	lists: (organizationId: string) =>
 		[...inboxQueryKeys.organization(organizationId), "list"] as const,
+	feeds: (organizationId: string) =>
+		[...inboxQueryKeys.organization(organizationId), "feed"] as const,
 	list: (
 		organizationId: string,
 		presentation: InboxPresentation | "raw",
@@ -257,6 +259,9 @@ export async function invalidateInboxFacts(input: {
 	queryClient: QueryClient;
 }): Promise<void> {
 	await Promise.all([
+		input.queryClient.invalidateQueries({
+			queryKey: inboxQueryKeys.feeds(input.organizationId),
+		}),
 		input.queryClient.invalidateQueries({
 			queryKey: inboxQueryKeys.lists(input.organizationId),
 		}),

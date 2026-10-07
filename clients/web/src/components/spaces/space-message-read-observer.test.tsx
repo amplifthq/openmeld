@@ -19,7 +19,7 @@ const targets: SpaceInboxUnreadTarget[] = messages.map((message) => ({
 }));
 
 function Harness(input: {
-	onRead?: (timestamp: number) => Promise<void> | void;
+	onRead?: (targets: readonly SpaceInboxUnreadTarget[]) => Promise<void> | void;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	scope?: string;
 }) {
@@ -27,7 +27,7 @@ function Harness(input: {
 		<div data-testid="viewport">
 			<SpaceMessageReadObserver
 				key={input.scope ?? "thread-a"}
-				onViewedThroughTs={input.onRead}
+				onViewedUpdates={input.onRead}
 				unreadTargets={input.unreadTargets ?? targets}
 			/>
 			<div data-message-row-id="long-reply">
@@ -39,8 +39,11 @@ function Harness(input: {
 }
 
 describe("Space message read visibility", () => {
-	it("does not mark a visible Desktop conversation read until it regains focus", async () => {
-		desktopPlatformMock.mockReturnValue({});
+	it.each([
+		"web",
+		"desktop",
+	])("does not mark a visible %s conversation read until it regains focus", async (client) => {
+		desktopPlatformMock.mockReturnValue(client === "desktop" ? {} : null);
 		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
 		const onRead = vi.fn();
 		render(<Harness onRead={onRead} />);
@@ -49,13 +52,14 @@ describe("Space message read visibility", () => {
 		focus.mockReturnValue(true);
 		fireEvent.focus(window);
 		await act(() => vi.advanceTimersByTimeAsync(200));
-		expect(onRead).toHaveBeenCalledWith(10);
+		expect(onRead).toHaveBeenCalledWith([targets[0]]);
 	});
 	let firstTop: number;
 	let secondTop: number;
 	let covered: boolean;
 	beforeEach(() => {
 		desktopPlatformMock.mockReturnValue(null);
+		vi.spyOn(document, "hasFocus").mockReturnValue(true);
 		vi.useFakeTimers();
 		firstTop = 150;
 		secondTop = 1800;
@@ -116,33 +120,35 @@ describe("Space message read visibility", () => {
 	it("reads a long reply from its beginning without reading the next reply below the viewport", async () => {
 		const persist = vi.fn();
 		const view = render(<Harness onRead={persist} />);
-		await act(async () => vi.advanceTimersByTimeAsync(149));
+		await act(async () => vi.advanceTimersByTimeAsync(20));
 		expect(persist).not.toHaveBeenCalled();
-		await act(async () => vi.advanceTimersByTimeAsync(1));
-		expect(persist).toHaveBeenCalledExactlyOnceWith(10);
+		await act(async () => vi.advanceTimersByTimeAsync(80));
+		expect(persist).toHaveBeenCalledExactlyOnceWith([targets[0]]);
 		firstTop = -1500;
 		secondTop = 150;
 		fireEvent.scroll(view.getByTestId("viewport"));
 		await act(async () => vi.advanceTimersByTimeAsync(150));
-		expect(persist).toHaveBeenLastCalledWith(20);
+		expect(persist).toHaveBeenLastCalledWith([targets[1]]);
 	});
 
 	it.each([
 		"hidden",
-		"scrolled-away",
+		"unfocused",
 		"access-withdrawn",
 		"closed",
-		"covered",
-	])("cancels the dwell when %s", async (reason) => {
+	])("discards unsent visibility evidence when %s", async (reason) => {
 		const persist = vi.fn();
 		const view = render(<Harness onRead={persist} />);
-		await act(async () => vi.advanceTimersByTimeAsync(75));
+		await act(async () => vi.advanceTimersByTimeAsync(25));
 		if (reason === "hidden") {
 			Object.defineProperty(document, "visibilityState", {
 				configurable: true,
 				value: "hidden",
 			});
 			fireEvent(document, new Event("visibilitychange"));
+		} else if (reason === "unfocused") {
+			vi.mocked(document.hasFocus).mockReturnValue(false);
+			fireEvent.blur(window);
 		} else if (reason === "scrolled-away") {
 			firstTop = 480;
 			fireEvent.scroll(view.getByTestId("viewport"));
@@ -172,10 +178,10 @@ describe("Space message read visibility", () => {
 		});
 		fireEvent(document, new Event("visibilitychange"));
 		await act(async () => vi.advanceTimersByTimeAsync(150));
-		expect(persist).toHaveBeenCalledExactlyOnceWith(10);
+		expect(persist).toHaveBeenCalledExactlyOnceWith([targets[0]]);
 	});
 
-	it("does not let a later reaction on a visible message clear an unseen message", async () => {
+	it("acknowledges a visible reaction without acknowledging the unseen earlier update", async () => {
 		const persist = vi.fn();
 		render(
 			<Harness
@@ -183,30 +189,48 @@ describe("Space message read visibility", () => {
 				unreadTargets={[{ ...targets[0], occurredAtMs: 100 }, targets[1]]}
 			/>
 		);
-		await act(async () => vi.advanceTimersByTimeAsync(150));
-		expect(persist).not.toHaveBeenCalled();
+		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(persist).toHaveBeenCalledExactlyOnceWith([
+			{ ...targets[0], occurredAtMs: 100 },
+		]);
 	});
-
-	it("does not clear an unread message skipped by a deep link", async () => {
+	it("acknowledges the deep-link target without clearing the skipped message", async () => {
 		firstTop = -1500;
 		secondTop = 150;
 		const persist = vi.fn();
 		render(<Harness onRead={persist} />);
-		await act(async () => vi.advanceTimersByTimeAsync(150));
+		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(persist).toHaveBeenCalledExactlyOnceWith([targets[1]]);
+	});
+	it("retains evidence from a fast scroll after the message leaves the viewport", async () => {
+		const persist = vi.fn();
+		const view = render(<Harness onRead={persist} />);
+		await act(() => vi.advanceTimersByTimeAsync(25));
+		firstTop = -1500;
+		secondTop = 150;
+		fireEvent.scroll(view.getByTestId("viewport"));
+		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(persist).toHaveBeenCalledExactlyOnceWith(targets);
+	});
+	it("does not read content hidden behind a dialog", async () => {
+		covered = true;
+		const persist = vi.fn();
+		render(<Harness onRead={persist} />);
+		await act(() => vi.advanceTimersByTimeAsync(200));
 		expect(persist).not.toHaveBeenCalled();
 	});
 
 	it("keeps the dwell across callback rerenders and resets it for a different conversation", async () => {
 		const persist = vi.fn();
 		const view = render(<Harness onRead={(ts) => persist(ts)} />);
-		await act(async () => vi.advanceTimersByTimeAsync(75));
+		await act(async () => vi.advanceTimersByTimeAsync(25));
 		view.rerender(<Harness onRead={(ts) => persist(ts)} />);
-		await act(async () => vi.advanceTimersByTimeAsync(75));
-		expect(persist).toHaveBeenCalledExactlyOnceWith(10);
+		await act(async () => vi.advanceTimersByTimeAsync(100));
+		expect(persist).toHaveBeenCalledExactlyOnceWith([targets[0]]);
 		view.rerender(<Harness onRead={persist} scope="thread-b" />);
-		await act(async () => vi.advanceTimersByTimeAsync(149));
+		await act(async () => vi.advanceTimersByTimeAsync(20));
 		expect(persist).toHaveBeenCalledTimes(1);
-		await act(async () => vi.advanceTimersByTimeAsync(1));
+		await act(async () => vi.advanceTimersByTimeAsync(80));
 		expect(persist).toHaveBeenCalledTimes(2);
 	});
 

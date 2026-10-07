@@ -1,26 +1,237 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { INBOX_SPACE_SUMMARY_MAX_SPACES } from "@openmeld/schemas";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { canReceivePersonalAgentActivity } from "../src/inbox/application/inbox-agent-owner-access";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import { createInboxMessageNotificationPreferencesService } from "../src/inbox/application/inbox-message-notification-preferences";
+import { observeInboxNotifications } from "../src/inbox/application/inbox-notification-observations";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { reconcileInvitationInbox } from "../src/organizations/invitation-inbox-projection";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Inbox service", () => {
+  it("opens and dismisses a historical continuation reminder without replaying or resolving the task", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const candidate = {
+        ...identity,
+        contextLabel: "Center Agent",
+        attention: "action_required" as const,
+        importance: "urgent" as const,
+        kind: "system_issue" as const,
+        occurredAtMs: 1000,
+        sourceKind: "remote_agent_native_delivery" as const,
+        sourceKey: "old-delivery:admission_retry_exhausted",
+        sourceTarget: {
+          kind: "space" as const,
+          spaceId: "space_one",
+          signalId: "child-result-from-another-space",
+          threadRootSignalId: "parent-thread",
+        },
+        sourceFacts: {
+          version: 1 as const,
+          recipientReasons: ["requester" as const],
+          requestCategory: "action" as const,
+        },
+        title: "Center Agent could not continue a task",
+        preview:
+          "Open the linked original result in its Space thread and retry from there.",
+      };
+      const item = await ensureInboxItem({
+        db: harness.db,
+        candidate,
+        nowMs: 2000,
+      });
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+      const read = await service.get({ ...identity, itemId: item.itemId });
+      expect(read.item.sourceTarget).toEqual({
+        kind: "space",
+        spaceId: "space_one",
+        threadRootSignalId: "parent-thread",
+      });
+      expect(read.item.preview).not.toContain("retry");
+      expect(read.item.preview).toContain("remove this reminder from Inbox");
+      expect(
+        (await service.list({ ...identity, view: "all" })).items[0]
+          ?.sourceTarget
+      ).toEqual(read.item.sourceTarget);
+      await service.markRead({ ...identity, itemId: item.itemId, read: true });
+      expect(await service.summary(identity)).toMatchObject({
+        totalUnreadCount: 0,
+        unresolvedActionCount: 1,
+      });
+      await service.dismiss({ ...identity, itemId: item.itemId });
+      await ensureInboxItem({ db: harness.db, candidate, nowMs: 5000 });
+      expect(await service.summary(identity)).toMatchObject({
+        totalUnreadCount: 0,
+        unresolvedActionCount: 0,
+      });
+      expect((await service.list({ ...identity, view: "all" })).items).toEqual(
+        []
+      );
+      const stored = await harness.queryFirst<{
+        resolution_status: string;
+        source_target_json: string;
+      }>({
+        text: 'SELECT resolution_status, source_target_json FROM "openmeld"."inbox_items" WHERE id = $1',
+        values: [item.itemId],
+      });
+      expect(stored?.resolution_status).toBe("open");
+      expect(JSON.parse(stored?.source_target_json ?? "null")).toEqual(
+        candidate.sourceTarget
+      );
+    } finally {
+      await harness.close();
+    }
+  });
+  it("reads only the insertion watermark when the notification cursor has not moved", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const input = {
+        db: harness.db,
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const baseline = await observeInboxNotifications(input);
+      const prepare = vi.spyOn(harness.db, "query");
+      const unchanged = await observeInboxNotifications({
+        ...input,
+        cursor: baseline.cursor,
+      });
+      expect(unchanged).toEqual(baseline);
+      expect(prepare).toHaveBeenCalledTimes(1);
+    } finally {
+      await harness.close();
+    }
+  });
+  it("observes every new insertion across pages without replaying history or losing delayed source events", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const observe = (cursor?: string) =>
+        observeInboxNotifications({
+          db: harness.db,
+          ...identity,
+          cursor,
+          limit: 50,
+        });
+      await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "history",
+        occurredAtMs: 9000,
+      });
+      const baseline = await observe();
+      expect(baseline.items).toEqual([]);
+      const expected: string[] = [];
+      for (let index = 0; index < 101; index += 1) {
+        const saved = await seedSpaceItem(harness.db, {
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+          sourceKey: `burst-${index}`,
+          occurredAtMs: 1000,
+        });
+        expected.push(saved.itemId);
+      }
+      const first = await observe(baseline.cursor);
+      expect(first.items.map((item) => item.id)).toEqual(expected.slice(0, 50));
+      expect(first.hasMore).toBe(true);
+      const late = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "later-insertion",
+        occurredAtMs: 500,
+      });
+      const second = await observe(first.cursor);
+      const third = await observe(second.cursor);
+      expect(
+        [...first.items, ...second.items, ...third.items].map((item) => item.id)
+      ).toEqual(expected);
+      expect(third.hasMore).toBe(false);
+      expect(third.items.every((item) => item.readAt === null)).toBe(true);
+      const next = await observe(third.cursor);
+      expect(next.items.map((item) => item.id)).toEqual([late.itemId]);
+      expect((await observe(next.cursor)).items).toEqual([]);
+      await expect(
+        observeInboxNotifications({
+          db: harness.db,
+          organizationId: "org_one",
+          recipientUserId: "user_two",
+          cursor: next.cursor,
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(observe("invalid-cursor")).rejects.toMatchObject({
+        status: 400,
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+  it("filters inaccessible and cleared observations before advancing the observation cursor", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const input = {
+        db: harness.db,
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const baseline = await observeInboxNotifications(input);
+      await seedSpaceIndex(harness, {
+        organizationId: "org_one",
+        spaceId: "no-access",
+      });
+      await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "no-access",
+        sourceKey: "private",
+      });
+      const cleared = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "cleared",
+      });
+      await harness.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET cleared_at_ms = 3000 WHERE id = $1',
+        values: [cleared.itemId],
+      });
+      const result = await observeInboxNotifications({
+        ...input,
+        cursor: baseline.cursor,
+      });
+      expect(result.items).toEqual([]);
+      expect(result.hasMore).toBe(false);
+      const next = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "accessible",
+      });
+      expect(
+        (
+          await observeInboxNotifications({ ...input, cursor: result.cursor })
+        ).items.map((item) => item.id)
+      ).toEqual([next.itemId]);
+    } finally {
+      await harness.close();
+    }
+  });
   it.each([
     "mentions_and_replies",
     "all_messages",
   ] as const)("includes a canonical Space mention in %s notification mode", async (mode) => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       if (mode === "all_messages") {
-        harness.run({
-          params: ["user_one", mode],
-          sql: "INSERT INTO inbox_message_notification_defaults (user_id, mode) VALUES (?, ?)",
+        await harness.query({
+          values: ["user_one", mode],
+          text: 'INSERT INTO "openmeld"."inbox_message_notification_defaults" (user_id, mode) VALUES ($1, $2)',
         });
       }
       const mention = await seedSpaceItem(harness.db, {
@@ -29,7 +240,6 @@ describe("Inbox service", () => {
         sourceKey: `canonical_mention_${mode}`,
         spaceId: "space_one",
       });
-
       await expect(
         createInboxService({ db: harness.db }).list({
           limit: 1,
@@ -42,12 +252,11 @@ describe("Inbox service", () => {
         items: [{ id: mention.itemId, kind: "space_mention" }],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("prefers a newer canonical mention over an older eligible reply", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await seedSpaceItem(harness.db, {
         kind: "agent_reply",
@@ -63,7 +272,6 @@ describe("Inbox service", () => {
         sourceKey: "newer_canonical_mention",
         spaceId: "space_one",
       });
-
       await expect(
         createInboxService({ db: harness.db }).list({
           limit: 1,
@@ -76,14 +284,13 @@ describe("Inbox service", () => {
         items: [{ id: mention.itemId, kind: "space_mention" }],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("excludes read, resolved, and inaccessible canonical mentions", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      seedSpaceIndex(harness, {
+      await seedSpaceIndex(harness, {
         organizationId: "org_one",
         spaceId: "space_without_access",
       });
@@ -115,15 +322,14 @@ describe("Inbox service", () => {
         sourceKey: "inaccessible_canonical_mention",
         spaceId: "space_without_access",
       });
-      harness.run({
-        params: [read.itemId],
-        sql: "UPDATE inbox_items SET read_at_ms = 5000 WHERE id = ?",
+      await harness.query({
+        values: [read.itemId],
+        text: 'UPDATE "openmeld"."inbox_items" SET read_at_ms = 5000 WHERE id = $1',
       });
-      harness.run({
-        params: [resolved.itemId],
-        sql: "UPDATE inbox_items SET attention = 'action_required', resolution_status = 'resolved', resolved_at_ms = 5000 WHERE id = ?",
+      await harness.query({
+        values: [resolved.itemId],
+        text: "UPDATE \"openmeld\".\"inbox_items\" SET attention = 'action_required', resolution_status = 'resolved', resolved_at_ms = 5000 WHERE id = $1",
       });
-
       await expect(
         createInboxService({ db: harness.db }).list({
           notificationPreview: true,
@@ -136,19 +342,18 @@ describe("Inbox service", () => {
         nextCursor: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("selects the latest notification-eligible unread before pagination", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      seedSpaceIndex(harness, {
+      await seedSpaceIndex(harness, {
         organizationId: "org_one",
         spaceId: "space_two",
       });
-      seedActiveSpaceMembership(harness, {
-        profileId: "profile_one_space_two",
+      await seedActiveSpaceMembership(harness, {
+        profileId: "agt_11111111-1111-4111-8111-111111111111_space_two",
         recipientUserId: "user_one",
         spaceId: "space_two",
       });
@@ -164,15 +369,14 @@ describe("Inbox service", () => {
         sourceKey: "older_eligible_message",
         spaceId: "space_two",
       });
-      harness.run({
-        params: ["user_one", "org_one", "space_one", "muted"],
-        sql: "INSERT INTO inbox_conversation_notification_preferences (user_id, organization_id, space_id, mode) VALUES (?, ?, ?, ?)",
+      await harness.query({
+        values: ["user_one", "org_one", "space_one", "muted"],
+        text: 'INSERT INTO "openmeld"."inbox_conversation_notification_preferences" (user_id, organization_id, space_id, mode) VALUES ($1, $2, $3, $4)',
       });
-      harness.run({
-        params: ["user_one", "org_one", "space_two", "all_messages"],
-        sql: "INSERT INTO inbox_conversation_notification_preferences (user_id, organization_id, space_id, mode) VALUES (?, ?, ?, ?)",
+      await harness.query({
+        values: ["user_one", "org_one", "space_two", "all_messages"],
+        text: 'INSERT INTO "openmeld"."inbox_conversation_notification_preferences" (user_id, organization_id, space_id, mode) VALUES ($1, $2, $3, $4)',
       });
-
       await expect(
         createInboxService({ db: harness.db }).list({
           limit: 1,
@@ -186,12 +390,11 @@ describe("Inbox service", () => {
         nextCursor: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("persists account defaults and personal conversation overrides without changing email or unread state", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const service = createInboxMessageNotificationPreferencesService(
         harness.db
@@ -290,8 +493,8 @@ describe("Inbox service", () => {
           recipientUserId: identity.userId,
         })
       ).toEqual(before);
-      harness.run({
-        sql: "UPDATE space_index_memberships SET status = 'left' WHERE owner_user_id_snapshot = 'user_one'",
+      await harness.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET status = 'left' WHERE owner_user_id_snapshot = 'user_one'",
       });
       await expect(
         service.update({
@@ -307,14 +510,14 @@ describe("Inbox service", () => {
         status: 404,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("separates shared reviews from fulfillment, preserves personal reading, and revokes reviewer access", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      harness.run({
-        sql: "INSERT INTO organization_join_requests (id, organization_id, requested_by_user_id, email, status, created_at) VALUES ('request-1', 'org_one', 'user_one', 'invitee@example.com', 'pending', 1000)",
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"organization_join_requests\" (id, organization_id, requested_by_user_id, email, status, created_at) VALUES ('request-1', 'org_one', 'user_one', 'invitee@example.com', 'pending', 1000)",
       });
       const ids: string[] = [];
       for (const userId of ["user_one", "user_two"]) {
@@ -368,8 +571,8 @@ describe("Inbox service", () => {
         itemId: ids[0] as string,
         read: true,
       });
-      harness.run({
-        sql: "UPDATE organization_join_requests SET status = 'approved', reviewed_by_user_id = 'user_two', reviewed_at = 3000 WHERE id = 'request-1'",
+      await harness.query({
+        text: "UPDATE \"openmeld\".\"organization_join_requests\" SET status = 'approved', reviewed_by_user_id = 'user_two', reviewed_at = 3000 WHERE id = 'request-1'",
       });
       await reconcileInvitationInbox(harness.db, "org_one");
       for (const userId of ["user_one", "user_two"]) {
@@ -394,8 +597,8 @@ describe("Inbox service", () => {
           })
         ).item.readAt
       ).toBeNull();
-      harness.run({
-        sql: "UPDATE organization_join_requests SET invitation_sent_at = 4000 WHERE id = 'request-1'",
+      await harness.query({
+        text: 'UPDATE "openmeld"."organization_join_requests" SET invitation_sent_at = 4000 WHERE id = \'request-1\'',
       });
       await reconcileInvitationInbox(harness.db, "org_one");
       for (const userId of ["user_one", "user_two"]) {
@@ -412,16 +615,16 @@ describe("Inbox service", () => {
         })
       ).rejects.toMatchObject({ status: 404 });
       expect(
-        harness.queryAll({
-          sql: "SELECT reviewed_by_user_id, reviewed_at FROM organization_join_requests",
+        await harness.queryAll({
+          text: 'SELECT reviewed_by_user_id, reviewed_at FROM "openmeld"."organization_join_requests"',
         })
       ).toEqual([{ reviewed_by_user_id: "user_two", reviewed_at: 3000 }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("rechecks current owner/admin access for authorization updates", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const identity = {
         organizationId: "org_one",
@@ -464,32 +667,32 @@ describe("Inbox service", () => {
         })
       ).rejects.toMatchObject({ status: 404 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it.each([
     {
       kind: "space_message" as const,
-      importance: "urgent" as const,
-      urgentCount: 1,
+      importance: "normal" as const,
+      urgentCount: 0,
     },
     {
       kind: "agent_reply" as const,
       importance: "normal" as const,
       urgentCount: 0,
     },
-  ])("keeps absent personal Agent owner $kind unread and revokes stale ownership", async ({
+  ])("keeps an exact personal Agent owner $kind unread and revokes stale ownership", async ({
     kind,
     importance,
     urgentCount,
   }) => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      harness.run({
-        sql: "UPDATE space_index_memberships SET profile_kind_snapshot = 'agent' WHERE profile_id = 'profile_one'",
+      await harness.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET profile_kind_snapshot = 'agent' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
       });
-      harness.run({
-        sql: "INSERT INTO openmeld_profiles VALUES ('profile_one', 'Personal Agent', 'agent', 'org_one', 'user_one', NULL)",
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, managed_role, source) VALUES ('agt_11111111-1111-4111-8111-111111111111', 'Personal Agent', 'personal-agent', 'agent', 'org_one', 'user_one', NULL, 'migration')",
       });
       const identity = {
         organizationId: "org_one",
@@ -510,6 +713,14 @@ describe("Inbox service", () => {
           title: "Someone messaged your agent",
           sourceKind: "space_signal",
           sourceKey: "owner-message",
+          sourceFacts: {
+            version: 1,
+            recipientReasons: ["agent_owner"],
+            agentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
+            personalAgentProfileIds: [
+              "agt_11111111-1111-4111-8111-111111111111",
+            ],
+          },
           sourceTarget: {
             kind: "space",
             agentOwnerActivity: true,
@@ -523,7 +734,7 @@ describe("Inbox service", () => {
         db: harness.db,
         organizationId: "org_one",
         userId: "user_one",
-        agentProfileIds: ["profile_one"],
+        agentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
       };
       expect(await canReceivePersonalAgentActivity(ownerEligibility)).toBe(
         true
@@ -540,15 +751,15 @@ describe("Inbox service", () => {
       expect(await service.spaceSummary(identity)).toMatchObject({
         ordinarySpaceUnreadCount: 1,
       });
-      harness.run({
-        sql: "UPDATE space_index_spaces SET space_purpose = 'openmeld_dm_space', active_member_count = 2 WHERE space_id = 'space_one'",
+      await harness.query({
+        text: "UPDATE \"openmeld\".\"space_index_spaces\" SET space_purpose = 'openmeld_dm_space', active_member_count = 2 WHERE space_id = 'space_one'",
       });
       expect(await service.spaceSummary(identity)).toMatchObject({
         chatUnreadCount: 1,
         chatUnreadUrgentUpdateCount: 0,
       });
-      harness.run({
-        sql: "UPDATE openmeld_profiles SET managed_role = 'center_agent'",
+      await harness.query({
+        text: 'UPDATE "openmeld"."openmeld_profiles" SET managed_role = \'center_agent\', owner_user_id = NULL',
       });
       expect(await canReceivePersonalAgentActivity(ownerEligibility)).toBe(
         false
@@ -559,8 +770,8 @@ describe("Inbox service", () => {
       expect(await service.spaceSummary(identity)).toMatchObject({
         chatUnreadCount: 0,
       });
-      harness.run({
-        sql: "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = 'user_two'",
+      await harness.query({
+        text: 'UPDATE "openmeld"."openmeld_profiles" SET managed_role = NULL, owner_user_id = \'user_two\'',
       });
       expect(await service.summary(identity)).toMatchObject({
         unreadUrgentUpdateCount: 0,
@@ -568,8 +779,8 @@ describe("Inbox service", () => {
       expect(await service.spaceSummary(identity)).toMatchObject({
         chatUnreadCount: 0,
       });
-      harness.run({
-        sql: "UPDATE openmeld_profiles SET owner_user_id = 'user_one'",
+      await harness.query({
+        text: 'UPDATE "openmeld"."openmeld_profiles" SET owner_user_id = \'user_one\'',
       });
       await expect(
         service.markSpaceReadThrough({
@@ -585,17 +796,19 @@ describe("Inbox service", () => {
         unreadUrgentUpdateCount: 0,
       });
       expect(
-        harness.queryAll({ sql: "SELECT * FROM inbox_email_deliveries" })
+        await harness.queryAll({
+          text: 'SELECT * FROM "openmeld"."inbox_email_deliveries"',
+        })
       ).toHaveLength(0);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("keeps complete Chat counts and read action requests distinct", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      seedCenterAgentDirectMessageSpace(harness, {
-        recipientProfileId: "profile_one",
+      await seedCenterAgentDirectMessageSpace(harness, {
+        recipientProfileId: "agt_11111111-1111-4111-8111-111111111111",
         spaceId: "space_one",
       });
       const identity = {
@@ -607,21 +820,25 @@ describe("Inbox service", () => {
         spaceId: "space_one",
         sourceKey: "dm-action",
       });
-      await harness.db
-        .prepare(
-          "UPDATE inbox_items SET attention = 'action_required', resolution_status = 'open', importance = 'urgent', read_at_ms = 1500 WHERE id = ?"
-        )
-        .bind(action.itemId)
-        .run();
+      await harness.db.query({
+        ...{
+          text: "UPDATE \"openmeld\".\"inbox_items\" SET attention = 'action_required', resolution_status = 'open', importance = 'urgent', read_at_ms = 1500 WHERE id = $1",
+          values: [],
+        },
+        values: [action.itemId],
+      });
       const urgent = await seedSpaceItem(harness.db, {
         recipientUserId: "user_one",
         spaceId: "space_one",
         sourceKey: "dm-urgent",
       });
-      await harness.db
-        .prepare("UPDATE inbox_items SET importance = 'urgent' WHERE id = ?")
-        .bind(urgent.itemId)
-        .run();
+      await harness.db.query({
+        ...{
+          text: 'UPDATE "openmeld"."inbox_items" SET importance = \'urgent\' WHERE id = $1',
+          values: [],
+        },
+        values: [urgent.itemId],
+      });
       for (let i = 0; i < 105; i++) {
         await seedSpaceItem(harness.db, {
           recipientUserId: "user_one",
@@ -653,11 +870,11 @@ describe("Inbox service", () => {
         chatUnreadUrgentUpdateCount: 0,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("counts urgent updates and open actions once across the full recipient Inbox", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const identity = {
         organizationId: "org_one",
@@ -672,12 +889,13 @@ describe("Inbox service", () => {
         ...identity,
         sourceKey: "urgent_update",
       });
-      await harness.db
-        .prepare(
-          "UPDATE inbox_items SET attention = 'update', resolution_status = 'not_applicable' WHERE id = ?"
-        )
-        .bind(urgent.itemId)
-        .run();
+      await harness.db.query({
+        ...{
+          text: "UPDATE \"openmeld\".\"inbox_items\" SET attention = 'update', resolution_status = 'not_applicable' WHERE id = $1",
+          values: [],
+        },
+        values: [urgent.itemId],
+      });
       for (let i = 0; i < 105; i++) {
         await seedSpaceItem(harness.db, {
           recipientUserId: "user_one",
@@ -735,22 +953,23 @@ describe("Inbox service", () => {
       await expect(service.summary(identity)).resolves.toMatchObject({
         unreadUrgentUpdateCount: 0,
       });
-      await harness.db
-        .prepare(
-          "UPDATE inbox_items SET resolution_status = 'resolved', resolved_at_ms = 4000 WHERE id = ?"
-        )
-        .bind(action.itemId)
-        .run();
+      await harness.db.query({
+        ...{
+          text: 'UPDATE "openmeld"."inbox_items" SET resolution_status = \'resolved\', resolved_at_ms = 4000 WHERE id = $1',
+          values: [],
+        },
+        values: [action.itemId],
+      });
       await expect(service.summary(identity)).resolves.toMatchObject({
         unresolvedActionCount: 0,
         unreadUrgentUpdateCount: 0,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("filters muted ordinary updates only from the attention presentation", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const identity = {
         organizationId: "org_one",
@@ -770,19 +989,25 @@ describe("Inbox service", () => {
         sourceKey: "muted-mention",
         spaceId: "space_one",
       });
-      await harness.db
-        .prepare("UPDATE inbox_items SET kind = 'space_mention' WHERE id = ?")
-        .bind(mention.itemId)
-        .run();
+      await harness.db.query({
+        ...{
+          text: 'UPDATE "openmeld"."inbox_items" SET kind = \'space_mention\' WHERE id = $1',
+          values: [],
+        },
+        values: [mention.itemId],
+      });
       const urgent = await seedSpaceItem(harness.db, {
         recipientUserId: "user_one",
         sourceKey: "muted-urgent",
         spaceId: "space_one",
       });
-      await harness.db
-        .prepare("UPDATE inbox_items SET importance = 'urgent' WHERE id = ?")
-        .bind(urgent.itemId)
-        .run();
+      await harness.db.query({
+        ...{
+          text: 'UPDATE "openmeld"."inbox_items" SET importance = \'urgent\' WHERE id = $1',
+          values: [],
+        },
+        values: [urgent.itemId],
+      });
       const action = await seedItem(harness.db, {
         ...identity,
         sourceKey: "muted-action",
@@ -801,7 +1026,6 @@ describe("Inbox service", () => {
           mode: "muted",
         },
       });
-
       expect((await service.list(identity)).items).toHaveLength(4);
       expect(
         (
@@ -851,7 +1075,6 @@ describe("Inbox service", () => {
         unreadUrgentUpdateCount: 1,
         unresolvedActionCount: 1,
       });
-
       await expect(
         service.markAllRead({ ...identity, presentation: "attention" })
       ).resolves.toEqual({ markedReadCount: 2 });
@@ -875,10 +1098,11 @@ describe("Inbox service", () => {
         service.summary({ ...identity, presentation: "attention" })
       ).resolves.toMatchObject({
         ordinaryUnreadCount: 1,
+        unreadMentionCount: 0,
         totalUnreadCount: 1,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it.each([
@@ -897,7 +1121,7 @@ describe("Inbox service", () => {
     sourceKind,
     target,
   }) => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const retired = await seedItem(harness.db, {
         organizationId: "org_one",
@@ -909,12 +1133,13 @@ describe("Inbox service", () => {
         recipientUserId: "user_one",
         sourceKey: "current",
       });
-      await harness.db
-        .prepare(
-          "UPDATE inbox_items SET kind = ?, source_kind = ?, source_target_json = ? WHERE id = ?"
-        )
-        .bind(itemKind, sourceKind, JSON.stringify(target), retired.itemId)
-        .run();
+      await harness.db.query({
+        ...{
+          text: 'UPDATE "openmeld"."inbox_items" SET kind = $1, source_kind = $2, source_target_json = $3 WHERE id = $4',
+          values: [],
+        },
+        values: [itemKind, sourceKind, JSON.stringify(target), retired.itemId],
+      });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
       const identity = {
         organizationId: "org_one",
@@ -930,12 +1155,11 @@ describe("Inbox service", () => {
         unresolvedActionCount: 1,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("isolates list and summary state by organization and recipient", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const item = await seedItem(harness.db, {
         organizationId: "org_one",
@@ -953,7 +1177,6 @@ describe("Inbox service", () => {
         sourceKey: "interaction_three",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.get({
           itemId: item.itemId,
@@ -961,7 +1184,6 @@ describe("Inbox service", () => {
           recipientUserId: "user_one",
         })
       ).resolves.toMatchObject({ item: { id: item.itemId } });
-
       await expect(
         service.list({
           organizationId: "org_one",
@@ -989,12 +1211,11 @@ describe("Inbox service", () => {
         unreadUrgentUpdateCount: 0,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("marks only the authenticated recipient item read and keeps action unresolved", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const item = await seedItem(harness.db, {
         organizationId: "org_one",
@@ -1002,7 +1223,6 @@ describe("Inbox service", () => {
         sourceKey: "interaction_one",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.markRead({
           itemId: item.itemId,
@@ -1031,12 +1251,11 @@ describe("Inbox service", () => {
         unresolvedActionCount: 1,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("dismisses only the recipient projection without resolving its source action", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const item = await seedItem(harness.db, {
         organizationId: "org_one",
@@ -1044,7 +1263,6 @@ describe("Inbox service", () => {
         sourceKey: "interaction_to_dismiss",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.dismiss({
           itemId: item.itemId,
@@ -1066,7 +1284,6 @@ describe("Inbox service", () => {
           recipientUserId: "user_one",
         })
       ).resolves.toEqual({ dismissedItemId: item.itemId });
-
       await expect(
         service.list({
           organizationId: "org_one",
@@ -1092,36 +1309,34 @@ describe("Inbox service", () => {
           recipientUserId: "user_one",
         })
       ).rejects.toMatchObject({ code: "inbox.item_not_found" });
-
-      const stored = harness.queryFirst<{
+      const stored = await harness.queryFirst<{
         cleared_at_ms: number | null;
         resolution_status: string;
       }>({
-        params: [item.itemId],
-        sql: "SELECT cleared_at_ms, resolution_status FROM inbox_items WHERE id = ?",
+        values: [item.itemId],
+        text: 'SELECT cleared_at_ms, resolution_status FROM "openmeld"."inbox_items" WHERE id = $1',
       });
       expect(stored).toEqual({
         cleared_at_ms: 4000,
         resolution_status: "open",
       });
-      const delivery = harness.queryFirst<{
+      const delivery = await harness.queryFirst<{
         state: string;
         suppressed_reason: string | null;
       }>({
-        params: [item.itemId],
-        sql: "SELECT state, suppressed_reason FROM inbox_email_deliveries WHERE inbox_item_id = ?",
+        values: [item.itemId],
+        text: 'SELECT state, suppressed_reason FROM "openmeld"."inbox_email_deliveries" WHERE inbox_item_id = $1',
       });
       expect(delivery).toEqual({
         state: "suppressed",
         suppressed_reason: "item_cleared",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("fails closed for Space items after the recipient membership is removed", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const item = await seedSpaceItem(harness.db, {
         recipientUserId: "user_one",
@@ -1139,7 +1354,6 @@ describe("Inbox service", () => {
         sourceKey: "interaction_after_membership",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.list({
           organizationId: "org_one",
@@ -1153,16 +1367,19 @@ describe("Inbox service", () => {
           expect.objectContaining({ id: interaction.itemId }),
         ]),
       });
-
-      harness.run({
-        params: [5000, 5000, "space_one", "profile_one"],
-        sql: `
-          UPDATE space_index_memberships
-          SET status = 'removed', removed_at_ms = ?, source_updated_at_ms = ?
-          WHERE space_id = ? AND profile_id = ?
+      await harness.query({
+        values: [
+          5000,
+          5000,
+          "space_one",
+          "agt_11111111-1111-4111-8111-111111111111",
+        ],
+        text: `
+          UPDATE "openmeld"."space_index_memberships"
+          SET status = 'removed', removed_at_ms = $1, source_updated_at_ms = $2
+          WHERE space_id = $3 AND profile_id = $4
         `,
       });
-
       await expect(
         service.list({
           organizationId: "org_one",
@@ -1218,36 +1435,31 @@ describe("Inbox service", () => {
         })
       ).resolves.toEqual({ markedReadCount: 0 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("defaults a missing account preference on and propagates read failures", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const service = createInboxService({ db: harness.db });
       await expect(
         service.getPreferences({ userId: "user_one" })
       ).resolves.toEqual({ urgentEmailEnabled: true, updatedAt: null });
     } finally {
-      harness.close();
+      await harness.close();
     }
-
-    const storageError = new Error("D1 unavailable");
-    const failingDb = {
-      prepare: () => ({
-        bind: () => ({ first: () => Promise.reject(storageError) }),
-      }),
-    } as unknown as D1Database;
+    const storageError = new Error("PostgreSQL unavailable");
+    const failingDb = createProjectionPostgresDatabase(() => {
+      throw storageError;
+    });
     await expect(
       createInboxService({ db: failingDb }).getPreferences({
         userId: "user_one",
       })
     ).rejects.toBe(storageError);
   });
-
   it("persists an account preference independently of organization", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const service = createInboxService({ db: harness.db, nowMs: () => 5000 });
       await expect(
@@ -1260,15 +1472,14 @@ describe("Inbox service", () => {
         updatedAt: "1970-01-01T00:00:05.000Z",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("tracks Center Agent unread replies with a monotonic visible-through watermark", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      seedCenterAgentDirectMessageSpace(harness, {
-        recipientProfileId: "profile_one",
+      await seedCenterAgentDirectMessageSpace(harness, {
+        recipientProfileId: "agt_11111111-1111-4111-8111-111111111111",
         spaceId: "space_one",
       });
       await seedCenterAgentSpaceItem(harness.db, {
@@ -1278,14 +1489,12 @@ describe("Inbox service", () => {
         spaceId: "space_one",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.centerAgentSummary({
           organizationId: "org_one",
           recipientUserId: "user_one",
         })
       ).resolves.toEqual({ organizationId: "org_one", unreadCount: 1 });
-
       await expect(
         service.markCenterAgentReadThrough({
           organizationId: "org_one",
@@ -1297,7 +1506,6 @@ describe("Inbox service", () => {
         markedReadCount: 1,
         readThroughAt: "1970-01-01T00:00:04.000Z",
       });
-
       await seedCenterAgentSpaceItem(harness.db, {
         occurredAtMs: 900,
         recipientUserId: "user_one",
@@ -1310,7 +1518,6 @@ describe("Inbox service", () => {
         sourceKey: "center_agent_new_reply",
         spaceId: "space_one",
       });
-
       await expect(
         service.centerAgentSummary({
           organizationId: "org_one",
@@ -1318,15 +1525,15 @@ describe("Inbox service", () => {
         })
       ).resolves.toEqual({ organizationId: "org_one", unreadCount: 1 });
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           read_at_ms: number | null;
           source_key: string;
         }>({
-          params: ["center_agent_late_old_reply", "center_agent_new_reply"],
-          sql: `
+          values: ["center_agent_late_old_reply", "center_agent_new_reply"],
+          text: `
             SELECT source_key, read_at_ms
-            FROM inbox_items
-            WHERE source_key IN (?, ?)
+            FROM "openmeld"."inbox_items"
+            WHERE source_key IN ($1, $2)
             ORDER BY source_key
           `,
         })
@@ -1335,23 +1542,22 @@ describe("Inbox service", () => {
         { read_at_ms: null, source_key: "center_agent_new_reply" },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("summarizes unread Inbox updates by accessible Space", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      seedSpaceIndex(harness, {
+      await seedSpaceIndex(harness, {
         organizationId: "org_one",
         spaceId: "space_two",
       });
-      seedActiveSpaceMembership(harness, {
-        profileId: "profile_one_space_two",
+      await seedActiveSpaceMembership(harness, {
+        profileId: "agt_11111111-1111-4111-8111-111111111111_space_two",
         recipientUserId: "user_one",
         spaceId: "space_two",
       });
-      seedSpaceIndex(harness, {
+      await seedSpaceIndex(harness, {
         organizationId: "org_one",
         spaceId: "space_hidden",
       });
@@ -1390,9 +1596,7 @@ describe("Inbox service", () => {
         recipientUserId: "user_one",
         sourceKey: "space_action_not_a_message",
       });
-
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.spaceSummary({
           organizationId: "org_one",
@@ -1425,17 +1629,15 @@ describe("Inbox service", () => {
         ],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps the ordinary Space unread total complete beyond the grouped summary limit", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const unreadSpaceCount = INBOX_SPACE_SUMMARY_MAX_SPACES + 1;
-      seedBulkUnreadOrdinarySpaces(harness, unreadSpaceCount);
+      await seedBulkUnreadOrdinarySpaces(harness, unreadSpaceCount);
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       const summary = await service.spaceSummary({
         organizationId: "org_one",
         recipientUserId: "user_one",
@@ -1443,15 +1645,14 @@ describe("Inbox service", () => {
       expect(summary.ordinarySpaceUnreadCount).toBe(unreadSpaceCount);
       expect(summary.spaces).toHaveLength(INBOX_SPACE_SUMMARY_MAX_SPACES);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("moves a converted Center Agent Direct Message unread update to only the Spaces destination", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      seedCenterAgentDirectMessageSpace(harness, {
-        recipientProfileId: "profile_one",
+      await seedCenterAgentDirectMessageSpace(harness, {
+        recipientProfileId: "agt_11111111-1111-4111-8111-111111111111",
         spaceId: "space_one",
       });
       await seedCenterAgentSpaceItem(harness.db, {
@@ -1461,7 +1662,6 @@ describe("Inbox service", () => {
         spaceId: "space_one",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.spaceSummary({
           organizationId: "org_one",
@@ -1474,13 +1674,12 @@ describe("Inbox service", () => {
           recipientUserId: "user_one",
         })
       ).resolves.toEqual({ organizationId: "org_one", unreadCount: 1 });
-
-      harness.run({
-        params: [3000, "space_one"],
-        sql: `
-          UPDATE space_index_spaces
-          SET direct_message_converted_at_ms = ?
-          WHERE space_id = ?
+      await harness.query({
+        values: [3000, "space_one"],
+        text: `
+          UPDATE "openmeld"."space_index_spaces"
+          SET direct_message_converted_at_ms = $1
+          WHERE space_id = $2
         `,
       });
       await expect(
@@ -1496,12 +1695,11 @@ describe("Inbox service", () => {
         })
       ).resolves.toEqual({ organizationId: "org_one", unreadCount: 0 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("marks viewed Space messages without hiding unresolved work", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await seedSpaceItem(harness.db, {
         occurredAtMs: 900,
@@ -1549,7 +1747,6 @@ describe("Inbox service", () => {
         spaceId: "space_one",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.markSpaceReadThrough({
           organizationId: "org_one",
@@ -1562,12 +1759,13 @@ describe("Inbox service", () => {
         readThroughAt: "1970-01-01T00:00:04.000Z",
       });
       expect(
-        harness.queryFirst<{ read_at_ms: number | null }>({
-          params: ["space_target_action_required"],
-          sql: "SELECT read_at_ms FROM inbox_items WHERE source_key = ?",
+        await harness.queryFirst<{
+          read_at_ms: number | null;
+        }>({
+          values: ["space_target_action_required"],
+          text: 'SELECT read_at_ms FROM "openmeld"."inbox_items" WHERE source_key = $1',
         })
       ).toEqual({ read_at_ms: null });
-
       await expect(
         service.spaceSummary({
           organizationId: "org_one",
@@ -1620,7 +1818,6 @@ describe("Inbox service", () => {
           }),
         ]),
       });
-
       await seedSpaceItem(harness.db, {
         occurredAtMs: 800,
         recipientUserId: "user_one",
@@ -1654,12 +1851,11 @@ describe("Inbox service", () => {
         ],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps thread messages unread when the main Space timeline is viewed", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await seedSpaceItem(harness.db, {
         occurredAtMs: 900,
@@ -1675,7 +1871,6 @@ describe("Inbox service", () => {
         threadRootSignalId: "space_thread_root",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.markSpaceReadThrough({
           organizationId: "org_one",
@@ -1684,14 +1879,14 @@ describe("Inbox service", () => {
           throughOccurredAtMs: 1000,
         })
       ).resolves.toMatchObject({ markedReadCount: 1 });
-
       expect(
-        harness.queryFirst<{ read_at_ms: number | null }>({
-          params: ["space_thread_message"],
-          sql: "SELECT read_at_ms FROM inbox_items WHERE source_key = ?",
+        await harness.queryFirst<{
+          read_at_ms: number | null;
+        }>({
+          values: ["space_thread_message"],
+          text: 'SELECT read_at_ms FROM "openmeld"."inbox_items" WHERE source_key = $1',
         })
       ).toEqual({ read_at_ms: null });
-
       await seedSpaceItem(harness.db, {
         occurredAtMs: 800,
         recipientUserId: "user_one",
@@ -1700,18 +1895,19 @@ describe("Inbox service", () => {
         threadRootSignalId: "space_thread_root",
       });
       expect(
-        harness.queryFirst<{ read_at_ms: number | null }>({
-          params: ["space_delayed_thread_message"],
-          sql: "SELECT read_at_ms FROM inbox_items WHERE source_key = ?",
+        await harness.queryFirst<{
+          read_at_ms: number | null;
+        }>({
+          values: ["space_delayed_thread_message"],
+          text: 'SELECT read_at_ms FROM "openmeld"."inbox_items" WHERE source_key = $1',
         })
       ).toEqual({ read_at_ms: null });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("returns exact unread targets for the active Space", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await seedSpaceItem(harness.db, {
         occurredAtMs: 900,
@@ -1732,7 +1928,6 @@ describe("Inbox service", () => {
         sourceKey: "other_user_message",
         spaceId: "space_one",
       });
-
       await expect(
         createInboxService({ db: harness.db }).spaceUnreadTargets({
           organizationId: "org_one",
@@ -1758,12 +1953,11 @@ describe("Inbox service", () => {
         totalUnreadCount: 2,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reads through one thread without clearing main or another thread", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await seedSpaceItem(harness.db, {
         occurredAtMs: 900,
@@ -1786,7 +1980,6 @@ describe("Inbox service", () => {
         threadRootSignalId: "thread_two",
       });
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.markSpaceReadThrough({
           organizationId: "org_one",
@@ -1796,7 +1989,6 @@ describe("Inbox service", () => {
           throughOccurredAtMs: 1000,
         })
       ).resolves.toMatchObject({ markedReadCount: 1 });
-
       await seedSpaceItem(harness.db, {
         occurredAtMs: 925,
         recipientUserId: "user_one",
@@ -1805,26 +1997,28 @@ describe("Inbox service", () => {
         threadRootSignalId: "thread_one",
       });
       expect(
-        harness.queryFirst<{ read_at_ms: number | null }>({
-          params: ["thread_one_delayed_message"],
-          sql: "SELECT read_at_ms FROM inbox_items WHERE source_key = ?",
+        await harness.queryFirst<{
+          read_at_ms: number | null;
+        }>({
+          values: ["thread_one_delayed_message"],
+          text: 'SELECT read_at_ms FROM "openmeld"."inbox_items" WHERE source_key = $1',
         })
       ).toEqual({ read_at_ms: 4000 });
       expect(
-        harness.queryFirst<{ unread_count: number }>({
-          sql: "SELECT count(*) AS unread_count FROM inbox_items WHERE read_at_ms IS NULL",
+        await harness.queryFirst<{
+          unread_count: number;
+        }>({
+          text: 'SELECT count(*) AS unread_count FROM "openmeld"."inbox_items" WHERE read_at_ms IS NULL',
         })
       ).toEqual({ unread_count: 2 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects a Space read watermark far in the future", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.markSpaceReadThrough({
           organizationId: "org_one",
@@ -1837,15 +2031,13 @@ describe("Inbox service", () => {
         status: 400,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects the legacy Center Agent read endpoint for an ordinary Space", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
-
       await expect(
         service.markCenterAgentReadThrough({
           organizationId: "org_one",
@@ -1858,25 +2050,24 @@ describe("Inbox service", () => {
         status: 404,
       });
       expect(
-        harness.queryFirst({
-          params: ["org_one", "user_one", "space_one"],
-          sql: `
+        await harness.queryFirst({
+          values: ["org_one", "user_one", "space_one"],
+          text: `
             SELECT through_occurred_at_ms
-            FROM inbox_center_agent_read_watermarks
-            WHERE organization_id = ?
-              AND recipient_user_id = ?
-              AND space_id = ?
+            FROM "openmeld"."inbox_center_agent_read_watermarks"
+            WHERE organization_id = $1
+              AND recipient_user_id = $2
+              AND space_id = $3
           `,
         })
       ).toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
 async function seedItem(
-  db: D1Database,
+  db: PostgresDatabase,
   identity: {
     organizationId: string;
     recipientUserId: string;
@@ -1907,9 +2098,8 @@ async function seedItem(
     nowMs: 2000,
   });
 }
-
 async function seedSpaceItem(
-  db: D1Database,
+  db: PostgresDatabase,
   identity: {
     kind?: "agent_reply" | "space_mention" | "space_message";
     occurredAtMs?: number;
@@ -1945,9 +2135,8 @@ async function seedSpaceItem(
     nowMs: 2000,
   });
 }
-
 async function seedCenterAgentSpaceItem(
-  db: D1Database,
+  db: PostgresDatabase,
   identity: {
     occurredAtMs?: number;
     recipientUserId: string;
@@ -1978,20 +2167,19 @@ async function seedCenterAgentSpaceItem(
     nowMs: 2000,
   });
 }
-
-function seedBulkUnreadOrdinarySpaces(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedBulkUnreadOrdinarySpaces(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   count: number
-): void {
-  harness.run({
-    params: [count],
-    sql: `
+): Promise<void> {
+  await harness.query({
+    values: [count],
+    text: `
       WITH RECURSIVE sequence(value) AS (
         SELECT 0
         UNION ALL
-        SELECT value + 1 FROM sequence WHERE value + 1 < ?
+        SELECT value + 1 FROM sequence WHERE value + 1 < $1
       )
-      INSERT INTO space_index_spaces (
+      INSERT INTO "openmeld"."space_index_spaces" (
         space_id,
         organization_id,
         organization_visibility,
@@ -2013,15 +2201,15 @@ function seedBulkUnreadOrdinarySpaces(
       FROM sequence
     `,
   });
-  harness.run({
-    params: [count],
-    sql: `
+  await harness.query({
+    values: [count],
+    text: `
       WITH RECURSIVE sequence(value) AS (
         SELECT 0
         UNION ALL
-        SELECT value + 1 FROM sequence WHERE value + 1 < ?
+        SELECT value + 1 FROM sequence WHERE value + 1 < $1
       )
-      INSERT INTO space_index_memberships (
+      INSERT INTO "openmeld"."space_index_memberships" (
         space_id,
         profile_id,
         profile_kind_snapshot,
@@ -2049,15 +2237,15 @@ function seedBulkUnreadOrdinarySpaces(
       FROM sequence
     `,
   });
-  harness.run({
-    params: [count],
-    sql: `
+  await harness.query({
+    values: [count],
+    text: `
       WITH RECURSIVE sequence(value) AS (
         SELECT 0
         UNION ALL
-        SELECT value + 1 FROM sequence WHERE value + 1 < ?
+        SELECT value + 1 FROM sequence WHERE value + 1 < $1
       )
-      INSERT INTO inbox_items (
+      INSERT INTO "openmeld"."inbox_items" (
         id,
         organization_id,
         recipient_user_id,
@@ -2085,11 +2273,11 @@ function seedBulkUnreadOrdinarySpaces(
         'A new message is waiting.',
         'space_signal',
         'bulk_signal_' || value,
-        json_object(
+        json_build_object(
           'kind', 'space',
           'signalId', 'bulk_signal_' || value,
           'spaceId', 'bulk_space_' || value
-        ),
+        )::text,
         'not_applicable',
         value + 1,
         value + 1,
@@ -2098,122 +2286,90 @@ function seedBulkUnreadOrdinarySpaces(
     `,
   });
 }
-
-function createInboxHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: "CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY NOT NULL, profile_name TEXT NOT NULL, profile_kind TEXT NOT NULL, organization_id TEXT, owner_user_id TEXT NOT NULL, managed_role TEXT)",
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL
-      )
-    `,
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "organization_join_requests",
-    "center_agent_tasks",
-    "center_agent_task_authorized_readers",
-    "inbox_items",
-    "inbox_email_deliveries",
-    "inbox_notification_preferences",
-    "inbox_message_notification_defaults",
-    "inbox_conversation_notification_preferences",
-    "inbox_center_agent_read_watermarks",
-    "inbox_space_thread_read_watermarks",
-    "space_index_spaces",
-    "space_index_memberships",
-  ]);
-  harness.run({
-    sql: `
-      CREATE TABLE center_agent_designations (
-        organization_id TEXT PRIMARY KEY NOT NULL,
-        agent_profile_id TEXT NOT NULL,
-        designated_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
+async function createInboxHarness() {
+  const harness = await createPostgresHarness();
   for (const [id, name, slug] of [
     ["org_one", "One", "one"],
     ["org_two", "Two", "two"],
   ] as const) {
-    harness.run({
-      params: [id, name, slug, 1000],
-      sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
+    await harness.query({
+      values: [id, name, slug, 1000],
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
     });
   }
-  seedSpaceIndex(harness, { organizationId: "org_one", spaceId: "space_one" });
+  await seedSpaceIndex(harness, {
+    organizationId: "org_one",
+    spaceId: "space_one",
+  });
   for (const [id, name, email] of [
     ["user_one", "One", "one@example.com"],
     ["user_two", "Two", "two@example.com"],
   ] as const) {
-    harness.run({
-      params: [id, name, email],
-      sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+    await harness.query({
+      values: [id, name, email],
+      text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
     });
   }
-  seedActiveSpaceMembership(harness, {
-    profileId: "profile_one",
+  await seedActiveSpaceMembership(harness, {
+    profileId: "agt_11111111-1111-4111-8111-111111111111",
     recipientUserId: "user_one",
     spaceId: "space_one",
   });
-  seedActiveSpaceMembership(harness, {
+  await seedActiveSpaceMembership(harness, {
     profileId: "profile_two",
     recipientUserId: "user_two",
     spaceId: "space_one",
   });
   return harness;
 }
-
-function seedCenterAgentDirectMessageSpace(
-  harness: ReturnType<typeof createSqliteD1Harness>,
-  input: { recipientProfileId: string; spaceId: string }
-): void {
-  harness.run({
-    params: [
+async function seedCenterAgentDirectMessageSpace(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
+  input: {
+    recipientProfileId: string;
+    spaceId: string;
+  }
+): Promise<void> {
+  await harness.query(`INSERT INTO "openmeld"."openmeld_profiles"
+    (profile_id, profile_name, profile_handle, profile_kind, organization_id, managed_role, source)
+    VALUES ('agt_33333333-3333-4333-8333-333333333333', 'Center Agent', 'center-agent', 'agent', 'org_one', 'center_agent', 'migration')`);
+  await harness.query({
+    values: [
       "openmeld_dm_space",
-      `agt_center:${input.recipientProfileId}`,
+      `agt_33333333-3333-4333-8333-333333333333:${input.recipientProfileId}`,
       input.spaceId,
     ],
-    sql: `
-      UPDATE space_index_spaces
-      SET space_purpose = ?, direct_message_pair_key = ?
-      WHERE space_id = ?
+    text: `
+      UPDATE "openmeld"."space_index_spaces"
+      SET space_purpose = $1, direct_message_pair_key = $2
+      WHERE space_id = $3
     `,
   });
-  harness.run({
-    params: ["org_one", "agt_center", "user_one", 1000],
-    sql: `
-      INSERT INTO center_agent_designations (
+  await harness.query({
+    values: [
+      "org_one",
+      "agt_33333333-3333-4333-8333-333333333333",
+      "user_one",
+      1000,
+    ],
+    text: `
+      INSERT INTO "openmeld"."center_agent_designations" (
         organization_id,
         agent_profile_id,
         designated_by,
         created_at
-      ) VALUES (?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4)
     `,
   });
 }
-
-function seedSpaceIndex(
-  harness: ReturnType<typeof createSqliteD1Harness>,
-  input: { organizationId: string; spaceId: string }
-): void {
-  harness.run({
-    params: [
+async function seedSpaceIndex(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
+  input: {
+    organizationId: string;
+    spaceId: string;
+  }
+): Promise<void> {
+  await harness.query({
+    values: [
       input.spaceId,
       input.organizationId,
       "private",
@@ -2222,8 +2378,8 @@ function seedSpaceIndex(
       1000,
       `space_projection_${input.spaceId}`,
     ],
-    sql: `
-      INSERT INTO space_index_spaces (
+    text: `
+      INSERT INTO "openmeld"."space_index_spaces" (
         space_id,
         organization_id,
         organization_visibility,
@@ -2231,17 +2387,20 @@ function seedSpaceIndex(
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
     `,
   });
 }
-
-function seedActiveSpaceMembership(
-  harness: ReturnType<typeof createSqliteD1Harness>,
-  input: { profileId: string; recipientUserId: string; spaceId: string }
-): void {
-  harness.run({
-    params: [
+async function seedActiveSpaceMembership(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
+  input: {
+    profileId: string;
+    recipientUserId: string;
+    spaceId: string;
+  }
+): Promise<void> {
+  await harness.query({
+    values: [
       input.spaceId,
       input.profileId,
       input.profileId,
@@ -2251,8 +2410,8 @@ function seedActiveSpaceMembership(
       1000,
       `projection_${input.profileId}`,
     ],
-    sql: `
-      INSERT INTO space_index_memberships (
+    text: `
+      INSERT INTO "openmeld"."space_index_memberships" (
         space_id,
         profile_id,
         profile_kind_snapshot,
@@ -2264,7 +2423,7 @@ function seedActiveSpaceMembership(
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, 'human', ?, ?, 'active', 'joined_directly', ?, ?, ?, ?)
+      ) VALUES ($1, $2, 'human', $3, $4, 'active', 'joined_directly', $5, $6, $7, $8)
     `,
   });
 }

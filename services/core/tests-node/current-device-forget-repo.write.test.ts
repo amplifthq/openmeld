@@ -2,24 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   forgetComputerRecordAtomically,
   forgetCurrentComputerRecordAtomically,
-} from "../src/start/infrastructure/d1/current-device-forget-repo";
-import {
-  applyDrizzleMigrationForTable,
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/start/infrastructure/postgresql/current-device-forget-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("current device forget repo write-side", () => {
   it("tombstones the selected computer and leaves retired start tables out of the write path", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const forgottenAtMs = Date.parse("2026-04-10T00:00:00.000Z");
 
     try {
-      seedCurrentDeviceState(harness, {
+      await seedCurrentDeviceState(harness, {
         deviceId: "device-current",
         ownerUserId: "owner-1",
       });
-      seedOtherOwnedDevice(harness, {
+      await seedOtherOwnedDevice(harness, {
         deviceId: "device-other",
         ownerUserId: "owner-1",
       });
@@ -36,9 +32,9 @@ describe("current device forget repo write-side", () => {
       });
 
       expect(
-        harness.queryFirst({
-          sql: "SELECT device_id, forgotten_at_ms FROM openMeldDaemon_forgotten_devices WHERE owner_user_id = ?",
-          params: ["owner-1"],
+        await harness.queryFirst({
+          text: 'SELECT device_id, forgotten_at_ms FROM "openmeld"."openMeldDaemon_forgotten_devices" WHERE owner_user_id = $1',
+          values: ["owner-1"],
         })
       ).toEqual({
         device_id: "device-current",
@@ -47,32 +43,24 @@ describe("current device forget repo write-side", () => {
       // The pointer table is dormant after the Binding merge: the forget
       // batch no longer touches it; the row dies with the table drop.
       expect(
-        harness.queryFirst({
-          sql: "SELECT device_id FROM openMeldDaemon_current_device_targets WHERE owner_user_id = ?",
-          params: ["owner-1"],
+        await harness.queryFirst({
+          text: 'SELECT device_id FROM "openmeld"."openMeldDaemon_current_device_targets" WHERE owner_user_id = $1',
+          values: ["owner-1"],
         })
       ).toEqual({ device_id: "device-current" });
       expect(
-        harness.queryAll({
-          sql: "SELECT device_id FROM openMeldDaemon_owned_devices WHERE owner_user_id = ? ORDER BY device_id",
-          params: ["owner-1"],
+        await harness.queryAll({
+          text: 'SELECT device_id FROM "openmeld"."openMeldDaemon_owned_devices" WHERE owner_user_id = $1 ORDER BY device_id',
+          values: ["owner-1"],
         })
       ).toEqual([{ device_id: "device-other" }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("returns already_missing when there is no selected computer", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_agent_profile_bindings"
-    );
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
 
     try {
       await expect(
@@ -86,20 +74,20 @@ describe("current device forget repo write-side", () => {
         forgottenDeviceId: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("tombstones a non-current owned computer without clearing the current target", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const forgottenAtMs = Date.parse("2026-04-10T00:00:00.000Z");
 
     try {
-      seedCurrentDeviceState(harness, {
+      await seedCurrentDeviceState(harness, {
         deviceId: "device-current",
         ownerUserId: "owner-1",
       });
-      seedOtherOwnedDevice(harness, {
+      await seedOtherOwnedDevice(harness, {
         deviceId: "device-other",
         ownerUserId: "owner-1",
       });
@@ -117,68 +105,61 @@ describe("current device forget repo write-side", () => {
       });
 
       expect(
-        harness.queryFirst({
-          sql: "SELECT device_id FROM openMeldDaemon_current_device_targets WHERE owner_user_id = ?",
-          params: ["owner-1"],
+        await harness.queryFirst({
+          text: 'SELECT device_id FROM "openmeld"."openMeldDaemon_current_device_targets" WHERE owner_user_id = $1',
+          values: ["owner-1"],
         })
       ).toEqual({ device_id: "device-current" });
       expect(
-        harness.queryAll({
-          sql: "SELECT device_id FROM openMeldDaemon_owned_devices WHERE owner_user_id = ? ORDER BY device_id",
-          params: ["owner-1"],
+        await harness.queryAll({
+          text: 'SELECT device_id FROM "openmeld"."openMeldDaemon_owned_devices" WHERE owner_user_id = $1 ORDER BY device_id',
+          values: ["owner-1"],
         })
       ).toEqual([{ device_id: "device-current" }]);
       expect(
-        harness.queryFirst({
-          sql: "SELECT device_id, forgotten_at_ms FROM openMeldDaemon_forgotten_devices WHERE owner_user_id = ? AND device_id = ?",
-          params: ["owner-1", "device-other"],
+        await harness.queryFirst({
+          text: 'SELECT device_id, forgotten_at_ms FROM "openmeld"."openMeldDaemon_forgotten_devices" WHERE owner_user_id = $1 AND device_id = $2',
+          values: ["owner-1", "device-other"],
         })
       ).toEqual({
         device_id: "device-other",
         forgotten_at_ms: forgottenAtMs,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function seedCurrentDeviceState(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedCurrentDeviceState(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     deviceId: string;
     ownerUserId: string;
   }
 ) {
-  for (const sql of [
-    "CREATE TABLE organizations (id TEXT PRIMARY KEY)",
-    "CREATE TABLE projects (id TEXT PRIMARY KEY)",
-  ]) {
-    harness.run({ sql });
-  }
-  applyDrizzleMigrationsForTables(harness, [
-    "agent_activity_session_inventory",
-    "agent_activity_session_inventory_candidates",
-    "agent_activity_session_inventory_sources",
-  ]);
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldDaemon_agent_profile_bindings"
-  );
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldDaemon_runtime_registry_records"
-  );
-  harness.run({
-    sql: `
-      INSERT INTO openMeldDaemon_current_device_targets (owner_user_id, device_id, runtime_lane, updated_at_ms)
-      VALUES (?, ?, ?, ?)
-    `,
-    params: [input.ownerUserId, input.deviceId, "dev-local", 1],
+  const agentProfileId = "agt_00000000-0000-4000-8000-000000000001";
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ($1,'Owner',$1::text||'@example.com') ON CONFLICT (id) DO NOTHING`,
+    values: [input.ownerUserId],
   });
-  harness.run({
-    sql: `
-      INSERT INTO openMeldDaemon_runtime_registry_records (
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('org-1','Organization','org-1',1700000000000) ON CONFLICT (id) DO NOTHING`,
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id,profile_name,profile_handle,profile_kind,organization_id,owner_user_id,source) VALUES ($1,'Agent',$1,'agent','org-1',$2,'migration') ON CONFLICT (profile_id) DO NOTHING`,
+    values: [agentProfileId, input.ownerUserId],
+  });
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_current_device_targets" (owner_user_id, device_id, runtime_lane, updated_at_ms)
+      VALUES ($1, $2, $3, $4)
+    `,
+    values: [input.ownerUserId, input.deviceId, "dev-local", 1],
+  });
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_runtime_registry_records" (
         openmeld_service_runtime_id,
         owner_kind,
         owner_id,
@@ -188,13 +169,13 @@ function seedCurrentDeviceState(
         last_registered_at_ms,
         updated_at_ms
       )
-      VALUES (?, 'owner_account', ?, ?, 'dev-local', 1, 1, 1)
+      VALUES ($1, 'owner_account', $2, $3, 'dev-local', 1, 1, 1)
     `,
-    params: [`runtime-${input.deviceId}`, input.ownerUserId, input.deviceId],
+    values: [`runtime-${input.deviceId}`, input.ownerUserId, input.deviceId],
   });
-  harness.run({
-    sql: `
-      INSERT INTO openMeldDaemon_agent_profile_bindings (
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
         binding_id,
         owner_kind,
         owner_id,
@@ -205,28 +186,28 @@ function seedCurrentDeviceState(
         created_at_ms,
         updated_at_ms
       )
-      VALUES (?, 'owner_account', ?, ?, ?, 'builtin:codex', 'enabled_primary', 1, 1)
+      VALUES ($1, 'owner_account', $2, $3, $4, 'builtin:codex', 'enabled_primary', 1, 1)
     `,
-    params: [
+    values: [
       `binding-${input.deviceId}`,
       input.ownerUserId,
-      `agt-${input.deviceId}`,
+      agentProfileId,
       `runtime-${input.deviceId}`,
     ],
   });
-  seedOtherOwnedDevice(harness, input);
+  await seedOtherOwnedDevice(harness, input);
 }
 
-function seedOtherOwnedDevice(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedOtherOwnedDevice(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     deviceId: string;
     ownerUserId: string;
   }
 ) {
-  harness.run({
-    sql: `
-      INSERT INTO openMeldDaemon_owned_devices (
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_owned_devices" (
         owner_user_id,
         device_id,
         observed_display_name,
@@ -238,8 +219,8 @@ function seedOtherOwnedDevice(
         last_observed_at_ms,
         updated_at_ms
       )
-      VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL, ?)
+      VALUES ($1, $2, NULL, NULL, NULL, NULL, NULL, $3, NULL, $4)
     `,
-    params: [input.ownerUserId, input.deviceId, 1, 1],
+    values: [input.ownerUserId, input.deviceId, 1, 1],
   });
 }

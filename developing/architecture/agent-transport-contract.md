@@ -69,7 +69,7 @@ owners.
   accepted work to local controllers and reports local execution evidence; it
   does not own Space truth, Agent Profile identity, final readiness truth, or
   RuntimeCoordinator execution truth.
-- D1 dispatch records own the durable ledger and query projection for Wake
+- PostgreSQL dispatch records own the durable ledger and query projection for Wake
   execution. They record what happened; they do not decide who owns an
   in-flight execution.
 
@@ -113,7 +113,11 @@ preserves FIFO order within one target. A candidate failure is isolated from
 the other target queues. After a full batch advances successfully while more
 pending records remain, the shared Space alarm schedules an immediate
 continuation; retrying or poisoned work keeps the normal durable retry cadence.
-Concurrent flush callers share one in-flight flush per Space. D1 overload is
+The outbox creation time remains stable across handoffs and redrives so a Wake
+waiting on an execution-target settings lease reaches its bounded, visible
+failure deadline. The queue handoff timestamp is separate and may advance on
+each redrive.
+Concurrent flush callers share one in-flight flush per Space. PostgreSQL overload is
 storage backpressure, not evidence of a malformed request or a missing Agent
 account: it does not consume the candidate poison budget. The same durable
 outbox record remains recoverable through the shared alarm. An in-memory
@@ -190,7 +194,7 @@ pending-promotion record and no execution authority exists. Promotion remains
 pending after the Space accepts redrive until this identity reacceptance
 finishes. Any other legacy head that may already be executing returns
 `retry_later` instead of silently adopting or discarding the snapshot.
-`profile_queue_waiting` is a D1 ledger projection, not scheduling authority.
+`profile_queue_waiting` is a PostgreSQL ledger projection, not scheduling authority.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
@@ -210,7 +214,7 @@ or earlier Profile work. It never restarts on redrive or FIFO promotion. The
 normal Service registration, route report, and recurring heartbeat trigger exact
 Space outbox redrive. The handed-off outbox retains the payload while its ledger
 projects `runtime_coordinator.device_waiting`; ordinary conveyor alarms do not
-create repeated delivery attempts for that owned wait. Queue and D1 remain transport
+create repeated delivery attempts for that owned wait. Queue and PostgreSQL remain transport
 and projections, never scheduling or execution authorities.
 
 Before first execution, Core rechecks current requester and target Space access,
@@ -308,7 +312,7 @@ User-facing Wake progress may project explicit Profile FIFO `queued` copy only
 from the Coordinator-owned head lifecycle `queued` state. Space outbox status,
 Dispatch lookup status, and RuntimeCoordinator `created` or `delivery_pending`
 remain neutral pre-delivery progress. They must not infer that another Wake
-owns the Profile work slot, and the D1 `profile_queue_waiting` projection must
+owns the Profile work slot, and the PostgreSQL `profile_queue_waiting` projection must
 not become a second presentation authority.
 
 When a reserved Wake becomes terminal, the same owner-shard transaction
@@ -339,10 +343,32 @@ and cannot reconstruct queue metadata.
 Independent workstation tasks use Core-assigned Execution Contexts. Core admits
 at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
-Context selection is explicit for new work and forks, and scoped to the exact
-requester, Organization, Space, discussion, Profile, Binding, and Runtime.
+New work and forks may select a context explicitly. An ordinary Claude Code
+Wake in parallel mode implicitly selects an independent native context when
+it has no retained context; a retained or explicitly restricted context keeps
+its selected access. An ordinary Codex or Claude Wake with no retained context keeps the
+Profile's effective working folder through a current-folder workspace context;
+it never silently changes to a Space-only scratch directory merely because the
+Profile has already entered context mode. Every selection is scoped to the exact requester,
+Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
+
+Conversation isolation does not imply a new filesystem boundary. For a new
+Codex or Claude context, omitted access preferences inherit the Profile's current
+native permission mode intersected with the current Computer File Access policy.
+Core records `permissionSource: agent_settings` independently of workspace and
+conversation identity. A current folder is a starting location, not an implicit
+allowlist. Explicit `space_context`, `read_only`, and `workspace` preferences
+retain their existing task boundary. A fork retains its source restriction;
+legacy assignments without a permission source are never silently widened.
+This default applies to every authorized requester, including teammates and
+Agent delegation. Requester ownership informs disclosure judgment, not native
+tool availability. Core requires the Service's
+`executionContextPermissionInheritance` capability.
+The Service reuses ordinary Computer policy admission for inherited permissions.
+Context identity, history-loss failure, writer admission, and process ownership
+remain enforced even when no extra filesystem boundary is required.
 
 Core retains each accepted Wake's context association and completed native
 history checkpoint independently of the in-flight Head lifecycle. Head retirement
@@ -393,12 +419,12 @@ owner-shard transaction. That authorization and every future-work settings write
 are ordered by the same owner shard. If a setting
 write wins while the gate is pending or authorized, the same transaction moves
 the exact continuation to `continuation_needs_attention` and writes its Inbox
-intent before D1 settings may change. If head creation wins first, the gate is
+intent before PostgreSQL settings may change. If head creation wins first, the gate is
 already running; the setting may save for later work without changing the
 current execution. Ordinary head admission keeps the established version 1
 wire shape and adds no capability probe or preflight delay. A new cloud caller
 uses a dedicated future-settings mutation RPC; an older shard that lacks it
-rejects the setting write before D1 mutation instead of accepting an unsafe
+rejects the setting write before PostgreSQL mutation instead of accepting an unsafe
 half-rollout. Missing original accepted revision evidence remains inherently
 unsafe and moves to `continuation_needs_attention` rather than being treated as
 unchanged.
@@ -503,7 +529,7 @@ RuntimeCoordinator execution follows one authority path:
 6. Accept lifecycle and result evidence only when it matches the current token.
 7. Decide retry, timeout, late result handling, and final outcome in one state
    machine.
-8. Project trace/audit facts to D1 and publish one Space outcome.
+8. Project trace/audit facts to PostgreSQL and publish one Space outcome.
 
 Important execution rules:
 
@@ -514,18 +540,29 @@ Important execution rules:
   that baseline; fresh accepted progress from the same token run ends the old
   uncertainty. A reconnection after the last accepted progress also retains that
   window when the watchdog missed the offline interval; registration alone does
-  not prove that execution evidence has caught up. A continuously connected
+  not prove that execution evidence has caught up. Re-registering a route catalog
+  on the same socket preserves its original connection time and cannot manufacture
+  a communication-recovery window. A new socket still starts a new connection
+  interval; adopting a hibernated socket retains its stored interval. A continuously connected
   controller with stale progress keeps the ordinary
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
-  reconciliation take precedence. Window expiry retains `runtime.progress_stale`
-  and the existing owner-mediated late-result recovery, never automatic rerun.
-- The five-minute policy names the cause it actually found. An occupied native
-  conversation reports its occupancy once and then goes quiet, so it reaches the
-  same threshold looking like a lost computer. When the blocked work item still
+  reconciliation take precedence. At window expiry, a missing/stopped delivery
+  Service becomes `runtime.local_runtime_lost`; only a still-connected Service
+  with no more specific cause remains `runtime.progress_stale`. Both retain the
+  existing owner-mediated late-result recovery and never automatically rerun.
+- The five-minute policy names the cause it actually found. The first occupied
+  report advances the progress baseline. Repeated same-phase occupied reports,
+  recovery retries, and compatibility keepalives that omit occupancy prove only
+  liveness while the Coordinator's admission record still says occupied. They
+  cannot refresh progress or reset watchdog history, including after transport
+  hibernation or a permitted reconnect. An explicit availability transition or
+  advancement to `running` after provider turn acceptance ends that wait; normal
+  running keepalives continue to protect active execution. This is not a total
+  execution deadline. When the blocked work item still
   carries `waitReason = controller_conversation_occupied`, the terminal closes as
   `runtime.controller_conversation_occupied` instead, on the same deadline and
   with the same retained late-result recovery. Occupancy is read from the
-  Coordinator's own admission state, never from D1. A conversation released
+  Coordinator's own admission state, never from PostgreSQL. A conversation released
   before the threshold clears that wait reason, so an ordinary stall keeps
   `runtime.progress_stale` and its "reconnect the computer" copy.
 - After transport hibernation, accepted runtime evidence and tool/reasoning
@@ -552,6 +589,10 @@ Important execution rules:
   before unloading the operating-system service. The request is acknowledged
   only after the current socket session has completed its drain. A deliberate
   force path may bypass this handshake, but it must retain force-stop evidence.
+- If that route is still non-accepting with a recorded stop cause when the
+  watchdog expires, the terminal outcome is `runtime.local_runtime_lost` and
+  user copy says that OpenMeld Service stopped or disconnected during the Wake.
+  It must not fall through to generic stale-progress or connection advice.
 - A newly registered Service session on the same owner, device, and lane proves
   that process-local task ownership from a disconnected prior session cannot
   still be controlled by that prior Service. For a token-current execution with
@@ -600,6 +641,34 @@ Important execution rules:
   Core then rereads its native-delivery ledger. A still-active submission, a
   missing mixed-version RPC receiver, or a transport error requeues the same
   probe and cannot become an elapsed-time failure.
+- A task-continuation admission watchdog may first call native `readAdmission`
+  with the exact persisted submit request. The native owner compares its original
+  request digest and idempotency receipt without claiming or submitting work.
+  Only a finalized, validated ACK supplies a real submission ID. A missing or
+  merely claimed receipt remains unconfirmed; the watchdog's synthetic ID is
+  never used for execution reconciliation. Core saves a recovered ACK in its
+  existing ledger before generation/Stop/pause postprocessing and reuses the
+  accepted-delivery probe. This does not authorize a new execution, a new
+  idempotency identity, or controlled restart.
+- Native cancellation persists immutable Stop intent for the original
+  Organization/Space/idempotency identity, including before an execution row
+  exists. Initialization and model/tool guards consult that same native-owner
+  intent; a racing initializer cancels its newly created row rather than
+  admitting work. The intent has no expiry that can reopen a stopped identity.
+  It is not an admission ACK or terminal execution fact. The existing
+  `not_found` wire response still proves neither cleanup nor fence capability
+  in a mixed-version receiver. Native `readAdmissionStop` reads that same intent
+  in the original conversation owner without writing or admitting work. Core
+  validates the Organization/Space/idempotency identity; an absent method or
+  receipt supplies no fence proof. This proves only future admission is fenced,
+  not that earlier execution or external writes have settled. Controlled restart
+  remains unavailable until Core also confirms execution safety and current
+  authorization.
+  Waiting 240 seconds is an experience threshold only, never permission to
+  replay work. Do not roll back the native guard while an old stopped admission
+  can still arrive; an old receiver does not understand the new Stop intent.
+  The new optional read RPC leaves existing Stop/ACK response shapes unchanged;
+  deploy its receiver before any caller that requires a positive fence receipt.
 - Remote Agent initialization remains recoverable from Flue's durable
   submission only while the exact attempt still owns the row,
   `inputAppliedAt` is absent, and the submission has attempt budget remaining.
@@ -632,6 +701,12 @@ Important execution rules:
   user-visible side effect started. This startup boundary must be cleared as
   soon as initialization succeeds; it must never become a total Agent execution
   deadline or retry a turn whose outcome may be ambiguous.
+  A timed-out `thread/start` also has an unknown allocation outcome and must not
+  be automatically repeated. Confirm the owned process exited before a safe
+  handshake retry. Preserve the first handshake failure if the retry fails;
+  startup diagnostics may expose only bounded, allowlisted phase/status hints,
+  never raw stderr, private paths, MCP names, or credentials. These observations
+  are not execution authority or proof of the cause of a timeout.
 - `accepted_local` means OpenMeld Service has accepted the task on the user's
   computer. If the runtime has not started yet, the local service must attach
   queue diagnostics so Trace can explain whether the task is waiting for the
@@ -670,15 +745,69 @@ Important execution rules:
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
-- Space owns user-requested Wake Stop authorization. After writable Space access,
-  only the authenticated source-message account or target Agent Profile owner
-  may stop the exact target Wake. Resolve the source from the Space's persisted
-  Signal and account ownership from Auth; caller selectors, member names, and
-  other signed-in accounts are not ownership evidence. Use the same policy for
-  viewer-scoped progress eligibility and the Stop mutation, before native or
-  workstation cancellation side effects. Missing ownership fails closed.
+- Space owns user-requested Wake Stop authorization. For ordinary Stop, after
+  writable Space access, only the authenticated source-message account or target
+  Agent Profile owner may stop the exact target Wake. Resolve the source from
+  the Space's persisted Signal and account ownership from Auth; caller selectors,
+  member names, and other signed-in accounts are not ownership evidence. Use
+  this ordinary policy for viewer-scoped progress eligibility and the ordinary
+  Stop mutation, before native or workstation cancellation side effects.
+- Progress may carry an exact `dispatchId` within the source/Profile selector.
+  Space verifies that dispatch against the same source, Space and target before
+  invoking its existing execution owner. This lets a resumed parent stop its
+  current native continuation without selecting the completed original turn.
+  An exact miss never falls back to another Wake or a pre-send fence. Stop
+  acceptance remains distinct from an acknowledged stopped outcome and does
+  not undo external effects that already occurred.
+- Local queued input may reserve the exact admitted run during startup. That
+  read supplies the existing Space queue's identity and never sends input to
+  the controller. Applying a steer still requires the current run to be running.
+  Terminal, withdrawn, stopped, replaced and mismatched runs remain rejected.
+- A designated Organization Center Agent may request Stop for a member
+  verified by its current native delivery. Space grants the represented member
+  ordinary source-account or target-owner authority, or authority over an exact
+  Center-authored Wake whose immutable, Core-written audit provenance records
+  that same member as `onBehalfOf`. A missing or mismatched attribution grants
+  no Center-authored Wake authority. Routine deliveries use their verified
+  delegated member in the same comparison. Separately, the current active
+  designated Center may stop its own UUID-addressed request in its exact
+  Center–Agent DM pair. A converted DM requires a persisted Center-authored
+  source from before conversion; an unconverted DM permits a sender-scoped
+  pre-send fence. Space verifies the canonical Center controller and identity,
+  current designation, Organization, pair, and source rather than granting
+  authority from the ownerless Profile or Organization role alone. The progress
+  projection uses this same Space authorization. A `not_found` self-Stop must
+  not be retried as a Human pre-send fence. Except for the reserved `ca-wake:`
+  provenance path, delegation to the verified Human resolves an existing
+  source and uses a `source_signal` Stop, preserving the actual author.
+- Personal Remote Agent progress and Stop may target an explicit Space in the
+  admitted Organization. The original execution and requester remain verified;
+  Core checks the target Organization and Space applies ordinary access and
+  Stop authority. Omitting the target retains the admitted Space. This changes
+  neither reply placement nor the scope of other personal conversation tools.
+- An explicit Space Task cancellation has one additional, Task-scoped Stop
+  authority. The same currently active, Auth-verified actor must have authored
+  the retained cancellation operation, its event ID must match the operation
+  receipt, and the exact source Signal and target Agent must be recorded as a
+  Wake for that Task. A later Task reopen supersedes that cancellation's Stop
+  intent, even if the Task is canceled again. Provider observations carry no
+  actor authority and cannot use this path. This internal delivery exception
+  does not extend ordinary Stop or viewer-scoped progress eligibility; missing
+  actor, operation, Wake, or current-intent evidence fails closed.
   RuntimeCoordinator continues to own execution and the final stopped outcome;
   internal deletion/recovery cancellation is not a user Stop permission grant.
+- Before a source message reaches Space, an authenticated sender can Stop its
+  own `(clientMessageId, targetProfileId)` request. Space stores a durable fence
+  scoped to the authenticated author, never just a guessed client ID. A
+  represented Center send additionally requires the existing immutable Core
+  audit attribution; missing attribution returns an unconfirmed retry result.
+  Source/outbox inspection and fence insertion have no intervening asynchronous
+  work. Source publication checks the fence in the same SQL transaction that
+  inserts its dispatch outbox record, withdraws admission, and persists exactly
+  one stopped notice. No execution has been handed off at this boundary.
+  A durable Space outbox forwards this terminal outcome to Agent Task
+  Coordination and retries failed projection delivery. Neither the fence nor
+  that projection owns the truth of a running execution.
 - Before RuntimeCoordinator links an execution, OpenMeld-owned pre-agent Stop may
   move the target Wake head lifecycle to `stopped_before_execution`. That is a
   stopped terminal outcome for the target Wake, not a failed execution and not a
@@ -736,7 +865,7 @@ provider turn requests input
 RuntimeCoordinator is the single cloud owner of pending, responded, delivered,
 expired, cancelled, and terminal interaction state. Space and Gateway authorize
 and forward reads or responses; the Local Service carries request and response
-frames; D1 remains a terminal/diagnostic ledger and must not become an
+frames; PostgreSQL remains a terminal/diagnostic ledger and must not become an
 interaction queue or approval store.
 
 Every request and response is fenced by the current execution token, execution
@@ -752,6 +881,14 @@ after a socket replacement, and accepts an exact repeated response
 idempotently. A conflicting repeat is rejected. Local Service owns one
 process-lifetime pending registry across socket reconnects and serializes
 provider requests so only one is visible per execution at a time.
+
+Response acceptance is a RuntimeCoordinator storage transaction. The same
+execution record retains a response fingerprint and acceptance time per
+interaction, including after delivery acknowledgement clears the private pending
+content. Exact HTTP retries still return the acceptance receipt; conflicting
+answers fail, and an already-handled interaction ID cannot create a new pending
+request. Receipts share the execution record's lifetime and contain no answer
+text. New request content requires a new interaction ID.
 
 An unresolved request pauses the ordinary stale-progress watchdog until its
 bounded expiry, at most eight hours. After a response is stored, delivery must
@@ -770,6 +907,32 @@ exact-execution exception or cancel. It must not become a stored approval, a
 profile override, or a reason to interrupt default-policy runs. A working
 folder that is provably outside the active boundary is a deterministic denied
 outcome and does not ask the owner to reconsider the policy on every Wake.
+
+An explicit decline of that exact permission request becomes a stopped outcome
+through RuntimeCoordinator's existing accepted-result Stop path. The Service
+reports `computer.file_access.owner_declined`; Core verifies its durable receipt
+and execution identity before Space elects the final claim. Retries reuse the
+same stopped publication and acknowledgement. An expired/interrupted waiter or
+legacy ambiguous `owner_cancelled` result is not evidence of explicit refusal.
+
+Working-folder recovery uses this same private question contract during local
+admission, before a provider turn begins. It adds no recovery queue, Inbox
+authority, or automatic replay of terminal work. OpenCode's native folder guard
+still runs immediately before prompting. The owner can use the verified original
+folder for this task, explicitly start a new conversation in the current folder,
+or stop. The chosen folder is checked against the current Computer file policy;
+the choice never grants a file-access exception or changes computers.
+`context.workspace_recovery_declined` is an explicit local admission decline.
+Like a Computer file-access decline, Core verifies the accepted result receipt
+and current execution identity before publishing the normal stopped outcome.
+Lost or expired questions are failures, not evidence of an owner decline.
+
+The question/response wire format is unchanged. Deploy Core's explicit-decline
+receiver before publishing the CLI/Service recovery caller; an older Core would
+otherwise present the new decline reason as a failure. Old clients can render
+the standard question. This compatible update does not raise the mandatory
+Service floor or change setup, Space actions, status, or diagnostics contracts.
+Local-component stamping and publication remain deferred to the final release.
 
 ### Runtime Transport And RuntimeCoordinator Boundary
 
@@ -833,7 +996,7 @@ remain in `RuntimeTransportHub`.
 Do not infer that RuntimeCoordinator has been physically split because files are
 named `runtime-coordinator-*`. Those files are in-process orchestration and
 authority helpers. Do not casually move RuntimeCoordinator HTTP handlers,
-authority writers, finalization outcome writes, publication blockers, D1
+authority writers, finalization outcome writes, publication blockers, PostgreSQL
 projections, diagnostic events, readiness impact writes, token diagnostics,
 route lookup, delivery, wait-result, socket, session, or service-liveness code.
 Those boundaries need explicit ports and one clear writer before extraction.
@@ -870,7 +1033,7 @@ Treat the current scheduler as this coupling map:
   choreography remains in `RuntimeTransportHub`, preserving one writer for head
   lifecycle, failure publication, readiness-impact, projection, and diagnostics.
 - Head failure-publication retry alarm orchestration is extracted. The Space
-  failure publication, publication outcome, D1 projection, readiness-impact,
+  failure publication, publication outcome, PostgreSQL projection, readiness-impact,
   diagnostics, and retry/exhaustion writers remain in `RuntimeTransportHub`.
 - Pre-execution handoff alarm orchestration is extracted. Handoff record writes,
   publication status writes, result references, ops decisions, and retry alarm
@@ -1000,12 +1163,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   spans every Space. Web may use that read to disable disruptive actions
   immediately, but it is advisory. The mutation writer must acquire a
   short-lived execution-target mutation admission from the same owner shard and
-  hold it across its D1 or local Service mutation. RuntimeCoordinator stores
+  hold it across its PostgreSQL or local Service mutation. RuntimeCoordinator stores
   Wake-head acceptance, active execution references, and execution-target
   mutation admission through one transactionally coordinated owner-shard model:
   `active` blocks admission, and a new Wake that arrives after admission
   receives a retryable response instead of being accepted against the changing
-  target. D1 remains Binding storage, never in-flight execution authority.
+  target. PostgreSQL remains Binding storage, never in-flight execution authority.
   Unavailable or rebuilding owner-shard authority fails closed. A definitive
   mutation result releases admission; timeout or invalid-response outcomes keep
   the lease until expiry because the local write may still complete. Settings-
@@ -1026,10 +1189,10 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   contains enabled Bindings for one Agent Profile under more than one owner,
   reconciliation must acquire mutation admission on every affected owner
   shard. Exact legacy disables and canonical target installation or reuse are
-  one D1 batch so a failed target write leaves every prior enabled Binding
+  one PostgreSQL transaction so a failed target write leaves every prior enabled Binding
   intact. Organization Wake authorization is not part of Binding
   reconciliation.
-  The D1 Binding writer is the final mixed-version fence: it rejects a new or
+  The PostgreSQL Binding writer is the final mixed-version fence: it rejects a new or
   re-enabled primary Binding whose owner is not the Agent Profile owner, and it
   rejects a second enabled primary Binding for the same Profile. Installing
   that fence preserves existing legacy rows so Core can reconcile them under
@@ -1052,7 +1215,7 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   continue to honor those canonical active references.
 - Removing a visibly settled execution head does not release duplicate
   protection. The deterministic terminal execution-token authority rejects an
-  exact head and dispatch replay before admission; D1 history may explain the
+  exact head and dispatch replay before admission; PostgreSQL history may explain the
   old Wake but cannot authorize or reject execution.
 - Consumers use the response inside one operation and must not persist it.
 - Device-scoped derivations (daemon route catalog, projected controllers,
@@ -1111,8 +1274,46 @@ This Agent Profile can reply in this Space from the intended Runtime now.
 Route online is not enough. Binding existence is not enough. Completed Prepare
 evidence is not enough. Process health is not business readiness.
 
+A live Runtime Transport session with `acceptingDispatches: false` is not
+available for a new Wake, even while its socket and profile leases remain
+fresh. For a still-connected session without a definitive user stop or another
+stable blocker, Core projects `local_service.not_accepting_wakes` as `Checking`.
+A fresh Wake remains unexecuted under the existing bounded start wait and
+reruns full admission when the Service reopens; expiry produces the existing
+visible no-execution outcome. Explicit profile, Binding, provider, Usage, and
+compatibility blockers still take precedence. Core invalidates carried profiles
+when admission closes or reopens. Computer connectivity, route registration,
+and already accepted executions remain separate facts; draining must not mark
+an in-flight Wake failed. A catalog refresh on an unchanged healthy Host
+connection updates routes, leases, and permissions without closing admission
+or restarting result replay. A changed connection or failed Host update closes
+admission until current Host evidence reopens it.
+
+Admission changes carry bounded diagnostic evidence, not a second readiness
+decision. The local Service reports the current open/closed transition reason,
+connection generation, revision, and local transition time only after the Core
+register response advertises support. Core records matching evidence with its
+Runtime Transport session and copies it into the delivery decision's route
+evidence. A rejected Wake retains that exact snapshot in its RuntimeCoordinator
+event even after the Service reopens. A new Core session starts with Core-owned
+`connection_initializing` or `connection_replaced` evidence; old Services and
+unreported later transitions remain explicitly unknown. Diagnostic details use
+bounded codes, never raw errors or message content. Evidence cannot open
+admission, extend a wait, retry an execution, or change an outcome.
+
 Core-owned Wakeability is the only final user-facing projection for this
 question. Web, CLI, Space, and Start render it; they do not recompute it.
+
+Reviewed model unavailability is another input to this same projection and Wake
+admission, not a new Profile enabled/disabled writer. Core checks the current
+explicit Binding selection against the authored catalog; scoped withdrawal uses
+fresh identity-matched provider/sign-in evidence. Advisory retirement dates and
+unknown scope do not block a Wake. `model.retired` and `model.unavailable` direct
+the owner to that Profile's model settings. They do not change Computer
+connectivity, manual Profile status, existing conversation history or an accepted
+execution's outcome. A valid user change removes only this model blocker and
+never authorizes automatic continuation of previous work.
+
 
 Current Wakeability and one concrete Wake execution are separate facts.
 Wakeability is a current reply-path projection. A Wake execution is what
@@ -1239,9 +1440,20 @@ controlled Service update and an unexpected network disconnect keep the normal
 freshness window so update handoff and transient transport loss do not recreate
 connected/offline flicker.
 
+For owner-Service connectivity, select the current session by Runtime Transport
+freshness for each device and lane before applying the online predicate. An old
+maintenance session cannot replace a newer explicitly stopped session in that
+projection. The existing per-device durable record likewise retains the freshest
+session, including its admission and stop facts, across cold restoration.
+
 Socket presence is delivery evidence, not online evidence. Delivery (route
 lookup for an actual Wake dispatch) requires a live socket; the online verdict
 must not, because hibernation makes socket references transient by design.
+Computer disconnect Inbox recovery reuses this owner-Service online predicate.
+It must not keep a connection incident open because dispatch admission or
+execution compatibility is not ready. Initial fault detection still requires
+prior expected availability and the lease grace; recovery ends only the matching
+incident, not an Agent readiness issue or a historical Wake failure.
 When a delivery socket disappears but the service lease is still fresh (a recent
 heartbeat within the TTL), Runtime Transport holds the affected Agent Profile
 route on `Checking`: the lease is liveness evidence that the service is online
@@ -1305,6 +1517,10 @@ readiness must fail closed instead of keeping a permanent `Checking` state.
 Web, CLI, and Desktop surfaces must consume the Core-owned projection for this
 public verdict; they may keep refreshing diagnostics, but they must not repaint a
 Core-owned `Offline` or `Unavailable` verdict as `Checking`.
+An explicit newer Core `Checking` verdict must likewise replace a previously
+displayed `Available` verdict immediately. A brief refresh without any new
+verdict may retain the prior badge only as display smoothing, never as Wake
+admission authority.
 
 Owner-only recovery surfaces may show concrete actions such as `Update OpenMeld
 on Computer`, `Reconnect Computer`, `Connect local agent`, or `Wrong account`.
@@ -1362,16 +1578,25 @@ Runtime results use the Space action contract:
   even when it looks like JSON, a tool call, or a former protocol marker. If no
   supported action entry point can record a valid action, the Wake fails with
   structured diagnostic evidence.
+- A supported local controller may publish a deliberate bounded progress
+  snapshot through its dispatch-scoped structured tool. The Service sends that
+  snapshot on the active RuntimeTransport execution token; Core validates the
+  same execution identity, lease, source Signal, target Profile, and stream
+  sequence used for privacy-bounded tool activity. Space stores it only as the
+  existing transient public-progress draft. Exact local retries are idempotent.
+  Progress never writes the final Space Action record, claims the final outcome
+  slot, dispatches a Wake, or releases an Agent Task continuation barrier.
 - A current local runtime attaches the newest relevant Space signal it observed
   to `post_message.observedThroughSignalId`. This is provider-neutral: Codex,
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
   action boundary rather than provider-specific coordination prompts.
 
-Reply publication and observation use the source message's conversation scope.
-A main-timeline source remains in the main scope when a thread is opened beneath
-it; a `root` placement does not move that Wake into the thread. Only a source
-posted inside a thread defaults its outcome to that thread. Thread reads and
-the atomic reply guard both accept that thread's root as an observation cursor,
+Reply observation uses the source message's conversation scope. A main-timeline
+source remains in the main observation scope when a thread is opened beneath it;
+a `root` placement does not move that Wake into the thread. Final reply output
+in shared Spaces defaults to the thread under the source message, independently
+of that source scope. Thread reads and the atomic reply guard both accept that
+thread's root as an observation cursor,
 including when there are no replies yet. Other threads' cursors remain invalid,
 and newer messages in the observed scope still require review.
 
@@ -1557,6 +1782,55 @@ Execution Recovery action. It uses the owner-only continuation path described
 above, so closing the public action cannot disable deterministic Usage
 recovery.
 
+Storing the owner's continuation decision and holding a safe permit to start
+the replacement work are separate facts. A Core terminal decision is not the
+permit: a stale-evidence terminal is a decision made from missing evidence, so
+the local Agent may still be queued on the conversation the interrupted work
+was waiting for, and starting a replacement on that basis is what produces two
+attempts at one instruction.
+
+Accepting a cancellation is not the permit either. Control acceptance says the
+request was taken: an adapter can register a stop signal before the provider
+turn is acknowledged, and interrupting a started turn is a request, not a
+completion barrier. The permit is the adapter's own statement that it withdrew
+the attempt before any provider turn began. A stop requested after a turn
+started is a different outcome: that turn keeps its result and whatever effects
+it already produced, so it must not be replayed as never-executed work. An
+adapter that cannot tell the two apart says nothing, and silence stays unproven
+rather than becoming permission.
+
+That statement is carried on the existing local control result, correlated with
+the exact execution, dispatch, task, and delivery session, and kept as durable
+per-execution evidence pinned to the run it answers for. A late acknowledgement
+cannot retire a run that a newer one superseded, and the evidence must be
+accepted even when the Wake Stop lifecycle cannot advance a terminal execution,
+because it is the only fact replacement work can verify. A head that never
+linked an execution never reached a computer and needs no withdrawal.
+
+Accepting a withdrawal removes the Service's inflight record, so the Service
+keeps a bounded receipt of what that withdrawal established and answers a repeat
+request from it. Without that, a lost response would downgrade a proven fact to
+"no such task", which cannot be turned back into proof and would block the
+owner's choice on evidence that merely went missing in transit. Absence from an
+inflight registry is never itself proof: it does not establish that no provider
+work or side effect remains. A Service restart before the proof reaches Core
+leaves the attempt unproven, which keeps the replacement withheld.
+
+Every continuation attempt rereads that prerequisite, including a retry that
+reuses a stored authorization, and re-requests the withdrawal instead of
+assuming an earlier cancellation landed. An unproven withdrawal withholds the
+replacement and reports an explicit awaiting-stop stage with the owner's
+decision retained; it is never an unexplained stall, a silent permission to
+start, or a claim that the attempt stopped. Skip promises only that OpenMeld
+will not continue the work, which Core decides on its own; it requests the same
+withdrawal but does not wait on it, and its copy must not imply that the local
+attempt has stopped or that completed side effects are undone.
+
+An owner shard that predates this prerequisite cannot answer it. Durable Object
+code propagates after a Worker deploy, so an unanswered prerequisite is "not yet
+known": it withholds the replacement and stays retryable. It is never read as
+permission to start a second attempt at the same instruction.
+
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that
 cannot be proven remains outcome-unknown and must not be automatically rerun.
@@ -1615,7 +1889,7 @@ reply or stopped notice wins. Otherwise the new visible publication-failure
 claim fences every late result publication before RuntimeCoordinator records
 terminal failure authority.
 
-Core repairs the Agent Task, stream, D1 execution projection, and
+Core repairs the Agent Task, stream, PostgreSQL execution projection, and
 RuntimeCoordinator terminal authority from the winning Space claim. A visible
 reply or stopped notice remains authoritative. A visible publication-failure
 claim permits the exact Space Wake Agent Task to settle as
@@ -1795,7 +2069,7 @@ claim owner is still finalizing coordination.
 
 Release this additive response contract consumer-first: deploy the shared
 schema and Remote Agent parser before a Core version that may emit
-`publicationStatus: pending`, and apply the shared D1 migration before that
+`publicationStatus: pending`, and apply the shared PostgreSQL migration before that
 Core version. An older Core still returns the accepted legacy shape, which the
 new consumer accepts. CLI, OpenMeld Service, Skills, Gateway, and Web do not
 read or write this internal Center Agent RPC response, so they require no
@@ -1901,7 +2175,7 @@ enqueue, admission, and settlement cannot create multiple model turns.
 
 For a stopped workstation Wake, RuntimeTransportHub persists the stopped
 publication record and a pending terminal-projection index atomically. Its
-bounded-work alarm retries the D1 projection and clears the index only after
+bounded-work alarm retries the PostgreSQL projection and clears the index only after
 Core accepts it. A transient Core failure therefore cannot leave a visibly
 stopped child permanently invisible to its parent subscription.
 
@@ -1939,6 +2213,86 @@ existing fresh cancel/interrupt report requirement. The existing Stop mutation
 continues to validate the accepted result and elect the final Space claim;
 eligibility cannot cancel work, publish a notice, or advance recovery.
 
+### Hosted Stop admission fence and compatibility
+
+Core-to-Space uses the private `rpcReadWakeStopIntent` observation and
+`rpcAuthorizeNativeWakeAdmission` mutation. Both use shared strict
+`SpaceWakeStopIntentQuery` / `SpaceWakeStopIntentResponse` contracts scoped by
+Space, dispatch, and target Profile. The mutation synchronously records possible
+native exposure in the existing Space outbox before permitting the Worker call;
+Stop and this admission cannot pass each other without a durable fence. It does
+not grant tool authority or claim that execution started or stopped.
+
+The additive nullable SQLite column `native_admission_started_at_ms` is zero only
+for newly staged pending rows, positive after admission authorization, and NULL
+for historical rows with unknown exposure. Space schema v48 adds it to existing
+v47 Spaces as well as new Spaces; an existing v47 migration marker must not skip
+this upgrade. Only a zero row with no submission
+may be terminalized as withdrawn before execution. Positive/NULL rows use the
+existing native execution reconciliation; not-found and transport failures keep
+Stop pending. There is no new execution owner, PostgreSQL migration, or cancellation
+table. Stop reuses the existing cancelled outbox, native ledger, watchdog/probe,
+and final Space message claim. A stopped notice is durable and idempotent.
+
+The conveyor payload lifetime is not the Stop-intent lifetime. Normal Hosted
+handoff cleanup may retire the outbox payload after native ownership is durable.
+For that absent-payload case only, the internal read resolves the exact
+Space/dispatch/Profile native ledger identity and rechecks Space after the PostgreSQL
+await. A known delivery without recorded cancellation returns `not_requested`;
+unknown, mismatched or malformed identities remain `not_found`, and a failed
+read remains retryable. This is not a generic not-found-is-ready fallback.
+Stop for an exact native delivery whose payload was retired recreates a
+cancelled, non-dispatchable control record before contacting the Worker. Normal
+conveyor deletion cannot remove a cancelled record, including when an old
+recovery candidate races the Stop write. The original task is never regenerated
+from that record; the native ledger still supplies exact execution identity.
+
+For every cancelled Hosted Wake, the existing Space alarm is armed before
+intent is written. It scans eight records lacking a final claim per pass; a
+durable dispatch cursor prevents unresolved older records from starving later
+work. The cursor is scheduling metadata, not execution truth. A provably
+unexposed Wake needs only stopped-notice repair. An exposed or legacy-NULL Wake
+instead re-reads exact native evidence and retries cancellation when that
+evidence arrives. No recovery pass resubmits model work. Missing identity remains
+explicitly unconfirmed with diagnostics and another bounded pass; elapsed time
+or a negative lookup is never promoted to proof of termination.
+
+After Space saves the Stop fence, response status acknowledges the durable
+request even if Worker delivery, probe scheduling or notice publication fails.
+Those failures do not return a contradictory request rejection or prevent the
+direct cancellation attempt. The existing Space alarm and native probes retain
+recovery. A pending acknowledgement is not a completed Stop. Terminal settlement
+requires the exact Worker execution identity to be aborted, completed or failed,
+or a terminal callback/atomic unexposed withdrawal, and a persisted final Space
+outcome. A Worker `not_stoppable` because computation finished does not undo a
+Stop that beat publication; that terminal evidence permits suppressing the
+unpublished answer and publishing the stopped outcome. An already-persisted
+answer still wins. `already_cancelled` with nonterminal execution state or a
+mismatched identity is not terminal proof. Keyed stopped claims also close Wake
+progress when the notice is outside the recent-message window.
+
+Cancelling before this particular submit does not prove an earlier ambiguous
+submit never ran. The confirmed Space stopped claim projects the existing native
+`failed` + cancellation-code encoding and dispatch/task `cancelled`/`stopped`
+outcomes without a DLQ entry or a second failure notice. A read-only Stop
+preflight precedes daily admission accounting; the authorization fence remains
+immediately before Worker submission. A Stop already present at preflight spends
+no admission. Concurrent cancellation after daily admission does not undo the
+existing once-admitted accounting rule.
+
+Contract Impact Audit: the new RPC callers and Space receivers are in Core and
+must ship together. Deploy the cancellation-aware Remote Agent before Core, then
+Gateway/Web; older Web request/response shapes remain valid. There are no new
+Worker wire fields, Local Service commands, CLI/Skills setup contracts, or local
+minimum versions. Readiness changes must not reinterpret unknown targets as
+workstation targets. The shared source changes still require normal release
+planning for any packaged local artifacts they affect. Keep the additive SQLite
+column on rollback. Do not restore an older native admission caller that ignores
+the Space fence while cancelled admissions/continuations remain unresolved;
+first settle those exact Wakes using the supported owners or retain the fence in
+the rollback candidate. No release, migration, or live execution is performed
+by the implementation PR.
+
 Wake execution invariants:
 
 - `dispatchId` is the logical Wake identity.
@@ -1960,15 +2314,13 @@ Wake execution invariants:
 - If Stop happens before execution is linked, RuntimeCoordinator must record
   `stopped_before_execution`, publish a `wake_stopped` system notice, and keep
   late dispatch, late local result, and late reply facts diagnostic-only.
-- A Space Wake routed to Remote Agent native delivery must honor that same
-  pre-agent stopped head before worker submission. Core checks before
-  admission, checks again after the worker ACK to close the admission race,
-  requests worker cancellation when the ACK lost that race, and settles a late
-  callback as stopped without publishing it. The admitted submission id is
-  carried across the ACK-persistence race so a worker accepted immediately
-  before the local Stop fence cannot escape cancellation. Terminal projection
-  failure keeps the dispatch Queue message retryable; a stopped ledger replay
-  must finish that projection before it acknowledges the message.
+- A Hosted Space Wake uses the existing Space outbox cancellation fence, not
+  a workstation pre-agent head. Core checks before native admission, checks
+  again after the Worker ACK to close the race, and forwards cancellation using
+  the exact admitted identity even before ACK persistence. Checkpoint rearming
+  cannot erase the logical Wake's Stop. A terminal callback after Stop is
+  settled as stopped without publishing its answer. Terminal projection and
+  stopped-notice failures remain retryable; replay never creates another run.
 - The Space Durable Object is the atomic final-outcome fence for this native
   path. Once its dispatch outbox is cancelled, it rejects a matching Remote
   Agent final reply with `space.final_outcome_stopped`; the callback consumer
@@ -1986,6 +2338,115 @@ Wake execution invariants:
 - Agent Task Coordination observes terminal execution facts and may create a
   new declared continuation; it never becomes a second execution authority or
   reopens a terminal Wake.
+
+### Dispatch-owned final tool boundary
+
+Normal Agent final tool catalogs offer `reply` and `stay_silent`, not `status`.
+The old status wire schema and frozen publication contracts remain readable;
+new tool discovery and authoring must not broaden legacy authorization.
+
+`AdapterDispatchSpaceTools` is a host-only per-invocation capability. Its schemas,
+handlers and local recorder are shared by MCP and native carriers. Captured
+context identity and nonce bind calls to one Wake; closing the invocation fences
+late callbacks. Never serialize this capability or reuse it as a persisted
+thread authorization. `read_receipt` reconciles the existing proposal without
+publishing or overwriting it. Positive input rejection is distinct from an
+unknown write result, and a receipt still means local proposal, not publication.
+
+Ordinary Codex native Space-tool admission verifies that the alternate dispatch
+MCP carrier is disabled. It does not require unrelated MCP resources or resource
+templates. On Codex 0.160.0 and later, query that server in the exact thread's
+published runtime using `threadId`, `serverName`, and `toolsAndAuthOnly`, rather
+than starting a separate all-server discovery pass. Older supported controllers
+use the unfiltered tools/auth inventory. Keep the existing bounded admission
+deadline and reject an active carrier or incomplete inventory. Explicit task
+isolation and delivery-only execution still require the full inventory of all
+servers, tools, and resources; a targeted carrier check cannot prove isolation.
+
+Read-only history, shared-file and Task-list tools return either a complete
+`result` or a bounded `page`. `read_result` continues an immutable JSON snapshot
+using the returned result id and byte offset. Snapshots stay in a bounded,
+per-invocation memory cache, never an arbitrary local file. Every page checks
+the active Wake; closing the capability clears its snapshots. A repeated page
+does not repeat the source operation. Expired, evicted, or foreign cursors fail
+explicitly; reconnecting requires a new authorized source read. Final action
+receipts are not paginated or reconstructed into another publication path.
+
+`OPENMELD_SPACE_ACTION_DELIVERY_ONLY` distinguishes missing-action correction
+from concurrent-result reconsideration, even though both currently use a repair
+execution mode. The former exposes only necessary final delivery and receipt
+operations, not Task mutations or file operations. Each native carrier must
+prove equivalent restrictions without changing the user's selected mode or
+canonical conversation. A repair must not remove a native denial to make a
+reply tool callable.
+
+Claude uses SDK in-process tools with the same MCP names and eagerly loaded
+final definitions. Only delivery correction asks for a small structured receipt
+report; that report and ordinary private prose are never publication inputs.
+An independently read saved receipt is required even when a report claims
+success. Connection recovery is bounded and does not replay an action or turn a
+needs-auth state into authorization. Normal successful execution has no extra
+structured report or correction turn.
+
+Delivery-only correction is a conditional native capability, not permission to
+run an ordinary Agent again. A carrier that cannot prove its operation boundary
+must return `space.action.delivery_only_unsupported` or
+`space.action.delivery_only_unverified` before sending a correction prompt. The
+existing terminal failure path remains responsible for a visible failure. This
+does not disable normal reply/silence tools or their correctable input errors.
+Cursor ACP correction uses a fresh session and an owned temporary native home,
+with unchanged permission rules and selected mode. Verified fail-closed native
+pre-tool/MCP hooks veto non-delivery tools, foreign sessions and expired calls;
+they never grant an approval. The dispatch MCP remains the only recorder.
+Cancellation removes the live-session hook fence before sending native cancel.
+Ambient hooks/plugins/MCP configuration or an unverified native version stops
+before a correction prompt. Even version discovery uses a disposable home,
+because the native CLI may normalize configuration on `--version`. The canonical
+conversation and the user's source configuration remain unchanged.
+
+Codex correction preserves its selected permission/collaboration mode, removes
+execution environments and independent business capabilities, and checks the
+effective MCP inventory. It uses a disposable fork, never a new canonical
+conversation. Managed or unknown requirements that cannot be preserved stop
+before a turn. Persisted Dynamic Tool definitions are not authorization: only
+the current invocation's final tools can execute, and old/foreign callbacks are
+fenced. Metadata-only controller planning/user-input facilities are not granted
+business execution authority.
+
+OpenCode correction uses a fork, native pure mode, and a read-back-verified
+permission ruleset. It copies original session rules and adds denials for
+non-delivery tools, never grants reply over an existing deny/ask rule. OpenClaw
+uses a fresh native session and temporary configuration; external plugins and
+business tools are disabled before native execution. Its synchronous native
+plugin forwards the same schemas and results through one persistent, captured
+dispatch MCP connection. This keeps large-result continuation readable and
+preserves real rejection/receipt semantics. Connection loss requires receipt
+reconciliation before another final action; cancellation and session end fence
+further calls. Config inspection itself must not execute ambient plugins.
+
+Antigravity CLI correction uses a verified native custom Agent in an owned
+temporary home. The native finish tool emits the supplied structured final
+action; private text never becomes a substitute publication. File, command,
+web and delegate tools are absent, and the fresh process has no old background
+tasks. Native settings and credential/policy sources remain available without
+rewriting the original configuration. Ambient hooks/plugins/MCPs and external
+runtime overrides are rejected before prompting. The normal action validator
+and recorder remain the only writer, and canonical continuity is preserved.
+
+Grok ACP correction uses a fresh native agent with only delivery-tool dispatch
+wrappers. Its tool profile does not by itself prohibit file-backed arguments;
+an isolated native config snapshot adds Read and other business-action denials.
+The original selected mode, HOME, cwd, configuration values, policy sources and
+native approval flow remain authoritative. The adapter checks the original and
+scoped native configuration before starting a session, then verifies the actual
+profile, hooks and ready MCP catalog before prompting. Unknown custom profiles,
+ambient hooks/plugins or unverifiable policy fail closed. A snapshot is not a
+new publication or credential authority and is removed after process closure.
+
+An isolated correction receives the complete prior result as private context,
+not a UI-sized preview that assumes the old conversation is available. It still
+needs an explicit final action. Neither private context, a structured receipt
+claim nor a local proposal receipt is proof of public Space publication.
 
 ### signal.system_notice Field Contract
 
@@ -2093,6 +2554,12 @@ Trace must preserve enough evidence to connect:
 - `replySignalId`
 - Cloudflare runtime evidence when available
 
+For a delivery rejected while the route is connected but not accepting work,
+Trace must show the admission reason attached to that rejection, including its
+transition revision and generation, or explicitly say that the reason was not
+reported. The current healthy route must not overwrite the historical rejected
+attempt's evidence.
+
 The canonical selector and correlation contract is the Correlation Chain in
 `developing/architecture/data-and-observability.md`, with the shared schema in
 `packages/schemas/src/schemas/http/observability-correlation.ts`. Trace
@@ -2149,7 +2616,7 @@ Use scoped owner documents for detailed rules:
 - Runtime owns Runtime truth.
 - Binding owns execution connection truth.
 - RuntimeCoordinator owns in-flight Wake execution truth.
-- D1 dispatch records own Wake execution ledger and query projection.
+- PostgreSQL dispatch records own Wake execution ledger and query projection.
 - Prepare writes Runtime readiness evidence only.
 - Reference never creates dispatch work.
 - A bare `@Agent Name` in prose never creates dispatch work.

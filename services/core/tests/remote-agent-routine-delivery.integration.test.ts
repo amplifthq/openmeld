@@ -1,6 +1,9 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
+  buildRemoteAgentRoutineRunConversationId,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
@@ -14,11 +17,24 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveRemoteAgentTurnEnvelopeForName } from "../../remote-agent/agent-core/submission";
-import { registerAgentTaskCompletionSubscription } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import {
+  buildRemoteAgentName,
+  resolveRemoteAgentTurnEnvelopeForName,
+} from "../../remote-agent/agent-core/submission";
+import {
+  claimReadyAgentTaskCompletionSubscription,
+  recordAgentTaskTerminalOutcome,
+  registerAgentTaskCompletionSubscription,
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
+import { planCenterAgentWakeDelegation } from "../src/center-agent/application/center-agent-delegation-service";
+import {
+  executeCenterAgentWakePublication,
+  prepareCenterAgentWakePublicationBatch,
+} from "../src/center-agent/application/center-agent-wake-publication-service";
 import type { CenterAgentMemoryService } from "../src/center-agent-memory/memory-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import { createOrganizationSkillService } from "../src/organization-skills/organization-skill-service";
+import { setOrganizationWorkingLanguagePreference } from "../src/organizations/organization-working-language-repository";
 import {
   REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS,
   REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
@@ -45,7 +61,7 @@ import {
   markRemoteAgentNativeDeliveryCompleted,
   markRemoteAgentNativeDeliveryDeadlineProbeEnqueued,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   failStaleClaimedRoutineRuns,
   readRoutineRunRecord,
@@ -59,13 +75,12 @@ import {
   type RoutineActor,
 } from "../src/routines/routine-service";
 import { ROUTINE_WORKFLOW_CALLBACK_EVENTS } from "../src/routines/routine-workflow-contract";
+import { postgresFixtureOperator } from "./postgresql.test-support";
 
 const ownedRoutineOrganizationIds = new Set<string>();
-
 type RoutineDeliveryClaimInput = Parameters<
   typeof claimRemoteAgentRoutineNativeDeliveryRecord
 >[0];
-
 async function claimRemoteAgentRoutineNativeDelivery(
   input: Omit<
     RoutineDeliveryClaimInput,
@@ -90,11 +105,9 @@ async function claimRemoteAgentRoutineNativeDelivery(
     ...input,
   });
 }
-
 type RoutineAdmissionFailureClaimInput = Parameters<
   typeof claimRemoteAgentRoutineAdmissionFailureRecord
 >[0];
-
 async function claimRemoteAgentRoutineAdmissionFailure(
   input: Omit<
     RoutineAdmissionFailureClaimInput,
@@ -119,7 +132,6 @@ async function claimRemoteAgentRoutineAdmissionFailure(
     ...input,
   });
 }
-
 function readAnalyticsBlobIndex(
   key: (typeof OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS)[number]
 ): number {
@@ -129,7 +141,6 @@ function readAnalyticsBlobIndex(
   }
   return index;
 }
-
 afterEach(async () => {
   try {
     await cleanupOwnedRoutineRows();
@@ -137,55 +148,222 @@ afterEach(async () => {
     vi.restoreAllMocks();
   }
 });
-
 async function seedPersonalRoutineDeliveryFixture() {
   const fixture = await seedRoutineDeliveryFixture();
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      "DELETE FROM center_agent_designations WHERE organization_id = ?"
-    ).bind(fixture.organizationId),
-    env.OPENMELD_DB.prepare(
-      "UPDATE openMeldDaemon_agent_profile_bindings SET binding_state = 'disabled_historical', disabled_at_ms = ? WHERE binding_id = ?"
-    ).bind(fixture.nowMs, fixture.bindingId),
-    env.OPENMELD_DB.prepare(
-      "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = ? WHERE profile_id = ?"
-    ).bind(fixture.creatorUserId, fixture.profileId),
-    env.OPENMELD_DB.prepare(
-      "UPDATE openMeldDaemon_agent_profile_bindings SET binding_state = 'enabled_primary', disabled_at_ms = NULL, owner_kind = 'owner_account', owner_id = ?, runtime_kind = 'hosted_remote_agent', agent_controller_ref = ?, openmeld_service_runtime_id = ?, hosted_runtime_identity_json = ? WHERE binding_id = ?"
-    ).bind(
-      fixture.creatorUserId,
-      HOSTED_REMOTE_AGENT_CONTROLLER_REF,
-      HOSTED_REMOTE_AGENT_CONTROLLER_REF,
-      JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY),
-      fixture.bindingId
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO space_index_memberships (space_id, profile_id, profile_kind_snapshot, profile_name_snapshot, owner_user_id_snapshot, status, member_source, added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES (?, ?, 'human', 'Routine Creator', ?, 'active', 'member_add', ?, ?, ?, ?)"
-    ).bind(
-      fixture.spaceId,
-      fixture.creatorProfileId,
-      fixture.creatorUserId,
-      fixture.nowMs,
-      fixture.nowMs,
-      fixture.nowMs,
-      crypto.randomUUID()
-    ),
-    env.OPENMELD_DB.prepare(
-      "UPDATE routines SET agent_profile_id = ? WHERE id = ?"
-    ).bind(fixture.profileId, fixture.routineId),
-    env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET agent_profile_id_snapshot = ? WHERE id = ?"
-    ).bind(fixture.profileId, fixture.runId),
-  ]);
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."center_agent_designations" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [fixture.organizationId],
+        },
+        {
+          ...{
+            text: 'UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings" SET binding_state = \'disabled_historical\', disabled_at_ms = $1 WHERE binding_id = $2',
+            values: [],
+          },
+          values: [fixture.nowMs, fixture.bindingId],
+        },
+        {
+          ...{
+            text: 'UPDATE "openmeld"."openmeld_profiles" SET managed_role = NULL, owner_user_id = $1 WHERE profile_id = $2',
+            values: [],
+          },
+          values: [fixture.creatorUserId, fixture.profileId],
+        },
+        {
+          ...{
+            text: "UPDATE \"openmeld\".\"openMeldDaemon_agent_profile_bindings\" SET binding_state = 'enabled_primary', disabled_at_ms = NULL, owner_kind = 'owner_account', owner_id = $1, runtime_kind = 'hosted_remote_agent', agent_controller_ref = $2, openmeld_service_runtime_id = $3, hosted_runtime_identity_json = $4 WHERE binding_id = $5",
+            values: [],
+          },
+          values: [
+            fixture.creatorUserId,
+            HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+            HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+            JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY),
+            fixture.bindingId,
+          ],
+        },
+        {
+          ...{
+            text: "INSERT INTO \"openmeld\".\"space_index_memberships\" (space_id, profile_id, profile_kind_snapshot, profile_name_snapshot, owner_user_id_snapshot, status, member_source, added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES ($1, $2, 'human', 'Routine Creator', $3, 'active', 'member_add', $4, $5, $6, $7)",
+            values: [],
+          },
+          values: [
+            fixture.spaceId,
+            fixture.creatorProfileId,
+            fixture.creatorUserId,
+            fixture.nowMs,
+            fixture.nowMs,
+            fixture.nowMs,
+            crypto.randomUUID(),
+          ],
+        },
+        {
+          ...{
+            text: 'UPDATE "openmeld"."routines" SET agent_profile_id = $1 WHERE id = $2',
+            values: [],
+          },
+          values: [fixture.profileId, fixture.routineId],
+        },
+        {
+          ...{
+            text: 'UPDATE "openmeld"."routine_runs" SET agent_profile_id_snapshot = $1 WHERE id = $2',
+            values: [],
+          },
+          values: [fixture.profileId, fixture.runId],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return fixture;
 }
-
 describe("Remote Agent Routine native delivery", () => {
+  it("gives later occurrences of the same existing Routine separate execution conversations", async () => {
+    const fixture = await seedRoutineDeliveryFixture();
+    const nextRunId = `routine_run_${crypto.randomUUID()}`;
+    const nextScheduledFor = fixture.nowMs + 24 * 60 * 60 * 1000;
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."routine_runs" (id, routine_id, organization_id, scheduled_for, status, routine_name_snapshot, target_space_id_snapshot, started_at_ms) VALUES ($1, $2, $3, $4, \'claimed\', $5, $6, $7)',
+        values: [],
+      },
+      values: [
+        nextRunId,
+        fixture.routineId,
+        fixture.organizationId,
+        nextScheduledFor,
+        fixture.routine.name,
+        fixture.spaceId,
+        nextScheduledFor,
+      ],
+    });
+    const nextRun = await readRoutineRunRecord({
+      db: getPostgresDatabase(env),
+      runId: nextRunId,
+    });
+    if (!nextRun) {
+      throw new Error("The next Routine Run fixture was not created");
+    }
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: fixture.nowMs,
+        idempotencyKey: request.idempotencyKey,
+        status: "pending" as const,
+        submissionId: `submission_${request.dispatchId}`,
+      })
+    );
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    for (const run of [fixture.run, nextRun]) {
+      await expect(
+        submitRemoteAgentRoutineDelivery({
+          db: getPostgresDatabase(env),
+          env: testEnv,
+          nowMs: run.scheduledFor,
+          routine: fixture.routine,
+          run,
+        })
+      ).resolves.toEqual({ status: "submitted" });
+    }
+    expect(workerSubmit).toHaveBeenCalledTimes(2);
+    expect(workerSubmit.mock.calls.map(([request]) => request.spaceId)).toEqual(
+      [fixture.spaceId, fixture.spaceId]
+    );
+    expect(
+      workerSubmit.mock.calls.map(([request]) => request.conversationId)
+    ).toEqual([
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: fixture.runId,
+      }),
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: nextRunId,
+      }),
+    ]);
+  });
+  it("runs an existing Routine without reading an unstarted destination conversation", async () => {
+    const fixture = await seedRoutineDeliveryFixture();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `INSERT INTO "openmeld"."openMeldRemoteAgent_conversation_generations" (
+        organization_id, logical_conversation_id, active_generation,
+        started_at_ms, rollover_delivery_id, created_at_ms, updated_at_ms
+      ) VALUES ($1, $2, 1, NULL, $3, $4, $5)`,
+        values: [],
+      },
+      values: [
+        fixture.organizationId,
+        fixture.spaceId,
+        "earlier-interactive-dispatch",
+        fixture.nowMs,
+        fixture.nowMs,
+      ],
+    });
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: fixture.nowMs,
+        idempotencyKey: request.idempotencyKey,
+        status: "pending" as const,
+        submissionId: fixture.submissionId,
+      })
+    );
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    testEnv.__spaceStub.rpcListDispatchConversationContinuitySignalsResult =
+      vi.fn(async () => ({
+        code: "space.forbidden",
+        message: "dispatch source signal was not found",
+        ok: false as const,
+        status: 403,
+      }));
+    await expect(
+      submitRemoteAgentRoutineDelivery({
+        db: getPostgresDatabase(env),
+        env: testEnv,
+        nowMs: fixture.nowMs,
+        routine: fixture.routine,
+        run: fixture.run,
+      })
+    ).resolves.toEqual({ status: "submitted" });
+    expect(workerSubmit).toHaveBeenCalledOnce();
+    expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: expect.not.stringMatching(fixture.spaceId),
+      spaceId: fixture.spaceId,
+      turnEnvelope: { trigger: { runId: fixture.runId, source: "routine" } },
+    });
+    expect(
+      testEnv.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
+    ).not.toHaveBeenCalled();
+    await completeRemoteAgentNativeDelivery(
+      testEnv,
+      buildCompletedCallback(fixture)
+    );
+    await expect(
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).toHaveBeenCalledOnce();
+  });
   it("keeps personal Routine management scoped to its Agent and preserves pause and resume", async () => {
     const fixture = await seedPersonalRoutineDeliveryFixture();
     const stores = {
-      db: env.OPENMELD_DB,
-      projectionsDb: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
+      projectionsDb: getPostgresDatabase(env),
       now: () => fixture.nowMs,
     };
     const service = createRoutineService({
@@ -232,17 +410,18 @@ describe("Remote Agent Routine native delivery", () => {
     await service.delete(actor, fixture.routineId);
     expect((await service.list(actor)).routines).toEqual([]);
   });
-
   it("does not execute a personal Routine after its owner loses access to the destination", async () => {
     const fixture = await seedPersonalRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM space_index_memberships WHERE space_id = ? AND profile_id = ?"
-    )
-      .bind(fixture.spaceId, fixture.creatorProfileId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."space_index_memberships" WHERE space_id = $1 AND profile_id = $2',
+        values: [],
+      },
+      values: [fixture.spaceId, fixture.creatorProfileId],
+    });
     const workerSubmit = vi.fn();
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: buildEnv({ fixture, workerSubmit }),
       nowMs: fixture.nowMs,
       routine: fixture.routine,
@@ -250,10 +429,12 @@ describe("Remote Agent Routine native delivery", () => {
     });
     expect(workerSubmit).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "failed" });
   });
-
   it("runs a personal Routine with its own identity and publishes its result exactly once", async () => {
     const fixture = await seedPersonalRoutineDeliveryFixture();
     const workerSubmit = vi.fn(async () => ({
@@ -269,7 +450,7 @@ describe("Remote Agent Routine native delivery", () => {
     } as unknown as CenterAgentMemoryService;
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
@@ -281,6 +462,11 @@ describe("Remote Agent Routine native delivery", () => {
     expect(workerSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         v: 4,
+        conversationId: buildRemoteAgentRoutineRunConversationId({
+          agentProfileId: fixture.profileId,
+          organizationId: fixture.organizationId,
+          runId: fixture.runId,
+        }),
         conversationIdentity: {
           kind: "personal_agent",
           agentProfileId: fixture.profileId,
@@ -308,20 +494,38 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "completed" });
   });
-
   it("lets concurrent scanners produce one Run, one worker turn, and one visible result", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare("DELETE FROM routine_runs WHERE id = ?").bind(
-        fixture.runId
-      ),
-      env.OPENMELD_DB.prepare(
-        "UPDATE routines SET next_due_at = ? WHERE id = ?"
-      ).bind(fixture.nowMs, fixture.routineId),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."routine_runs" WHERE id = $1',
+              values: [],
+            },
+            values: [fixture.runId],
+          },
+          {
+            ...{
+              text: 'UPDATE "openmeld"."routines" SET next_due_at = $1 WHERE id = $2',
+              values: [],
+            },
+            values: [fixture.nowMs, fixture.routineId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: fixture.nowMs,
@@ -340,25 +544,26 @@ describe("Remote Agent Routine native delivery", () => {
         ...deliveryInput,
         env: testEnv,
       });
-
     await Promise.all([
       runRoutineSchedulerTick({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         generateRunId: () => fixture.runId,
         nowMs: fixture.nowMs,
         submitRoutineDelivery,
       }),
       runRoutineSchedulerTick({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         generateRunId: () => fixture.runId,
         nowMs: fixture.nowMs,
         submitRoutineDelivery,
       }),
     ]);
-
     expect(workerSubmit).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
     await completeRemoteAgentNativeDelivery(
@@ -376,20 +581,24 @@ describe("Remote Agent Routine native delivery", () => {
       })
     );
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "completed" });
   });
-
   it("keeps watchdog and initial native-delivery claim from tearing the Run and ledger apart", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET started_at_ms = ? WHERE id = ?"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routine_runs" SET started_at_ms = $1 WHERE id = $2',
+        values: [],
+      },
+      values: [
         fixture.nowMs - ROUTINE_CLAIM_WATCHDOG_TIMEOUT_MS - 1,
-        fixture.runId
-      )
-      .run();
+        fixture.runId,
+      ],
+    });
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: fixture.nowMs,
@@ -398,10 +607,9 @@ describe("Remote Agent Routine native delivery", () => {
       submissionId: fixture.submissionId,
     }));
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await Promise.allSettled([
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
@@ -409,18 +617,17 @@ describe("Remote Agent Routine native delivery", () => {
       }),
       failStaleClaimedRoutineRuns({
         cutoffMs: fixture.nowMs - ROUTINE_CLAIM_WATCHDOG_TIMEOUT_MS,
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         limit: 1,
         nowMs: fixture.nowMs,
       }),
     ]);
-
     const run = await readRoutineRunRecord({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       runId: fixture.runId,
     });
     const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: fixture.runId,
     });
     if (run?.status === "failed") {
@@ -439,13 +646,12 @@ describe("Remote Agent Routine native delivery", () => {
       expect(workerSubmit).toHaveBeenCalledTimes(1);
     }
   });
-
   it("submits one unattended turn, links both ledgers, and projects the final Space result", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmit = vi.fn(
       (request: RemoteAgentWorkerSubmitTurnRequest) => {
         resolveRemoteAgentTurnEnvelopeForName({
-          agentName: request.spaceId,
+          agentName: buildRemoteAgentName(request),
           requestContext: request,
         });
         return {
@@ -464,10 +670,9 @@ describe("Remote Agent Routine native delivery", () => {
       spaceGuide: "Publish decisions with evidence.",
       workerSubmit,
     });
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         memoryService,
         nowMs: fixture.nowMs,
@@ -475,7 +680,6 @@ describe("Remote Agent Routine native delivery", () => {
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "submitted" });
-
     expect(workerSubmit).toHaveBeenCalledTimes(1);
     expect(workerSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -521,7 +725,7 @@ describe("Remote Agent Routine native delivery", () => {
       })
     );
     const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: fixture.runId,
     });
     expect(delivery).toMatchObject({
@@ -530,12 +734,14 @@ describe("Remote Agent Routine native delivery", () => {
       status: "accepted",
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       nativeDeliveryId: delivery?.deliveryId,
       status: "submitted",
     });
-
     const callback = {
       ...buildCompletedCallback(fixture),
       conversationCompaction: {
@@ -578,12 +784,14 @@ describe("Remote Agent Routine native delivery", () => {
       })
     );
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       publishedSignalId: fixture.publishedSignalId,
       status: "completed",
     });
-
     await expect(
       completeRemoteAgentNativeDelivery(testEnv, {
         agentProfileId: callback.agentProfileId,
@@ -601,7 +809,10 @@ describe("Remote Agent Routine native delivery", () => {
     ).resolves.toMatchObject({ status: "duplicate_rejected" });
     expect(published).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: null,
       publishedSignalId: fixture.publishedSignalId,
@@ -609,14 +820,159 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("publishes only the resumed Center Agent result after delegated Routine work", async () => {
+  it("keeps a Routine open when its initial callback precedes every batch publication", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-    )
-      .bind(fixture.runId)
-      .run();
-    const continuationIdempotencyKey = `agent-task-continuation:${crypto.randomUUID()}`;
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+      values: [fixture.runId],
+    });
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: fixture.nowMs,
+      idempotencyKey: fixture.runId,
+      requestId: `request_${fixture.runId}`,
+      status: "pending" as const,
+      submissionId: fixture.submissionId,
+    }));
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    await submitRemoteAgentRoutineDelivery({
+      db: getPostgresDatabase(env),
+      env: testEnv,
+      nowMs: fixture.nowMs,
+      routine: fixture.routine,
+      run: fixture.run,
+    });
+    const destinations = ["alpha", "beta"].map((name) => ({
+      childSpaceId: `space_${name}_${crypto.randomUUID()}`,
+      clientMessageId: `ca-wake:${crypto.randomUUID()}`,
+      targetProfileIds: [fixture.profileId],
+    }));
+    const [root, second] = destinations;
+    if (!(root && second)) {
+      throw new Error("Missing batch destinations");
+    }
+    const plan = planCenterAgentWakeDelegation({
+      ...root,
+      additionalDestinations: [second],
+    });
+    await prepareCenterAgentWakePublicationBatch({
+      commands: destinations.map((destination, index) => ({
+        activationTargets: destination.targetProfileIds,
+        attribution: {
+          actorProfileId: fixture.profileId,
+          onBehalfOf: {
+            displayName: "Routine Creator",
+            profileId: fixture.creatorProfileId,
+            userId: fixture.creatorUserId,
+          },
+        },
+        batchRootPublicationId: root.clientMessageId,
+        ...(index === 0
+          ? {
+              batchPublicationIds: destinations.map(
+                (item) => item.clientMessageId
+              ),
+            }
+          : {}),
+        clientMessageId: destination.clientMessageId,
+        completionMode: "resume_parent_when_all_terminal",
+        context: {
+          actorContext: {
+            profileKind: "agent",
+            profileName: "Routine Center Agent",
+            requestId: fixture.runId,
+            openMeldProfileId: fixture.profileId,
+          },
+          activeOrganizationId: fixture.organizationId,
+          agentControllerConversationId: fixture.submissionId,
+        },
+        delegationId: plan.delegationId,
+        fallbackAgentProfileId: null,
+        mentionTargets: [],
+        organizationId: fixture.organizationId,
+        parentSubmissionId: fixture.submissionId,
+        profile: {
+          kind: "agent",
+          profileId: fixture.profileId,
+          profileName: "Routine Center Agent",
+        },
+        referenceTargets: [],
+        spaceId: destination.childSpaceId,
+        subscriptionIds: plan.childTasks
+          .filter((child) => child.task.spaceId === destination.childSpaceId)
+          .map((child) => child.subscriptionId),
+        text: "Complete the delegated work.",
+        v: 1,
+      })),
+      db: getPostgresDatabase(env),
+      nowMs: fixture.nowMs + 100,
+    });
+    await expect(
+      completeRemoteAgentNativeDelivery(
+        testEnv,
+        buildCompletedCallback(fixture),
+        {
+          bypassRoutineWorkflowRouting: true,
+        }
+      )
+    ).resolves.toEqual({ publishedSignalId: null, status: "accepted" });
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).not.toHaveBeenCalled();
+    await expect(
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
+    ).resolves.toMatchObject({ status: "submitted" });
+    const publishedSpaces: string[] = [];
+    for (const destination of destinations) {
+      await expect(
+        executeCenterAgentWakePublication({
+          db: getPostgresDatabase(env),
+          nowMs: fixture.nowMs + 200,
+          publicationId: destination.clientMessageId,
+          publishSignal: (command) => {
+            publishedSpaces.push(command.spaceId);
+            return Promise.resolve(
+              createSignal(
+                `signal_${crypto.randomUUID()}`,
+                fixture,
+                command.spaceId
+              )
+            );
+          },
+          resolveSignal: async () => null,
+        })
+      ).resolves.toMatchObject({ status: "accepted" });
+    }
+    expect(publishedSpaces).toEqual(
+      destinations.map((destination) => destination.childSpaceId)
+    );
+  });
+
+  it.each([
+    "completed",
+    "failed",
+  ] as const)("publishes only the resumed Routine's %s result in its chosen language", async (continuationStatus) => {
+    const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: getPostgresDatabase(env),
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag: "en",
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.runId],
+    });
+    const subscriptionId = `subscription_${crypto.randomUUID()}`;
+    const continuationIdempotencyKey = `agent-task-continuation:${subscriptionId}`;
     const continuationSubmissionId = `submission_continuation_${crypto.randomUUID()}`;
     let deliveryIdDuringContinuationAdmission: string | null = null;
     const workerSubmit = vi.fn(
@@ -625,7 +981,7 @@ describe("Remote Agent Routine native delivery", () => {
           deliveryIdDuringContinuationAdmission =
             (
               await readRoutineRunRecord({
-                db: env.OPENMELD_DB,
+                db: getPostgresDatabase(env),
                 runId: fixture.runId,
               })
             )?.nativeDeliveryId ?? null;
@@ -645,14 +1001,14 @@ describe("Remote Agent Routine native delivery", () => {
     );
     const testEnv = buildEnv({ fixture, workerSubmit });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
       run: fixture.run,
     });
     const parentDelivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: fixture.runId,
     });
     if (!parentDelivery) {
@@ -686,18 +1042,18 @@ describe("Remote Agent Routine native delivery", () => {
       delegationId: `delegation_${crypto.randomUUID()}`,
       generation: 1,
     };
-    const subscriptionId = `subscription_${crypto.randomUUID()}`;
     await registerAgentTaskCompletionSubscription({
       completionCondition: "terminal",
       continuation: {
         delegationId: delegation.delegationId,
         instruction: "Synthesize the delegated findings into the final report.",
         kind: "resume_agent",
+        replyLanguageTag: "zh-Hans",
         sourceSignalId: fixture.runId,
         spaceId: fixture.spaceId,
         threadContext: null,
       },
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: `subscription-key:${subscriptionId}`,
       nowMs: fixture.nowMs + 600,
       observerTask: {
@@ -709,7 +1065,6 @@ describe("Remote Agent Routine native delivery", () => {
       subscriptionId,
       watchedTask,
     });
-
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
     const intermediateCallback = {
       ...buildCompletedCallback(fixture),
@@ -724,7 +1079,10 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       nativeDeliveryId: parentDelivery.deliveryId,
       status: "submitted",
@@ -735,24 +1093,39 @@ describe("Remote Agent Routine native delivery", () => {
       })
     ).resolves.toMatchObject({ status: "duplicate_rejected" });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       nativeDeliveryId: parentDelivery.deliveryId,
       status: "submitted",
     });
-
     const terminalParentDelivery =
       await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       });
     if (!terminalParentDelivery) {
       throw new Error("Routine parent delivery disappeared");
     }
+    await recordAgentTaskTerminalOutcome({
+      db: getPostgresDatabase(env),
+      nowMs: fixture.nowMs + 1400,
+      outcome,
+      task: watchedTask,
+    });
+    await claimReadyAgentTaskCompletionSubscription({
+      db: getPostgresDatabase(env),
+      claimId: `claim:${subscriptionId}`,
+      claimLeaseMs: 30_000,
+      nowMs: fixture.nowMs + 1401,
+      subscriptionId,
+    });
     const skillInstalledAfterRunAdmission =
       await createOrganizationSkillService({
         bucket: env.OPENMELD_ORGANIZATION_SKILLS,
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
       }).create(
         {
           organizationId: fixture.organizationId,
@@ -766,12 +1139,13 @@ describe("Remote Agent Routine native delivery", () => {
         }
       );
     const continuation = await submitRemoteAgentTaskContinuationDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       delegation,
       delegationId: delegation.delegationId,
       env: testEnv,
       idempotencyKey: continuationIdempotencyKey,
       instruction: "Synthesize the delegated findings into the final report.",
+      replyLanguageTag: "zh-Hans",
       isAuthorized: async () => true,
       nowMs: fixture.nowMs + 1500,
       observerDelivery: terminalParentDelivery,
@@ -788,7 +1162,7 @@ describe("Remote Agent Routine native delivery", () => {
     );
     const continuationDelivery =
       await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: continuationIdempotencyKey,
       });
     if (!continuationDelivery) {
@@ -819,14 +1193,17 @@ describe("Remote Agent Routine native delivery", () => {
       skillId: skillInstalledAfterRunAdmission.id,
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       nativeDeliveryId: continuationDelivery.deliveryId,
       status: "submitted",
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -834,7 +1211,11 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmitRequest: null,
     });
     expect(continuationDelivery.workerSubmitRequest).not.toBeNull();
-
+    expect(
+      workerSubmit.mock.calls[1]?.[0]?.messages.some((message) =>
+        message.content.includes("reply-language decision: zh-Hans")
+      )
+    ).toBe(true);
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 2000);
     await expect(
       completeRemoteAgentNativeDelivery(
@@ -847,7 +1228,15 @@ describe("Remote Agent Routine native delivery", () => {
           organizationId: fixture.organizationId,
           spaceId: fixture.spaceId,
           submissionId: continuationSubmissionId,
-          text: "Final report after delegated research.",
+          ...(continuationStatus === "failed"
+            ? {
+                status: "failed" as const,
+                failureCode: "remote_agent.turn.context_window_exceeded",
+                failureDetail: "synthetic-private-worker-detail",
+                failureMessage:
+                  "Center Agent couldn't generate a reply. Your message is saved.",
+              }
+            : { text: "Final report after delegated research." }),
           triggerMessageId: fixture.runId,
         },
         { bypassRoutineWorkflowRouting: true }
@@ -859,22 +1248,33 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledOnce();
+    if (continuationStatus === "failed") {
+      const text =
+        testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock
+          .calls[0]?.[0]?.text;
+      expect(text).toContain("对话内容超过了模型一次能处理的范围。");
+      expect(text).not.toContain("synthetic-private-worker-detail");
+    }
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       nativeDeliveryId: continuationDelivery.deliveryId,
       publishedSignalId: fixture.publishedSignalId,
-      status: "completed",
+      status: continuationStatus,
     });
   });
-
   it("replays a rejected Routine continuation terminal event without rerunning the worker", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-    )
-      .bind(fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.runId],
+    });
     const continuationIdempotencyKey = `agent-task-continuation:${crypto.randomUUID()}`;
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) =>
@@ -906,7 +1306,7 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmit,
     });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
@@ -914,7 +1314,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     const admittedParentDelivery =
       await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       });
     if (!admittedParentDelivery) {
@@ -959,7 +1359,7 @@ describe("Remote Agent Routine native delivery", () => {
         spaceId: fixture.spaceId,
         threadContext: null,
       },
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: `subscription-key:${subscriptionId}`,
       nowMs: fixture.nowMs + 600,
       observerTask: {
@@ -980,14 +1380,14 @@ describe("Remote Agent Routine native delivery", () => {
       { bypassRoutineWorkflowRouting: true }
     );
     const parentDelivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: fixture.runId,
     });
     if (!parentDelivery) {
       throw new Error("Routine parent delivery disappeared");
     }
     const continuationInput = {
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       delegation,
       delegationId: delegation.delegationId,
       env: testEnv,
@@ -1002,7 +1402,6 @@ describe("Remote Agent Routine native delivery", () => {
       threadContext: null,
       watchedTask,
     };
-
     await expect(
       submitRemoteAgentTaskContinuationDelivery({
         ...continuationInput,
@@ -1010,23 +1409,26 @@ describe("Remote Agent Routine native delivery", () => {
       })
     ).rejects.toThrow("Workflow event transport unavailable");
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       status: "submitted",
     });
-    await env.OPENMELD_DB.prepare(
-      `
-        CREATE TRIGGER test_reject_routine_continuation_terminal_projection
-        BEFORE UPDATE OF status ON routine_runs
-        WHEN NEW.status = 'failed'
-        BEGIN
-          SELECT RAISE(
-            ABORT,
-            'forced Routine continuation terminal projection failure'
-          );
-        END
-      `
-    ).run();
+    const fixtureOperator = postgresFixtureOperator(env);
+    await fixtureOperator.query(`
+      CREATE FUNCTION openmeld.test_reject_routine_continuation_terminal_projection()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'forced Routine continuation terminal projection failure';
+      END
+      $$;
+      CREATE TRIGGER test_reject_routine_continuation_terminal_projection
+      BEFORE UPDATE OF status ON openmeld.routine_runs
+      FOR EACH ROW WHEN (NEW.status = 'failed')
+      EXECUTE FUNCTION openmeld.test_reject_routine_continuation_terminal_projection();
+    `);
     try {
       await expect(
         submitRemoteAgentTaskContinuationDelivery({
@@ -1037,16 +1439,20 @@ describe("Remote Agent Routine native delivery", () => {
         "forced Routine continuation terminal projection failure"
       );
     } finally {
-      await env.OPENMELD_DB.prepare(
-        "DROP TRIGGER IF EXISTS test_reject_routine_continuation_terminal_projection"
-      ).run();
+      await fixtureOperator.query(`
+        DROP TRIGGER test_reject_routine_continuation_terminal_projection ON openmeld.routine_runs;
+        DROP FUNCTION openmeld.test_reject_routine_continuation_terminal_projection();
+      `);
     }
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
     await expect(
       finalizeRemoteAgentRoutineContinuationFailure({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         failureCode: "remote_agent.turn_envelope_identity_mismatch",
         nowMs: fixture.nowMs + 1200,
@@ -1063,12 +1469,14 @@ describe("Remote Agent Routine native delivery", () => {
       task: { kind: "native_delivery" },
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.turn_envelope_identity_mismatch",
       status: "failed",
     });
-
     expect(
       workerSubmit.mock.calls.filter(
         ([request]) => request.idempotencyKey === continuationIdempotencyKey
@@ -1084,8 +1492,19 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("fails immediately when Remote Agent deterministically rejects Routine admission", async () => {
+  it.each([
+    "en",
+    "zh-Hans",
+  ])("fails immediately in %s when Remote Agent deterministically rejects Routine admission", async (languageTag) => {
     const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: getPostgresDatabase(env),
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
     const workerSubmit = vi.fn(async () => ({
       idempotencyKey: fixture.runId,
       message:
@@ -1095,27 +1514,32 @@ describe("Remote Agent Routine native delivery", () => {
       v: 1 as const,
     }));
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "failed" });
-
     expect(workerSubmit).toHaveBeenCalledTimes(1);
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics.",
+        text: expect.stringContaining(
+          languageTag === "en"
+            ? "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics."
+            : "Routine “Daily feedback review”未能运行，Agent 无法接纳本次请求。"
+        ),
       })
     );
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.routine_identity_mismatch",
       failureDetail:
@@ -1124,7 +1548,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -1134,113 +1558,82 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmitRequest: null,
     });
   });
-
-  it("rolls a history-limited Routine on the same destination automatically", async () => {
+  it("fails a history-limited Run explicitly without reading its destination as execution history", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    const workerSubmit = vi
-      .fn()
-      .mockResolvedValueOnce({
-        idempotencyKey: fixture.runId,
-        message: "Worker diagnostic detail only.",
-        outcome: "rejected" as const,
-        reasonCode: "remote_agent.conversation_history_limit_exceeded" as const,
-        v: 1 as const,
-      })
-      .mockResolvedValueOnce({
-        accepted: true,
-        createdAt: fixture.nowMs,
-        idempotencyKey: fixture.runId,
-        status: "pending" as const,
-        submissionId: fixture.submissionId,
-      });
-    const testEnv = buildEnv({
-      continuitySignals: [createSignal("signal_previous_1", fixture)],
-      fixture,
-      workerSubmit,
+    const workerSubmit = vi.fn().mockResolvedValueOnce({
+      idempotencyKey: fixture.runId,
+      message: "Worker diagnostic detail only.",
+      outcome: "rejected" as const,
+      reasonCode: "remote_agent.conversation_history_limit_exceeded" as const,
+      v: 1 as const,
     });
-
+    const testEnv = buildEnv({ fixture, workerSubmit });
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
-        env: testEnv,
-        nowMs: fixture.nowMs,
-        routine: fixture.routine,
-        run: fixture.run,
-      })
-    ).resolves.toEqual({ status: "submitted" });
-
-    expect(workerSubmit).toHaveBeenCalledTimes(2);
-    expect(workerSubmit.mock.calls[1]?.[0]).toMatchObject({
-      continuityContext: {
-        entries: [
-          {
-            content: { text: "Routine completed." },
-            source: { kind: "space_signal", signalId: "signal_previous_1" },
-          },
-        ],
-        fromGeneration: 0,
-        toGeneration: 1,
-      },
-      runtimeConversation: { generation: 1 },
-      v: 4,
-    });
-    expect(
-      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
-    ).not.toHaveBeenCalled();
-    await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
-    ).resolves.toMatchObject({
-      failureCode: null,
-      status: "submitted",
-    });
-    await expect(
-      readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
-        idempotencyKey: fixture.runId,
-      })
-    ).resolves.toMatchObject({
-      failureCode: null,
-      status: "accepted",
-      workerSubmitRequest: {
-        runtimeConversation: { generation: 1 },
-        v: 4,
-      },
-    });
-  });
-
-  it("fails a Routine visibly when the Organization daily admission limit is reached", async () => {
-    const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldRemoteAgent_daily_admissions (
-          organization_id,
-          day_utc,
-          admitted_count,
-          last_admission_idempotency_key,
-          created_at_ms,
-          updated_at_ms
-        ) VALUES (?, ?, 1, 'seeded_admission', ?, ?)
-      `
-    )
-      .bind(fixture.organizationId, "2026-07-12", fixture.nowMs, fixture.nowMs)
-      .run();
-    const workerSubmit = vi.fn();
-    const testEnv = buildEnv({
-      dailyAdmissionLimit: "1",
-      fixture,
-      workerSubmit,
-    });
-
-    await expect(
-      submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "failed" });
-
+    expect(workerSubmit).toHaveBeenCalledOnce();
+    expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: fixture.runId,
+      }),
+      runtimeConversation: { generation: 0 },
+      v: 4,
+    });
+    expect(
+      testEnv.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
+    ).not.toHaveBeenCalled();
+    await expect(
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
+    ).resolves.toMatchObject({
+      failureCode: "remote_agent.conversation_history_limit_exceeded",
+      status: "failed",
+    });
+    await expect(
+      readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: getPostgresDatabase(env),
+        idempotencyKey: fixture.runId,
+      })
+    ).resolves.toMatchObject({
+      status: "failed",
+    });
+  });
+  it("fails a Routine visibly when the Organization AI allowance is exhausted", async () => {
+    const fixture = await seedRoutineDeliveryFixture();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."organization_ai_usage_policies"
+          (organization_id, daily_limit_nano_usd, updated_at_ms) VALUES ($1, 0, $2)
+      `,
+        values: [],
+      },
+      values: [fixture.organizationId, fixture.nowMs],
+    });
+    const workerSubmit = vi.fn();
+    const testEnv = buildEnv({
+      fixture,
+      workerSubmit,
+    });
+    await expect(
+      submitRemoteAgentRoutineDelivery({
+        db: getPostgresDatabase(env),
+        env: testEnv,
+        nowMs: fixture.nowMs,
+        routine: fixture.routine,
+        run: fixture.run,
+      })
+    ).resolves.toEqual({ status: "failed" });
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
@@ -1249,11 +1642,13 @@ describe("Remote Agent Routine native delivery", () => {
         meta: expect.objectContaining({
           errorCode: "remote_agent.daily_quota_exceeded",
         }),
-        text: "Routine “Daily feedback review” could not run because the Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC.",
+        text: expect.stringContaining(
+          "Routine “Daily feedback review” could not run because the Organization has used its daily AI allowance. It resets at 00:00 UTC."
+        ),
       })
     );
     const failedRun = await readRoutineRunRecord({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       runId: fixture.runId,
     });
     expect(failedRun).toMatchObject({
@@ -1265,15 +1660,16 @@ describe("Remote Agent Routine native delivery", () => {
     );
     expect(failedRun?.failureDetail).toContain("00:00 UTC");
   });
-
   it("keeps the claimed target immutable while a Routine update changes only the next occurrence", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routines SET target_space_id = ?, updated_at_ms = ? WHERE id = ?"
-    )
-      .bind(futureSpaceId, fixture.nowMs + 1, fixture.routineId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routines" SET target_space_id = $1, updated_at_ms = $2 WHERE id = $3',
+        values: [],
+      },
+      values: [futureSpaceId, fixture.nowMs + 1, fixture.routineId],
+    });
     const nextRunId = `routine_run_${crypto.randomUUID()}`;
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
@@ -1293,10 +1689,9 @@ describe("Remote Agent Routine native delivery", () => {
       fixture,
       workerSubmit,
     });
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         memoryService,
         nowMs: fixture.nowMs,
@@ -1304,7 +1699,6 @@ describe("Remote Agent Routine native delivery", () => {
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "submitted" });
-
     expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
       idempotencyKey: fixture.runId,
       spaceId: fixture.spaceId,
@@ -1318,11 +1712,10 @@ describe("Remote Agent Routine native delivery", () => {
     );
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({ spaceId: fixture.spaceId });
-
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
     await expect(
       completeRemoteAgentNativeDelivery(
@@ -1352,9 +1745,8 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStubs.get(futureSpaceId)
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
-
     await runRoutineSchedulerTick({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateRunId: () => nextRunId,
       nowMs: fixture.nowMs + 24 * 60 * 60 * 1000,
       submitRoutineDelivery: async (deliveryInput) =>
@@ -1364,7 +1756,6 @@ describe("Remote Agent Routine native delivery", () => {
           memoryService,
         }),
     });
-
     expect(workerSubmit.mock.calls[1]?.[0]).toMatchObject({
       idempotencyKey: nextRunId,
       spaceId: futureSpaceId,
@@ -1374,40 +1765,53 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: nextRunId,
       })
     ).resolves.toMatchObject({ spaceId: futureSpaceId });
   });
-
   it("fails closed against the claimed target when its membership is revoked", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "UPDATE routines SET target_space_id = ?, updated_at_ms = ? WHERE id = ?"
-      ).bind(futureSpaceId, fixture.nowMs + 1, fixture.routineId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM space_index_memberships WHERE space_id = ? AND profile_id = ?"
-      ).bind(fixture.spaceId, fixture.profileId),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'UPDATE "openmeld"."routines" SET target_space_id = $1, updated_at_ms = $2 WHERE id = $3',
+              values: [],
+            },
+            values: [futureSpaceId, fixture.nowMs + 1, fixture.routineId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."space_index_memberships" WHERE space_id = $1 AND profile_id = $2',
+              values: [],
+            },
+            values: [fixture.spaceId, fixture.profileId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({
       additionalSpaceIds: [futureSpaceId],
       fixture,
       workerSubmit,
     });
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "failed" });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStubs.get(fixture.spaceId)
@@ -1418,19 +1822,21 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.routine_target_space_unavailable",
       status: "failed",
     });
   });
-
   it("accepts a valid callback that arrives before the worker ACK is persisted", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -1443,7 +1849,6 @@ describe("Remote Agent Routine native delivery", () => {
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({ fixture, workerSubmit });
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
-
     await expect(
       completeRemoteAgentNativeDelivery(
         testEnv,
@@ -1453,14 +1858,13 @@ describe("Remote Agent Routine native delivery", () => {
       publishedSignalId: fixture.publishedSignalId,
       status: "accepted",
     });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -1470,13 +1874,15 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmitRequest: null,
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       publishedSignalId: fixture.publishedSignalId,
       status: "completed",
     });
   });
-
   it("keeps an ambiguous worker RPC outcome pending, replays the run id, and accepts the late callback", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmit = vi
@@ -1492,24 +1898,22 @@ describe("Remote Agent Routine native delivery", () => {
         submissionId: fixture.submissionId,
       });
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "submitted" });
-
     expect(workerSubmit).toHaveBeenCalledTimes(1);
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -1520,12 +1924,14 @@ describe("Remote Agent Routine native delivery", () => {
       }),
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -1535,7 +1941,6 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       workerSubmit.mock.calls.map(([request]) => request.idempotencyKey)
     ).toEqual([fixture.runId, fixture.runId]);
-
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 61_000);
     await expect(
       completeRemoteAgentNativeDelivery(
@@ -1550,19 +1955,21 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       publishedSignalId: fixture.publishedSignalId,
       status: "completed",
     });
   });
-
   it("terminalizes a legacy Routine request that no longer satisfies the identity contract", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -1572,11 +1979,17 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest,
     });
-    const storedRequest = await env.OPENMELD_DB.prepare(
-      "SELECT worker_submit_request_json FROM openMeldRemoteAgent_native_delivery_ledger WHERE idempotency_key = ?"
-    )
-      .bind(fixture.runId)
-      .first<{ worker_submit_request_json: string | null }>();
+    const storedRequest = await getPostgresDatabase(env)
+      .query<{
+        worker_submit_request_json: string | null;
+      }>({
+        ...{
+          text: 'SELECT worker_submit_request_json FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger" WHERE idempotency_key = $1',
+          values: [],
+        },
+        values: [fixture.runId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(
       JSON.parse(storedRequest?.worker_submit_request_json ?? "null")
     ).toEqual({
@@ -1592,23 +2005,23 @@ describe("Remote Agent Routine native delivery", () => {
         ownerUserId?: string;
       }
     ).ownerUserId = undefined;
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openMeldRemoteAgent_native_delivery_ledger SET worker_submit_request_json = ? WHERE idempotency_key = ?"
-    )
-      .bind(JSON.stringify(legacyWorkerSubmitRequest), fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET worker_submit_request_json = $1 WHERE idempotency_key = $2',
+        values: [],
+      },
+      values: [JSON.stringify(legacyWorkerSubmitRequest), fixture.runId],
+    });
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
       })
     ).resolves.toEqual({ errors: 0, recovered: 1, scanned: 1 });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
@@ -1618,14 +2031,17 @@ describe("Remote Agent Routine native delivery", () => {
         ?.text
     ).toContain("could not safely recover its saved execution request");
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.worker_submit_request_invalid",
       status: "failed",
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -1636,7 +2052,6 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmitRequestState: "absent",
     });
   });
-
   it.each([
     ["empty JSON", ""],
     ["malformed JSON", "{"],
@@ -1649,7 +2064,7 @@ describe("Remote Agent Routine native delivery", () => {
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -1659,62 +2074,64 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openMeldRemoteAgent_native_delivery_ledger SET worker_submit_request_json = ? WHERE idempotency_key = ?"
-    )
-      .bind(value, fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET worker_submit_request_json = $1 WHERE idempotency_key = $2',
+        values: [],
+      },
+      values: [value, fixture.runId],
+    });
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
       })
     ).resolves.toEqual({ errors: 0, recovered: 1, scanned: 1 });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.worker_submit_request_invalid",
       status: "failed",
     });
   });
-
   it("keeps Workflow-owned submissions out of the legacy recovery scanner", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-    )
-      .bind(fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.runId],
+    });
     const workerSubmit = vi
       .fn()
       .mockRejectedValue(
         new Error("transport disconnected after Workflow admission")
       );
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "submitted" });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -1722,14 +2139,15 @@ describe("Remote Agent Routine native delivery", () => {
     ).resolves.toEqual({ errors: 0, recovered: 0, scanned: 0 });
     expect(workerSubmit).toHaveBeenCalledTimes(1);
   });
-
   it("forwards a Workflow-owned callback without publishing outside the Workflow", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-    )
-      .bind(fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.runId],
+    });
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: fixture.nowMs,
@@ -1744,30 +2162,32 @@ describe("Remote Agent Routine native delivery", () => {
     const sendEvent = vi.fn(async () => undefined);
     testEnv.OPENMELD_ROUTINE_RUN_WORKFLOW = {
       get: vi.fn(async () => ({ sendEvent })),
-    } as unknown as Workflow<{ runId: string }>;
-
+    } as unknown as Workflow<{
+      runId: string;
+    }>;
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "submitted" });
-
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
     const callback = buildCompletedCallback(fixture);
     await expect(
       completeRemoteAgentNativeDelivery(testEnv, callback)
     ).resolves.toEqual({ status: "accepted" });
-
     expect(sendEvent).toHaveBeenCalledWith({
       payload: callback,
       type: "remote-agent-initial-callback",
     });
     const point = writeDataPoint.mock.calls[0]?.[0] as
-      | { blobs: string[]; indexes: string[] }
+      | {
+          blobs: string[];
+          indexes: string[];
+        }
       | undefined;
     expect(point?.indexes).toEqual([fixture.runId]);
     expect(point?.blobs[readAnalyticsBlobIndex("event")]).toBe(
@@ -1777,17 +2197,21 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
   });
-
   it("records a retryable Workflow callback-forwarding failure by Run id", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-    )
-      .bind(fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.runId],
+    });
     const testEnv = buildEnv({
       fixture,
       workerSubmit: vi.fn(async () => ({
@@ -1807,18 +2231,18 @@ describe("Remote Agent Routine native delivery", () => {
           .fn()
           .mockRejectedValue(new Error("Workflow event transport unavailable")),
       })),
-    } as unknown as Workflow<{ runId: string }>;
-
+    } as unknown as Workflow<{
+      runId: string;
+    }>;
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "submitted" });
-
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
     await expect(
       completeRemoteAgentNativeDelivery(
@@ -1829,9 +2253,11 @@ describe("Remote Agent Routine native delivery", () => {
       reasonCode: "routine.workflow_callback_forward_failed",
       status: "retryable",
     });
-
     const point = writeDataPoint.mock.calls[0]?.[0] as
-      | { blobs: string[]; indexes: string[] }
+      | {
+          blobs: string[];
+          indexes: string[];
+        }
       | undefined;
     expect(point?.indexes).toEqual([fixture.runId]);
     expect(point?.blobs[readAnalyticsBlobIndex("event")]).toBe(
@@ -1841,10 +2267,12 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
   });
-
   it("replays an ambiguous pre-ACK delivery only to the claimed target after a Routine update", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
@@ -1864,27 +2292,27 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmit,
     });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
       run: fixture.run,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routines SET target_space_id = ?, updated_at_ms = ? WHERE id = ?"
-    )
-      .bind(futureSpaceId, fixture.nowMs + 1, fixture.routineId)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routines" SET target_space_id = $1, updated_at_ms = $2 WHERE id = $3',
+        values: [],
+      },
+      values: [futureSpaceId, fixture.nowMs + 1, fixture.routineId],
+    });
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
       })
     ).resolves.toEqual({ errors: 0, recovered: 1, scanned: 1 });
-
     expect(workerSubmit).toHaveBeenCalledTimes(2);
     expect(workerSubmit.mock.calls.map(([request]) => request.spaceId)).toEqual(
       [fixture.spaceId, fixture.spaceId]
@@ -1894,7 +2322,6 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
   });
-
   it("blocks an expired pre-ACK recovery when the ledger target conflicts with the Run snapshot", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const conflictingSpaceId = await seedAdditionalRoutineTargetSpace({
@@ -1909,7 +2336,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -1919,18 +2346,20 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest: claimedTargetRequest,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openMeldRemoteAgent_native_delivery_ledger SET space_id = ?, worker_submit_request_json = ? WHERE idempotency_key = ?"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET space_id = $1, worker_submit_request_json = $2 WHERE idempotency_key = $3',
+        values: [],
+      },
+      values: [
         conflictingSpaceId,
         JSON.stringify(conflictingRequest),
-        fixture.runId
-      )
-      .run();
+        fixture.runId,
+      ],
+    });
     const corruptedDelivery =
       await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       });
     if (!corruptedDelivery) {
@@ -1938,7 +2367,7 @@ describe("Remote Agent Routine native delivery", () => {
     }
     await expect(
       claimRemoteAgentRoutineSubmissionRecoveryAttempt({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         deliveryId: corruptedDelivery.deliveryId,
         expectedUpdatedAtMs: corruptedDelivery.updatedAtMs,
         nowMs: fixture.nowMs + 60_000,
@@ -1960,16 +2389,14 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmit,
     });
     const warn = vi.spyOn(console, "warn");
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 8 * 60_000,
       })
     ).resolves.toEqual({ errors: 0, recovered: 1, scanned: 1 });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
@@ -1979,11 +2406,14 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -2000,10 +2430,9 @@ describe("Remote Agent Routine native delivery", () => {
         runTargetSpaceId: fixture.spaceId,
       })
     );
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 16 * 60_000,
@@ -2011,7 +2440,6 @@ describe("Remote Agent Routine native delivery", () => {
     ).resolves.toEqual({ errors: 0, recovered: 0, scanned: 0 });
     expect(workerSubmit).not.toHaveBeenCalled();
   });
-
   it("rejects a late callback when the ledger target conflicts with the Run snapshot", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const conflictingSpaceId = await seedAdditionalRoutineTargetSpace({
@@ -2026,7 +2454,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -2036,22 +2464,23 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest: claimedTargetRequest,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openMeldRemoteAgent_native_delivery_ledger SET space_id = ?, worker_submit_request_json = ? WHERE idempotency_key = ?"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET space_id = $1, worker_submit_request_json = $2 WHERE idempotency_key = $3',
+        values: [],
+      },
+      values: [
         conflictingSpaceId,
         JSON.stringify(conflictingRequest),
-        fixture.runId
-      )
-      .run();
+        fixture.runId,
+      ],
+    });
     const testEnv = buildEnv({
       additionalSpaceIds: [conflictingSpaceId],
       fixture,
       workerSubmit: vi.fn(),
     });
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 60_000);
-
     await expect(
       completeRemoteAgentNativeDelivery(testEnv, {
         ...buildCompletedCallback(fixture),
@@ -2061,7 +2490,6 @@ describe("Remote Agent Routine native delivery", () => {
       reasonCode: "remote_agent.routine_target_recovery_blocked",
       status: "rejected",
     });
-
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
@@ -2070,11 +2498,14 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -2082,7 +2513,6 @@ describe("Remote Agent Routine native delivery", () => {
       status: "callback_rejected",
     });
   });
-
   it("blocks deadline settlement when the ledger target conflicts with the Run snapshot", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const conflictingSpaceId = await seedAdditionalRoutineTargetSpace({
@@ -2092,7 +2522,7 @@ describe("Remote Agent Routine native delivery", () => {
     const claimedTargetRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -2104,25 +2534,26 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await markRemoteAgentNativeDeliveryAck({
       accepted: true,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: fixture.runId,
       nowMs: fixture.nowMs,
       submissionId: fixture.submissionId,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openMeldRemoteAgent_native_delivery_ledger SET space_id = ? WHERE idempotency_key = ?"
-    )
-      .bind(conflictingSpaceId, fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET space_id = $1 WHERE idempotency_key = $2',
+        values: [],
+      },
+      values: [conflictingSpaceId, fixture.runId],
+    });
     const testEnv = buildEnv({
       additionalSpaceIds: [conflictingSpaceId],
       fixture,
       workerSubmit: vi.fn(),
     });
-
     await expect(
       processRemoteAgentNativeDeliveryDeadlineProbe({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs + 5 * 60_000,
         probe: {
@@ -2141,7 +2572,6 @@ describe("Remote Agent Routine native delivery", () => {
       reasonCode: "remote_agent.routine_target_recovery_blocked",
       status: "skipped",
     });
-
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
@@ -2150,11 +2580,14 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -2162,7 +2595,6 @@ describe("Remote Agent Routine native delivery", () => {
       status: "accepted",
     });
   });
-
   it("returns a blocked Workflow submission when the ledger target conflicts with the Run snapshot", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const conflictingSpaceId = await seedAdditionalRoutineTargetSpace({
@@ -2177,7 +2609,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -2187,28 +2619,43 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest: claimedTargetRequest,
     });
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-      ).bind(fixture.runId),
-      env.OPENMELD_DB.prepare(
-        "UPDATE openMeldRemoteAgent_native_delivery_ledger SET space_id = ?, worker_submit_request_json = ? WHERE idempotency_key = ?"
-      ).bind(
-        conflictingSpaceId,
-        JSON.stringify(conflictingRequest),
-        fixture.runId
-      ),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+              values: [],
+            },
+            values: [fixture.runId],
+          },
+          {
+            ...{
+              text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET space_id = $1, worker_submit_request_json = $2 WHERE idempotency_key = $3',
+              values: [],
+            },
+            values: [
+              conflictingSpaceId,
+              JSON.stringify(conflictingRequest),
+              fixture.runId,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({
       additionalSpaceIds: [conflictingSpaceId],
       fixture,
       workerSubmit,
     });
-
     await expect(
       ensureRemoteAgentRoutineWorkflowSubmission({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs + 60_000,
         runId: fixture.runId,
@@ -2217,7 +2664,6 @@ describe("Remote Agent Routine native delivery", () => {
       reasonCode: "remote_agent.routine_target_recovery_blocked",
       status: "blocked",
     });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
@@ -2227,13 +2673,12 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
   });
-
   it("returns a terminal Workflow submission after invalid legacy recovery is closed", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -2252,39 +2697,55 @@ describe("Remote Agent Routine native delivery", () => {
         ownerUserId?: string;
       }
     ).ownerUserId = undefined;
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-      ).bind(fixture.runId),
-      env.OPENMELD_DB.prepare(
-        "UPDATE openMeldRemoteAgent_native_delivery_ledger SET worker_submit_request_json = ? WHERE idempotency_key = ?"
-      ).bind(JSON.stringify(legacyWorkerSubmitRequest), fixture.runId),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+              values: [],
+            },
+            values: [fixture.runId],
+          },
+          {
+            ...{
+              text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET worker_submit_request_json = $1 WHERE idempotency_key = $2',
+              values: [],
+            },
+            values: [JSON.stringify(legacyWorkerSubmitRequest), fixture.runId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       ensureRemoteAgentRoutineWorkflowSubmission({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs + 60_000,
         runId: fixture.runId,
       })
     ).resolves.toEqual({ status: "terminal" });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.worker_submit_request_invalid",
       status: "failed",
     });
   });
-
-  it("lets a Workflow wait for its callback when the worker ACK outcome is unknown", async () => {
+  it("keeps Workflow admission retryable when the worker ACK outcome is unknown", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = {
       ...(await buildRoutineWorkerSubmitRequest(fixture)),
@@ -2293,7 +2754,7 @@ describe("Remote Agent Routine native delivery", () => {
     };
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -2303,41 +2764,38 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-    )
-      .bind(fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.runId],
+    });
     const recoveryAtMs = fixture.nowMs + 60_000;
-    const workerSubmit = vi.fn(() =>
-      Promise.reject(
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValue(
         new Error("transport disconnected after the worker admitted the turn")
-      )
-    );
-
+      );
     const testEnv = buildEnv({ fixture, workerSubmit });
-    const submission = await ensureRemoteAgentRoutineWorkflowSubmission({
-      db: env.OPENMELD_DB,
-      env: testEnv,
-      nowMs: recoveryAtMs,
-      runId: fixture.runId,
-    });
-    expect(submission).toEqual({
-      dispatchId: fixture.runId,
-      idempotencyKey: fixture.runId,
-      organizationId: fixture.organizationId,
-      spaceId: fixture.spaceId,
-      status: "waiting",
-      submissionId: null,
-    });
-
+    await expect(
+      ensureRemoteAgentRoutineWorkflowSubmission({
+        db: getPostgresDatabase(env),
+        env: testEnv,
+        nowMs: recoveryAtMs,
+        runId: fixture.runId,
+      })
+    ).rejects.toThrow("has no acknowledged Remote Agent submission");
     expect(workerSubmit).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -2347,22 +2805,44 @@ describe("Remote Agent Routine native delivery", () => {
         idempotencyKey: fixture.runId,
       }),
     });
-
-    expect(submission.status).toBe("waiting");
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ failureCode: null, status: "submitted" });
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
+    workerSubmit.mockResolvedValueOnce({
+      accepted: true,
+      createdAt: fixture.nowMs,
+      idempotencyKey: fixture.runId,
+      status: "pending",
+      submissionId: fixture.submissionId,
+    });
+    await expect(
+      ensureRemoteAgentRoutineWorkflowSubmission({
+        db: getPostgresDatabase(env),
+        env: testEnv,
+        nowMs: recoveryAtMs + 1000,
+        runId: fixture.runId,
+      })
+    ).resolves.toMatchObject({
+      status: "waiting",
+      submissionId: fixture.submissionId,
+    });
+    expect(workerSubmit).toHaveBeenCalledTimes(2);
+    expect(
+      workerSubmit.mock.calls.map(([request]) => request.idempotencyKey)
+    ).toEqual([fixture.runId, fixture.runId]);
   });
-
   it("keeps a Workflow waiting and retains its Routine envelope after worker ACK", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -2372,11 +2852,13 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
-    )
-      .bind(fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routine_runs" SET execution_engine = \'workflow\' WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.runId],
+    });
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: fixture.nowMs,
@@ -2384,10 +2866,9 @@ describe("Remote Agent Routine native delivery", () => {
       status: "pending" as const,
       submissionId: fixture.submissionId,
     }));
-
     await expect(
       ensureRemoteAgentRoutineWorkflowSubmission({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: buildEnv({ fixture, workerSubmit }),
         nowMs: fixture.nowMs + 60_000,
         runId: fixture.runId,
@@ -2402,7 +2883,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -2416,13 +2897,12 @@ describe("Remote Agent Routine native delivery", () => {
       }),
     });
   });
-
   it("lets a real callback win while an expired recovery RPC outcome is still unknown", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -2451,13 +2931,12 @@ describe("Remote Agent Routine native delivery", () => {
     const testEnv = buildEnv({ fixture, workerSubmit });
     const recoveryAtMs = fixture.nowMs + 4 * 60_000;
     const recovery = retryRemoteAgentRoutineSubmissions({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       limit: 1,
       nowMs: recoveryAtMs,
     });
     await workerStarted;
-
     vi.spyOn(Date, "now").mockReturnValue(recoveryAtMs);
     await expect(
       completeRemoteAgentNativeDelivery(
@@ -2469,7 +2948,6 @@ describe("Remote Agent Routine native delivery", () => {
       status: "accepted",
     });
     rejectWorker(new Error("transport disconnected after admission"));
-
     await expect(recovery).resolves.toEqual({
       errors: 1,
       recovered: 0,
@@ -2480,7 +2958,7 @@ describe("Remote Agent Routine native delivery", () => {
     ).toHaveBeenCalledTimes(1);
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -2490,20 +2968,22 @@ describe("Remote Agent Routine native delivery", () => {
       submissionId: fixture.submissionId,
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: null,
       publishedSignalId: fixture.publishedSignalId,
       status: "completed",
     });
   });
-
   it("keeps the expiry-boundary replay pending when the worker admitted it but the ACK was lost", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -2520,10 +3000,9 @@ describe("Remote Agent Routine native delivery", () => {
     );
     const testEnv = buildEnv({ fixture, workerSubmit });
     const replayedAtMs = fixture.nowMs + 4 * 60_000;
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: replayedAtMs,
@@ -2534,9 +3013,11 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
-
     vi.spyOn(Date, "now").mockReturnValue(replayedAtMs + 1);
     await expect(
       completeRemoteAgentNativeDelivery(
@@ -2551,21 +3032,25 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: null,
       publishedSignalId: fixture.publishedSignalId,
       status: "completed",
     });
   });
-
   it("fails visibly when the member who delegated the Routine leaves the Organization", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationId, fixture.creatorUserId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationId, fixture.creatorUserId],
+    });
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: fixture.nowMs,
@@ -2573,10 +3058,9 @@ describe("Remote Agent Routine native delivery", () => {
       status: "pending" as const,
       submissionId: fixture.submissionId,
     }));
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: buildEnv({ fixture, workerSubmit }),
         nowMs: fixture.nowMs,
         routine: fixture.routine,
@@ -2585,37 +3069,39 @@ describe("Remote Agent Routine native delivery", () => {
     ).resolves.toEqual({ status: "failed" });
     expect(workerSubmit).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "routine.member_actor_required",
       status: "failed",
     });
   });
-
   it("fences concurrent failure-redrive scanners with one Space publication key", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET status = 'failed', failure_code = 'remote_agent.test_failure', failure_detail = 'Visible failure', finished_at_ms = ? WHERE id = ?"
-    )
-      .bind(fixture.nowMs, fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: "UPDATE \"openmeld\".\"routine_runs\" SET status = 'failed', failure_code = 'remote_agent.test_failure', failure_detail = 'Visible failure', finished_at_ms = $1 WHERE id = $2",
+        values: [],
+      },
+      values: [fixture.nowMs, fixture.runId],
+    });
     const testEnv = buildEnv({ fixture, workerSubmit: vi.fn() });
-
     await Promise.all([
       retryRemoteAgentRoutineFailurePublications({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
       }),
       retryRemoteAgentRoutineFailurePublications({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
       }),
     ]);
-
     expect(
       new Set(
         testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls.map(
@@ -2624,62 +3110,119 @@ describe("Remote Agent Routine native delivery", () => {
       )
     ).toEqual(new Set([fixture.runId]));
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
   });
-
   it.each([
     "paused",
     "deleted",
   ] as const)("skips a claimed Run when the Routine is %s before admission", async (race) => {
     const fixture = await seedRoutineDeliveryFixture();
     if (race === "paused") {
-      await env.OPENMELD_DB.prepare(
-        "UPDATE routines SET status = 'paused', next_due_at = NULL WHERE id = ?"
-      )
-        .bind(fixture.routineId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'UPDATE "openmeld"."routines" SET status = \'paused\', next_due_at = NULL WHERE id = $1',
+          values: [],
+        },
+        values: [fixture.routineId],
+      });
     } else {
-      await env.OPENMELD_DB.prepare("DELETE FROM routines WHERE id = ?")
-        .bind(fixture.routineId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'DELETE FROM "openmeld"."routines" WHERE id = $1',
+          values: [],
+        },
+        values: [fixture.routineId],
+      });
     }
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "skipped" });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     expect(
       await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).toBeNull();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "routine.not_enabled_at_admission",
       status: "skipped",
     });
   });
-
-  it("projects a failed callback once and keeps late callbacks from reopening the Run", async () => {
+  it.each([
+    [
+      "remote_agent.empty_assistant_response",
+      "The Agent produced no reply.",
+      "en",
+    ],
+    [
+      "remote_agent.turn.output_limit_exceeded",
+      "The Agent reached the model's response limit before it could reply.",
+      "en",
+    ],
+    [
+      "remote_agent.turn_not_completed",
+      "OpenMeld could not confirm this task's outcome. Earlier actions may have taken effect.",
+      "en",
+    ],
+    [
+      "remote_agent.provider.connection_missing",
+      "Routine Center Agent couldn't connect to its model provider.",
+      "en",
+    ],
+    [
+      "remote_agent.turn.context_window_exceeded",
+      "The conversation has grown too long for this model.",
+      "en",
+    ],
+    [
+      "remote_agent.execution_identity_mismatch",
+      "OpenMeld could not confirm the reply's Agent identity.",
+      "en",
+    ],
+    [
+      "remote_agent.work_loop_continuation_limit_exceeded",
+      "The Agent reached the safe execution limit before finishing.",
+      "en",
+    ],
+    [
+      "remote_agent.turn.context_window_exceeded",
+      "对话内容超过了模型一次能处理的范围。",
+      "zh-Hans",
+    ],
+  ])("projects a %s callback once and keeps late callbacks from reopening the Run in %s", async (failureCode, expectedFailureText, languageTag) => {
     const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: getPostgresDatabase(env),
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
@@ -2691,27 +3234,32 @@ describe("Remote Agent Routine native delivery", () => {
     const testEnv = buildEnv({
       additionalSpaceIds: [futureSpaceId],
       fixture,
+      webAppUrl: "https://openmeld.ai",
       workerSubmit,
     });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
       run: fixture.run,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routines SET target_space_id = ?, updated_at_ms = ? WHERE id = ?"
-    )
-      .bind(futureSpaceId, fixture.nowMs + 1, fixture.routineId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routines" SET target_space_id = $1, updated_at_ms = $2 WHERE id = $3',
+        values: [],
+      },
+      values: [futureSpaceId, fixture.nowMs + 1, fixture.routineId],
+    });
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
     const failedCallback = {
       agentProfileId: fixture.profileId,
       bindingId: fixture.bindingId,
       dispatchId: fixture.runId,
-      failureCode: "remote_agent.turn_not_completed",
-      failureMessage: "Remote Agent could not finish this request.",
+      failureCode,
+      failureDetail: "synthetic-private-worker-detail",
+      failureMessage:
+        "Center Agent couldn't generate a reply. Your message is saved.",
       idempotencyKey: fixture.runId,
       organizationId: fixture.organizationId,
       spaceId: fixture.spaceId,
@@ -2719,7 +3267,6 @@ describe("Remote Agent Routine native delivery", () => {
       submissionId: fixture.submissionId,
       triggerMessageId: fixture.runId,
     };
-
     await expect(
       completeRemoteAgentNativeDelivery(testEnv, failedCallback)
     ).resolves.toEqual({
@@ -2736,15 +3283,43 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
         ?.text
-    ).toContain(`Routine “${fixture.routine.name}”`);
+    ).toContain(`Routine “${fixture.routine.name}”: ${expectedFailureText}`);
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).not.toContain("could not run");
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).not.toContain("synthetic-private-worker-detail");
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain(`Run ID: ${fixture.runId}`);
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain(
+      languageTag === "zh-Hans"
+        ? "[查看 Run 详情](https://openmeld.ai/o/"
+        : "[View Run details](https://openmeld.ai/o/"
+    );
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain(
+      `/center-agent/routines?routineId=${fixture.routineId}&runId=${fixture.runId})`
+    );
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
-      failureCode: "remote_agent.turn_not_completed",
+      failureCode,
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
-
     await expect(
       completeRemoteAgentNativeDelivery(
         testEnv,
@@ -2755,13 +3330,15 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
-      failureCode: "remote_agent.turn_not_completed",
+      failureCode,
       status: "failed",
     });
   });
-
   it("keeps a Routine completion retryable after the former callback ceiling", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmit = vi.fn(async () => ({
@@ -2773,7 +3350,7 @@ describe("Remote Agent Routine native delivery", () => {
     }));
     const testEnv = buildEnv({ fixture, workerSubmit });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
@@ -2783,7 +3360,6 @@ describe("Remote Agent Routine native delivery", () => {
       new Error("Space success publication unavailable")
     );
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
-
     await expect(
       completeRemoteAgentNativeDelivery(testEnv, {
         ...buildCompletedCallback(fixture),
@@ -2794,14 +3370,16 @@ describe("Remote Agent Routine native delivery", () => {
       status: "retryable",
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: null,
       publishedSignalId: null,
       status: "submitted",
     });
   });
-
   it("projects an outcome-unknown failed callback immediately", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
@@ -2818,22 +3396,23 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmit,
     });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
       run: fixture.run,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routines SET target_space_id = ?, updated_at_ms = ? WHERE id = ?"
-    )
-      .bind(futureSpaceId, fixture.nowMs + 1, fixture.routineId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routines" SET target_space_id = $1, updated_at_ms = $2 WHERE id = $3',
+        values: [],
+      },
+      values: [futureSpaceId, fixture.nowMs + 1, fixture.routineId],
+    });
     testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mockResolvedValueOnce(
       null
     );
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
-
     await expect(
       completeRemoteAgentNativeDelivery(testEnv, {
         agentProfileId: fixture.profileId,
@@ -2853,7 +3432,10 @@ describe("Remote Agent Routine native delivery", () => {
       status: "rejected",
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.turn_not_completed",
       publishedSignalId: null,
@@ -2861,7 +3443,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await expect(
       retryRemoteAgentRoutineFailurePublications({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -2876,7 +3458,6 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
   });
-
   it("repairs a Run after a failed callback crashes in outcome-unknown state", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmit = vi.fn(async () => ({
@@ -2888,7 +3469,7 @@ describe("Remote Agent Routine native delivery", () => {
     }));
     const testEnv = buildEnv({ fixture, workerSubmit });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
@@ -2898,7 +3479,7 @@ describe("Remote Agent Routine native delivery", () => {
     await claimRemoteAgentFinalPublication({
       claimExpiresAtMs: fixture.nowMs + 30_000,
       claimId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: fixture.runId,
       nowMs: fixture.nowMs + 1000,
       payload: {
@@ -2913,16 +3494,18 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await markRemoteAgentFailedCallbackPublicationOutcomeUnknown({
       claimId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       failureCode: "remote_agent.turn_not_completed",
       idempotencyKey: fixture.runId,
       nowMs: fixture.nowMs + 2000,
       submissionId: fixture.submissionId,
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
-
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 3000);
     await completeRemoteAgentNativeDelivery(testEnv, {
       agentProfileId: fixture.profileId,
@@ -2938,13 +3521,15 @@ describe("Remote Agent Routine native delivery", () => {
       triggerMessageId: fixture.runId,
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.turn_not_completed",
       status: "failed",
     });
   });
-
   it.each([
     "space_claim",
     "terminal_ledger",
@@ -2964,32 +3549,33 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmit,
     });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
       run: fixture.run,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routines SET target_space_id = ?, updated_at_ms = ? WHERE id = ?"
-    )
-      .bind(futureSpaceId, fixture.nowMs + 1, fixture.routineId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routines" SET target_space_id = $1, updated_at_ms = $2 WHERE id = $3',
+        values: [],
+      },
+      values: [futureSpaceId, fixture.nowMs + 1, fixture.routineId],
+    });
     if (recovery === "space_claim") {
       testEnv.__spaceStub.rpcReadFinalReplyClaimSignalId.mockResolvedValue({
         signalId: fixture.publishedSignalId,
       });
     } else {
       await markRemoteAgentNativeDeliveryCompleted({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: fixture.nowMs + 500,
         publishedSignalId: fixture.publishedSignalId,
         submissionId: fixture.submissionId,
       });
     }
-
     await processRemoteAgentNativeDeliveryDeadlineProbe({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs + 1000,
       probe: {
@@ -3004,9 +3590,11 @@ describe("Remote Agent Routine native delivery", () => {
         v: 3,
       },
     });
-
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       publishedSignalId: fixture.publishedSignalId,
       status: "completed",
@@ -3016,7 +3604,6 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
   });
-
   it("fences callback and duplicate deadline probes with one Space publication key", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const testEnv = buildEnv({
@@ -3030,7 +3617,7 @@ describe("Remote Agent Routine native delivery", () => {
       })),
     });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
@@ -3049,26 +3636,24 @@ describe("Remote Agent Routine native delivery", () => {
       submissionId: fixture.submissionId,
       v: 3 as const,
     };
-
     await Promise.allSettled([
       completeRemoteAgentNativeDelivery(
         testEnv,
         buildCompletedCallback(fixture)
       ),
       processRemoteAgentNativeDeliveryDeadlineProbe({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs,
         probe,
       }),
       processRemoteAgentNativeDeliveryDeadlineProbe({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs,
         probe,
       }),
     ]);
-
     expect(
       new Set(
         testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls.map(
@@ -3077,12 +3662,12 @@ describe("Remote Agent Routine native delivery", () => {
       )
     ).toEqual(new Set([fixture.runId]));
     const terminalRun = await readRoutineRunRecord({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       runId: fixture.runId,
     });
     const terminalDelivery =
       await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       });
     expect(["completed", "failed"]).toContain(terminalRun?.status);
@@ -3091,7 +3676,6 @@ describe("Remote Agent Routine native delivery", () => {
       terminalDelivery?.publishedSignalId
     );
   });
-
   it("reconciles an accepted execution against its claimed target after a Routine target update", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
@@ -3125,17 +3709,19 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmit,
     });
     await submitRemoteAgentRoutineDelivery({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: testEnv,
       nowMs: fixture.nowMs,
       routine: fixture.routine,
       run: fixture.run,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routines SET target_space_id = ?, updated_at_ms = ? WHERE id = ?"
-    )
-      .bind(futureSpaceId, fixture.nowMs + 1, fixture.routineId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routines" SET target_space_id = $1, updated_at_ms = $2 WHERE id = $3',
+        values: [],
+      },
+      values: [futureSpaceId, fixture.nowMs + 1, fixture.routineId],
+    });
     const probe = {
       deadlineAtMs:
         fixture.nowMs +
@@ -3155,7 +3741,7 @@ describe("Remote Agent Routine native delivery", () => {
     testEnv.__queueSend.mockClear();
     await expect(
       processRemoteAgentNativeDeliveryDeadlineProbe({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: probe.deadlineAtMs,
         probe,
@@ -3165,7 +3751,11 @@ describe("Remote Agent Routine native delivery", () => {
       status: "skipped",
     });
     expect(workerReconcile).toHaveBeenCalledWith({
-      conversationId: fixture.spaceId,
+      conversationId: buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: fixture.runId,
+      }),
       idempotencyKey: fixture.runId,
       organizationId: fixture.organizationId,
       spaceId: fixture.spaceId,
@@ -3184,20 +3774,20 @@ describe("Remote Agent Routine native delivery", () => {
         ?.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
   });
-
   it("atomically rejects native delivery when the Routine is paused at the claim boundary", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routines SET status = 'paused', next_due_at = NULL WHERE id = ?"
-    )
-      .bind(fixture.routineId)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."routines" SET status = \'paused\', next_due_at = NULL WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.routineId],
+    });
     await expect(
       claimRemoteAgentRoutineNativeDelivery({
         bindingId: fixture.bindingId,
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: fixture.nowMs,
         organizationId: fixture.organizationId,
         profileId: fixture.profileId,
@@ -3209,16 +3799,18 @@ describe("Remote Agent Routine native delivery", () => {
       })
     ).resolves.toEqual({ delivery: null, status: "lost_race" });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "claimed" });
   });
-
   it("keeps the Run submitted when the worker ACK wins the recovery failure race", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     const claim = await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -3233,15 +3825,14 @@ describe("Remote Agent Routine native delivery", () => {
     }
     await markRemoteAgentNativeDeliveryAck({
       accepted: true,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: fixture.runId,
       nowMs: fixture.nowMs + 1000,
       submissionId: fixture.submissionId,
     });
-
     await expect(
       claimRemoteAgentRoutineSubmissionFailure({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         deliveryId: claim.delivery.deliveryId,
         failureCode: "remote_agent.runtime_disabled",
         failureDetail: "Remote Agent is disabled for this Organization.",
@@ -3252,11 +3843,14 @@ describe("Remote Agent Routine native delivery", () => {
       })
     ).resolves.toBeNull();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -3265,24 +3859,39 @@ describe("Remote Agent Routine native delivery", () => {
       submissionId: fixture.submissionId,
     });
     await markRemoteAgentNativeDeliveryDeadlineProbeEnqueued({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: fixture.runId,
       nowMs: fixture.nowMs + 2000,
       submissionId: fixture.submissionId,
     });
   });
-
   it("redrives an admission failure publication durably on the next Routine tick", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "UPDATE routines SET target_space_id = ?, updated_at_ms = ? WHERE id = ?"
-      ).bind(futureSpaceId, fixture.nowMs + 1, fixture.routineId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM center_agent_designations WHERE organization_id = ?"
-      ).bind(fixture.organizationId),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'UPDATE "openmeld"."routines" SET target_space_id = $1, updated_at_ms = $2 WHERE id = $3',
+              values: [],
+            },
+            values: [futureSpaceId, fixture.nowMs + 1, fixture.routineId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."center_agent_designations" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [fixture.organizationId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({
       additionalSpaceIds: [futureSpaceId],
@@ -3293,10 +3902,9 @@ describe("Remote Agent Routine native delivery", () => {
       .mockRejectedValueOnce(new Error("Space unavailable 1"))
       .mockRejectedValueOnce(new Error("Space unavailable 2"))
       .mockRejectedValueOnce(new Error("Space unavailable 3"));
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
@@ -3304,12 +3912,14 @@ describe("Remote Agent Routine native delivery", () => {
       })
     ).resolves.toEqual({ status: "failed" });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ publishedSignalId: null, status: "failed" });
-
     await expect(
       retryRemoteAgentRoutineFailurePublications({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -3327,13 +3937,15 @@ describe("Remote Agent Routine native delivery", () => {
         ?.text
     ).toContain(`Routine “${fixture.routine.name}”`);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
   });
-
   it("fails closed without a second Space when a submitted ledger conflicts with the Run snapshot", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const conflictingSpaceId = await seedAdditionalRoutineTargetSpace({
@@ -3348,7 +3960,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -3358,18 +3970,34 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest: claimedTargetRequest,
     });
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "UPDATE openMeldRemoteAgent_native_delivery_ledger SET space_id = ?, worker_submit_request_json = ? WHERE idempotency_key = ?"
-      ).bind(
-        conflictingSpaceId,
-        JSON.stringify(workerSubmitRequest),
-        fixture.runId
-      ),
-      env.OPENMELD_DB.prepare(
-        "UPDATE routine_runs SET status = 'failed', failure_code = 'remote_agent.test_failure', failure_detail = 'Corrupt target authority', finished_at_ms = ? WHERE id = ?"
-      ).bind(fixture.nowMs + 1, fixture.runId),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET space_id = $1, worker_submit_request_json = $2 WHERE idempotency_key = $3',
+              values: [],
+            },
+            values: [
+              conflictingSpaceId,
+              JSON.stringify(workerSubmitRequest),
+              fixture.runId,
+            ],
+          },
+          {
+            ...{
+              text: "UPDATE \"openmeld\".\"routine_runs\" SET status = 'failed', failure_code = 'remote_agent.test_failure', failure_detail = 'Corrupt target authority', finished_at_ms = $1 WHERE id = $2",
+              values: [],
+            },
+            values: [fixture.nowMs + 1, fixture.runId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({
       additionalSpaceIds: [conflictingSpaceId],
@@ -3377,16 +4005,14 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmit,
     });
     const warn = vi.spyOn(console, "warn");
-
     await expect(
       retryRemoteAgentRoutineFailurePublications({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
       })
     ).resolves.toEqual({ errors: 1, published: 0, scanned: 1 });
-
     expect(
       testEnv.__spaceStubs.get(fixture.spaceId)
         ?.rpcPostSignalOnceByClientMessageId
@@ -3404,7 +4030,6 @@ describe("Remote Agent Routine native delivery", () => {
       })
     );
   });
-
   it("atomically rejects worker, ledger, and Run target disagreement at claim", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const conflictingSpaceId = await seedAdditionalRoutineTargetSpace({
@@ -3416,11 +4041,10 @@ describe("Remote Agent Routine native delivery", () => {
       request: claimedTargetRequest,
       spaceId: conflictingSpaceId,
     });
-
     await expect(
       claimRemoteAgentRoutineNativeDelivery({
         bindingId: fixture.bindingId,
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: fixture.nowMs,
         organizationId: fixture.organizationId,
         profileId: fixture.profileId,
@@ -3434,7 +4058,7 @@ describe("Remote Agent Routine native delivery", () => {
     await expect(
       claimRemoteAgentRoutineNativeDelivery({
         bindingId: fixture.bindingId,
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: fixture.nowMs,
         organizationId: fixture.organizationId,
         profileId: fixture.profileId,
@@ -3448,7 +4072,7 @@ describe("Remote Agent Routine native delivery", () => {
     await expect(
       claimRemoteAgentRoutineAdmissionFailure({
         bindingId: fixture.bindingId,
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         failureCode: "remote_agent.runtime_disabled",
         failureDetail: "Remote Agent is disabled for this Organization.",
         ledgerStatus: "flag_rejected",
@@ -3462,27 +4086,45 @@ describe("Remote Agent Routine native delivery", () => {
       })
     ).resolves.toEqual({ delivery: null, status: "lost_race" });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ nativeDeliveryId: null, status: "claimed" });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toBeNull();
   });
-
   it("backs off a poison failure publication so a newer Run is not starved", async () => {
     const poison = await seedRoutineDeliveryFixture();
     const healthy = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "UPDATE routine_runs SET status = 'failed', failure_code = 'remote_agent.test_failure', failure_detail = 'Poison Space', finished_at_ms = ? WHERE id = ?"
-      ).bind(poison.nowMs, poison.runId),
-      env.OPENMELD_DB.prepare(
-        "UPDATE routine_runs SET status = 'failed', failure_code = 'remote_agent.test_failure', failure_detail = 'Healthy Space', finished_at_ms = ? WHERE id = ?"
-      ).bind(healthy.nowMs + 1, healthy.runId),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: "UPDATE \"openmeld\".\"routine_runs\" SET status = 'failed', failure_code = 'remote_agent.test_failure', failure_detail = 'Poison Space', finished_at_ms = $1 WHERE id = $2",
+              values: [],
+            },
+            values: [poison.nowMs, poison.runId],
+          },
+          {
+            ...{
+              text: "UPDATE \"openmeld\".\"routine_runs\" SET status = 'failed', failure_code = 'remote_agent.test_failure', failure_detail = 'Healthy Space', finished_at_ms = $1 WHERE id = $2",
+              values: [],
+            },
+            values: [healthy.nowMs + 1, healthy.runId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({
       additionalSpaceIds: [healthy.spaceId],
@@ -3503,42 +4145,46 @@ describe("Remote Agent Routine native delivery", () => {
         createSignal(healthy.publishedSignalId, healthy)
       );
     const retryAtMs = poison.nowMs + 60_000;
-
     await expect(
       retryRemoteAgentRoutineFailurePublications({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: retryAtMs,
       })
     ).resolves.toEqual({ errors: 1, published: 0, scanned: 1 });
     await expect(
-      env.OPENMELD_DB.prepare(
-        "SELECT failure_publication_attempt_count, next_failure_publication_attempt_at_ms FROM routine_runs WHERE id = ?"
-      )
-        .bind(poison.runId)
-        .first()
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: 'SELECT failure_publication_attempt_count, next_failure_publication_attempt_at_ms FROM "openmeld"."routine_runs" WHERE id = $1',
+            values: [],
+          },
+          values: [poison.runId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toMatchObject({
       failure_publication_attempt_count: 1,
       next_failure_publication_attempt_at_ms: retryAtMs + 60_000,
     });
-
     await expect(
       retryRemoteAgentRoutineFailurePublications({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: retryAtMs,
       })
     ).resolves.toEqual({ errors: 0, published: 1, scanned: 1 });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: healthy.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: healthy.runId,
+      })
     ).resolves.toMatchObject({
       publishedSignalId: healthy.publishedSignalId,
       status: "failed",
     });
   });
-
   it.each([
     "before_ack",
     "after_ack",
@@ -3547,7 +4193,7 @@ describe("Remote Agent Routine native delivery", () => {
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -3560,7 +4206,7 @@ describe("Remote Agent Routine native delivery", () => {
     if (interruption === "after_ack") {
       await markRemoteAgentNativeDeliveryAck({
         accepted: true,
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
         nowMs: fixture.nowMs,
         submissionId: fixture.submissionId,
@@ -3574,10 +4220,9 @@ describe("Remote Agent Routine native delivery", () => {
       submissionId: fixture.submissionId,
     }));
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -3612,7 +4257,7 @@ describe("Remote Agent Routine native delivery", () => {
     }
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject(
@@ -3633,10 +4278,9 @@ describe("Remote Agent Routine native delivery", () => {
             submissionId: fixture.submissionId,
           }
     );
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 120_000,
@@ -3646,13 +4290,12 @@ describe("Remote Agent Routine native delivery", () => {
       interruption === "before_ack" ? 1 : 0
     );
   });
-
   it("terminalizes a deterministic admission rejection during submission recovery", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -3671,30 +4314,31 @@ describe("Remote Agent Routine native delivery", () => {
       v: 1 as const,
     }));
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
       })
     ).resolves.toEqual({ errors: 0, recovered: 1, scanned: 1 });
-
     expect(workerSubmit).toHaveBeenCalledTimes(1);
     expect(testEnv.__queueSend).not.toHaveBeenCalled();
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.routine_identity_mismatch",
       status: "failed",
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -3704,13 +4348,23 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmitRequest: null,
     });
   });
-
-  it("fails an unconfirmed Routine submission visibly after recovery expires without letting a later callback reopen it", async () => {
+  it.each([
+    "en",
+    "zh-Hans",
+  ])("fails an unconfirmed Routine submission in %s after recovery expires without claiming no execution or reopening it", async (languageTag) => {
     const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: getPostgresDatabase(env),
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -3724,10 +4378,9 @@ describe("Remote Agent Routine native delivery", () => {
       Promise.reject(new Error("Remote Agent worker remains unavailable"))
     );
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 4 * 60_000,
@@ -3737,20 +4390,18 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 5 * 60_000,
       })
     ).resolves.toEqual({ errors: 0, recovered: 0, scanned: 0 });
     expect(workerSubmit).toHaveBeenCalledTimes(1);
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 8 * 60_000,
@@ -3766,13 +4417,49 @@ describe("Remote Agent Routine native delivery", () => {
       })
     );
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.worker_ack_recovery_expired",
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
-
+    const failedText =
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text;
+    expect(failedText).toContain(
+      languageTag === "en"
+        ? "Automatic startup recovery has stopped"
+        : "自动启动恢复已停止"
+    );
+    expect(failedText).toContain(
+      languageTag === "en"
+        ? "Earlier actions may have taken effect"
+        : "之前的操作可能已经生效"
+    );
+    expect(failedText).not.toContain("could not run");
+    expect(failedText).not.toContain("did not start");
+    expect(failedText).not.toContain("没有开始");
+    await expect(
+      retryRemoteAgentRoutineSubmissions({
+        db: getPostgresDatabase(env),
+        env: testEnv,
+        limit: 1,
+        nowMs: fixture.nowMs + 9 * 60_000,
+      })
+    ).resolves.toEqual({ errors: 0, recovered: 0, scanned: 0 });
+    await expect(
+      retryRemoteAgentRoutineFailurePublications({
+        db: getPostgresDatabase(env),
+        env: testEnv,
+        nowMs: fixture.nowMs + 9 * 60_000,
+      })
+    ).resolves.toEqual({ errors: 0, published: 0, scanned: 0 });
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).toHaveBeenCalledTimes(1);
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 8 * 60_000 + 1);
     await expect(
       completeRemoteAgentNativeDelivery(
@@ -3784,20 +4471,85 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.worker_ack_recovery_expired",
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
   });
-
+  it.each([
+    "en",
+    "zh-Hans",
+  ])("keeps an unconfirmed Routine in %s uncertain after its admission record is unavailable", async (languageTag) => {
+    const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: getPostgresDatabase(env),
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: "UPDATE \"openmeld\".\"routine_runs\" SET status = 'failed', failure_code = 'remote_agent.worker_ack_recovery_expired', failure_detail = 'The startup acknowledgement was not recovered.', finished_at_ms = $1 WHERE id = $2",
+        values: [],
+      },
+      values: [fixture.nowMs + 8 * 60_000, fixture.runId],
+    });
+    await expect(
+      readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: getPostgresDatabase(env),
+        idempotencyKey: fixture.runId,
+      })
+    ).resolves.toBeNull();
+    const workerSubmit = vi.fn();
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    await expect(
+      retryRemoteAgentRoutineFailurePublications({
+        db: getPostgresDatabase(env),
+        env: testEnv,
+        nowMs: fixture.nowMs + 9 * 60_000,
+      })
+    ).resolves.toEqual({ errors: 0, published: 1, scanned: 1 });
+    const text =
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text;
+    expect(text).toContain(
+      languageTag === "en"
+        ? "Automatic startup recovery has stopped"
+        : "自动启动恢复已停止"
+    );
+    expect(text).toContain(
+      languageTag === "en"
+        ? "Earlier actions may have taken effect"
+        : "之前的操作可能已经生效"
+    );
+    expect(text).toContain(`Run ID: ${fixture.runId}`);
+    expect(text).not.toContain("could not run");
+    expect(text).not.toContain("Run the Routine again");
+    expect(workerSubmit).not.toHaveBeenCalled();
+    await expect(
+      retryRemoteAgentRoutineFailurePublications({
+        db: getPostgresDatabase(env),
+        env: testEnv,
+        nowMs: fixture.nowMs + 10 * 60_000,
+      })
+    ).resolves.toEqual({ errors: 0, published: 0, scanned: 0 });
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).toHaveBeenCalledTimes(1);
+  });
   it("repairs a failed Run with a submitted ledger without replaying the worker", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -3807,11 +4559,13 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE routine_runs SET status = 'failed', failure_code = 'remote_agent.runtime_disabled', failure_detail = 'Remote Agent is disabled for this Organization.', finished_at_ms = ? WHERE id = ?"
-    )
-      .bind(fixture.nowMs + 1000, fixture.runId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: "UPDATE \"openmeld\".\"routine_runs\" SET status = 'failed', failure_code = 'remote_agent.runtime_disabled', failure_detail = 'Remote Agent is disabled for this Organization.', finished_at_ms = $1 WHERE id = $2",
+        values: [],
+      },
+      values: [fixture.nowMs + 1000, fixture.runId],
+    });
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({
       fixture,
@@ -3821,10 +4575,9 @@ describe("Remote Agent Routine native delivery", () => {
     testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mockRejectedValue(
       new Error("Space is unavailable during recovery")
     );
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -3833,7 +4586,7 @@ describe("Remote Agent Routine native delivery", () => {
     expect(workerSubmit).not.toHaveBeenCalled();
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -3842,15 +4595,17 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmitRequest: null,
     });
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       publishedSignalId: null,
       status: "failed",
     });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 120_000,
@@ -3858,13 +4613,12 @@ describe("Remote Agent Routine native delivery", () => {
     ).resolves.toEqual({ errors: 0, recovered: 0, scanned: 0 });
     expect(workerSubmit).not.toHaveBeenCalled();
   });
-
   it("rechecks runtime policy before recovering an unacknowledged submission", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -3880,10 +4634,9 @@ describe("Remote Agent Routine native delivery", () => {
       runtimeEnabled: "false",
       workerSubmit,
     });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -3891,20 +4644,22 @@ describe("Remote Agent Routine native delivery", () => {
     ).resolves.toEqual({ errors: 0, recovered: 1, scanned: 1 });
     expect(workerSubmit).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.runtime_disabled",
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
   });
-
   it("keeps a non-terminal recovery RPC error pending until the explicit timeout", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -3918,10 +4673,9 @@ describe("Remote Agent Routine native delivery", () => {
       Promise.reject(new Error("transport reset after an unknown outcome"))
     );
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -3932,11 +4686,14 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "submitted" });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -3946,10 +4703,9 @@ describe("Remote Agent Routine native delivery", () => {
         idempotencyKey: fixture.runId,
       }),
     });
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 4 * 60_000,
@@ -3959,10 +4715,9 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 8 * 60_000,
@@ -3973,19 +4728,21 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.worker_ack_recovery_expired",
       status: "failed",
     });
   });
-
   it("maps a missing worker RPC receiver method during recovery to a stable visible failure", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -4007,10 +4764,9 @@ describe("Remote Agent Routine native delivery", () => {
       {},
       { get: () => workerSubmit }
     );
-
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 60_000,
@@ -4021,14 +4777,16 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledTimes(1);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "remote_agent.worker_unavailable",
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
   });
-
   it.each([
     "paused",
     "deleted",
@@ -4039,7 +4797,7 @@ describe("Remote Agent Routine native delivery", () => {
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: fixture.nowMs,
       organizationId: fixture.organizationId,
       profileId: fixture.profileId,
@@ -4049,43 +4807,50 @@ describe("Remote Agent Routine native delivery", () => {
       spaceId: fixture.spaceId,
       workerSubmitRequest,
     });
-
     if (change === "paused") {
-      await env.OPENMELD_DB.prepare(
-        "UPDATE routines SET status = 'paused', next_due_at = NULL WHERE id = ?"
-      )
-        .bind(fixture.routineId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'UPDATE "openmeld"."routines" SET status = \'paused\', next_due_at = NULL WHERE id = $1',
+          values: [],
+        },
+        values: [fixture.routineId],
+      });
     } else if (change === "deleted") {
-      await env.OPENMELD_DB.prepare("DELETE FROM routines WHERE id = ?")
-        .bind(fixture.routineId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'DELETE FROM "openmeld"."routines" WHERE id = $1',
+          values: [],
+        },
+        values: [fixture.routineId],
+      });
     } else if (change === "center_agent_paused") {
-      await env.OPENMELD_DB.prepare(
-        "UPDATE center_agent_designations SET operating_state = 'paused', paused_at = ?, paused_by_user_id = ? WHERE organization_id = ?"
-      )
-        .bind(fixture.nowMs, fixture.userId, fixture.organizationId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'UPDATE "openmeld"."center_agent_designations" SET operating_state = \'paused\', paused_at = $1, paused_by_user_id = $2 WHERE organization_id = $3',
+          values: [],
+        },
+        values: [fixture.nowMs, fixture.userId, fixture.organizationId],
+      });
     } else {
-      await env.OPENMELD_DB.prepare(
-        "DELETE FROM space_index_memberships WHERE space_id = ? AND profile_id = ?"
-      )
-        .bind(fixture.spaceId, fixture.profileId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'DELETE FROM "openmeld"."space_index_memberships" WHERE space_id = $1 AND profile_id = $2',
+          values: [],
+        },
+        values: [fixture.spaceId, fixture.profileId],
+      });
     }
-
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({ fixture, workerSubmit });
     await expect(
       retryRemoteAgentRoutineSubmissions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         limit: 1,
         nowMs: fixture.nowMs + 8 * 60_000,
       })
     ).resolves.toEqual({ errors: 0, recovered: 1, scanned: 1 });
     expect(workerSubmit).not.toHaveBeenCalled();
-
     const shouldSkip = change === "paused" || change === "deleted";
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
@@ -4098,7 +4863,10 @@ describe("Remote Agent Routine native delivery", () => {
             "remote_agent.routine_target_space_unavailable",
         }[change];
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode,
       publishedSignalId: shouldSkip ? null : fixture.publishedSignalId,
@@ -4106,7 +4874,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -4117,7 +4885,6 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmitRequest: null,
     });
   });
-
   it.each([
     "designation",
     "binding",
@@ -4126,18 +4893,22 @@ describe("Remote Agent Routine native delivery", () => {
   ] as const)("fails closed with a named Space result when %s admission is unavailable", async (failure) => {
     const fixture = await seedRoutineDeliveryFixture();
     if (failure === "designation") {
-      await env.OPENMELD_DB.prepare(
-        "DELETE FROM center_agent_designations WHERE organization_id = ?"
-      )
-        .bind(fixture.organizationId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'DELETE FROM "openmeld"."center_agent_designations" WHERE organization_id = $1',
+          values: [],
+        },
+        values: [fixture.organizationId],
+      });
     }
     if (failure === "binding") {
-      await env.OPENMELD_DB.prepare(
-        "UPDATE openMeldDaemon_agent_profile_bindings SET hosted_runtime_identity_json = '{}' WHERE binding_id = ?"
-      )
-        .bind(fixture.bindingId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings" SET hosted_runtime_identity_json = \'{}\' WHERE binding_id = $1',
+          values: [],
+        },
+        values: [fixture.bindingId],
+      });
     }
     const workerSubmit =
       failure === "worker"
@@ -4162,17 +4933,15 @@ describe("Remote Agent Routine native delivery", () => {
         }
       );
     }
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "failed" });
-
     if (failure === "worker") {
       expect(workerSubmit).toHaveBeenCalledTimes(1);
     } else {
@@ -4186,7 +4955,10 @@ describe("Remote Agent Routine native delivery", () => {
         ?.text
     ).toContain(`Routine “${fixture.routine.name}”`);
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({ status: "failed" });
     if (failure === "binding" || failure === "policy" || failure === "worker") {
       const expectedFailure = {
@@ -4208,7 +4980,7 @@ describe("Remote Agent Routine native delivery", () => {
       }[failure];
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
-          db: env.OPENMELD_DB,
+          db: getPostgresDatabase(env),
           idempotencyKey: fixture.runId,
         })
       ).resolves.toMatchObject({
@@ -4219,30 +4991,32 @@ describe("Remote Agent Routine native delivery", () => {
       });
     }
   });
-
   it("reports a selected-model failure without disguising it as temporary admission trouble", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openMeldDaemon_agent_profile_bindings SET model_id = ? WHERE binding_id = ?"
-    )
-      .bind("openrouter/not-in-the-catalog", fixture.bindingId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings" SET model_id = $1 WHERE binding_id = $2',
+        values: [],
+      },
+      values: ["openrouter/not-in-the-catalog", fixture.bindingId],
+    });
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({ fixture, workerSubmit });
-
     await expect(
       submitRemoteAgentRoutineDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         env: testEnv,
         nowMs: fixture.nowMs,
         routine: fixture.routine,
         run: fixture.run,
       })
     ).resolves.toEqual({ status: "failed" });
-
     expect(workerSubmit).not.toHaveBeenCalled();
     await expect(
-      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
     ).resolves.toMatchObject({
       failureCode: "center_agent_model_unknown",
       failureDetail:
@@ -4251,7 +5025,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
@@ -4265,12 +5039,13 @@ describe("Remote Agent Routine native delivery", () => {
         meta: expect.objectContaining({
           errorCode: "center_agent_model_unknown",
         }),
-        text: "Routine “Daily feedback review” could not run because the selected Center Agent model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld.",
+        text: expect.stringContaining(
+          "Routine “Daily feedback review” could not run because the selected Center Agent model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld."
+        ),
       })
     );
   });
 });
-
 async function seedRoutineDeliveryFixture() {
   const suffix = crypto.randomUUID();
   const nowMs = Date.parse("2026-07-12T12:00:00.000Z");
@@ -4287,125 +5062,207 @@ async function seedRoutineDeliveryFixture() {
   const submissionId = `submission_routine_delivery_${suffix}`;
   const publishedSignalId = `signal_routine_delivery_${suffix}`;
   ownedRoutineOrganizationIds.add(organizationId);
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Routine Owner', ?, 1, ?, ?)"
-    ).bind(userId, `${userId}@example.com`, nowMs, nowMs),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Routine Creator', ?, 1, ?, ?)"
-    ).bind(creatorUserId, `${creatorUserId}@example.com`, nowMs, nowMs),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Routine Delivery Org', ?, ?)"
-    ).bind(organizationId, `routine-delivery-${suffix}`, nowMs),
-  ]);
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'owner', ?)"
-    ).bind(`member_${suffix}`, organizationId, userId, nowMs),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-    ).bind(creatorMemberId, organizationId, creatorUserId, nowMs),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, \'Routine Owner\', $2, 1, $3, $4)',
+            values: [],
+          },
+          values: [userId, `${userId}@example.com`, nowMs, nowMs],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, \'Routine Creator\', $2, 1, $3, $4)',
+            values: [],
+          },
+          values: [creatorUserId, `${creatorUserId}@example.com`, nowMs, nowMs],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Routine Delivery Org\', $2, $3)',
+            values: [],
+          },
+          values: [organizationId, `routine-delivery-${suffix}`, nowMs],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'owner\', $4)',
+            values: [],
+          },
+          values: [`member_${suffix}`, organizationId, userId, nowMs],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4)',
+            values: [],
+          },
+          values: [creatorMemberId, organizationId, creatorUserId, nowMs],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           managed_role, created_at, updated_at
-        ) VALUES (?, 'Routine Creator', ?, 'human', 1, 'active', NULL, ?, ?,
-          'auth_bootstrap', NULL, ?, ?)
-      `
-    ).bind(
-      creatorProfileId,
-      `routine-creator-${suffix}`,
-      creatorUserId,
-      creatorUserId,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+        ) VALUES ($1, 'Routine Creator', $2, 'human', 1, 'active', NULL, $3, $4,
+          'auth_bootstrap', NULL, $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            creatorProfileId,
+            `routine-creator-${suffix}`,
+            creatorUserId,
+            creatorUserId,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           managed_role, created_at, updated_at
-        ) VALUES (?, 'Routine Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?,
-          'auth_bootstrap', 'center_agent', ?, ?)
-      `
-    ).bind(
-      profileId,
-      `routine-center-agent-${suffix}`,
-      organizationId,
-      userId,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO center_agent_designations (organization_id, agent_profile_id, duty, designated_by, created_at) VALUES (?, ?, NULL, ?, ?)"
-    ).bind(organizationId, profileId, userId, nowMs),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO space_index_spaces (
+        ) VALUES ($1, 'Routine Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4,
+          'auth_bootstrap', 'center_agent', $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            profileId,
+            `routine-center-agent-${suffix}`,
+            organizationId,
+            userId,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, duty, designated_by, created_at) VALUES ($1, $2, NULL, $3, $4)',
+            values: [],
+          },
+          values: [organizationId, profileId, userId, nowMs],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."space_index_spaces" (
           space_id, organization_id, organization_visibility, status, space_name,
           source_updated_at_ms, projected_at_ms, projection_event_id
-        ) VALUES (?, ?, 'private', 'active', 'Feedback Triage', ?, ?, ?)
-      `
-    ).bind(spaceId, organizationId, nowMs, nowMs, `projection_${suffix}`),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO space_index_memberships (
+        ) VALUES ($1, $2, 'private', 'active', 'Feedback Triage', $3, $4, $5)
+      `,
+            values: [],
+          },
+          values: [
+            spaceId,
+            organizationId,
+            nowMs,
+            nowMs,
+            `projection_${suffix}`,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."space_index_memberships" (
           space_id, profile_id, profile_kind_snapshot, profile_name_snapshot,
           owner_user_id_snapshot, controller_ref_snapshot, status, member_source,
           added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id
-        ) VALUES (?, ?, 'agent', 'Routine Center Agent', NULL, ?, 'active',
-          'member_add', ?, ?, ?, ?)
-      `
-    ).bind(
-      spaceId,
-      profileId,
-      HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      nowMs,
-      nowMs,
-      nowMs,
-      `membership_projection_${suffix}`
-    ),
-  ]);
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldDaemon_agent_profile_bindings (
+        ) VALUES ($1, $2, 'agent', 'Routine Center Agent', NULL, $3, 'active',
+          'member_add', $4, $5, $6, $7)
+      `,
+            values: [],
+          },
+          values: [
+            spaceId,
+            profileId,
+            HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            nowMs,
+            nowMs,
+            nowMs,
+            `membership_projection_${suffix}`,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
           binding_id, owner_kind, owner_id, agent_profile_id,
           openmeld_service_runtime_id, runtime_kind, hosted_runtime_identity_json,
           agent_controller_ref, agent_controller_conversation_id, binding_state,
           created_at_ms, updated_at_ms
-        ) VALUES (?, 'organization', ?, ?, ?, 'hosted_center_agent', ?, ?,
-          NULL, 'enabled_primary', ?, ?)
-      `
-    ).bind(
-      bindingId,
-      organizationId,
-      profileId,
-      HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-      JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
-      HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO routines (id, organization_id, name, instructions, external_action_policy, schedule_kind, cron_expression, timezone, target_space_id, status, next_due_at, created_by_user_id, updated_by_user_id, created_at_ms, updated_at_ms) VALUES (?, ?, 'Daily feedback review', 'Review every open Feedback Issue.', 'read_only', 'cron', '0 12 * * *', 'UTC', ?, 'enabled', ?, ?, ?, ?, ?)"
-    ).bind(
-      routineId,
-      organizationId,
-      spaceId,
-      nowMs + 24 * 60 * 60 * 1000,
-      creatorUserId,
-      creatorUserId,
-      nowMs - 1000,
-      nowMs - 1000
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO routine_runs (id, routine_id, organization_id, scheduled_for, status, routine_name_snapshot, target_space_id_snapshot, started_at_ms) VALUES (?, ?, ?, ?, 'claimed', 'Daily feedback review', ?, ?)"
-    ).bind(runId, routineId, organizationId, nowMs, spaceId, nowMs),
-  ]);
+        ) VALUES ($1, 'organization', $2, $3, $4, 'hosted_center_agent', $5, $6,
+          NULL, 'enabled_primary', $7, $8)
+      `,
+            values: [],
+          },
+          values: [
+            bindingId,
+            organizationId,
+            profileId,
+            HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+            JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
+            HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: "INSERT INTO \"openmeld\".\"routines\" (id, organization_id, name, instructions, external_action_policy, schedule_kind, cron_expression, timezone, target_space_id, status, next_due_at, created_by_user_id, updated_by_user_id, created_at_ms, updated_at_ms) VALUES ($1, $2, 'Daily feedback review', 'Review every open Feedback Issue.', 'read_only', 'cron', '0 12 * * *', 'UTC', $3, 'enabled', $4, $5, $6, $7, $8)",
+            values: [],
+          },
+          values: [
+            routineId,
+            organizationId,
+            spaceId,
+            nowMs + 24 * 60 * 60 * 1000,
+            creatorUserId,
+            creatorUserId,
+            nowMs - 1000,
+            nowMs - 1000,
+          ],
+        },
+        {
+          ...{
+            text: "INSERT INTO \"openmeld\".\"routine_runs\" (id, routine_id, organization_id, scheduled_for, status, routine_name_snapshot, target_space_id_snapshot, started_at_ms) VALUES ($1, $2, $3, $4, 'claimed', 'Daily feedback review', $5, $6)",
+            values: [],
+          },
+          values: [runId, routineId, organizationId, nowMs, spaceId, nowMs],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   const routine = {
     authorizedActions: [],
     createdAtMs: nowMs - 1000,
@@ -4433,7 +5290,10 @@ async function seedRoutineDeliveryFixture() {
     updatedAtMs: nowMs - 1000,
     updatedByUserId: creatorUserId,
   };
-  const run = await readRoutineRunRecord({ db: env.OPENMELD_DB, runId });
+  const run = await readRoutineRunRecord({
+    db: getPostgresDatabase(env),
+    runId,
+  });
   if (!run) {
     throw new Error("Routine Run fixture was not created");
   }
@@ -4455,15 +5315,14 @@ async function seedRoutineDeliveryFixture() {
     userId,
   };
 }
-
 function buildEnv(input: {
   additionalSpaceIds?: string[];
   continuitySignals?: SignalEnvelope[];
-  dailyAdmissionLimit?: string;
   fixture: Awaited<ReturnType<typeof seedRoutineDeliveryFixture>>;
   routineWorkflowSendEvent?: ReturnType<typeof vi.fn>;
   runtimeEnabled?: string;
   spaceGuide?: string;
+  webAppUrl?: string;
   workerReconcile?: ReturnType<typeof vi.fn>;
   workerSubmit: ReturnType<typeof vi.fn>;
 }): CoreBindings & {
@@ -4540,10 +5399,9 @@ function buildEnv(input: {
     OPENMELD_DAEMON_DISPATCH_QUEUE: {
       send: queueSend,
     } as unknown as CoreBindings["OPENMELD_DAEMON_DISPATCH_QUEUE"],
-    OPENMELD_DB: env.OPENMELD_DB,
-    OPENMELD_LOCAL_STATE_DB: env.OPENMELD_DB,
-    OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT: input.dailyAdmissionLimit,
+    OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: input.runtimeEnabled ?? "true",
+    WEB_APP_URL: input.webAppUrl,
     OPENMELD_REMOTE_AGENT_WORKER: {
       ...(input.workerReconcile
         ? { reconcileExecution: input.workerReconcile }
@@ -4575,7 +5433,6 @@ function buildEnv(input: {
     __spaceStubs: Map<string, TestSpaceStub>;
   };
 }
-
 type TestSpaceStub = {
   rpcCloseAgentStream: ReturnType<typeof vi.fn>;
   rpcGetMeta: ReturnType<typeof vi.fn>;
@@ -4584,14 +5441,13 @@ type TestSpaceStub = {
   rpcPostSignalOnceByClientMessageId: ReturnType<typeof vi.fn>;
   rpcReadFinalReplyClaimSignalId: ReturnType<typeof vi.fn>;
 };
-
 async function buildRoutineWorkerSubmitRequest(
   fixture: Awaited<ReturnType<typeof seedRoutineDeliveryFixture>>
 ): Promise<RemoteAgentWorkerSubmitTurnRequest> {
   const turnEnvelope = await resolveRemoteAgentRoutineTurnEnvelope({
     centerAgentProfileId: fixture.profileId,
     createdByUserId: fixture.creatorUserId,
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     delegatedMember: {
       displayName: "Routine Creator",
       memberId: fixture.creatorMemberId,
@@ -4629,7 +5485,6 @@ async function buildRoutineWorkerSubmitRequest(
     v: 1,
   };
 }
-
 async function resolveRoutineFixtureOrganizationAccountIdentity(
   fixture: Awaited<ReturnType<typeof seedRoutineDeliveryFixture>>,
   request: AuthRpcResolveOrganizationAccountIdentityInput
@@ -4645,13 +5500,18 @@ async function resolveRoutineFixtureOrganizationAccountIdentity(
       ok: false,
     };
   }
-
-  const membership = await env.OPENMELD_DB.prepare(
-    "SELECT id, role FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
-  )
-    .bind(fixture.organizationId, fixture.creatorUserId)
-    .first<{ id: string; role: "admin" | "member" | "owner" }>();
-
+  const membership = await getPostgresDatabase(env)
+    .query<{
+      id: string;
+      role: "admin" | "member" | "owner";
+    }>({
+      ...{
+        text: 'SELECT id, role FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2 LIMIT 1',
+        values: [],
+      },
+      values: [fixture.organizationId, fixture.creatorUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return {
     account: {
       defaultHumanProfile: {
@@ -4675,7 +5535,6 @@ async function resolveRoutineFixtureOrganizationAccountIdentity(
     },
   };
 }
-
 function retargetRoutineWorkerSubmitRequest(input: {
   name: string;
   request: RemoteAgentWorkerSubmitTurnRequest;
@@ -4704,7 +5563,6 @@ function retargetRoutineWorkerSubmitRequest(input: {
     },
   };
 }
-
 function createMemoryService(): CenterAgentMemoryService {
   return {
     deleteMemberMemory: vi.fn(async () => "deleted" as const),
@@ -4723,7 +5581,6 @@ function createMemoryService(): CenterAgentMemoryService {
     })),
   };
 }
-
 function buildCompletedCallback(
   fixture: Awaited<ReturnType<typeof seedRoutineDeliveryFixture>>
 ) {
@@ -4739,7 +5596,6 @@ function buildCompletedCallback(
     triggerMessageId: fixture.runId,
   };
 }
-
 function createSignal(
   id: string,
   fixture: Awaited<ReturnType<typeof seedRoutineDeliveryFixture>>,
@@ -4759,105 +5615,154 @@ function createSignal(
     v: 1,
   } as SignalEnvelope;
 }
-
 async function seedAdditionalRoutineTargetSpace(input: {
   fixture: Awaited<ReturnType<typeof seedRoutineDeliveryFixture>>;
   spaceName?: string;
 }): Promise<string> {
   const spaceId = crypto.randomUUID().replaceAll("-", "").repeat(2);
   const projectionSuffix = crypto.randomUUID();
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO space_index_spaces (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."space_index_spaces" (
           space_id, organization_id, organization_visibility, status, space_name,
           source_updated_at_ms, projected_at_ms, projection_event_id
-        ) VALUES (?, ?, 'private', 'active', ?, ?, ?, ?)
-      `
-    ).bind(
-      spaceId,
-      input.fixture.organizationId,
-      input.spaceName ?? "Future Routine Target",
-      input.fixture.nowMs,
-      input.fixture.nowMs,
-      `projection_${projectionSuffix}`
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO space_index_memberships (
+        ) VALUES ($1, $2, 'private', 'active', $3, $4, $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            spaceId,
+            input.fixture.organizationId,
+            input.spaceName ?? "Future Routine Target",
+            input.fixture.nowMs,
+            input.fixture.nowMs,
+            `projection_${projectionSuffix}`,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."space_index_memberships" (
           space_id, profile_id, profile_kind_snapshot, profile_name_snapshot,
           owner_user_id_snapshot, controller_ref_snapshot, status, member_source,
           added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id
-        ) VALUES (?, ?, 'agent', 'Routine Center Agent', ?, ?, 'active',
-          'member_add', ?, ?, ?, ?)
-      `
-    ).bind(
-      spaceId,
-      input.fixture.profileId,
-      input.fixture.userId,
-      HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      input.fixture.nowMs,
-      input.fixture.nowMs,
-      input.fixture.nowMs,
-      `membership_projection_${projectionSuffix}`
-    ),
-  ]);
+        ) VALUES ($1, $2, 'agent', 'Routine Center Agent', $3, $4, 'active',
+          'member_add', $5, $6, $7, $8)
+      `,
+            values: [],
+          },
+          values: [
+            spaceId,
+            input.fixture.profileId,
+            input.fixture.userId,
+            HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            input.fixture.nowMs,
+            input.fixture.nowMs,
+            input.fixture.nowMs,
+            `membership_projection_${projectionSuffix}`,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return spaceId;
 }
-
 async function cleanupOwnedRoutineRows(): Promise<void> {
   const cleanupErrors: Error[] = [];
-
   for (const organizationId of ownedRoutineOrganizationIds) {
     const cleanupSteps = [
       [
         "Agent Task outcome rows",
-        env.OPENMELD_DB.prepare(
-          `
-            DELETE FROM agent_task_terminal_outcomes
-            WHERE json_extract(task_handle_json, '$.deliveryId') IN (
+        {
+          ...{
+            text: `
+            DELETE FROM "openmeld"."agent_task_terminal_outcomes"
+            WHERE ((task_handle_json)::jsonb #>> '{deliveryId}') IN (
               SELECT delivery_id
-              FROM openMeldRemoteAgent_native_delivery_ledger
-              WHERE organization_id = ?
+              FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+              WHERE organization_id = $1
             )
-          `
-        ).bind(organizationId),
+          `,
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "Agent Task subscriptions",
-        env.OPENMELD_DB.prepare(
-          "DELETE FROM agent_task_completion_subscriptions WHERE organization_id = ?"
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."agent_task_completion_subscriptions" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "daily admission rows",
-        env.OPENMELD_DB.prepare(
-          'DELETE FROM "openMeldRemoteAgent_daily_admissions" WHERE organization_id = ?'
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."openMeldRemoteAgent_daily_admissions" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
+      ],
+      [
+        "conversation generation rows",
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."openMeldRemoteAgent_conversation_generations" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "native delivery rows",
-        env.OPENMELD_DB.prepare(
-          'DELETE FROM "openMeldRemoteAgent_native_delivery_ledger" WHERE organization_id = ?'
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "Routine Run rows",
-        env.OPENMELD_DB.prepare(
-          "DELETE FROM routine_runs WHERE organization_id = ?"
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."routine_runs" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
       [
         "Routine rows",
-        env.OPENMELD_DB.prepare(
-          "DELETE FROM routines WHERE organization_id = ?"
-        ).bind(organizationId),
+        {
+          ...{
+            text: 'DELETE FROM "openmeld"."routines" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [organizationId],
+        },
       ],
     ] as const;
-
     for (const [description, statement] of cleanupSteps) {
       try {
-        await statement.run();
+        await getPostgresDatabase(env).query({
+          text: statement.text,
+          values: [...statement.values],
+        });
       } catch (cause) {
         cleanupErrors.push(
           new Error(
@@ -4868,13 +5773,11 @@ async function cleanupOwnedRoutineRows(): Promise<void> {
       }
     }
   }
-
   if (cleanupErrors.length > 0) {
     throw new AggregateError(
       cleanupErrors,
       "Failed to clean owned Remote Agent Routine delivery test rows."
     );
   }
-
   ownedRoutineOrganizationIds.clear();
 }

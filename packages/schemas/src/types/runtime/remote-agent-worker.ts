@@ -36,6 +36,8 @@ type RemoteAgentWorkerInputAttachmentSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerInputAttachmentSchema"];
 type RemoteAgentWorkerSubmitMessagesResultSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitMessagesResultSchema"];
+type RemoteAgentWorkerReadAdmissionResponseSchema =
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerReadAdmissionResponseSchema"];
 type RemoteAgentWorkerSubmitTurnRequestSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitTurnRequestSchema"];
 type RemoteAgentWorkerSubmitTurnRequestV1Schema =
@@ -111,6 +113,20 @@ export type RemoteAgentWorkerInputAttachment =
   z.infer<RemoteAgentWorkerInputAttachmentSchema>;
 export type RemoteAgentWorkerSubmitMessagesResult =
   z.infer<RemoteAgentWorkerSubmitMessagesResultSchema>;
+export type RemoteAgentWorkerReadAdmissionResponse =
+  z.infer<RemoteAgentWorkerReadAdmissionResponseSchema>;
+export type RemoteAgentWorkerSubmitCapabilities = z.infer<
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitCapabilitiesSchema"]
+>;
+export type RemoteAgentWorkerSubmitCapabilitiesRequest = z.infer<
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitCapabilitiesRequestSchema"]
+>;
+export type RemoteAgentWorkerReadAdmissionStopResponse = z.infer<
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerReadAdmissionStopResponseSchema"]
+>;
+export type RemoteAgentWorkerAdmissionStopIntent = z.infer<
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerAdmissionStopIntentSchema"]
+>;
 export type RemoteAgentWorkerSubmitTurnRequest =
   z.infer<RemoteAgentWorkerSubmitTurnRequestSchema>;
 export type RemoteAgentWorkerSubmitTurnRequestV1 =

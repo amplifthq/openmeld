@@ -109,6 +109,10 @@ lie.
 - Applied: Members and Agents readiness-badge debounce is display-only; the
   underlying Core readiness keeps every raw transition and continues to drive
   actions, filtering, diagnostics, and Wake eligibility.
+- Applied: routine loading, prefetch, cache refresh, and short connection recovery
+  stay silent. Surface a sustained interruption beside the affected content
+  only when freshness or a user action is affected, with one recovery action.
+  Keep raw diagnostics and existing operation failures intact.
 - Applied: an optimistic outgoing message does not add a short-lived
   `Sending...` row; only a meaningfully delayed send adds `Still sending...`.
 - Applied: conversation compaction appears only after the final reply carries a
@@ -127,6 +131,10 @@ present old quota or sign-in facts as live. A confirmed Agent-specific failure
 remains visible once current computer facts are available. Routine disconnects,
 account-switch cancellation, and required updates do not warrant a page full
 of red failures.
+Connected Service, stale controller check, controller launch failure, and
+Execution Host safety fencing are separate facts. Computer details name the
+specific blocked layer and recovery action. A historical `Can launch` check is
+dated and becomes `Last check` when the containing report is stale.
 
 Web, CLI, and Desktop must reach the same conclusion from the same facts — or
 explicitly explain the split (local view vs cloud view). A three-surface

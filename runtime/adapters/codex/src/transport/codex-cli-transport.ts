@@ -58,6 +58,7 @@ export class CodexCliTransportError extends Error {
   }
 }
 
+// Delivery correction requires App Server's per-turn environment/tool controls.
 export async function invokeCodexCliTransport(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
   codexTimeoutMs: number | null;
@@ -74,6 +75,14 @@ export async function invokeCodexCliTransport(input: {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
 }): Promise<CodexCliTransportResult> {
+  if (input.env?.OPENMELD_SPACE_ACTION_DELIVERY_ONLY === "1") {
+    throw new CodexCliTransportError({
+      code: "space.action.delivery_only_unsupported",
+      errorType: "config",
+      message:
+        "This Codex CLI path cannot restrict correction to delivery tools. No correction turn was started.",
+    });
+  }
   const prompt = normalizeOptionalText(input.prompt);
   if (!prompt) {
     throw new CodexCliTransportError({
@@ -333,7 +342,14 @@ function resolveCodexAgentControllerPermissionModeArgs(input: {
   if (input.executionMode === "repair") {
     return {
       execArgs: [],
-      globalArgs: ["-s", "read-only", "-a", "untrusted"],
+      globalArgs: [
+        "-s",
+        "read-only",
+        "-a",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
+      ],
     };
   }
 
@@ -369,8 +385,8 @@ function resolveCodexAgentControllerPermissionModeArgs(input: {
 
 const CODEX_CLI_POLICY_ARGS_BY_POLICY = {
   "codex:askForApproval": {
-    askForApproval: "untrusted",
-    configArgs: [],
+    askForApproval: "on-request",
+    configArgs: ["-c", 'approvals_reviewer="user"'],
     sandbox: "workspace-write",
   },
   "codex:approveForMe": {

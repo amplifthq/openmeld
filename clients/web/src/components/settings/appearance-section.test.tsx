@@ -8,7 +8,7 @@ const themeState = vi.hoisted(() => ({
 	theme: "system" as string | undefined,
 }));
 const conversationLayoutState = vi.hoisted(() => ({
-	read: vi.fn(() => "centered" as const),
+	read: vi.fn(() => "full-width" as const),
 	write: vi.fn(),
 }));
 const selfMessageAlignmentState = vi.hoisted(() => ({
@@ -22,7 +22,7 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("#/lib/spaces/conversation-layout-preference", () => ({
-	DEFAULT_SPACE_CONVERSATION_LAYOUT: "centered",
+	DEFAULT_SPACE_CONVERSATION_LAYOUT: "full-width",
 	readSpaceConversationLayoutPreference: conversationLayoutState.read,
 	writeSpaceConversationLayoutPreference: conversationLayoutState.write,
 }));
@@ -52,74 +52,80 @@ describe("AppearanceSection", () => {
 	afterEach(() => {
 		cleanup();
 		localStorage.clear();
+		document.documentElement.removeAttribute("data-space-history-slider");
 		document.documentElement.removeAttribute("data-hidden-toolbar-shortcuts");
 		themeState.setTheme.mockReset();
 		themeState.theme = "system";
-		conversationLayoutState.read.mockReset().mockReturnValue("centered");
+		conversationLayoutState.read.mockReset().mockReturnValue("full-width");
 		conversationLayoutState.write.mockReset();
 		selfMessageAlignmentState.read.mockReset().mockReturnValue("right");
 		selfMessageAlignmentState.write.mockReset();
 	});
 
-	it("restores individually hidden toolbar shortcuts from Appearance after a reload", () => {
+	it("defaults toolbar shortcuts to off and saves individually enabled choices", () => {
 		renderAppearance();
+		const toolbarSettingsRow = screen
+			.getByText("Toolbar shortcuts")
+			.closest('[data-slot="settings-row"]');
+		expect(toolbarSettingsRow?.className).toContain("hidden");
+		expect(toolbarSettingsRow?.className).toContain("lg:flex");
+		// jsdom does not apply the desktop media query. This test verifies
+		// persistence; browser smoke covers the responsive visibility.
+		const shortcut = (label: string) =>
+			screen.getByLabelText(`Show ${label} in toolbar`);
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
-			fireEvent.click(
-				screen.getByRole("switch", { name: `Show ${label} in toolbar` })
-			);
+			expect(shortcut(label).getAttribute("aria-checked")).toBe("false");
+			fireEvent.click(shortcut(label));
 		}
 		cleanup();
 		renderAppearance();
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
-			expect(
-				screen
-					.getByRole("switch", { name: `Show ${label} in toolbar` })
-					.getAttribute("aria-checked")
-			).toBe("false");
+			expect(shortcut(label).getAttribute("aria-checked")).toBe("true");
 		}
-		fireEvent.click(
-			screen.getByRole("switch", { name: "Show Computer in toolbar" })
-		);
+		fireEvent.click(shortcut("Computer"));
+		expect(shortcut("Computer").getAttribute("aria-checked")).toBe("false");
+		expect(shortcut("Inbox").getAttribute("aria-checked")).toBe("true");
+	});
+
+	it("keeps the history slider setting across Appearance mounts", () => {
+		renderAppearance();
+		const toggle = screen.getByRole("switch", { name: "Show history slider" });
+		expect(toggle.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(toggle);
+		expect(
+			document.documentElement.getAttribute("data-space-history-slider")
+		).toBe("off");
+		cleanup();
+		renderAppearance();
 		expect(
 			screen
-				.getByRole("switch", { name: "Show Computer in toolbar" })
-				.getAttribute("aria-checked")
-		).toBe("true");
-		expect(
-			screen
-				.getByRole("switch", { name: "Show Inbox in toolbar" })
+				.getByRole("switch", { name: "Show history slider" })
 				.getAttribute("aria-checked")
 		).toBe("false");
 	});
 
-	it("shows the mounted theme and changes it from the radio group", () => {
-		renderAppearance();
+	it("shows the saved theme and changes it from the compact selector", () => {
+		const view = renderAppearance();
 
 		expect(
 			screen.getByRole("heading", { level: 1, name: "Appearance" })
 		).toBeTruthy();
 		expect(screen.getByText("Personal")).toBeTruthy();
-		const themeGroup = screen.getByRole("radiogroup", { name: "Theme" });
-		expect(themeGroup.getAttribute("aria-orientation")).toBe("horizontal");
-		expect(themeGroup.className).toContain("w-full");
-		expect(themeGroup.className).toContain("flex-row");
-		expect(
-			themeGroup
-				.closest('[data-slot="settings-row"]')
-				?.getAttribute("data-layout")
-		).toBe("stacked");
 		expect(
 			screen
-				.getAllByRole("radio")
-				.every((radio) => radio.className.includes("flex-1"))
-		).toBe(true);
-		expect(
-			screen.getByRole("radio", { name: "System" }).getAttribute("aria-checked")
+				.getByRole("button", { name: "System" })
+				.getAttribute("aria-pressed")
 		).toBe("true");
 
-		fireEvent.click(screen.getByRole("radio", { name: "Light" }));
-		fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
-		fireEvent.click(screen.getByRole("radio", { name: "System" }));
+		fireEvent.click(screen.getByRole("button", { name: "Light" }));
+		fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+		themeState.theme = "dark";
+		view.rerender(
+			<ShapeProvider>
+				<AppearanceSection />
+			</ShapeProvider>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "System" }));
 
 		expect(themeState.setTheme.mock.calls).toEqual([
 			["light"],
@@ -170,7 +176,7 @@ describe("AppearanceSection", () => {
 		expect(layoutGroup.getAttribute("aria-orientation")).toBe("horizontal");
 		expect(
 			screen
-				.getByRole("radio", { name: "Centered" })
+				.getByRole("radio", { name: "Full width" })
 				.getAttribute("aria-checked")
 		).toBe("true");
 		expect(

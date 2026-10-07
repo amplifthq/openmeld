@@ -35,18 +35,24 @@ export function resolveInboxAttention(input: {
 		} as const;
 	}
 	const actions = summary.unresolvedActionCount;
-	const urgent = summary.unreadUrgentUpdateCount;
-	const count = actions + urgent;
-	const tone = resolveInboxAttentionTone(summary);
+	const urgent =
+		summary.unreadPriorityUpdateCount ?? summary.unreadUrgentUpdateCount;
+	const count = summary.priorityCount ?? actions + urgent;
+	const tone = resolveCurrentAttentionTone(summary);
 	const indicatorTone =
 		tone ?? (summary.totalUnreadCount > 0 ? "unread" : null);
-	const tabLabel = resolveInboxTabLabel(indicatorTone, summary);
+	const tabLabel =
+		summary.priorityCount !== undefined && summary.priorityCount > 0
+			? `Priority attention (${summary.priorityCount})`
+			: resolveInboxTabLabel(indicatorTone, summary);
 	const details = [
 		...(actions > 0
 			? [`${actions} pending ${actions === 1 ? "item" : "items"}`]
 			: []),
 		...(urgent > 0
-			? [`${urgent} unread urgent ${urgent === 1 ? "update" : "updates"}`]
+			? [
+					`${urgent} unread ${summary.priorityCount === undefined ? "urgent" : "priority"} ${urgent === 1 ? "update" : "updates"}`,
+				]
 			: []),
 	].join(", ");
 	const status =
@@ -64,15 +70,24 @@ export function resolveInboxAttention(input: {
 	} as const;
 }
 
+function resolveCurrentAttentionTone(
+	summary: InboxSummaryResponse
+): "warning" | null {
+	if (summary.priorityCount === undefined) {
+		return resolveInboxAttentionTone(summary);
+	}
+	return summary.priorityCount > 0 ? "warning" : null;
+}
+
 function resolveInboxTabLabel(
-	tone: "danger" | "warning" | "unread" | null,
+	tone: "warning" | "unread" | null,
 	summary: InboxSummaryResponse
 ): string | null {
 	switch (tone) {
-		case "danger":
-			return `Needs action (${summary.unresolvedActionCount})`;
 		case "warning":
-			return `Urgent updates (${summary.unreadUrgentUpdateCount})`;
+			return summary.unresolvedActionCount > 0
+				? `Needs action (${summary.unresolvedActionCount})`
+				: `Urgent updates (${summary.unreadUrgentUpdateCount})`;
 		case "unread":
 			return `${summary.totalUnreadCount} unread`;
 		default:

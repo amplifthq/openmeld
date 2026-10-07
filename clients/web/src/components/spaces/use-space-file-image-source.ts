@@ -1,14 +1,16 @@
 "use client";
 
 import type { SpaceApi } from "@openmeld/api-client";
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSyncExternalStore } from "react";
+import { spaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceFileContentQueryOptions } from "#/query/spaces/space-files";
 
-type SpaceFileObjectUrl = {
-	key: string;
-	url: string;
+const noSource = () => null;
+const noSubscription = () => () => {
+	// No display resource exists yet.
 };
+const unavailable = new Error("The image preview is no longer available.");
 
 export function useSpaceFileImageSource(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
@@ -23,60 +25,54 @@ export function useSpaceFileImageSource(input: {
 	error: Error | null;
 	isLoading: boolean;
 	sourceUrl: string | null;
+	retry: () => Promise<void>;
 } {
-	const sourceKey = useMemo(
-		() => `${input.spaceId}:${input.fileId}:${String(input.revision)}`,
-		[input.fileId, input.revision, input.spaceId]
-	);
+	const client = useQueryClient();
+	const localResource = input.localPreviewUrl
+		? spaceFileMediaResources(client).find(input.localPreviewUrl)
+		: undefined;
 	const contentQuery = useQuery(
 		spaceFileContentQueryOptions({
 			api: input.api,
 			enabled:
-				input.enabled !== false && !(input.localPreviewUrl || input.isLocal),
+				input.enabled !== false &&
+				!(localResource?.getSnapshot() || input.isLocal),
 			fileId: input.fileId,
 			revision: input.revision,
 			spaceId: input.spaceId,
 		})
 	);
-	const [objectUrl, setObjectUrl] = useState<SpaceFileObjectUrl | null>(null);
-
-	useEffect(() => {
-		if (input.localPreviewUrl || !contentQuery.data) {
-			return;
-		}
-
-		const url = URL.createObjectURL(
-			new Blob([contentQuery.data.bytes], {
-				type: contentQuery.data.mimeType || input.mimeType,
-			})
-		);
-		setObjectUrl({ key: sourceKey, url });
-
-		return () => {
-			URL.revokeObjectURL(url);
-		};
-	}, [contentQuery.data, input.localPreviewUrl, input.mimeType, sourceKey]);
-
-	if (input.localPreviewUrl) {
-		return {
-			error: null,
-			isLoading: false,
-			sourceUrl: input.localPreviewUrl,
-		};
-	}
+	const resource = contentQuery.data?.mediaPreview ?? localResource;
+	// A cached handle is available during render, not in a later effect. Every
+	// mounted thumbnail/viewer has a lease and observes privacy revocation.
+	const sourceUrl = useSyncExternalStore(
+		resource?.subscribe ?? noSubscription,
+		resource?.getSnapshot ?? noSource,
+		resource?.getServerSnapshot ?? noSource
+	);
 	let error: Error | null = null;
 	if (contentQuery.error instanceof Error) {
 		error = contentQuery.error;
 	} else if (contentQuery.error) {
 		error = new Error("The image preview could not be loaded.");
 	}
+	if (
+		!(contentQuery.isFetching || sourceUrl) &&
+		(resource || input.isLocal || contentQuery.isSuccess)
+	) {
+		error ??= unavailable;
+	}
 	return {
 		error,
-		isLoading: !(
-			input.isLocal ||
-			error ||
-			(objectUrl?.key === sourceKey && objectUrl.url.length > 0)
-		),
-		sourceUrl: objectUrl?.key === sourceKey ? objectUrl.url : null,
+		isLoading: !(sourceUrl || error),
+		sourceUrl,
+		retry: async () => {
+			if (!input.isLocal) {
+				// An explicit decode retry must replace bad bytes, not just reuse
+				// the same immutable URL as an ordinary successful revalidation.
+				resource?.revoke();
+				await contentQuery.refetch();
+			}
+		},
 	};
 }

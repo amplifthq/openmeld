@@ -1,8 +1,10 @@
+import { resolveRemoteAgentExecutionScope } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonDispatchQueueMessage,
   RemoteAgentWorkerAuthorContext,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { createProjectionPostgresDatabase } from "../../test-support/postgresql-query.test-support";
 import {
   discardFrozenContextScopeForNewTurn,
   parseCoreOwnedRemoteAgentTurnEnvelope,
@@ -58,7 +60,7 @@ describe("remote agent turn envelope", () => {
         profileKind: "human",
       } as RemoteAgentWorkerAuthorContext,
       centerAgentProfileId: "agt_center",
-      db: createTurnEnvelopeDb() as unknown as D1Database,
+      db: createTurnEnvelopeDb(),
       message: createDispatchMessage(),
       organizationId: "org_personal",
       webAppUrl: "https://openmeld.test",
@@ -123,7 +125,7 @@ describe("remote agent turn envelope", () => {
         profileKind: "human",
       } as RemoteAgentWorkerAuthorContext,
       centerAgentProfileId: "agt_center",
-      db: createTeamTurnEnvelopeDb() as unknown as D1Database,
+      db: createTeamTurnEnvelopeDb(),
       message: createDispatchMessage(),
       organizationId: "org_team",
       webAppUrl: "https://openmeld.test",
@@ -137,6 +139,47 @@ describe("remote agent turn envelope", () => {
         mode: "automatic",
       },
     });
+  });
+
+  it("keeps a verified Agent sender usable as the execution principal", async () => {
+    const envelope = await resolveRemoteAgentTurnEnvelope({
+      author: {
+        displayName: "Center Agent",
+        profileId: "agt_center",
+        profileKind: "agent",
+      } as RemoteAgentWorkerAuthorContext,
+      centerAgentProfileId: "agt_center",
+      db: createTeamTurnEnvelopeDb({
+        agentSender: true,
+      }),
+      message: {
+        ...createDispatchMessage(),
+        sourceSignalSnapshot: {
+          text: "Wake the personal Agent",
+          profileId: "agt_center",
+          profileKind: "agent",
+        },
+        spaceId: "space_shared",
+        spaceNameSnapshot: "Launch Room",
+      },
+      organizationId: "org_team",
+    });
+
+    expect(envelope.sender).toMatchObject({
+      kind: "agent_profile",
+      id: "agt_center",
+      profileId: "agt_center",
+      verified: true,
+    });
+    expect(
+      resolveRemoteAgentExecutionScope({
+        agentProfileId: "agt_personal",
+        bindingId: "binding_personal",
+        organizationId: "org_team",
+        spaceId: "space_shared",
+        turnEnvelope: envelope,
+      }).principal
+    ).toEqual({ kind: "agent", profileId: "agt_center" });
   });
 
   it("marks non-DM Space wakes as shared Space triggers", () => {
@@ -306,107 +349,116 @@ function createDispatchMessage(): OpenMeldDaemonDispatchQueueMessage {
 }
 
 function createTurnEnvelopeDb() {
-  return {
-    prepare(sql: string) {
-      return {
-        bind() {
-          return {
-            first: () => {
-              if (sql.includes("FROM organizations")) {
-                return {
-                  name: "Felix",
-                  slug: "personal-felix",
-                  metadata: JSON.stringify({ personal: true }),
-                  member_count: 1,
-                };
-              }
-              if (sql.includes("profile_handle")) {
-                return {
-                  profile_name: "Felix's Center Agent",
-                  profile_handle: "felixs-center-agent",
-                };
-              }
-              if (sql.includes("FROM openmeld_profiles")) {
-                return {
-                  profile_id: "hum_123",
-                  profile_name: "Felix",
-                  profile_kind: "human",
-                  owner_user_id: "user_123",
-                  member_id: "member_123",
-                  role: "owner",
-                };
-              }
-              if (sql.includes("FROM space_index_spaces")) {
-                return {
-                  space_id: "space_dm",
-                  organization_id: "org_personal",
-                  space_purpose: "openmeld_dm_space",
-                  direct_message_pair_key: "agt_center:hum_123",
-                };
-              }
-              throw new Error(`Unexpected SQL: ${sql}`);
-            },
-          };
+  return createProjectionPostgresDatabase(({ text }) => {
+    if (text.includes('FROM "openmeld"."organizations"')) {
+      return [
+        {
+          name: "Felix",
+          slug: "personal-felix",
+          metadata: JSON.stringify({ personal: true }),
+          member_count: 1,
         },
-      };
-    },
-  };
+      ];
+    }
+    if (text.includes("profile_handle")) {
+      return [
+        {
+          profile_name: "Felix's Center Agent",
+          profile_handle: "felixs-center-agent",
+        },
+      ];
+    }
+    if (text.includes('FROM "openmeld"."openmeld_profiles"')) {
+      return [
+        {
+          profile_id: "hum_123",
+          profile_name: "Felix",
+          profile_kind: "human",
+          owner_user_id: "user_123",
+          member_id: "member_123",
+          role: "owner",
+        },
+      ];
+    }
+    if (text.includes('FROM "openmeld"."space_index_spaces"')) {
+      return [
+        {
+          space_id: "space_dm",
+          organization_id: "org_personal",
+          space_purpose: "openmeld_dm_space",
+          direct_message_pair_key: "agt_center:hum_123",
+        },
+      ];
+    }
+    throw new Error(`Unexpected query: ${text}`);
+  });
 }
 
-function createTeamTurnEnvelopeDb() {
-  return {
-    prepare(sql: string) {
-      return {
-        bind() {
-          return {
-            first: () => {
-              if (sql.includes("organization_working_language_preferences")) {
-                return {
-                  language_tag: "zh-Hans",
-                  mode: "automatic",
-                  organization_id: "org_team",
-                  revision: 1,
-                  updated_at_ms: 1_700_000_000_000,
-                  updated_by_user_id: null,
-                };
-              }
-              if (sql.includes("FROM organizations")) {
-                return {
-                  member_count: 4,
-                  metadata: null,
-                  name: "OpenMeld Labs",
-                  slug: "openmeld-labs",
-                };
-              }
-              if (sql.includes("profile_handle")) {
-                return {
-                  profile_handle: "center-agent",
-                  profile_name: "Center Agent",
-                };
-              }
-              if (sql.includes("FROM openmeld_profiles")) {
-                return {
-                  member_id: "member_123",
-                  owner_user_id: "user_123",
-                  profile_id: "hum_123",
-                  profile_kind: "human",
-                  profile_name: "Felix",
-                  role: "owner",
-                };
-              }
-              if (sql.includes("FROM space_index_spaces")) {
-                return {
-                  direct_message_pair_key: "agt_center:hum_123",
-                  organization_id: "org_team",
-                  space_id: "space_dm",
-                  space_purpose: "openmeld_dm_space",
-                };
-              }
-              throw new Error(`Unexpected SQL: ${sql}`);
-            },
-          };
+function createTeamTurnEnvelopeDb(input?: { agentSender?: boolean }) {
+  return createProjectionPostgresDatabase(({ text }) => {
+    if (text.includes("organization_working_language_preferences")) {
+      return [
+        {
+          language_tag: "zh-Hans",
+          mode: "automatic",
+          organization_id: "org_team",
+          revision: 1,
+          updated_at_ms: 1_700_000_000_000,
+          updated_by_user_id: null,
         },
-      };
-    },
-  };
+      ];
+    }
+    if (text.includes('FROM "openmeld"."organizations"')) {
+      return [
+        {
+          member_count: 4,
+          metadata: null,
+          name: "OpenMeld Labs",
+          slug: "openmeld-labs",
+        },
+      ];
+    }
+    if (text.includes("profile_handle")) {
+      return [{ profile_handle: "center-agent", profile_name: "Center Agent" }];
+    }
+    if (text.includes('FROM "openmeld"."openmeld_profiles"')) {
+      return [
+        input?.agentSender
+          ? {
+              member_id: null,
+              owner_user_id: null,
+              profile_id: "agt_center",
+              profile_kind: "agent",
+              profile_name: "Center Agent",
+              role: null,
+            }
+          : {
+              member_id: "member_123",
+              owner_user_id: "user_123",
+              profile_id: "hum_123",
+              profile_kind: "human",
+              profile_name: "Felix",
+              role: "owner",
+            },
+      ];
+    }
+    if (text.includes('FROM "openmeld"."space_index_spaces"')) {
+      return [
+        input?.agentSender
+          ? {
+              direct_message_pair_key: null,
+              organization_id: "org_team",
+              space_id: "space_shared",
+              space_purpose: null,
+            }
+          : {
+              direct_message_pair_key: "agt_center:hum_123",
+              organization_id: "org_team",
+              space_id: "space_dm",
+              space_purpose: "openmeld_dm_space",
+            },
+      ];
+    }
+    throw new Error(`Unexpected query: ${text}`);
+  });
 }

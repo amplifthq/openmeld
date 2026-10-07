@@ -1,10 +1,14 @@
 import type { Zep } from "@getzep/zep-cloud";
-import { messageChannelProviderSchema } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES,
+  messageChannelProviderSchema,
+} from "@openmeld/schemas";
 import type { MessageChannelProvider } from "@openmeld/schemas/types";
 import { loadZepRuntime } from "../lazy-runtime-modules";
 import type {
   CenterAgentMemoryAdapter,
   CenterAgentMemoryCaptureMethod,
+  CenterAgentMemoryDetailedReader,
   CenterAgentMemoryEpisode,
   CenterAgentMemoryRef,
   CenterAgentMemorySearchResult,
@@ -31,7 +35,8 @@ type ZepMemoryAdapterLogger = Pick<Console, "warn">;
 
 const ALREADY_EXISTS_ERROR_PATTERN = /already exists|conflict/i;
 const NOT_FOUND_ERROR_PATTERN = /not found|missing/i;
-const CENTER_AGENT_MEMORY_MAX_PROVENANCE_EPISODES_PER_EDGE = 8;
+const CENTER_AGENT_MEMORY_MAX_PROVENANCE_EPISODES_PER_EDGE =
+  CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES;
 const CENTER_AGENT_MEMORY_SOURCES = new Set<CenterAgentMemorySource>([
   "ca_dm",
   "explicit_tool",
@@ -71,13 +76,17 @@ type ProvenanceFailure = {
 };
 
 type MemorySearchReadResult =
-  | { item: CenterAgentMemorySearchResult; status: "resolved" }
+  | {
+      item: CenterAgentMemorySearchResult;
+      sources: EpisodeProvenance[];
+      status: "resolved";
+    }
   | { failure: ProvenanceFailure; status: "omitted" };
 
 export function createZepCenterAgentMemoryAdapter(input: {
   apiKey: string;
   logger?: ZepMemoryAdapterLogger;
-}): CenterAgentMemoryAdapter {
+}): CenterAgentMemoryAdapter & CenterAgentMemoryDetailedReader {
   const logger = input.logger ?? console;
   let clientPromise: Promise<ZepClientLike> | null = null;
   const getClient = (): Promise<ZepClientLike> => {
@@ -87,6 +96,49 @@ export function createZepCenterAgentMemoryAdapter(input: {
     );
     return clientPromise;
   };
+
+  async function searchRecords(
+    searchInput: Parameters<CenterAgentMemoryAdapter["search"]>[0],
+    strictProvenance: boolean
+  ) {
+    const client = await getClient();
+    const result = await client.graph.search({
+      ...toZepGraphSelector(searchInput.ref),
+      query: searchInput.query,
+      limit: searchInput.limit,
+      scope: "edges",
+    });
+    const episodeCache = new Map<string, Promise<Zep.Episode>>();
+    const getEpisode = (episodeId: string): Promise<Zep.Episode> => {
+      let episode = episodeCache.get(episodeId);
+      if (!episode) {
+        episode = client.graph.episode.get(episodeId);
+        episodeCache.set(episodeId, episode);
+      }
+      return episode;
+    };
+    const records = await Promise.all(
+      (result.edges ?? []).slice(0, searchInput.limit).map((edge) =>
+        readMemorySearchResult({
+          edge,
+          getEpisode,
+          subject: searchInput.ref.subject.kind,
+          strictProvenance,
+        })
+      )
+    );
+    const failures = records.flatMap((record) =>
+      record.status === "omitted" ? [record.failure] : []
+    );
+    if (failures.length > 0) {
+      logger.warn("[core.center_agent_memory.provenance_unavailable]", {
+        failureCount: failures.length,
+        failures: failures.slice(0, 6),
+        subject: searchInput.ref.subject.kind,
+      });
+    }
+    return records;
+  }
 
   return {
     async addEpisode(addInput) {
@@ -152,53 +204,34 @@ export function createZepCenterAgentMemoryAdapter(input: {
     },
 
     async search(searchInput) {
-      const client = await getClient();
-      const result = await client.graph.search({
-        ...toZepGraphSelector(searchInput.ref),
-        query: searchInput.query,
-        limit: searchInput.limit,
-        scope: "edges",
-      });
-      const episodeCache = new Map<string, Promise<Zep.Episode>>();
-      const getEpisode = (episodeId: string): Promise<Zep.Episode> => {
-        let episode = episodeCache.get(episodeId);
-        if (!episode) {
-          episode = client.graph.episode.get(episodeId);
-          episodeCache.set(episodeId, episode);
-        }
-        return episode;
-      };
-      const recalled = await Promise.all(
-        (result.edges ?? []).slice(0, searchInput.limit).map((edge) =>
-          readMemorySearchResult({
-            edge,
-            getEpisode,
-            subject: searchInput.ref.subject.kind,
-          })
-        )
+      // Automatic prompt recall retains its existing single-origin projection.
+      const records = await searchRecords(searchInput, false);
+      return records.flatMap((record) =>
+        record.status === "resolved" ? [record.item] : []
       );
-      const items: CenterAgentMemorySearchResult[] = [];
-      for (const recalledItem of recalled) {
-        if (recalledItem.status === "resolved") {
-          items.push(recalledItem.item);
-        }
-      }
-      const failures = recalled
-        .filter(
-          (
-            item
-          ): item is Extract<MemorySearchReadResult, { status: "omitted" }> =>
-            item.status === "omitted"
+    },
+    async searchDetailed(searchInput) {
+      const records = await searchRecords(searchInput, true);
+      return {
+        items: records.flatMap((record) =>
+          record.status === "resolved"
+            ? [
+                {
+                  text: record.item.text,
+                  subject: record.item.subject,
+                  sources: record.sources,
+                },
+              ]
+            : []
+        ),
+        status: records.some(
+          (record) =>
+            record.status === "omitted" &&
+            record.failure.reasonCode === "episode_read_failed"
         )
-        .map((item) => item.failure);
-      if (failures.length > 0) {
-        logger.warn("[core.center_agent_memory.provenance_unavailable]", {
-          failureCount: failures.length,
-          failures: failures.slice(0, 6),
-          subject: searchInput.ref.subject.kind,
-        });
-      }
-      return items;
+          ? "partial"
+          : "complete",
+      };
     },
   };
 }
@@ -279,11 +312,24 @@ async function readMemorySearchResult(input: {
   edge: Zep.EntityEdge;
   getEpisode: (episodeId: string) => Promise<Zep.Episode>;
   subject: CenterAgentMemorySearchResult["subject"];
+  strictProvenance?: boolean;
 }): Promise<MemorySearchReadResult> {
   const edgeId = normalizeNonEmptyString(input.edge.uuid) ?? "unknown_edge";
   const text = normalizeNonEmptyString(input.edge.fact);
   if (!text) {
     return omittedProvenance({ edgeId, reasonCode: "empty_fact" });
+  }
+  if (
+    input.strictProvenance &&
+    (!Array.isArray(input.edge.episodes) ||
+      input.edge.episodes.some(
+        (value) => normalizeNonEmptyString(value) === null
+      ))
+  ) {
+    return omittedProvenance({
+      edgeId,
+      reasonCode: "missing_episode_reference",
+    });
   }
   const episodeIds = [
     ...new Set(
@@ -332,6 +378,16 @@ async function readMemorySearchResult(input: {
         reasonCode: "episode_read_failed",
       });
     }
+    if (
+      input.strictProvenance &&
+      episodeResult.value.episode.uuid !== episodeId
+    ) {
+      return omittedProvenance({
+        edgeId,
+        episodeId,
+        reasonCode: "invalid_episode_provenance",
+      });
+    }
     const parsed = parseEpisodeProvenance(episodeResult.value.episode);
     if (!parsed) {
       return omittedProvenance({
@@ -365,9 +421,28 @@ async function readMemorySearchResult(input: {
     });
   }
   return {
-    item: { ...original.value, subject: input.subject, text },
+    item: {
+      ...original.value,
+      subject: input.subject,
+      text: formatFactValidity(input.edge, text),
+    },
+    sources: provenance.map(({ value }) => value),
     status: "resolved",
   };
+}
+
+function formatFactValidity(edge: Zep.EntityEdge, text: string): string {
+  const dates = [
+    ["from", edge.validAt],
+    ["until", edge.invalidAt],
+    ["superseded", edge.expiredAt],
+  ].flatMap(([label, value]) => {
+    const timestamp = value ? Date.parse(value) : Number.NaN;
+    return Number.isFinite(timestamp)
+      ? [`${label} ${new Date(timestamp).toISOString()}`]
+      : [];
+  });
+  return `[Fact validity: ${dates.length ? dates.join("; ") : "unknown"}] ${text}`;
 }
 
 function omittedProvenance(failure: ProvenanceFailure): MemorySearchReadResult {

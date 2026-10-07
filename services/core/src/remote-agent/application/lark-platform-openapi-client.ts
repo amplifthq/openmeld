@@ -10,6 +10,7 @@ import type {
   ChannelContextMessage,
   NormalizedMessageChannelEvent,
 } from "@openmeld/schemas/types";
+import { readLarkPlatformMessageSnapshot } from "./lark-platform-event-normalizer";
 import { readLarkPlatformPostContent } from "./lark-platform-post-content";
 import type {
   LarkPlatformMessageChannelProvider,
@@ -18,6 +19,7 @@ import type {
   MessageChannelPublicationResult,
   MessageChannelResourceDownloadResult,
 } from "./message-channel-adapters";
+import { buildPluginChannelSourceProof } from "./plugin-channel-source-proof";
 
 const LARK_PLATFORM_API_HOSTS: Record<
   LarkPlatformMessageChannelProvider,
@@ -37,12 +39,19 @@ const LARK_PLATFORM_STREAMING_CARD_ELEMENT_ID = "stream_md";
 export const LARK_PLATFORM_STREAMING_CARD_MAX_CHARS = 30_000;
 const LARK_PLATFORM_TENANT_TOKEN_MAX_LIFETIME_SECONDS = 24 * 60 * 60;
 const LARK_PLATFORM_TENANT_TOKEN_MAX_SAFETY_WINDOW_MS = 60_000;
-
 type JsonObject = Record<string, unknown>;
 type LarkPlatformTenantAccessTokenResult =
-  | { status: "ready"; tenantAccessToken: string }
   | {
-      result: Extract<MessageChannelPublicationResult, { status: "failed" }>;
+      status: "ready";
+      tenantAccessToken: string;
+    }
+  | {
+      result: Extract<
+        MessageChannelPublicationResult,
+        {
+          status: "failed";
+        }
+      >;
       status: "failed";
     };
 type LarkPlatformTenantAccessTokenCacheEntry = {
@@ -56,9 +65,10 @@ type LarkPlatformTenantAccessTokenPendingEntry = {
 };
 type LarkPlatformMessageEvent = Extract<
   NormalizedMessageChannelEvent,
-  { kind: "message" }
+  {
+    kind: "message";
+  }
 >;
-
 const larkPlatformTenantAccessTokenCacheByFetch = new WeakMap<
   typeof fetch,
   Map<string, LarkPlatformTenantAccessTokenCacheEntry>
@@ -67,7 +77,6 @@ const larkPlatformTenantAccessTokenPendingByFetch = new WeakMap<
   typeof fetch,
   Map<string, LarkPlatformTenantAccessTokenPendingEntry>
 >();
-
 export async function readLarkPlatformChannelContext(input: {
   appId: string;
   appSecret: string;
@@ -102,9 +111,7 @@ export async function readLarkPlatformChannelContext(input: {
   if (token.status !== "ready") {
     return unavailableContext("unavailable");
   }
-
   const url = buildLarkPlatformHistoryUrl(apiHost, input.currentEvent);
-
   let response: Response;
   try {
     response = await fetchImpl(url, {
@@ -123,7 +130,6 @@ export async function readLarkPlatformChannelContext(input: {
   if (failureStatus) {
     return unavailableContext(failureStatus);
   }
-
   const data = readObject(body, "data");
   const rawItems = readArray(data, "items");
   const messages: ChannelContextMessage[] = [];
@@ -165,7 +171,61 @@ export async function readLarkPlatformChannelContext(input: {
     },
   });
 }
-
+export async function readLarkPlatformPluginSourceProof(input: {
+  appId: string;
+  appSecret: string;
+  botOpenId: string | null;
+  provider: LarkPlatformMessageChannelProvider;
+  messageId: string;
+  chatId: string;
+  rootMessageId: string;
+  fetchImpl?: typeof fetch;
+}) {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const apiHost = getLarkPlatformApiHost(input.provider);
+  const token = await requestLarkPlatformTenantAccessToken({
+    ...input,
+    apiHost,
+    fetchImpl,
+  });
+  if (token.status !== "ready") {
+    throw new Error("plugin.channel.provider_access_unavailable");
+  }
+  const response = await fetchImpl(
+    `${apiHost}/open-apis/im/v1/messages/${encodeURIComponent(input.messageId)}?user_id_type=open_id`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token.tenantAccessToken}` },
+      signal: AbortSignal.timeout(15_000),
+    }
+  );
+  const body = await readJsonObject(response);
+  if (!response.ok || readProviderCode(body) !== 0) {
+    throw new Error("plugin.channel.source_read_failed");
+  }
+  const items = readArray(readObject(body, "data"), "items");
+  const item = items.find(
+    (value) =>
+      isJsonObject(value) && readString(value, "message_id") === input.messageId
+  );
+  if (
+    !isJsonObject(item) ||
+    readString(item, "chat_id") !== input.chatId ||
+    (readString(item, "root_id") ?? input.messageId) !== input.rootMessageId
+  ) {
+    return null;
+  }
+  const snapshot = readLarkPlatformMessageSnapshot({
+    item,
+    botOpenId: input.botOpenId,
+  });
+  return snapshot
+    ? await buildPluginChannelSourceProof({
+        ...snapshot,
+        provider: input.provider,
+      })
+    : null;
+}
 export async function publishLarkPlatformReply(input: {
   appId: string;
   appSecret: string;
@@ -192,13 +252,10 @@ export async function publishLarkPlatformReply(input: {
   if (token.status !== "ready") {
     return token.result;
   }
-
   let response: Response;
   try {
     response = await fetchImpl(
-      `${apiHost}/open-apis/im/v1/messages/${encodeURIComponent(
-        input.messageId.trim()
-      )}/reply`,
+      `${apiHost}/open-apis/im/v1/messages/${encodeURIComponent(input.messageId.trim())}/reply`,
       {
         body: JSON.stringify({
           content: JSON.stringify({ text: input.text.trim() }),
@@ -219,7 +276,6 @@ export async function publishLarkPlatformReply(input: {
       status: "outcome_unknown",
     };
   }
-
   const body = await readJsonObject(response);
   const providerCode = readProviderCode(body);
   if (!response.ok || (providerCode !== null && providerCode !== 0)) {
@@ -243,7 +299,6 @@ export async function publishLarkPlatformReply(input: {
   }
   return { resultId: messageId, status: "published" };
 }
-
 export async function createLarkPlatformStreamingCard(input: {
   stopDeliveryId?: string;
   appId: string;
@@ -268,7 +323,6 @@ export async function createLarkPlatformStreamingCard(input: {
   if (token.status !== "ready") {
     return token.result;
   }
-
   let response: Response;
   try {
     response = await fetchImpl(`${apiHost}/open-apis/cardkit/v1/cards`, {
@@ -316,7 +370,6 @@ export async function createLarkPlatformStreamingCard(input: {
   }
   return { cardId, status: "created" };
 }
-
 export async function publishLarkPlatformCardReference(input: {
   appId: string;
   appSecret: string;
@@ -343,13 +396,10 @@ export async function publishLarkPlatformCardReference(input: {
   if (token.status !== "ready") {
     return token.result;
   }
-
   let response: Response;
   try {
     response = await fetchImpl(
-      `${apiHost}/open-apis/im/v1/messages/${encodeURIComponent(
-        input.messageId.trim()
-      )}/reply`,
+      `${apiHost}/open-apis/im/v1/messages/${encodeURIComponent(input.messageId.trim())}/reply`,
       {
         body: JSON.stringify({
           content: JSON.stringify({
@@ -396,7 +446,6 @@ export async function publishLarkPlatformCardReference(input: {
   }
   return { resultId: messageId, status: "published" };
 }
-
 export async function updateLarkPlatformStreamingCardContent(input: {
   appId: string;
   appSecret: string;
@@ -420,12 +469,9 @@ export async function updateLarkPlatformStreamingCardContent(input: {
     },
     method: "PUT",
     operation: "card_update",
-    path: `/open-apis/cardkit/v1/cards/${encodeURIComponent(
-      input.cardId.trim()
-    )}/elements/${LARK_PLATFORM_STREAMING_CARD_ELEMENT_ID}/content`,
+    path: `/open-apis/cardkit/v1/cards/${encodeURIComponent(input.cardId.trim())}/elements/${LARK_PLATFORM_STREAMING_CARD_ELEMENT_ID}/content`,
   });
 }
-
 export async function finalizeLarkPlatformStreamingCard(input: {
   replyDeliveryId?: string;
   appId: string;
@@ -460,12 +506,9 @@ export async function finalizeLarkPlatformStreamingCard(input: {
     },
     method: "PUT",
     operation: "card_finalize",
-    path: `/open-apis/cardkit/v1/cards/${encodeURIComponent(
-      input.cardId.trim()
-    )}`,
+    path: `/open-apis/cardkit/v1/cards/${encodeURIComponent(input.cardId.trim())}`,
   });
 }
-
 export async function downloadLarkPlatformMessageResource(input: {
   appId: string;
   appSecret: string;
@@ -509,13 +552,10 @@ export async function downloadLarkPlatformMessageResource(input: {
     };
   }
   const url = new URL(
-    `/open-apis/im/v1/messages/${encodeURIComponent(
-      input.messageId.trim()
-    )}/resources/${encodeURIComponent(input.fileKey.trim())}`,
+    `/open-apis/im/v1/messages/${encodeURIComponent(input.messageId.trim())}/resources/${encodeURIComponent(input.fileKey.trim())}`,
     apiHost
   );
   url.searchParams.set("type", input.resourceType);
-
   let response: Response;
   try {
     response = await fetchImpl(url, {
@@ -558,7 +598,6 @@ export async function downloadLarkPlatformMessageResource(input: {
     status: "downloaded",
   };
 }
-
 export async function publishLarkPlatformIdentityLinkCard(input: {
   appId: string;
   appSecret: string;
@@ -593,7 +632,6 @@ export async function publishLarkPlatformIdentityLinkCard(input: {
     providerUserId: input.providerUserId,
   });
 }
-
 export async function publishLarkPlatformNavigationActionCard(input: {
   action: NavigationAction;
   appId: string;
@@ -622,7 +660,6 @@ export async function publishLarkPlatformNavigationActionCard(input: {
     providerUserId: input.providerUserId,
   });
 }
-
 async function publishLarkPlatformPrivateCard(input: {
   appId: string;
   appSecret: string;
@@ -691,7 +728,6 @@ async function publishLarkPlatformPrivateCard(input: {
   }
   return { resultId: messageId, status: "published" };
 }
-
 async function mutateLarkPlatformCard(input: {
   appId: string;
   appSecret: string;
@@ -746,13 +782,17 @@ async function mutateLarkPlatformCard(input: {
   }
   return { status: "published" };
 }
-
 function validateCardCreationInput(input: {
   appId: string;
   appSecret: string;
   initialText: string;
   provider: LarkPlatformMessageChannelProvider;
-}): Extract<MessageChannelCardCreationResult, { status: "failed" }> | null {
+}): Extract<
+  MessageChannelCardCreationResult,
+  {
+    status: "failed";
+  }
+> | null {
   if (!(input.appId.trim() && input.appSecret.trim())) {
     return {
       reasonCode: `${input.provider}.connection_credentials_unavailable`,
@@ -770,10 +810,14 @@ function validateCardCreationInput(input: {
   }
   return null;
 }
-
 function validateCardReferenceInput(
   input: Parameters<typeof publishLarkPlatformCardReference>[0]
-): Extract<MessageChannelPublicationResult, { status: "failed" }> | null {
+): Extract<
+  MessageChannelPublicationResult,
+  {
+    status: "failed";
+  }
+> | null {
   if (
     !(
       input.appId.trim() &&
@@ -799,12 +843,16 @@ function validateCardReferenceInput(
   }
   return null;
 }
-
 function validateCardMutationInput(
   input:
     | Parameters<typeof finalizeLarkPlatformStreamingCard>[0]
     | Parameters<typeof updateLarkPlatformStreamingCardContent>[0]
-): Extract<MessageChannelCardMutationResult, { status: "failed" }> | null {
+): Extract<
+  MessageChannelCardMutationResult,
+  {
+    status: "failed";
+  }
+> | null {
   if (
     !(
       input.appId.trim() &&
@@ -838,7 +886,6 @@ function validateCardMutationInput(
   }
   return null;
 }
-
 function buildLarkPlatformStreamingCard(
   text: string,
   stopDeliveryId?: string
@@ -887,7 +934,6 @@ function buildLarkPlatformStreamingCard(
     schema: "2.0",
   };
 }
-
 function buildLarkPlatformTerminalCard(
   text: string,
   outcome: "completed" | "failed" | "stopped" | "continued",
@@ -927,7 +973,6 @@ function buildLarkPlatformTerminalCard(
     schema: "2.0",
   };
 }
-
 function buildLarkPlatformFollowUpForm(deliveryId: string): JsonObject {
   return {
     tag: "form",
@@ -966,15 +1011,18 @@ function buildLarkPlatformFollowUpForm(deliveryId: string): JsonObject {
     ],
   };
 }
-
 function buildCardSummary(text: string): string {
   const normalized = text.replace(/\s+/gu, " ").trim();
   return normalized.length <= 50 ? normalized : `${normalized.slice(0, 49)}…`;
 }
-
 function validatePublicationInput(
   input: Parameters<typeof publishLarkPlatformReply>[0]
-): Extract<MessageChannelPublicationResult, { status: "failed" }> | null {
+): Extract<
+  MessageChannelPublicationResult,
+  {
+    status: "failed";
+  }
+> | null {
   if (!(input.appId.trim() && input.appSecret.trim())) {
     return {
       reasonCode: `${input.provider}.connection_credentials_unavailable`,
@@ -999,12 +1047,14 @@ function validatePublicationInput(
   }
   return null;
 }
-
 async function readBoundedResponseBody(
   response: Response,
   maxBytes: number
 ): Promise<
-  | { bytes: Uint8Array; status: "read" }
+  | {
+      bytes: Uint8Array;
+      status: "read";
+    }
   | {
       reasonCode: "message_resource_body_unavailable";
       status: "failed";
@@ -1059,7 +1109,6 @@ async function readBoundedResponseBody(
   }
   return { bytes, status: "read" };
 }
-
 function readContentLength(response: Response): number | null {
   const raw = response.headers.get("content-length");
   if (!(raw && NONNEGATIVE_INTEGER_PATTERN.test(raw))) {
@@ -1068,12 +1117,10 @@ function readContentLength(response: Response): number | null {
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
-
 function normalizeContentType(value: string | null): string | null {
   const normalized = value?.split(";", 1)[0]?.trim().toLowerCase();
   return normalized || null;
 }
-
 function isRetryableProviderReason(reasonCode: string): boolean {
   return (
     reasonCode.endsWith("_transport_failed") ||
@@ -1081,10 +1128,14 @@ function isRetryableProviderReason(reasonCode: string): boolean {
     SERVER_ERROR_REASON_PATTERN.test(reasonCode)
   );
 }
-
 function validateIdentityLinkCardInput(
   input: Parameters<typeof publishLarkPlatformIdentityLinkCard>[0]
-): Extract<MessageChannelPublicationResult, { status: "failed" }> | null {
+): Extract<
+  MessageChannelPublicationResult,
+  {
+    status: "failed";
+  }
+> | null {
   let linkUrl: URL;
   try {
     linkUrl = new URL(input.linkUrl);
@@ -1112,10 +1163,14 @@ function validateIdentityLinkCardInput(
   }
   return null;
 }
-
 function validateNavigationActionCardInput(
   input: Parameters<typeof publishLarkPlatformNavigationActionCard>[0]
-): Extract<MessageChannelPublicationResult, { status: "failed" }> | null {
+): Extract<
+  MessageChannelPublicationResult,
+  {
+    status: "failed";
+  }
+> | null {
   let actionUrl: URL;
   try {
     actionUrl = new URL(input.action.url);
@@ -1145,7 +1200,6 @@ function validateNavigationActionCardInput(
   }
   return null;
 }
-
 function buildLarkPlatformIdentityLinkCard(input: {
   linkUrl: string;
   organizationName: string;
@@ -1190,7 +1244,6 @@ function buildLarkPlatformIdentityLinkCard(input: {
     },
   };
 }
-
 function buildLarkPlatformNavigationActionCard(input: {
   action: NavigationAction;
   text: string;
@@ -1229,7 +1282,6 @@ function buildLarkPlatformNavigationActionCard(input: {
     },
   };
 }
-
 function buildLarkPlatformIdentityGuidanceText(input: {
   organizationName: string;
   purpose: "continue_request" | "optional_setup";
@@ -1244,13 +1296,11 @@ function buildLarkPlatformIdentityGuidanceText(input: {
   }
   return `This request needs your personal OpenMeld access. Connect this account to ${input.organizationName}, and the Center Agent will continue automatically. This one-time link expires in 24 hours.`;
 }
-
 export function getLarkPlatformApiHost(
   provider: LarkPlatformMessageChannelProvider
 ): string {
   return LARK_PLATFORM_API_HOSTS[provider];
 }
-
 export async function requestLarkPlatformTenantAccessToken(input: {
   apiHost: string;
   appId: string;
@@ -1279,7 +1329,6 @@ export async function requestLarkPlatformTenantAccessToken(input: {
     };
   }
   cache.delete(cacheKey);
-
   const pending = getLarkPlatformTenantTokenMap(
     larkPlatformTenantAccessTokenPendingByFetch,
     input.fetchImpl
@@ -1318,7 +1367,6 @@ export async function requestLarkPlatformTenantAccessToken(input: {
     }
   }
 }
-
 async function mintLarkPlatformTenantAccessToken(input: {
   apiHost: string;
   appId: string;
@@ -1332,7 +1380,12 @@ async function mintLarkPlatformTenantAccessToken(input: {
       tenantAccessToken: string;
     }
   | {
-      result: Extract<MessageChannelPublicationResult, { status: "failed" }>;
+      result: Extract<
+        MessageChannelPublicationResult,
+        {
+          status: "failed";
+        }
+      >;
       status: "failed";
     }
 > {
@@ -1392,7 +1445,6 @@ async function mintLarkPlatformTenantAccessToken(input: {
     tenantAccessToken,
   };
 }
-
 function getLarkPlatformTenantTokenMap<T>(
   store: WeakMap<typeof fetch, Map<string, T>>,
   fetchImpl: typeof fetch
@@ -1405,7 +1457,6 @@ function getLarkPlatformTenantTokenMap<T>(
   store.set(fetchImpl, created);
   return created;
 }
-
 function resolveTenantAccessTokenCacheLifetimeMs(
   expiresInSeconds: number
 ): number {
@@ -1420,7 +1471,6 @@ function resolveTenantAccessTokenCacheLifetimeMs(
   );
   return Math.max(1, lifetimeMs - safetyWindowMs);
 }
-
 async function readJsonObject(response: Response): Promise<JsonObject | null> {
   try {
     const value: unknown = await response.json();
@@ -1429,26 +1479,21 @@ async function readJsonObject(response: Response): Promise<JsonObject | null> {
     return null;
   }
 }
-
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
 function readObject(body: JsonObject | null, key: string): JsonObject | null {
   const value = body?.[key];
   return isJsonObject(value) ? value : null;
 }
-
 function readArray(body: JsonObject | null, key: string): unknown[] {
   const value = body?.[key];
   return Array.isArray(value) ? value : [];
 }
-
 function readBoolean(body: JsonObject | null, key: string): boolean | null {
   const value = body?.[key];
   return typeof value === "boolean" ? value : null;
 }
-
 function readPositiveInteger(
   body: JsonObject | null,
   key: string
@@ -1458,14 +1503,12 @@ function readPositiveInteger(
     ? value
     : null;
 }
-
 function readProviderCode(body: JsonObject | null): number | null {
   const value = body?.code;
   return typeof value === "number" && Number.isSafeInteger(value)
     ? value
     : null;
 }
-
 function readString(body: JsonObject | null, key: string): string | null {
   const value = body?.[key];
   if (typeof value !== "string") {
@@ -1474,7 +1517,6 @@ function readString(body: JsonObject | null, key: string): string | null {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function readNestedString(
   body: JsonObject | null,
   parentKey: string,
@@ -1483,7 +1525,6 @@ function readNestedString(
   const parent = body?.[parentKey];
   return isJsonObject(parent) ? readString(parent, key) : null;
 }
-
 function buildLarkPlatformHistoryUrl(
   apiHost: string,
   event: LarkPlatformMessageEvent
@@ -1504,7 +1545,6 @@ function buildLarkPlatformHistoryUrl(
   url.searchParams.set("with_sender_name", "true");
   return url;
 }
-
 function belongsToCurrentConversation(
   item: JsonObject,
   event: LarkPlatformMessageEvent
@@ -1521,7 +1561,6 @@ function belongsToCurrentConversation(
     locator.rootMessageId
   );
 }
-
 function normalizeHistoricalMessage(
   item: JsonObject
 ): ChannelContextMessage | null {
@@ -1562,7 +1601,6 @@ function normalizeHistoricalMessage(
     text: text.slice(0, CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS),
   };
 }
-
 function replaceMentionKeys(
   text: string,
   mentions: readonly unknown[]
@@ -1580,7 +1618,6 @@ function replaceMentionKeys(
   }
   return result;
 }
-
 function boundHistoricalMessages(messages: readonly ChannelContextMessage[]): {
   messages: ChannelContextMessage[];
   truncated: boolean;
@@ -1611,7 +1648,6 @@ function boundHistoricalMessages(messages: readonly ChannelContextMessage[]): {
   selected.reverse();
   return { messages: selected, truncated };
 }
-
 function readNonnegativeInteger(
   object: JsonObject | null,
   key: string
@@ -1623,7 +1659,6 @@ function readNonnegativeInteger(
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
-
 function resolveChannelContextFailureStatus(input: {
   providerCode: number | null;
   response: Response;
@@ -1639,7 +1674,6 @@ function resolveChannelContextFailureStatus(input: {
   }
   return "unavailable";
 }
-
 function resolveChannelContextAuthorKind(
   senderType: string | null
 ): ChannelContextMessage["author"]["kind"] {
@@ -1651,7 +1685,6 @@ function resolveChannelContextAuthorKind(
   }
   return "unknown";
 }
-
 function parseJsonObject(value: string | null): JsonObject | null {
   if (!value) {
     return null;
@@ -1663,7 +1696,6 @@ function parseJsonObject(value: string | null): JsonObject | null {
     return null;
   }
 }
-
 function buildProviderFailureReason(input: {
   operation:
     | "card_create"
@@ -1683,10 +1715,11 @@ function buildProviderFailureReason(input: {
   }
   return `${input.provider}.${input.operation}_http_${input.status}`;
 }
-
-function buildProviderRetryMetadata(
-  response: Response
-): { retryAfterMs: number } | Record<string, never> {
+function buildProviderRetryMetadata(response: Response):
+  | {
+      retryAfterMs: number;
+    }
+  | Record<string, never> {
   if (response.status !== 429) {
     return {};
   }

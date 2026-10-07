@@ -35,12 +35,14 @@
     "@openmeld/space": "workspace:*",
     "@openmeld/utils": "workspace:*",
     "hono": "^4.11.7",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.12.14",
     "@openmeld/auth-worker": "workspace:*",
     "@openmeld/core": "workspace:*",
+    "@vitest/runner": "~3.2.0",
+    "@vitest/snapshot": "~3.2.0",
     "dotenv-cli": "^11.0.0",
     "typescript": "^5.9.3",
     "vitest": "~3.2.0",

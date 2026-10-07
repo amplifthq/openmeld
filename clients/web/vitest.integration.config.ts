@@ -1,7 +1,9 @@
 import path from "node:path";
 import { defineConfig } from "vitest/config";
+import { optionalMediaModules } from "./scripts/optional-media-modules";
 
 export default defineConfig({
+	plugins: [optionalMediaModules()],
 	resolve: {
 		alias: {
 			"@openmeld/agent-profile": path.resolve(
@@ -95,6 +97,7 @@ export default defineConfig({
 		},
 	},
 	test: {
+		env: { VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev" },
 		environment: "jsdom",
 		include: ["src/**/*.integration.test.{ts,tsx}"],
 		maxWorkers: 2,

@@ -2,6 +2,7 @@
 
 import { Kbd, KbdGroup } from "@openmeld/ui/components/kbd";
 import { FluidHoverHighlight } from "@openmeld/ui/fluid/hover-highlight";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { Command } from "cmdk";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
@@ -25,6 +26,8 @@ export function CommandCenterList(input: {
 	entries: readonly CommandEntry[];
 	query: string;
 	onQueryChange: (value: string) => void;
+	onCompositionChange?: (value: boolean) => void;
+	searchStatus?: string;
 	loading?: boolean;
 	error?: boolean;
 }) {
@@ -56,6 +59,9 @@ export function CommandCenterList(input: {
 				Number(a.label.toLocaleLowerCase() === query)
 		);
 	const groups = [...new Set(entries.map((item) => item.group))];
+	if (input.searchStatus && !groups.includes("Search")) {
+		groups.unshift("Search");
+	}
 	const selected = entries.find((item) => item.id === value);
 
 	useLayoutEffect(() => {
@@ -109,7 +115,7 @@ export function CommandCenterList(input: {
 
 	return (
 		<Command
-			className="flex min-h-0 flex-col text-popover-foreground"
+			className="flex min-h-0 min-w-0 flex-col text-popover-foreground"
 			label="Search or run a command"
 			onKeyDownCapture={() => {
 				pointer.current = false;
@@ -126,6 +132,11 @@ export function CommandCenterList(input: {
 					aria-label="Search or run a command"
 					autoFocus
 					className="h-11 w-full rounded-lg border border-input bg-muted/50 px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+					onCompositionEnd={(event) => {
+						input.onQueryChange(event.currentTarget.value);
+						input.onCompositionChange?.(false);
+					}}
+					onCompositionStart={() => input.onCompositionChange?.(true)}
 					onValueChange={(text) => {
 						pointer.current = false;
 						input.onQueryChange(text);
@@ -134,10 +145,11 @@ export function CommandCenterList(input: {
 					value={input.query}
 				/>
 			</div>
-			<Command.List
-				aria-busy={input.loading}
-				className="relative max-h-[min(55dvh,440px)] min-h-24 overflow-y-auto px-2 pb-2"
-				ref={list}
+			<ScrollArea
+				className="max-h-[min(55dvh,440px)] min-h-24"
+				contentClassName="relative px-2 pb-2"
+				viewportProps={{ render: <Command.List aria-busy={input.loading} /> }}
+				viewportRef={list}
 			>
 				{rect && (
 					<FluidHoverHighlight
@@ -163,6 +175,14 @@ export function CommandCenterList(input: {
 						heading={group}
 						key={group}
 					>
+						{group === "Search" && input.searchStatus && (
+							<output
+								aria-live="polite"
+								className="block px-3 py-2 text-muted-foreground text-sm"
+							>
+								{input.searchStatus}
+							</output>
+						)}
 						{entries
 							.filter((entry) => entry.group === group)
 							.map((entry) => (
@@ -202,12 +222,12 @@ export function CommandCenterList(input: {
 							))}
 					</Command.Group>
 				))}
-				{!(entries.length || input.loading) && (
+				{!(entries.length || input.loading || input.searchStatus) && (
 					<Command.Empty className="px-3 py-6 text-muted-foreground text-sm">
 						No results. Try another search.
 					</Command.Empty>
 				)}
-			</Command.List>
+			</ScrollArea>
 			<div className="flex items-center gap-2 border-t bg-muted/40 px-4 py-3 text-muted-foreground text-xs">
 				<kbd className="rounded bg-background px-1.5 py-0.5">↵</kbd>
 				<span>{selected?.actionLabel ?? "Open"}</span>

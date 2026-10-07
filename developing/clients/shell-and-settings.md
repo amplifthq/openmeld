@@ -32,10 +32,9 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 
 ## 1. Goal and current owner
 
-Current Web uses the fixed
-76px **Center Agent / Spaces / Team** application rail, with a separate
+Current Web uses a 64px application rail (52px in **Icons only**), with a separate
 **New Agent** creation action and contextual lists in a collapsible middle column.
-**Settings** remains a separated utility. **Projects**, **Documents**, and **Agent
+**Settings** lives in the account menu. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
 from this rail. The bottom toolbar puts
 the signed-in member's current **Computer** at the far-left edge of the inset
@@ -43,15 +42,16 @@ content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
-Graph / Files / Routines / Skills / Channels** live in its header, while
-**Memory** lives in its compact header menu. Center Agent settings live in
+Graph / Files / Channels / Memory** live in its header. Chat
+settings remain in the compact menu on conversation surfaces only. Center Agent settings live in
 the global App Settings destination, grouped under the current Organization
 (or Personal in a Personal Workspace).
 
 The Web application rail places the Organization selector above compact history,
 search, and Inbox controls. The work-area header toggles the middle column. Its
-footer uses the Fluid user dropdown with account switching, Settings, and Log out entries,
-plus adjacent Settings and theme controls. Authentication, history, and theme
+footer uses the Fluid user dropdown with account switching, Search, Settings,
+theme selection, and Log out. Search has a separate divided section; theme
+selection follows Download Desktop App and reuses Appearance's compact selector. Authentication, history, and theme
 ownership remain in the existing Web hooks and router.
 
 One shell and one Settings framework let Web and the Electron GUI reuse shared
@@ -64,8 +64,9 @@ pieces without forcing two clients to keep an obsolete route map. Current Web:
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
-- places **Plugins** after **People** and **Agents** in Team, with separate
-  personal and named Organization configuration;
+- orders Team tabs as **People / Agents / Plugins / Skills**. Plugins retain
+  personal and named Organization configuration; Skills use one Organization
+  catalog, including in personal workspaces, without a second scope selector;
 - makes Team the people directory, with each person's Computers and Agent list
   reached through their Human Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service
@@ -162,6 +163,13 @@ Collapse the overloaded concepts (Account Profile / Agent Profile / Local Agent 
 Computer / OpenMeld Service / Service Profile) into stable user-facing nouns keyed to
 mental verbs:
 
+Account deletion lives below Sessions in Web Settings > Account. Its shared
+Dialog identifies the signed-in email and lists deleted assets, retained team
+work, and required ownership handoffs. Confirm the current password (or a recent
+passwordless sign-in), then type DELETE. Recheck the inventory on submission.
+Cancel clears both inputs. Desktop opens the same Web owner through its existing
+account-settings handoff. The signed-out result states that cleanup continues.
+
 1. **Account** — "who I am to the cloud": identity, sign-in/providers, sessions,
    CLI tokens. (= today's `account.tsx`, moved under Settings, largely unchanged.)
 2. **Computers** — "my machines": Computer cards live inside the owning Human
@@ -193,6 +201,13 @@ supported without normal navigation entry points. Both use the same registry,
 grouped navigation, and section renderers; the presentation does not own another
 copy of settings data or mutation logic.
 
+Contextual navigation accepts an explicit accessible label when an accessory
+adds meaning beyond the visible title. Keep the visible title stable; expose
+pending attention in the accessible label and keep the decorative indicator
+hidden from assistive technology. Route links and dialog buttons use the same
+contract. Desktop's Settings-to-Updates attention policy remains owned by
+`desktop.md`, not by the shared navigation primitives or Inbox counts.
+
 The routes and destination list in this section are not the current Web target.
 Use `developing/clients/web.md` for current routes and placement. The durable
 guidance retained here is that entity destinations use real routes, Binding is
@@ -203,7 +218,7 @@ Each domain is a **real route**, not a scroll anchor. Current Web uses the fixed
 ten-destination product rail, separated Settings utility, and **Personal /
 current Organization name** Settings groups from `developing/clients/web.md`.
 App management exists once under **Plugins** in both personal and
-multi-member workspaces. Routines is a Center Agent use-and-creation surface,
+multi-member workspaces. Routines is a Team use-and-creation surface for personal and shared work,
 not a global Settings page or root product peer.
 
 `/app/settings/service` remains a real leaf route for future hosts with
@@ -250,9 +265,8 @@ The Web shell is a stable two-layer composition built from the shared
   Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
-  future placement remains unsettled. Settings remains a bottom
-  utility that opens Account settings. The footer account dropdown offers a second
-  link to that same global Settings destination. The workspace switcher contains
+future placement remains unsettled. The footer account dropdown opens global
+Settings and contains Search and theme selection. The workspace switcher contains
   only organization selection and management actions. Send
   feedback lives in the Personal Settings group rather than as a second
   outer-rail utility. The rail has no
@@ -267,8 +281,8 @@ The Web shell is a stable two-layer composition built from the shared
   outer rail. Center Agent and Inbox remain adjacent at the far-right edge.
   Computer opens the current device detail directly and carries its actionable
   status tone; it never opens a Computer picker.
-  Inbox opens its responsive attention preview and maximizes to the canonical
-  full Inbox page. Center Agent opens a compact synchronized view of the same
+  Inbox opens its responsive grouped preview with a fixed **Open full Inbox**
+  link to the canonical page. Center Agent opens a compact synchronized view of the same
   canonical Chat or Task and maximizes to that exact route; it never creates a
   new session or conversation store. An unavailable control must not leave a
   placeholder or dead action.
@@ -276,13 +290,27 @@ The Web shell is a stable two-layer composition built from the shared
   surface, and owned only by route families that need contextual navigation.
   Spaces, Direct Messages, and Center Agent conversations share the Spaces
   list in the middle column, with Spaces and Direct messages as groups. Team
-  uses the same member list across People, Agents, and Plugins, and Settings
+  uses the same member list across People, Agents, Plugins, and Skills, and Settings
   retains its own contextual navigation. Team tab content uses the shared page
-  inline padding, including the Plugins catalog and detail pages.
+  inline padding, including the Plugins and Skills catalog and detail pages.
+  Skills loading/error states retain Team's header and rail highlight rather
+  than mounting Center Agent context. Canonical routes and compatibility
+  redirects are owned by [web.md](web.md#organization-skills).
+  Inside that unchanged shell, Skills uses a compact catalog and a document-first
+  detail with a sticky Save/action row. Optional Files tabs and contextual
+  Properties/history/management dialogs do not add another navigation sidebar
+  or alter Team scope. Creation/import and inner dialogs reuse shared Fluid
+  focus, dismissal and scroll mechanics; the Skill draft remains Web-owned.
   The middle column can be resized or collapsed while the application rail and
   current work remain mounted. Existing outer-sidebar persistence stores its
   geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal
-  behavior. The Spaces heading opens the Space directory, without a duplicate
+  behavior. Without an explicit visibility choice, overview pages start collapsed
+  and conversation, person, and Agent detail pages start expanded. These route
+  defaults are not saved as user choices, including when group collapse is saved.
+  Explicit expanded/hidden choices remain shared across the Spaces directory,
+  conversation details, and Team tabs, including People and Agents, and survive
+  reloads. Navigation never resets that choice; existing cookies remain valid.
+  The Spaces heading opens the Space directory, without a duplicate
   aggregate status dot. Direct messages is a tab after Your Spaces. Its plus
   menu offers New message and New Space. Browse spaces is visible in both views,
   and empty search results offer Find someone with the query prefilled in the
@@ -391,17 +419,31 @@ The Web shell is a stable two-layer composition built from the shared
 - **`aside`** — optional right drawer inside the inset app surface (Space
   members panel).
 
+### Bot appearance preferences
+
+Appearance owns browser-local Bot avatar preferences. Fabric is the default
+material; Fabric and Plastic radio choices include matching live previews and
+apply through the shared Agent avatar presentation across the app. The existing
+animation switch keeps its storage key and disables working and interaction
+motion, including the material previews. Reduced motion takes precedence.
+These preferences do not change the Organization's saved Agent identity or shape.
+
 ### Responsive shell presentation
 
 Responsive presentation does not create a second navigation model or change
 the route topology:
 
-- At `lg` and wider, the outer app rail stays inline on the app canvas with its
-  existing persisted width, tier, collapsed groups, inset surface gutters, and
-  resize behavior.
+- At `lg` and wider, the outer app rail stays inline on the app canvas. Its
+  width follows the browser-local display preference.
 - Below `lg`, the outer rail opens as a modal left drawer from the shared app
   header. The drawer always shows full destination labels and must not write a
   transient width or tier back to the desktop rail preference.
+- The inline outer rail offers **Icons and text** (default) and **Icons only**
+  through its context menu and Appearance's **Sidebar** group. Both controls
+  share one browser-local preference. The same Fluid navigation rows, icon
+  targets, indicators, and accessible labels remain mounted in both modes;
+  Icons only uses the shared Fluid `SIDEBAR_ICON_WIDTH` (52px), hides text, and
+  uses shorter rows while retaining 36px icon targets. The drawer keeps full labels.
 - At `md` and wider, a route family's inner contextual sidebar stays inline
   inside the app surface with its existing persisted family width. Below `md`,
   the same contextual navigation opens from the shared header as a modal left
@@ -480,6 +522,21 @@ default Rounded appearance, and becomes square only when the user selects
 Square.
 
 ## 6. Shared Sidebar family and resize behavior
+
+The outer rail's Spaces and Team resource popovers open on hover or Arrow Down/Space.
+Clicking Spaces still opens Your Spaces; clicking Team opens People.
+Spaces offers Direct messages and Discover using the existing `view` search parameter.
+The pinned Direct messages label is DMs. Discover is hidden in personal workspaces,
+including saved pins, without deleting the browser preference.
+Agents, Plugins, Skills, Files, and Routines link to the existing
+Team destinations and each has a separate Pin to sidebar toggle. Pins start
+empty, persist in this browser in selection order, and resolve against the
+current Organization. A short divider separates pinned entries from the main
+navigation. A pinned current destination owns the selected state instead of
+also selecting Team. Compact rail tooltips open without a delay. Primary and
+pinned destinations share one Fluid hover scope across the visual divider.
+Tooltip visibility does not suspend hover; an open context menu does.
+
 
 Main Sidebar uses the Fluid Functionalism Base UI registry components in
 `packages/ui/src/fluid/sidebar*.tsx`. Its provider owns transient pointer,

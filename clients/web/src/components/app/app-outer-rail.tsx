@@ -1,10 +1,33 @@
 "use client";
+
+import {
+	ContextMenu,
+	ContextMenuTrigger,
+} from "@openmeld/ui/components/context-menu";
+import {
+	DropdownMenuGroup,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuRadioItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { useMatches } from "@tanstack/react-router";
+import { useLocation, useMatches } from "@tanstack/react-router";
+import type { CSSProperties } from "react";
 import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { useAccountAvatar } from "#/hooks/account.hooks";
+import {
+	SIDEBAR_DISPLAY_CHOICES,
+	type SidebarDisplay,
+	useSidebarDisplayPreference,
+} from "#/lib/appearance/sidebar-preference";
+import { useSidebarShortcuts } from "#/lib/appearance/sidebar-shortcuts";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
@@ -19,6 +42,12 @@ import {
 	AppRailNavigationGroup,
 	buildAppRailGroups,
 } from "./app-rail-navigation";
+import {
+	AppRailShortcutsPopover,
+	buildPinnedRailDestinations,
+	resolveActiveSidebarShortcut,
+	visibleSidebarShortcuts,
+} from "./app-rail-shortcuts";
 import { AppSidebarFooter } from "./app-sidebar-footer";
 import { AppSidebarHeader } from "./app-sidebar-header";
 import type {
@@ -30,15 +59,36 @@ import { SidebarDestinationActionsProvider } from "./sidebar-destination-actions
 
 export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	const { presentation } = useAppNavigationPresentation();
+	const { display, setDisplay } = useSidebarDisplayPreference();
 	const mode = presentation === "drawer" ? "expanded" : "icon";
 	const activeDestination = useMatches({
 		select: resolveAppOuterRailDestinationFromMatches,
 	});
 	const { currentOrganization } = useAppOrganization();
+	const shortcuts = useSidebarShortcuts();
+	const location = useLocation({ select: (location) => location });
+	const visiblePins = visibleSidebarShortcuts(
+		shortcuts.pinned,
+		currentOrganization.isPersonal === true
+	);
+	const activeShortcut = resolveActiveSidebarShortcut(
+		location.pathname,
+		currentOrganization.slug,
+		location.searchStr
+	);
+	const pinnedActive =
+		activeShortcut && visiblePins.includes(activeShortcut)
+			? activeShortcut
+			: undefined;
 	const inboxAttention = useInboxAttention(currentOrganization.id);
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const { data: currentAccountAvatar } = useAccountAvatar();
-	const accountAvatarImage = currentAccountAvatar?.avatar ?? null;
+	// Keep the current account's bootstrap image while its canonical read is
+	// pending. An explicit null from that read means the avatar was removed.
+	const accountAvatarImage =
+		currentAccountAvatar === undefined
+			? (account.image ?? null)
+			: currentAccountAvatar.avatar;
 	const humanProfileAvatar: HumanProfileAvatarIdentity | null =
 		defaultHumanProfile
 			? {
@@ -60,14 +110,18 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	);
 	const prefetchCenterAgentConversation =
 		useCenterAgentConversationIntentPrefetch();
-	return (
+	const rail = (
 		<aside
 			className={cn(
 				APP_APPLICATION_RAIL_CLASS_NAME,
 				presentation === "drawer" && "w-full"
 			)}
+			data-presentation={presentation}
 			data-slot="app-outer-rail"
 			data-testid="app-outer-rail"
+			style={
+				{ "--app-rail-icon-width": `${SIDEBAR_ICON_WIDTH}px` } as CSSProperties
+			}
 		>
 			<AppCommandCenter />
 			<SidebarDestinationActionsProvider>
@@ -76,8 +130,9 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 					humanProfileAvatar={humanProfileAvatar}
 					mode={mode}
 				/>
-				<div
-					className="min-h-0 flex-1 overflow-y-auto px-1"
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName="px-1 pt-1.5"
 					data-slot="main-sidebar-navigation"
 				>
 					{buildAppRailGroups({
@@ -96,22 +151,69 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 						prefetchCenterAgentConversation,
 					}).map((group, index) => (
 						<AppRailNavigationGroup
-							activeDestination={activeDestination}
+							activeDestination={pinnedActive ?? activeDestination}
 							group={group}
 							key={group.id}
+							pinnedDestinations={buildPinnedRailDestinations(
+								visiblePins,
+								currentOrganization.slug
+							)}
 							position={index}
+							renderSectionTrigger={(section, trigger) => (
+								<AppRailShortcutsPopover
+									group={section}
+									isPersonal={currentOrganization.isPersonal === true}
+									orgSlug={currentOrganization.slug}
+									pinned={shortcuts.pinned}
+									toggle={shortcuts.toggle}
+									trigger={trigger}
+								/>
+							)}
+							standaloneSelection={Boolean(pinnedActive)}
 							tier={mode}
 						/>
 					))}
-				</div>
+				</ScrollArea>
 				<AppSidebarFooter
 					account={{ ...account, image: accountAvatarImage }}
 					humanProfileAvatar={humanProfileAvatar}
-					isSettingsActive={activeDestination === "settings"}
 					mode={mode}
-					orgSlug={currentOrganization.slug}
 				/>
 			</SidebarDestinationActionsProvider>
 		</aside>
+	);
+	if (presentation === "drawer") {
+		return rail;
+	}
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger render={rail} />
+			<FluidDropdownMenuContent
+				alignOffset={4}
+				className="w-44"
+				gapClick
+				side="right"
+				sideOffset={0}
+			>
+				<DropdownMenuGroup>
+					<DropdownMenuLabel>Show</DropdownMenuLabel>
+					<DropdownMenuRadioGroup
+						onValueChange={(value) => setDisplay(value as SidebarDisplay)}
+						value={display}
+					>
+						{SIDEBAR_DISPLAY_CHOICES.map((choice, index) => (
+							<FluidDropdownMenuRadioItem
+								closeOnClick
+								index={index}
+								key={choice.value}
+								value={choice.value}
+							>
+								{choice.label}
+							</FluidDropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuGroup>
+			</FluidDropdownMenuContent>
+		</ContextMenu>
 	);
 }

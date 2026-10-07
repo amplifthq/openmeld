@@ -77,20 +77,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function createStageMetadata(expiresAtMs = EXPIRES_AT_MS) {
+function createStageMetadata(
+  expiresAtMs = EXPIRES_AT_MS,
+  sizeBytes = BYTES.byteLength
+) {
   return {
     actorProfileId: PROFILE_ID,
     expiresAtMs: String(expiresAtMs),
     mimeType: "text/plain",
     name: "notes.txt",
     organizationId: ORGANIZATION_ID,
-    sizeBytes: String(BYTES.byteLength),
+    sizeBytes: String(sizeBytes),
     spaceId: SPACE_ID,
     uploadId: UPLOAD_ID,
   };
 }
 
-function makeEnv(input?: { expiresAtMs?: number }) {
+function makeEnv(input?: { bytes?: Uint8Array; expiresAtMs?: number }) {
+  const bytes = input?.bytes ?? BYTES;
   const stub = {
     rpcResolveSpaceComposerUploadScope: vi.fn(async () => SCOPE),
     rpcResolveCommittedSpaceFileWrite: vi.fn(
@@ -118,10 +122,14 @@ function makeEnv(input?: { expiresAtMs?: number }) {
   const get = vi.fn(
     async (): Promise<{
       arrayBuffer: () => Promise<ArrayBuffer>;
+      body: ReadableStream<Uint8Array>;
+      size: number;
       customMetadata: ReturnType<typeof createStageMetadata>;
     } | null> => ({
-      arrayBuffer: async () => Uint8Array.from(BYTES).buffer,
-      customMetadata: createStageMetadata(input?.expiresAtMs),
+      arrayBuffer: async () => Uint8Array.from(bytes).buffer,
+      body: new Blob([Uint8Array.from(bytes).buffer]).stream(),
+      size: bytes.byteLength,
+      customMetadata: createStageMetadata(input?.expiresAtMs, bytes.byteLength),
     })
   );
   const bucket = {
@@ -272,6 +280,36 @@ describe("Core Space Composer upload RPC", () => {
     expect(bucket.delete).not.toHaveBeenCalled();
   });
 
+  it("publishes a multipart-staged attachment larger than the raw request limit", async () => {
+    const bytes = new Uint8Array(10 * 1024 * 1024 + 1);
+    bytes.fill(37);
+    const { bucket, env, stub } = makeEnv({ bytes });
+    stub.rpcCommitSpaceFileWrite.mockResolvedValue({
+      ...FILE,
+      latestRevision: { ...FILE.latestRevision, sizeBytes: bytes.byteLength },
+    });
+
+    await expect(
+      rpcPublishSpaceComposerUpload(env, {
+        clientMutationId: "publish-large-composer-upload-test",
+        context: CONTEXT,
+        nowMs: NOW_MS,
+        spaceId: SPACE_ID,
+        uploadId: UPLOAD_ID,
+      })
+    ).resolves.toMatchObject({
+      latestRevision: { sizeBytes: bytes.byteLength },
+    });
+
+    expect(stub.rpcPrepareSpaceFileWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        write: expect.objectContaining({ sizeBytes: bytes.byteLength }),
+      })
+    );
+    expect(bucket.put).toHaveBeenCalledOnce();
+    expect(stub.rpcCommitSpaceFileWrite).toHaveBeenCalledOnce();
+  });
+
   it("replays a committed publication after its temporary upload is gone", async () => {
     const { bucket, env, stub } = makeEnv();
     stub.rpcResolveCommittedSpaceFileWrite.mockResolvedValue(FILE);
@@ -357,6 +395,8 @@ describe("Core Space Composer upload RPC", () => {
     });
     bucket.get.mockResolvedValue({
       arrayBuffer: async () => Uint8Array.from(restagedBytes).buffer,
+      body: new Blob([Uint8Array.from(restagedBytes).buffer]).stream(),
+      size: restagedBytes.byteLength,
       customMetadata: {
         ...createStageMetadata(),
         sizeBytes: String(restagedBytes.byteLength),

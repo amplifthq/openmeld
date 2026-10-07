@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CenterAgentMessageChannelsSection } from "./center-agent-message-channels-section";
 
@@ -7,6 +13,47 @@ const PASSIVE_WAIT_GUIDANCE = /You can leave this page/;
 const MANAGER_CONSENT_GUIDANCE = /An organization manager needs to approve/;
 
 describe("CenterAgentMessageChannelsSection", () => {
+	it.each([
+		"loading",
+		"unavailable",
+	] as const)("keeps Lark usable while Slack details are %s without inventing a Slack state", (state) => {
+		const onManage = vi.fn();
+		const onRetry = vi.fn();
+		const props = {
+			availableProviders: ["lark" as const],
+			canManage: true,
+			disableSlackConnect: false,
+			disableSlackDisconnect: false,
+			onConnectSlackWorkspace: vi.fn(),
+			onDisconnectSlackWorkspace: vi.fn(),
+			onManageLarkPlatform: onManage,
+			onRetrySlackDetails: onRetry,
+			organizationSlug: "acme",
+		};
+		const { rerender } = render(
+			<CenterAgentMessageChannelsSection {...props} slackDetailsState={state} />
+		);
+		const slack = screen.getByText("Slack").closest('[role="listitem"]');
+		expect(slack).toBeTruthy();
+		expect(within(slack as HTMLElement).queryByText("Connected")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Connect Slack" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Connect Lark" }));
+		expect(onManage).toHaveBeenCalledWith("lark");
+		if (state === "loading") {
+			expect(
+				screen.getByRole("status", { name: "Loading Slack connection" })
+			).toBeTruthy();
+		} else {
+			fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+			expect(onRetry).toHaveBeenCalledOnce();
+		}
+		rerender(<CenterAgentMessageChannelsSection {...props} />);
+		expect(screen.getByRole("button", { name: "Connect Slack" })).toBeTruthy();
+		expect(
+			screen.queryByRole("status", { name: "Loading Slack connection" })
+		).toBeNull();
+	});
+
 	it.each([
 		"lark",
 		"feishu",

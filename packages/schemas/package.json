@@ -6,7 +6,9 @@
   "type": "module",
   "description": "OpenMeld - Shared Zod schemas and inferred types",
   "imports": {
-    "#lazy-zod": "./src/lazy-zod.ts"
+    "#local-components": "./src/schemas/local-components.ts",
+    "#lazy-zod": "./src/lazy-zod.ts",
+    "#windows-artifact": "./src/windows-artifact.ts"
   },
   "license": "MIT",
   "exports": {
@@ -40,7 +42,7 @@
     "fix": "biome check --write --no-errors-on-unmatched ./"
   },
   "dependencies": {
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

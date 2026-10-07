@@ -1,5 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
+export type { SpaceSendRequestReceipt } from "../schemas/cli/space-send";
 export type {
   ServiceConnectionEvidenceEvent,
   ServiceConnectionEvidenceJournal,
@@ -10,16 +11,59 @@ export type {
   ServiceConnectionIncidentsReadRpcInput,
   ServiceConnectionIncidentsResponse,
 } from "../schemas/daemon/service-connection-evidence";
-
 export type {
   LocalAgentReasoningPreferences,
   LocalAgentReasoningPreferencesRpc,
   LocalAgentReasoningState,
 } from "../schemas/http/local-agent-reasoning";
 export type {
+  SpaceFileStreamMetadata,
+  SpaceFileStreamOptions,
+} from "../schemas/http/space-file-stream";
+export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type { AgentFailureFacts } from "../schemas/runtime/agent-failure";
+export type {
+  GenerateCenterAgentSessionTitleInput,
+  GenerateCenterAgentSessionTitleResponse,
+} from "../schemas/runtime/center-agent-session-title";
+export type { MessageChannelCardHistory } from "../schemas/runtime/message-channel-card-history";
+export type {
+  AiUsageObservation,
+  AiUsageQuery,
+  AiUsageQueryResponse,
+  AiUsageRecord,
+  AiUsageSummary,
+  CenterAgentAiUsageRpcInput,
+  OrganizationAiUsageRpcInput,
+  RemoteAiUsageWrite,
+  RemoteAiUsageWriteResponse,
+} from "./ai-usage";
+export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
+export type {
+  CenterAgentReadAuditJournalResponse,
+  CenterAgentReadAuditJournalRpcInput,
+} from "./http/center-agent-evidence";
+export type {
+  CenterAgentMemorySourceReference,
+  CenterAgentSearchMemoryResponse,
+  CenterAgentSearchMemoryRpcInput,
+} from "./http/center-agent-memory-search";
+export type {
+  CenterAgentListRoutineRunsToolResponse,
+  CenterAgentListRoutineRunsToolRpcInput,
+  CenterAgentReadRoutineRunDiagnosticsResponse,
+  CenterAgentReadRoutineRunDiagnosticsRpcInput,
+  CenterAgentRoutineRunEvidence,
+} from "./http/center-agent-routine-evidence";
+export type {
+  ListRoutineManagementResponse,
+  RoutineExecutorKind,
+  RoutineManagement,
+  RoutineScope,
+} from "./http/center-agent-routines";
 export type {
   OrganizationMemberPresenceBody,
   OrganizationMemberPresenceResponse,
@@ -33,10 +77,15 @@ export type {
 export type OpenMeldSchemaVersion =
   typeof import("../schemas/index")["OPENMELD_SCHEMA_VERSION"];
 
+export type { RemoteAgentExecutionReconciliationObservation } from "../remote-agent-execution-reconciliation";
 export type {
   SpaceFileUpdateSettings,
   SpaceFileUpdateSettingsCommand,
 } from "../schemas/http/space-file-update-settings";
+export type {
+  SpaceInputQueueMutation,
+  SpaceInputQueueResponse,
+} from "../schemas/http/space-input-queue";
 export type {
   CenterAgentSetReplyPlacementInput,
   NativeReplyPlacement,
@@ -48,6 +97,7 @@ export type * from "./agent-view/index";
 export type * from "./common/index";
 export type * from "./config/index";
 export type * from "./daemon/index";
+export * from "./daemon/session-history";
 export type * from "./db/index";
 export type * from "./eval-report";
 export type * from "./http/index";

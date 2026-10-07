@@ -1,4 +1,7 @@
-import { resolveCommandAgentWorkActivity } from "@openmeld/schemas";
+import {
+  connectorActionOutcomeUnknownSchema,
+  resolveCommandAgentWorkActivity,
+} from "@openmeld/schemas";
 import type { AgentWorkActivity } from "@openmeld/schemas/types";
 import { resolveConnectedAppDisplayName } from "../agent-core/connector-service-presentation";
 import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
@@ -11,11 +14,15 @@ const SAFE_URL_INPUT_MAX_CHARS = 8192;
 const SAFE_CONNECTED_APP_ACTION_ID_PATTERN = /^[a-z\d][a-z\d._:-]{0,159}$/iu;
 const SAFE_REPOSITORY_PART_PATTERN = /^[a-z\d](?:[a-z\d_.-]*[a-z\d])?$/iu;
 const CONNECTED_APP_SUBJECT_TOOL_NAMES = new Set([
+  "github_execute_action",
+  "github_list_actions",
   "openmeld_execute_app_action",
   "openmeld_list_app_actions",
 ]);
 
 const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
+  ["github_execute_action", "connected_app.action.execute"],
+  ["github_list_actions", "connected_app.actions.read"],
   ["browser_extract", "web.data.extract"],
   ["browser_get_links", "web.links.read"],
   ["browser_read_page", "webpage.read"],
@@ -59,6 +66,8 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_list_agent_tasks", "tasks.read"],
   ["openmeld_list_projects", "projects.read"],
   ["openmeld_list_routines", "routines.read"],
+  ["openmeld_list_routine_runs", "routines.read"],
+  ["openmeld_read_routine_run_diagnostics", "routines.read"],
   ["openmeld_list_slack_channels", "slack.channels.read"],
   ["openmeld_list_spaces", "spaces.read"],
   ["openmeld_list_active_space_wakes", "spaces.read"],
@@ -69,11 +78,14 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_post_space_message", "space.message.post"],
   ["openmeld_prepare_remove_project", "project.remove.prepare"],
   ["openmeld_read_agent_activity", "agent.activity.read"],
+  ["openmeld_read_ai_usage", "agent.activity.read"],
   [
     "openmeld_read_agent_profile_creation_defaults",
     "agent_profile.settings.read",
   ],
   ["openmeld_list_agent_activity_sessions", "agent.activity.read"],
+  ["openmeld_read_session_history", "agent.activity.read"],
+  ["openmeld_list_hosted_models", "agent_profile.settings.read"],
   ["openmeld_read_changelog", "documentation.read"],
   ["openmeld_list_opportunities", "center_agent.activity.read"],
   [
@@ -90,6 +102,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
     "openmeld_manage_agent_profile_creation_request",
     "center_agent.attention.request",
   ],
+  ["openmeld_search_center_agent_memory", "center_agent.activity.read"],
   ["openmeld_read_center_agent_activity", "center_agent.activity.read"],
   ["openmeld_read_center_agent_turn_diagnostics", "center_agent.activity.read"],
   ["openmeld_request_member_attention", "center_agent.attention.request"],
@@ -123,9 +136,13 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_read_slack_workspace_directory", "slack.members.read"],
   ["openmeld_send_slack_file", "slack.file.send"],
   ["openmeld_read_space_context", "space.context.read"],
+  ["openmeld_list_team_files", "team.files.read"],
+  ["openmeld_read_team_file", "team.files.read"],
+  ["openmeld_save_team_file", "team.files.update"],
   ["openmeld_list_space_files", "space.files.read"],
   ["openmeld_read_space_file", "space.files.read"],
   ["openmeld_save_space_file", "space.files.update"],
+  ["openmeld_save_computer_file", "space.files.update"],
   ["openmeld_manage_space_files", "space.files.update"],
   ["openmeld_manage_space_tasks", "space.tasks.manage"],
   ["openmeld_remember_for_organization", "organization.memory.update"],
@@ -158,6 +175,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_update_routine", "routine.update"],
   ["openmeld_update_space_settings", "space.settings.update"],
   ["openmeld_wake_agent_profiles_in_space", "space.agents.wake"],
+  ["openmeld_wake_agent_profiles_in_spaces", "space.agents.wake"],
   ["openmeld_watch_agent_task", "task.watch"],
   ["web_fetch", "webpage.read"],
   ["web_search", "web.search"],
@@ -256,6 +274,34 @@ const WEBSITE_SUBJECT_TOOL_NAMES = new Set([
   "web_fetch",
 ]);
 
+function resolveComputerWorkActivity(
+  toolInput: unknown,
+  toolResult: unknown
+): AgentWorkActivity | null {
+  const request = toRecord(toolInput);
+  if (request?.action === "files") {
+    const names: Record<string, string> = {
+      ls: "read",
+      find: "glob",
+      delete: "edit",
+    };
+    const name = typeof request.tool === "string" ? request.tool : "";
+    return resolveRemoteAgentToolWorkActivity(
+      names[name] ?? name,
+      request.input,
+      toolResult
+    );
+  }
+  if (request?.action === "command") {
+    return resolveRemoteAgentToolWorkActivity(
+      "computer_command",
+      request.input,
+      toolResult
+    );
+  }
+  return null;
+}
+
 export function resolveRemoteAgentToolWorkActivity(
   toolName: unknown,
   toolInput: unknown,
@@ -264,8 +310,22 @@ export function resolveRemoteAgentToolWorkActivity(
   if (typeof toolName !== "string") {
     return null;
   }
+  if (toolName === "computer") {
+    return resolveComputerWorkActivity(toolInput, toolResult);
+  }
+  if (toolName === "computer_command") {
+    const request = toRecord(toolInput);
+    return request?.action === "start" &&
+      request.backend !== "worker-javascript"
+      ? resolveCommandAgentWorkActivity(readCommand(request))
+      : null;
+  }
   const key =
-    TOOL_WORK_BY_NAME.get(toolName) ?? GITHUB_TOOL_WORK_BY_NAME.get(toolName);
+    toolName === "openmeld_install_organization_skill" &&
+    toRecord(toolInput)?.action === "begin_import_batch"
+      ? "organization.skills.read"
+      : (TOOL_WORK_BY_NAME.get(toolName) ??
+        GITHUB_TOOL_WORK_BY_NAME.get(toolName));
   if (key) {
     const subject = resolveSafeToolSubject(toolName, toolInput);
     if (CONNECTED_APP_SUBJECT_TOOL_NAMES.has(toolName) && !subject) {
@@ -275,15 +335,24 @@ export function resolveRemoteAgentToolWorkActivity(
       key,
       v: 1,
       ...(subject ? { subject } : {}),
-      ...(isRemoteAgentDestructiveConfirmationResult(toolResult)
-        ? { outcome: "confirmation_required" as const }
-        : {}),
+      ...resolveRemoteAgentToolWorkOutcome(toolResult),
     };
   }
   if (toolName !== "bash") {
     return null;
   }
   return resolveCommandAgentWorkActivity(readCommand(toolInput));
+}
+
+export function resolveRemoteAgentToolWorkOutcome(
+  toolResult: unknown
+): Pick<AgentWorkActivity, "outcome"> {
+  if (isRemoteAgentDestructiveConfirmationResult(toolResult)) {
+    return { outcome: "confirmation_required" };
+  }
+  return connectorActionOutcomeUnknownSchema.safeParse(toolResult).success
+    ? { outcome: "outcome_unknown" }
+    : {};
 }
 
 function resolveSafeToolSubject(
@@ -315,13 +384,19 @@ function readConnectedAppSubject(
   toolName: string,
   record: Record<string, unknown>
 ): AgentWorkSubject | null {
-  const service =
+  const isGitHub =
+    toolName === "github_list_actions" || toolName === "github_execute_action";
+  const requestedService =
     typeof record.service === "string" ? record.service.trim() : "";
-  const appName = resolveConnectedAppDisplayName(service);
+  const service = isGitHub ? "github" : requestedService;
+  const appName = isGitHub ? "GitHub" : resolveConnectedAppDisplayName(service);
   if (!appName) {
     return null;
   }
-  if (toolName === "openmeld_list_app_actions") {
+  if (
+    toolName === "openmeld_list_app_actions" ||
+    toolName === "github_list_actions"
+  ) {
     return { kind: "connected_app", label: appName };
   }
   const actionId =

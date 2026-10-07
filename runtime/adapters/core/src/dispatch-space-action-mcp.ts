@@ -1,4 +1,8 @@
 import { basename, isAbsolute } from "node:path";
+import {
+  DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV,
+  isDispatchSpaceActionDeliveryOnly,
+} from "./dispatch-space-tools.js";
 
 const SPACE_ACTION_CONTEXT_PATH_ENV = "OPENMELD_SPACE_ACTION_CONTEXT_PATH";
 const USER_FACING_CLI_COMMAND_ENV = "OPENMELD_USER_FACING_CLI_COMMAND";
@@ -8,20 +12,29 @@ const SPACE_ACTION_TOOL_COMMAND_PATH_ENV =
 export const OPENMELD_SPACE_ACTION_MCP_SERVER_ID =
   "openmeld_internal_dispatch_space_action";
 export const OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES = [
+  "working_copy",
   "read_file",
   "read_history",
+  "read_evidence",
+  "read_thread",
+  "read_documents",
+  "read_skills",
+  "read_result",
+  "open_direct_message",
   "list_tasks",
   "create_task",
   "start_task",
   "submit_task_result",
   "review_task",
   "cancel_task",
+  "report_progress",
   "reply",
-  "status",
   "stay_silent",
+  "read_receipt",
 ] as const;
 
 const FORWARDED_ENV_NAMES = [
+  DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV,
   SPACE_ACTION_CONTEXT_PATH_ENV,
   SPACE_ACTION_TOOL_COMMAND_PATH_ENV,
   "OPENMELD_DISPATCH_RUNTIME_MODE",
@@ -48,7 +61,7 @@ export type DispatchSpaceActionMcpServer = {
   commandPath: string;
   env: Record<string, string>;
   id: typeof OPENMELD_SPACE_ACTION_MCP_SERVER_ID;
-  toolNames: typeof OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES;
+  toolNames: readonly (typeof OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES)[number][];
 };
 
 export type AcpDispatchSpaceActionMcpServer = {
@@ -78,7 +91,8 @@ export function resolveDispatchSpaceActionMcpServer(
     !(
       commandPath &&
       isAbsolute(commandPath) &&
-      basename(commandPath) === command
+      (basename(commandPath) === command ||
+        basename(commandPath) === `${command}.exe`)
     )
   ) {
     throw new Error(
@@ -97,14 +111,20 @@ export function resolveDispatchSpaceActionMcpServer(
       })
     ),
     id: OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
-    toolNames: OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES,
+    toolNames: isDispatchSpaceActionDeliveryOnly(env)
+      ? ["reply", "stay_silent", "read_receipt"]
+      : OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES,
   };
 }
 
 export function buildDispatchSpaceActionMcpToolIds(
-  separator: "__" | "_"
+  separator: "__" | "_",
+  env?: Record<string, string | undefined>
 ): string[] {
-  return OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES.map(
+  const names = isDispatchSpaceActionDeliveryOnly(env)
+    ? ["reply", "stay_silent", "read_receipt"]
+    : OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES;
+  return names.map(
     (toolName) =>
       `${OPENMELD_SPACE_ACTION_MCP_SERVER_ID}${separator}${toolName}`
   );

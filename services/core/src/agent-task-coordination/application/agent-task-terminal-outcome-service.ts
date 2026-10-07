@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentTaskHandle,
   AgentTaskTerminalOutcome,
@@ -10,7 +11,7 @@ import { requestRemoteAgentNativeDeliveryStop } from "../../remote-agent/applica
 import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { isRpcReceiverMethodNotImplementedErrorForMethod } from "../../rpc/errors";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE } from "../../runtime-transport/application/runtime-coordinator-authority";
@@ -18,10 +19,9 @@ import {
   listAgentTaskCompletionSubscriptionsNeedingEnqueue,
   recordAgentTaskTerminalOutcome,
   recordAgentTaskTerminalOutcomeIfMatching,
-} from "../infrastructure/d1/agent-task-coordination-repo";
+} from "../infrastructure/postgresql/agent-task-coordination-repo";
 
 const POST_WAKE_STOP_RPC_METHOD_NAME = "rpcPostWakeStop";
-
 type SpaceWakeStopRpcStub = {
   rpcPostWakeStop: (request: {
     body: {
@@ -36,9 +36,8 @@ type SpaceWakeStopRpcStub = {
     spaceId: string;
   }) => Promise<PostSpaceWakeStopResponse>;
 };
-
 export async function recordAndEnqueueAgentTaskTerminalOutcome(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   outcome: AgentTaskTerminalOutcome;
@@ -46,9 +45,8 @@ export async function recordAndEnqueueAgentTaskTerminalOutcome(input: {
 }): Promise<void> {
   await recordAndEnqueueAgentTaskTerminalOutcomeWithStoredOutcome(input);
 }
-
 export async function recordAndEnqueueAgentTaskTerminalOutcomeWithStoredOutcome(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   outcome: AgentTaskTerminalOutcome;
@@ -69,9 +67,8 @@ export async function recordAndEnqueueAgentTaskTerminalOutcomeWithStoredOutcome(
   });
   return recorded.outcome;
 }
-
 export async function recordAndEnqueueAgentTaskTerminalOutcomeIfMatching(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   outcome: AgentTaskTerminalOutcome;
@@ -98,9 +95,8 @@ export async function recordAndEnqueueAgentTaskTerminalOutcomeIfMatching(input: 
   });
   return { matches: true, storedOutcome: recorded.outcome };
 }
-
 async function propagateAndEnqueueRecordedAgentTaskTerminalOutcome(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   recorded: Awaited<ReturnType<typeof recordAgentTaskTerminalOutcome>>;
@@ -146,10 +142,9 @@ async function propagateAndEnqueueRecordedAgentTaskTerminalOutcome(input: {
     });
   }
 }
-
 async function propagateStoppedParentToContinuations(input: {
   continuationIdempotencyKeys: string[];
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<void> {
@@ -206,10 +201,9 @@ async function propagateStoppedParentToContinuations(input: {
     );
   }
 }
-
 async function propagateStoppedParentToChildren(input: {
   childTasks: AgentTaskHandle[];
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   parentTask: AgentTaskHandle;
 }): Promise<void> {
@@ -288,9 +282,13 @@ async function propagateStoppedParentToChildren(input: {
     );
   }
 }
-
 async function postParentStopToSpaceWake(input: {
-  childTask: Extract<AgentTaskHandle, { kind: "space_wake" }>;
+  childTask: Extract<
+    AgentTaskHandle,
+    {
+      kind: "space_wake";
+    }
+  >;
   context: OpenMeldRequestContext;
   stub: SpaceWakeStopRpcStub;
 }): Promise<PostSpaceWakeStopResponse> {
@@ -322,14 +320,12 @@ async function postParentStopToSpaceWake(input: {
     throw error;
   }
 }
-
 function buildPropagationErrorMessage(code: string, errors: unknown[]): string {
   const details = errors
     .map((error) => (error instanceof Error ? error.message : String(error)))
     .join("; ");
   return details ? `${code}: ${details}` : code;
 }
-
 export async function enqueueAgentTaskContinuationMessages(input: {
   env: CoreBindings;
   nowMs: number;
@@ -354,13 +350,14 @@ export async function enqueueAgentTaskContinuationMessages(input: {
     )
   );
 }
-
 export async function retryReadyAgentTaskContinuations(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   limit?: number;
   nowMs: number;
-}): Promise<{ enqueuedCount: number }> {
+}): Promise<{
+  enqueuedCount: number;
+}> {
   const subscriptionIds =
     await listAgentTaskCompletionSubscriptionsNeedingEnqueue({
       db: input.db,

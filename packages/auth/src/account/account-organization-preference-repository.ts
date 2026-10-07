@@ -1,5 +1,5 @@
-import { type createD1Db, members, users } from "@openmeld/db/auth";
-import { and, eq, exists } from "drizzle-orm";
+import { type createAuthDatabase, members, users } from "@openmeld/db/auth";
+import { and, eq, exists } from "@openmeld/db/query";
 
 export type SetLastSelectedOrganizationInput = {
   organizationId: string;
@@ -13,7 +13,9 @@ export type AccountOrganizationPreferenceRepository = {
   ) => Promise<boolean>;
 };
 
-type AccountOrganizationPreferenceDatabase = ReturnType<typeof createD1Db>;
+type AccountOrganizationPreferenceDatabase = ReturnType<
+  typeof createAuthDatabase
+>;
 
 export function createDrizzleAccountOrganizationPreferenceRepository(
   db: AccountOrganizationPreferenceDatabase

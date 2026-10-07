@@ -15,97 +15,30 @@ import {
 	useMessageScrollerScrollable,
 } from "@shadcn/react/message-scroller";
 import { motion, useReducedMotion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
 import { MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME } from "./primitives/message-scroller";
-import type {
-	SpaceHistoryActions,
-	SpaceHistoryLatestReservation,
-} from "./space-history-rail";
-import type { PreparedSpaceInboxCatchUp } from "./use-space-inbox-read-position";
-
+import type { SpaceHistoryActions } from "./space-history-rail";
 export function SpaceHistoryJumpControl({
 	history,
-	onPrepareCatchUpUnread,
 }: {
 	history?: SpaceHistoryActions;
-	onPrepareCatchUpUnread?: () => Promise<PreparedSpaceInboxCatchUp | null>;
 }) {
 	const reduceMotion = useReducedMotion();
 	const { scrollToEnd } = useMessageScroller();
 	const { end: canScrollToEnd } = useMessageScrollerScrollable();
-	const canScrollToEndRef = useRef(canScrollToEnd);
-	canScrollToEndRef.current = canScrollToEnd;
-	const [catchUpPending, setCatchUpPending] = useState(false);
-	const [catchUpError, setCatchUpError] = useState(false);
-	const operationSequence = useRef(0);
-	useEffect(() => {
-		return () => {
-			operationSequence.current += 1;
-		};
-	}, []);
-	const pending = catchUpPending || !!history?.pending;
-	const active =
-		!!history?.isHistorical ||
-		canScrollToEnd ||
-		pending ||
-		!!onPrepareCatchUpUnread;
-	const actionLabel = resolveLatestActionLabel({
-		catchUpError,
-		hasCatchUp: !!onPrepareCatchUpUnread,
-	});
-	const navigateToLatest = async (
-		historyReservation?: SpaceHistoryLatestReservation
-	) => {
-		if (historyReservation) {
-			return await historyReservation.navigate();
-		}
-		const behavior = onPrepareCatchUpUnread || reduceMotion ? "auto" : "smooth";
-		scrollToEnd({ behavior });
-		if (onPrepareCatchUpUnread) {
-			await waitForConversationPaint();
-		}
-		return !canScrollToEndRef.current;
-	};
+	const pending = !!history?.pending;
+	const active = !!history?.isHistorical || canScrollToEnd || pending;
+	const actionLabel = "Jump to latest message";
 	const handleLatest = async () => {
 		if (pending) {
 			return;
 		}
-		const historyReservation = history?.reserveLatest();
-		if (!onPrepareCatchUpUnread) {
-			await navigateToLatest(historyReservation);
-			return;
-		}
-		setCatchUpError(false);
-		setCatchUpPending(true);
-		const sequence = ++operationSequence.current;
-		const isOperationCurrent = () =>
-			sequence === operationSequence.current &&
-			(!historyReservation || historyReservation.isCurrent());
-		try {
-			const preparedCatchUp = await onPrepareCatchUpUnread();
-			if (!preparedCatchUp) {
-				return;
+		const reservation = history?.reserveLatest();
+		if (reservation) {
+			if (await reservation.navigate()) {
+				scrollToEnd({ behavior: "auto" });
 			}
-			if (!isOperationCurrent()) {
-				preparedCatchUp.abandon();
-				return;
-			}
-			const reachedLatest = await navigateToLatest(historyReservation);
-			if (!(isOperationCurrent() && reachedLatest)) {
-				preparedCatchUp.abandon();
-				return;
-			}
-			await preparedCatchUp.commit();
-		} catch (error) {
-			if (!isOperationCurrent()) {
-				return;
-			}
-			console.error("Failed to catch up the Space read position.", error);
-			setCatchUpError(true);
-		} finally {
-			if (sequence === operationSequence.current) {
-				setCatchUpPending(false);
-			}
+		} else {
+			scrollToEnd({ behavior: "auto" });
 		}
 	};
 	const transition = {
@@ -172,6 +105,7 @@ export function SpaceHistoryJumpControl({
 										nativeButton={!history?.latestHref}
 										onClick={(event) => {
 											if (history?.latestHref) {
+												scrollToEnd({ behavior: "auto" });
 												return;
 											}
 											event.preventDefault();
@@ -207,33 +141,6 @@ export function SpaceHistoryJumpControl({
 					</motion.div>
 				</motion.div>
 			</div>
-			{catchUpError ? (
-				<div
-					className="pointer-events-auto rounded-lg bg-background px-3 py-2 text-destructive text-xs shadow-sm"
-					role="alert"
-				>
-					You’re at the latest messages, but OpenMeld couldn’t mark them as
-					read. Try again.
-				</div>
-			) : null}
 		</div>
 	);
-}
-
-async function waitForConversationPaint(): Promise<void> {
-	await new Promise<void>((resolve) => {
-		requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-	});
-}
-
-function resolveLatestActionLabel(input: {
-	catchUpError: boolean;
-	hasCatchUp: boolean;
-}): string {
-	if (!input.hasCatchUp) {
-		return "Jump to latest message";
-	}
-	return input.catchUpError
-		? "Try again to mark the latest messages as read"
-		: "Jump to latest and mark messages as read";
 }

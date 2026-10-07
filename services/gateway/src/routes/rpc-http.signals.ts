@@ -1,4 +1,7 @@
-import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
+import {
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
 import { buildProfileDisplay } from "@openmeld/protocol";
 import {
   catchupResponseSchema,
@@ -8,6 +11,7 @@ import {
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
   spaceMessageMutationBodySchema,
   spaceMessageMutationResponseSchema,
+  toLegacySpaceImageGeometryWireValue,
   validateSpaceSignalClientMessageIdPolicy,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
@@ -72,27 +76,28 @@ const buildPostSignalCoreRpcInput = (input: {
   password: string | undefined;
   profile: ReturnType<typeof buildProfileDisplay>;
   spaceId: string;
-}) => ({
-  spaceId: input.spaceId,
-  profile: input.profile,
-  text: input.parsed.text,
-  ...(input.parsed.deviceWait ? { deviceWait: input.parsed.deviceWait } : {}),
-  ...(input.parsed.contextSelection
-    ? { contextSelection: input.parsed.contextSelection }
-    : {}),
-  authoringPolicy: "user_authored" as const,
-  ...(input.parsed.attachments
-    ? { attachments: input.parsed.attachments }
-    : {}),
-  ...(input.parsed.files ? { files: input.parsed.files } : {}),
-  ...(input.parsed.messageEnvelope
-    ? { messageEnvelope: input.parsed.messageEnvelope }
-    : {}),
-  ...(input.parsed.meta ? { meta: input.parsed.meta } : {}),
-  ...(input.parsed.replyTo ? { replyTo: input.parsed.replyTo } : {}),
-  ...(input.password === undefined ? {} : { password: input.password }),
-  context: input.context,
-});
+}) =>
+  toLegacySpaceImageGeometryWireValue({
+    spaceId: input.spaceId,
+    profile: input.profile,
+    text: input.parsed.text,
+    ...(input.parsed.deviceWait ? { deviceWait: input.parsed.deviceWait } : {}),
+    ...(input.parsed.contextSelection
+      ? { contextSelection: input.parsed.contextSelection }
+      : {}),
+    authoringPolicy: "user_authored" as const,
+    ...(input.parsed.attachments
+      ? { attachments: input.parsed.attachments }
+      : {}),
+    ...(input.parsed.files ? { files: input.parsed.files } : {}),
+    ...(input.parsed.messageEnvelope
+      ? { messageEnvelope: input.parsed.messageEnvelope }
+      : {}),
+    ...(input.parsed.meta ? { meta: input.parsed.meta } : {}),
+    ...(input.parsed.replyTo ? { replyTo: input.parsed.replyTo } : {}),
+    ...(input.password === undefined ? {} : { password: input.password }),
+    context: input.context,
+  });
 
 const resolveSignalsQueryIssuePath = (issuePath: unknown): string | null =>
   typeof issuePath === "string" && SIGNALS_QUERY_ISSUE_PATHS.has(issuePath)
@@ -132,6 +137,7 @@ export const buildListSignalsRpcInput = (input: {
   spaceId: input.spaceId,
   ...(input.query.afterTs === null ? {} : { afterTs: input.query.afterTs }),
   ...(input.hasLimit ? { limit: input.query.limit } : {}),
+  ...(input.query.q ? { q: input.query.q } : {}),
   ...(input.query.cursor === null ? {} : { cursor: input.query.cursor }),
   ...(input.query.recentOnly ? { recent: true } : {}),
   ...(input.query.afterSignalId
@@ -275,7 +281,11 @@ const registerGetSignalsRoute = (app: Hono<HonoBindings>): void => {
       method: "GET",
       includeLegacySpaceAddressingWireFields: true,
       execute: () =>
-        c.var.coreRpc.listSignals(rpcInput, OPENMELD_SPACE_ADDRESSING_VERSION),
+        c.var.coreRpc.listSignals(
+          rpcInput,
+          OPENMELD_SPACE_ADDRESSING_VERSION,
+          OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+        ),
       resolveSuccessHeaders: ({ payload }) => {
         const parsed = catchupResponseSchema.safeParse(payload);
         if (parsed.success && parsed.data.nextCursor) {
@@ -316,13 +326,16 @@ export function registerSignalsRoutes(app: Hono<HonoBindings>): void {
       route: "/v1/spaces/:spaceId/messages/:signalId",
       spaceId,
       execute: () =>
-        c.var.coreRpc.mutateSpaceMessage({
-          spaceId,
-          signalId: c.req.param("signalId"),
-          body: body.data,
-          context: buildCoreRpcContext(c),
-          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
-        }),
+        c.var.coreRpc.mutateSpaceMessage(
+          {
+            spaceId,
+            signalId: c.req.param("signalId"),
+            body: body.data,
+            context: buildCoreRpcContext(c),
+            spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+          },
+          OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+        ),
       responseSchema: spaceMessageMutationResponseSchema,
     });
   });
@@ -438,9 +451,14 @@ export function registerSignalsRoutes(app: Hono<HonoBindings>): void {
           signal = parsed.value.deviceWait
             ? await c.var.coreRpc.postDeviceWaitingSignal(
                 postInput,
-                addressingVersion
+                addressingVersion,
+                OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
               )
-            : await c.var.coreRpc.postSignal(postInput, addressingVersion);
+            : await c.var.coreRpc.postSignal(
+                postInput,
+                addressingVersion,
+                OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+              );
         } catch (error) {
           emitGatewaySignalPostRuntimeEvidence({
             env: c.env,

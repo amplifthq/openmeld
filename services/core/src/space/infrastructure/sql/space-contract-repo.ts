@@ -1,7 +1,7 @@
 import { spaceContractSchema } from "@openmeld/schemas";
 import type {
-  PutSpaceContractBody,
   SpaceContract,
+  SpaceContractFields,
 } from "@openmeld/schemas/types";
 import { normalizePersistedSpaceContractFields } from "../../rules/parsers/space-contract-fields";
 import { isoToTimestampMs, timestampMsToIso } from "./space-schema-repo";
@@ -97,7 +97,7 @@ export const upsertSpaceContractRecord = (
     authorityOrder: contract.authorityOrder,
     entryBrief: contract.entryBrief,
     dispatchBrief: contract.dispatchBrief,
-  } satisfies PutSpaceContractBody);
+  } satisfies SpaceContractFields);
 
   sql.exec(
     `

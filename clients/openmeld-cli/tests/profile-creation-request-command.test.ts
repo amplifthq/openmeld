@@ -246,6 +246,7 @@ describe("Agent Profile creation request CLI", () => {
       view: "agent",
     });
 
+    expect(mocks.api.getCurrentComputers).toHaveBeenCalledOnce();
     expect(mocks.api.getAgentProfileCreationDefaults).not.toHaveBeenCalled();
     expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith({
       configuration: {
@@ -268,6 +269,59 @@ describe("Agent Profile creation request CLI", () => {
       source: "cli",
       targetOwnerUserId: "user-1",
     });
+  });
+
+  it("creates a Remote Agent with model and reasoning without resolving local resources", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "hosted:remote-agent",
+      idempotencyKey: "remote-request-key",
+      modelId: "openai/gpt-6-sol",
+      profileName: "Remote Reviewer",
+      reasoningLevel: "medium",
+      targetOwner: "self",
+      view: "agent",
+    });
+
+    expect(mocks.api.getCurrentComputers).not.toHaveBeenCalled();
+    expect(mocks.api.getAgentProfileCreationDefaults).not.toHaveBeenCalled();
+    expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: expect.objectContaining({
+          agentControllerRef: "hosted:remote-agent",
+          defaultProjectId: null,
+          modelId: "openai/gpt-6-sol",
+          reasoningLevel: "medium",
+          targetComputerId: null,
+        }),
+      })
+    );
+  });
+
+  it("rejects an unrelated identifier passed as --computer before creation", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "builtin:codex",
+      profileName: "Wrong Computer Agent",
+      targetComputerId: "agt_profile-id-is-not-a-computer",
+      targetOwner: "self",
+      view: "agent",
+    });
+
+    expect(mocks.api.createAgentProfileCreationRequest).not.toHaveBeenCalled();
+    expect(mocks.presenterData).toHaveBeenCalledWith({
+      code: "profile.creation_request.computer_id_invalid",
+      payload: {
+        error: {
+          code: "profile.creation_request.computer_id_invalid",
+          details: undefined,
+          message:
+            "--computer must be a Computer ID from this Organization's computer inventory.",
+          nextStep:
+            "Run `openmeld org computers --view agent`, then pass its exact `computerId`. That inventory value is the device ID accepted here; a Connected Computer record ID or Profile ID is not interchangeable.",
+        },
+        status: "error",
+      },
+    });
+    expect(process.exitCode).toBe(1);
   });
 
   it("reuses the current user's saved Default Project when the CLI omits --project", async () => {

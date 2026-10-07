@@ -1,5 +1,9 @@
-import { type createD1Db, openMeldProfiles, users } from "@openmeld/db/auth";
-import { and, eq, exists, isNull } from "drizzle-orm";
+import {
+  type createAuthDatabase,
+  openMeldProfiles,
+  users,
+} from "@openmeld/db/auth";
+import { and, eq, exists, isNull } from "@openmeld/db/query";
 
 export type AccountAvatarMutationRecord = {
   avatar: string | null;
@@ -19,7 +23,7 @@ export type AccountAvatarMutationRepository = {
   }): Promise<AccountAvatarMutationRecord | null>;
 };
 
-type AccountAvatarDatabase = ReturnType<typeof createD1Db>;
+type AccountAvatarDatabase = ReturnType<typeof createAuthDatabase>;
 
 export function createDrizzleAccountAvatarMutationRepository(
   db: AccountAvatarDatabase

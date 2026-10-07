@@ -1,16 +1,27 @@
 import {
+  beginOrganizationSkillImportBatchBodySchema,
+  beginOrganizationSkillImportBatchResponseSchema,
   createOrganizationSkillBodySchema,
   createOrganizationSkillResponseSchema,
   deleteOrganizationSkillBodySchema,
   deleteOrganizationSkillResponseSchema,
+  getOrganizationSkillImportBatchResponseSchema,
   getOrganizationSkillResponseSchema,
+  importOrganizationSkillFromFilesBodySchema,
+  importOrganizationSkillFromFilesResponseSchema,
   importOrganizationSkillFromGitHubBodySchema,
   importOrganizationSkillFromGitHubResponseSchema,
+  listOrganizationSkillImportBatchesResponseSchema,
   listOrganizationSkillsQuerySchema,
   listOrganizationSkillsResponseSchema,
   organizationSkillRouteParamsSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
+  previewOrganizationSkillFromFilesBodySchema,
+  previewOrganizationSkillFromFilesResponseSchema,
   previewOrganizationSkillFromGitHubBodySchema,
   previewOrganizationSkillFromGitHubResponseSchema,
+  previewOrganizationSkillRepositoryBodySchema,
+  previewOrganizationSkillRepositoryResponseSchema,
   setOrganizationSkillEnabledBodySchema,
   setOrganizationSkillEnabledResponseSchema,
   setOrganizationSkillMaintainersBodySchema,
@@ -21,6 +32,7 @@ import {
 import type { Context, Hono } from "hono";
 import type { z } from "zod/v4";
 import type { HonoBindings } from "../lib/bindings";
+import { forwardCoreHttp } from "./rpc-http.forward-core";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
@@ -31,12 +43,72 @@ import type { RpcHttpMethod } from "./rpc-http.types";
 
 const SKILLS_ROUTE = "/v1/organizations/current/skills";
 const SKILL_ROUTE = `${SKILLS_ROUTE}/:skillId`;
+const SKILL_CATALOG_ROUTE = `${SKILL_ROUTE}/catalog`;
+const SKILL_RESOURCE_ROUTE = `${SKILL_ROUTE}/releases/:releaseId/resources`;
 const SKILL_ENABLED_ROUTE = `${SKILL_ROUTE}/enabled`;
 const SKILL_MAINTAINERS_ROUTE = `${SKILL_ROUTE}/maintainers`;
 const SKILL_GITHUB_IMPORT_ROUTE = `${SKILLS_ROUTE}/import-github`;
+const SKILL_FILES_IMPORT_ROUTE = `${SKILLS_ROUTE}/import-files`;
 const SKILL_GITHUB_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-github`;
+const SKILL_REPOSITORY_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-github-repository`;
+const SKILL_FILES_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-files`;
+const SKILL_IMPORT_BATCHES_ROUTE = `${SKILLS_ROUTE}/import-github-batches`;
+const SKILL_IMPORT_BATCH_ROUTE = `${SKILL_IMPORT_BATCHES_ROUTE}/:batchId`;
 
 export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
+  app.get(SKILL_RESOURCE_ROUTE, (c) =>
+    forwardCoreHttp(c, SKILL_RESOURCE_ROUTE)
+  );
+  app.get(SKILL_IMPORT_BATCHES_ROUTE, (c) =>
+    executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.listOrganizationSkillImportBatches({
+          context: buildCoreRpcContext(c),
+        }),
+      method: "GET",
+      responseSchema: listOrganizationSkillImportBatchesResponseSchema,
+      route: SKILL_IMPORT_BATCHES_ROUTE,
+    })
+  );
+  app.post(SKILL_IMPORT_BATCHES_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      SKILL_IMPORT_BATCHES_ROUTE,
+      "POST",
+      beginOrganizationSkillImportBatchBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.beginOrganizationSkillImportBatch({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: beginOrganizationSkillImportBatchResponseSchema,
+      route: SKILL_IMPORT_BATCHES_ROUTE,
+      successStatus: 201,
+    });
+  });
+
+  app.get(SKILL_IMPORT_BATCH_ROUTE, (c) =>
+    executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getOrganizationSkillImportBatch({
+          batchId: c.req.param("batchId"),
+          context: buildCoreRpcContext(c),
+        }),
+      method: "GET",
+      responseSchema: getOrganizationSkillImportBatchResponseSchema,
+      route: SKILL_IMPORT_BATCH_ROUTE,
+    })
+  );
+
   app.get(SKILLS_ROUTE, (c) => {
     const query = listOrganizationSkillsQuerySchema.safeParse(c.req.query());
     if (!query.success) {
@@ -102,6 +174,53 @@ export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
+  app.post(SKILL_FILES_IMPORT_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      SKILL_FILES_IMPORT_ROUTE,
+      "POST",
+      importOrganizationSkillFromFilesBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.importOrganizationSkillFromFiles({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: importOrganizationSkillFromFilesResponseSchema,
+      route: SKILL_FILES_IMPORT_ROUTE,
+      successStatus: 201,
+    });
+  });
+
+  app.post(SKILL_FILES_PREVIEW_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      SKILL_FILES_PREVIEW_ROUTE,
+      "POST",
+      previewOrganizationSkillFromFilesBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.previewOrganizationSkillFromFiles({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: previewOrganizationSkillFromFilesResponseSchema,
+      route: SKILL_FILES_PREVIEW_ROUTE,
+    });
+  });
+
   app.post(SKILL_GITHUB_PREVIEW_ROUTE, async (c) => {
     const body = await parseBody(
       c,
@@ -125,6 +244,29 @@ export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
+  app.post(SKILL_REPOSITORY_PREVIEW_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      SKILL_REPOSITORY_PREVIEW_ROUTE,
+      "POST",
+      previewOrganizationSkillRepositoryBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.previewOrganizationSkillRepository({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: previewOrganizationSkillRepositoryResponseSchema,
+      route: SKILL_REPOSITORY_PREVIEW_ROUTE,
+    });
+  });
+
   app.get(SKILL_ROUTE, (c) => {
     const params = parseParams(c, SKILL_ROUTE, "GET");
     if (!params.ok) {
@@ -136,10 +278,31 @@ export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.getOrganizationSkill({
           context: buildCoreRpcContext(c),
           skillId: params.data.skillId,
+          ...(c.req.query("releaseId") === undefined
+            ? {}
+            : { releaseId: c.req.query("releaseId") }),
         }),
       method: "GET",
       responseSchema: getOrganizationSkillResponseSchema,
       route: SKILL_ROUTE,
+    });
+  });
+
+  app.get(SKILL_CATALOG_ROUTE, (c) => {
+    const params = parseParams(c, SKILL_CATALOG_ROUTE, "GET");
+    if (!params.ok) {
+      return params.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getOrganizationSkillCatalog({
+          context: buildCoreRpcContext(c),
+          skillId: params.data.skillId,
+        }),
+      method: "GET",
+      responseSchema: organizationSkillRuntimeCatalogResponseSchema,
+      route: SKILL_CATALOG_ROUTE,
     });
   });
 

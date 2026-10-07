@@ -424,7 +424,10 @@ export async function getAuthSessionState(
 async function syncBoundServiceCredentials(
   bound: StoredAuthSession
 ): Promise<string | null> {
-  const local = await getLocalAuthSessionState({ recover: false });
+  const local = await getLocalAuthSessionState({
+    recover: false,
+    boundSessionIdentity: buildStoredAuthSessionIdentity(bound),
+  });
   const samePrincipal = isSameAuthPrincipal(local.session, bound);
   const localPayloadKey =
     samePrincipal && "payloadKey" in local ? local.payloadKey : null;
@@ -521,7 +524,10 @@ async function persistBoundServiceRefresh(
       expiresAt: remote.expiresAt,
     });
     if (persisted) {
-      const current = await getLocalAuthSessionState({ recover: false });
+      const current = await getLocalAuthSessionState({
+        recover: false,
+        boundSessionIdentity: buildStoredAuthSessionIdentity(bound),
+      });
       boundSessionPayloadKeys.set(
         bound,
         isSameAuthPrincipal(current.session, bound) && "payloadKey" in current
@@ -1603,13 +1609,17 @@ async function authSessionFileExists(): Promise<boolean> {
 }
 
 async function getLocalAuthSessionState(
-  options: { recover?: boolean; reloadCount?: number } = {}
+  options: {
+    recover?: boolean;
+    reloadCount?: number;
+    boundSessionIdentity?: string;
+  } = {}
 ): Promise<LocalAuthSessionState> {
   let payload: Partial<AuthSessionV1> | null;
   try {
     payload =
       options.recover === false
-        ? await readSessionPayloadFile()
+        ? await readBoundOrCommittedSessionPayload(options.boundSessionIdentity)
         : await readSessionPayload();
   } catch (error) {
     if (error instanceof AuthSessionStorageError) {
@@ -2026,7 +2036,10 @@ async function persistRemoteSessionRefresh(input: {
   return await withAuthSessionTransitionMutationLock(async () => {
     const bound = admittedServiceSession.getStore();
     if (bound) {
-      const current = await getLocalAuthSessionState({ recover: false });
+      const current = await getLocalAuthSessionState({
+        recover: false,
+        boundSessionIdentity: buildStoredAuthSessionIdentity(bound),
+      });
       if (!isSameAuthPrincipal(current.session, bound)) {
         return null;
       }
@@ -2379,6 +2392,26 @@ function isAuthSessionTransitionCandidateVisibleToCurrentProcess(
   );
 }
 
+async function readBoundOrCommittedSessionPayload(
+  boundSessionIdentity: string | undefined
+): Promise<Partial<AuthSessionV1> | null> {
+  if (boundSessionIdentity) {
+    const journal = await readAuthSessionTransitionJournal();
+    if (
+      journal?.state === "pending" &&
+      isAuthSessionTransitionCandidateVisibleToCurrentProcess(journal) &&
+      buildStoredAuthSessionIdentity(journal.candidatePayload) ===
+        boundSessionIdentity
+    ) {
+      // Reconnect can stage a new login for the same principal. Its admitted
+      // Service must follow that candidate's credential writer, not adopt the
+      // previous committed login while the Host verifies the new identity.
+      return journal.candidatePayload;
+    }
+  }
+  return await readSessionPayloadFile();
+}
+
 async function readSessionPayloadFile(): Promise<Partial<AuthSessionV1> | null> {
   const path = authSessionPath();
   const raw = await readFile(path, "utf8").catch((error: unknown) => {
@@ -2531,7 +2564,7 @@ async function registerCurrentCandidateServiceProcess(
   }
   const candidateServiceProcesses = getRegisteredCandidateServiceProcesses(
     currentJournal
-  ).filter(isProcessIdentityAlive);
+  ).filter((candidate) => isProcessIdentityAlive(candidate));
   candidateServiceProcesses.push(currentProcess);
   if (candidateServiceProcesses.length > MAX_CANDIDATE_SERVICE_PROCESSES) {
     throw new Error(

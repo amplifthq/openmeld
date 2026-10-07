@@ -75,7 +75,10 @@ import {
 	getDesktopPlatform,
 	openDesktopWeb,
 } from "#/desktop/platform";
-import { copyCliEntryCommand } from "#/lib/cli-entry-command";
+import {
+	copyCliEntryCommand,
+	formatWebCliCommand,
+} from "#/lib/cli-entry-command";
 import {
 	type ComputerSummaryStatus,
 	resolveCurrentLocalRuntimeComputerSummaryStatus,
@@ -108,7 +111,6 @@ import { ComputerConnectionHistory } from "./computer-connection-history";
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
 const COMPUTER_CONNECTION_CARD_TITLE = "Computer Connection";
-const OPENMELD_SKILLS_MANAGEMENT_COMMAND = "npx -y openmeld@latest skills";
 const RECONNECT_MANUALLY_LABEL = "Reconnect Computer";
 const UPDATE_MANUALLY_LABEL = "Update manually";
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
@@ -1004,6 +1006,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	const display = resolveCurrentLocalRuntimeServiceDisplay({
 		cliUpdate,
 		computerSummaryStatus,
+		currentReadiness: input.currentLocalRuntimeReplyReadiness,
 		isCheckingStatus: input.isCheckingStatus,
 		replyReadiness: input.replyReadiness,
 		requiredServiceUpdate,
@@ -1147,6 +1150,7 @@ type CurrentLocalRuntimeServiceDisplay = {
 type CurrentLocalRuntimeServiceDisplayInput = {
 	cliUpdate: OpenMeldToolsCliUpdate | null;
 	computerSummaryStatus: ComputerSummaryStatus | null;
+	currentReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	isCheckingStatus: boolean;
 	replyReadiness: ComputerReplyReadiness;
 	requiredServiceUpdate: boolean;
@@ -1270,6 +1274,19 @@ function resolveOpenMeldToolsUpdateDisplay(
 function resolveOpenMeldToolsDefaultDisplay(
 	input: CurrentLocalRuntimeServiceDisplayInput
 ): CurrentLocalRuntimeServiceDisplay {
+	if (
+		input.serviceConnected &&
+		input.currentReadiness?.primaryBlocker === "execution_host_unavailable"
+	) {
+		return {
+			description: input.currentReadiness.message,
+			descriptionTone: "warning",
+			hideVersionDetails: false,
+			primaryAction: null,
+			statusLabel: "Local execution paused",
+			tone: "warning",
+		};
+	}
 	const primaryActionLabel = resolveOpenMeldServiceActionLabel({
 		replyReadiness: input.replyReadiness,
 		serviceConnected: input.serviceConnected,
@@ -1614,7 +1631,10 @@ function resolveOpenMeldServiceActionLabel(input: {
 }): string | null {
 	if (
 		input.serviceConnected &&
-		isLocalAgentControllerReportReadinessReason(input.replyReadiness.reasonCode)
+		(isLocalAgentControllerReportReadinessReason(
+			input.replyReadiness.reasonCode
+		) ||
+			input.replyReadiness.reasonCode === "execution_host.unavailable")
 	) {
 		return null;
 	}
@@ -1650,7 +1670,10 @@ function formatCurrentLocalRuntimeServiceStatus(input: {
 	}
 	if (
 		input.serviceConnected &&
-		isLocalAgentControllerReportReadinessReason(input.replyReadiness.reasonCode)
+		(isLocalAgentControllerReportReadinessReason(
+			input.replyReadiness.reasonCode
+		) ||
+			input.replyReadiness.reasonCode === "execution_host.unavailable")
 	) {
 		return "OpenMeld Service is connected";
 	}
@@ -1675,7 +1698,10 @@ function formatOpenMeldServiceDescription(input: {
 	}
 	if (
 		input.serviceConnected &&
-		isLocalAgentControllerReportReadinessReason(input.replyReadiness.reasonCode)
+		(isLocalAgentControllerReportReadinessReason(
+			input.replyReadiness.reasonCode
+		) ||
+			input.replyReadiness.reasonCode === "execution_host.unavailable")
 	) {
 		return "OpenMeld Service is connected on this computer.";
 	}
@@ -1703,7 +1729,10 @@ function resolveCurrentLocalRuntimeServiceTone(input: {
 	}
 	if (
 		input.serviceConnected &&
-		isLocalAgentControllerReportReadinessReason(input.replyReadiness.reasonCode)
+		(isLocalAgentControllerReportReadinessReason(
+			input.replyReadiness.reasonCode
+		) ||
+			input.replyReadiness.reasonCode === "execution_host.unavailable")
 	) {
 		return "ready";
 	}
@@ -2324,11 +2353,11 @@ function OpenMeldSkillHelpTooltipContent() {
 	return (
 		<>
 			<span>
-				The OpenMeld skill helps local agents use OpenMeld. To manage it without
-				installing OpenMeld CLI globally, run:
+				The OpenMeld skill helps local agents use OpenMeld. To manage it in this
+				environment, run:
 			</span>
 			<code className="mt-1 block break-all bg-background/15 px-1.5 py-1 font-mono text-[11px] text-background">
-				{OPENMELD_SKILLS_MANAGEMENT_COMMAND}
+				{formatWebCliCommand("openmeld skills")}
 			</code>
 		</>
 	);

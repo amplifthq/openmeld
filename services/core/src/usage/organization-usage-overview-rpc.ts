@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   organizationUsageOverviewResponseSchema,
   organizationUsageOverviewRpcInputSchema,
@@ -6,7 +7,7 @@ import type {
   OrganizationUsageOverviewResponse,
   OrganizationUsageOverviewRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, routineDb, wakeEvidenceDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { readOrganizationUsageOverview } from "./organization-usage-overview-service";
@@ -41,8 +42,8 @@ export async function rpcReadOrganizationUsageOverview(
       status: 403,
     });
   }
-  const routines = routineDb(env);
-  const wakeEvidence = wakeEvidenceDb(env);
+  const routines = getPostgresDatabase(env);
+  const wakeEvidence = getPostgresDatabase(env);
   if (!(routines && wakeEvidence)) {
     throw createCoreRpcHttpError({
       code: "usage.store_unavailable",
@@ -52,7 +53,6 @@ export async function rpcReadOrganizationUsageOverview(
   }
   const response = organizationUsageOverviewResponseSchema.safeParse(
     await readOrganizationUsageOverview({
-      configuredDailyLimit: env.OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT,
       nowMs: Date.now(),
       organizationId: membership.organizationId,
       routineDb: routines,

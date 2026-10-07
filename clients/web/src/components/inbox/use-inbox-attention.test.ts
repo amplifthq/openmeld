@@ -2,12 +2,50 @@ import { describe, expect, it } from "vitest";
 import { resolveInboxAttention } from "./use-inbox-attention";
 
 describe("Inbox attention", () => {
+	it("uses canonical priority counts instead of turning every open request into an alarm", () => {
+		const summary = {
+			organizationId: "org",
+			totalUnreadCount: 0,
+			unresolvedActionCount: 4,
+			unreadUrgentUpdateCount: 0,
+			unreadMentionCount: 0,
+			ordinaryUnreadCount: 0,
+			priorityCount: 0,
+			needsActionCount: 2,
+			needsReviewCount: 2,
+			unreadPriorityUpdateCount: 0,
+		};
+		expect(
+			resolveInboxAttention({ summary, pending: false, unavailable: false })
+		).toMatchObject({
+			count: 0,
+			tone: null,
+			indicatorTone: null,
+			status: "4 pending items",
+		});
+		expect(
+			resolveInboxAttention({
+				summary: {
+					...summary,
+					priorityCount: 1,
+					unreadPriorityUpdateCount: 1,
+					totalUnreadCount: 1,
+				},
+				pending: false,
+				unavailable: false,
+			})
+		).toMatchObject({
+			count: 1,
+			tone: "warning",
+			tabLabel: "Priority attention (1)",
+		});
+	});
 	it.each([
 		[0, 0, 0, null, null],
 		[127, 0, 0, "unread", "127 unread"],
 		[127, 0, 1, "warning", "Urgent updates (1)"],
-		[127, 2, 1, "danger", "Needs action (2)"],
-		[0, 1, 0, "danger", "Needs action (1)"],
+		[127, 2, 1, "warning", "Needs action (2)"],
+		[0, 1, 0, "warning", "Needs action (1)"],
 	] as const)("maps %i unread, %i actions, %i urgent updates to one indicator", (unread, actions, urgent, indicatorTone, tabLabel) => {
 		expect(
 			resolveInboxAttention({
@@ -27,9 +65,9 @@ describe("Inbox attention", () => {
 	it.each([
 		[0, 0, 0, null],
 		[0, 3, 3, "warning"],
-		[2, 0, 2, "danger"],
-		[2, 3, 5, "danger"],
-		[100, 3, 103, "danger"],
+		[2, 0, 2, "warning"],
+		[2, 3, 5, "warning"],
+		[100, 3, 103, "warning"],
 	] as const)("counts %i actions plus %i urgent updates", (actions, urgent, count, tone) => {
 		expect(
 			resolveInboxAttention({

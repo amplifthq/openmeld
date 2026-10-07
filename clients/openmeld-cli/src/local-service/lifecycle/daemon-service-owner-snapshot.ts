@@ -264,6 +264,11 @@ function resolveActiveOwnerKinds(input: {
     input.runtimeStatus.serviceController === "unknown"
       ? input.runtimeStatus.pid
       : null;
+  const verifiedSystemRuntimePid =
+    input.runtimeStatus.status === "running" &&
+    input.runtimeStatus.managedBySystemService
+      ? input.runtimeStatus.pid
+      : null;
 
   if (
     input.serviceManagerStatus?.running === true ||
@@ -291,8 +296,9 @@ function resolveActiveOwnerKinds(input: {
   if (
     input.ownedProcesses.some(
       (processInfo) =>
-        processInfo.ownership === "cli_direct" ||
-        processInfo.ownership === "unknown"
+        processInfo.pid !== verifiedSystemRuntimePid &&
+        (processInfo.ownership === "cli_direct" ||
+          processInfo.ownership === "unknown")
     ) ||
     (!input.runtimeStatus.managedBySystemService &&
       input.runtimeStatus.serviceController !== "legacy-detached" &&

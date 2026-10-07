@@ -3,6 +3,8 @@ import type { InboxItem } from "@openmeld/schemas/types";
 
 import { getDesktopPlatform } from "#/desktop/platform";
 
+import { waitForBrowserNotificationAcknowledgement } from "./browser-notification-acknowledgement";
+
 import {
 	queueInboxBrowserNotificationSound,
 	readInboxBrowserNotificationSoundEnabled,
@@ -24,7 +26,11 @@ export type InboxNotificationSettings = {
 	enabled: boolean;
 	permission: InboxNotificationPermission;
 	soundEnabled: boolean;
+	unavailableReason?: "storage_unavailable";
 };
+
+export const INBOX_NOTIFICATION_STORAGE_UNAVAILABLE_MESSAGE =
+	"Notifications are paused because OpenMeld can’t use this browser’s site storage. Check that site storage is allowed and has free space. OpenMeld will retry automatically. Your notification preference has not been changed.";
 
 export function resolveClientNotificationDescription(
 	permission: InboxNotificationSettings["permission"]
@@ -38,7 +44,7 @@ export function resolveClientNotificationDescription(
 	if (permission === "denied") {
 		return "Notifications are blocked. Allow them in your browser’s site settings, then return here.";
 	}
-	return "Show notifications in this browser while OpenMeld is open. Messages follow your default and conversation settings. Your browser and operating system must also allow notifications.";
+	return "Show notifications while OpenMeld is open in this browser.";
 }
 
 export type InboxNotificationDeliveryResult =
@@ -48,6 +54,8 @@ export type InboxNotificationDeliveryResult =
 	| {
 			reason:
 				| "claim_failed"
+				| "display_failed"
+				| "display_unconfirmed"
 				| "context_changed"
 				| "permission_unavailable"
 				| "revalidation_failed"
@@ -78,6 +86,12 @@ const DELIVERED_ITEM_IDS_KEY =
 const PENDING_ITEM_KEY_PREFIX =
 	"openmeld.inbox.browser-notifications.pending-item";
 const MAX_DELIVERED_ITEM_IDS = 200;
+const PENDING_ITEM_VALUE = "pending";
+const STORAGE_PROBE_KEY_PREFIX =
+	"openmeld.inbox.browser-notifications.storage-probe:";
+// This tab's observed storage health, not consent or a second retry ledger.
+// Retain the failed key so an unrelated same-value write cannot claim recovery.
+let failedPendingWriteKey: string | null = null;
 
 export function readInboxNotificationSettings(input: {
 	userId: string;
@@ -91,10 +105,17 @@ export function readInboxNotificationSettings(input: {
 	}
 	const permission = readInboxNotificationPermission();
 	const preference = readInboxBrowserPreference(input);
+	const storageUnavailable =
+		preference === "unavailable" ||
+		failedPendingWriteKey !== null ||
+		!canReadInboxNotificationStorage();
 	return {
 		enabled: permission === "granted" && preference !== false,
 		permission,
 		soundEnabled: readInboxBrowserNotificationSoundEnabled(input),
+		...(storageUnavailable
+			? { unavailableReason: "storage_unavailable" as const }
+			: {}),
 	};
 }
 
@@ -196,12 +217,11 @@ export function readInboxNotificationPermission(): InboxNotificationPermission {
 export function showInboxBrowserNotificationExample(
 	userId: string
 ): Notification {
-	if (
-		!(
-			readInboxNotificationSettings({ userId }).enabled &&
-			readInboxNotificationPermission() === "granted"
-		)
-	) {
+	const settings = readInboxNotificationSettings({ userId });
+	if (settings.unavailableReason) {
+		throw new Error(INBOX_NOTIFICATION_STORAGE_UNAVAILABLE_MESSAGE);
+	}
+	if (!(settings.enabled && readInboxNotificationPermission() === "granted")) {
 		throw new Error("Enable browser notifications before showing an example.");
 	}
 	const notification = new window.Notification(
@@ -232,9 +252,14 @@ export async function showInboxNotification(input: {
 		| Promise<InboxNotificationDeliveryReadiness>;
 	onActivate: (item: InboxItem) => void;
 	organizationSlug?: string;
+	organizationId?: string;
 	userId: string;
 	viewingSourceSession: boolean;
+	signal?: AbortSignal;
 }): Promise<InboxNotificationDeliveryResult> {
+	if (input.signal?.aborted) {
+		return { reason: "context_changed", status: "deferred" };
+	}
 	if (typeof window === "undefined" || typeof document === "undefined") {
 		return { reason: "permission_unavailable", status: "deferred" };
 	}
@@ -260,70 +285,41 @@ export async function showInboxNotification(input: {
 	) {
 		return { reason: "source_visible", status: "deferred" };
 	}
-	// Coalesce owner awareness alerts within each minute without changing unread counts.
-	const deliveryKey =
-		input.item.sourceTarget.kind === "space" &&
-		input.item.sourceTarget.agentOwnerActivity === true
-			? `agent-owner:${input.userId}:${input.item.sourceTarget.spaceId}:${Math.floor(Date.parse(input.item.occurredAt) / 60_000)}`
-			: input.item.id;
-	return await withInboxNotificationClaim(deliveryKey, async () => {
-		const currentReadiness = (await input.resolveCurrentReadiness?.()) ?? {
-			item: input.item,
-			status: "eligible",
-		};
-		if (currentReadiness.status === "ineligible") {
-			return { status: "ineligible" };
-		}
-		if (currentReadiness.status !== "eligible") {
-			return { reason: currentReadiness.status, status: "deferred" };
-		}
-		const currentItem = currentReadiness.item;
-		if (getDesktopPlatform()) {
-			return await deliverDesktopInboxNotification(
+	// Owner-only legacy observations are ineligible above. Remaining Human
+	// mentions/replies retain their own receipts, never a conversation cooldown.
+	const deliveryKey = input.item.id;
+	return await withInboxNotificationClaim(
+		deliveryKey,
+		async () => {
+			const currentReadiness = (await input.resolveCurrentReadiness?.()) ?? {
+				item: input.item,
+				status: "eligible",
+			};
+			if (currentReadiness.status === "ineligible") {
+				return { status: "ineligible" };
+			}
+			if (currentReadiness.status !== "eligible") {
+				return { reason: currentReadiness.status, status: "deferred" };
+			}
+			const currentItem = currentReadiness.item;
+			if (input.signal?.aborted) {
+				return { reason: "context_changed", status: "deferred" };
+			}
+			if (getDesktopPlatform()) {
+				return await deliverDesktopInboxNotification(
+					input,
+					currentItem,
+					deliveryKey
+				);
+			}
+			return await deliverBrowserInboxNotification(
 				input,
 				currentItem,
 				deliveryKey
 			);
-		}
-		const body = currentItem.contextLabel
-			? `${currentItem.contextLabel}: ${currentItem.preview}`
-			: currentItem.preview;
-		const notification = new window.Notification(currentItem.title, {
-			badge: BADGE_PATH,
-			body,
-			icon: ICON_PATH,
-			requireInteraction:
-				currentItem.importance === "urgent" ||
-				(currentItem.attention === "action_required" &&
-					currentItem.resolutionStatus === "open"),
-			tag:
-				currentItem.sourceTarget.kind === "space" &&
-				currentItem.sourceTarget.agentOwnerActivity === true
-					? `openmeld-agent-owner:${input.userId}:${currentItem.sourceTarget.spaceId}`
-					: `openmeld-inbox:${currentItem.id}`,
-		});
-		notification.onclick = () => {
-			window.focus();
-			input.onActivate(currentItem);
-			notification.close();
-		};
-		recordInboxNotificationReceipt(currentItem.id, deliveryKey);
-		try {
-			queueInboxBrowserNotificationSound({
-				item: currentItem,
-				userId: input.userId,
-			});
-		} catch (error) {
-			console.warn(
-				"[openmeld.web.inbox.browser_notification_sound_queue_failed]",
-				{
-					error: error instanceof Error ? error.message : String(error),
-					itemId: currentItem.id,
-				}
-			);
-		}
-		return { notification, status: "delivered" };
-	});
+		},
+		input.signal
+	);
 }
 
 export function readPendingInboxNotificationItemIds(input: {
@@ -372,14 +368,21 @@ export function markInboxNotificationItemPending(input: {
 	itemId: string;
 	organizationId: string;
 	userId: string;
-}): void {
+}): boolean {
 	if (typeof window === "undefined") {
-		return;
+		return false;
 	}
+	const key = buildPendingItemKey(input);
 	try {
-		window.localStorage.setItem(buildPendingItemKey(input), "pending");
+		window.localStorage.setItem(key, PENDING_ITEM_VALUE);
+		if (failedPendingWriteKey === key) {
+			setPendingWriteFailure(null);
+		}
+		return true;
 	} catch (error) {
+		setPendingWriteFailure(key);
 		logPendingInboxNotificationWriteFailure(input, error);
+		return false;
 	}
 }
 
@@ -412,7 +415,16 @@ export function subscribeInboxNotificationSettings(
 			onChange();
 		}
 	};
-	const handleVisibilityChange = () => onChange();
+	const handleFocus = () => {
+		recheckPendingWriteAvailability();
+		onChange();
+	};
+	const handleVisibilityChange = () => {
+		if (document.visibilityState === "visible") {
+			recheckPendingWriteAvailability();
+		}
+		onChange();
+	};
 	let notificationPermissionStatus: PermissionStatus | null = null;
 	let unsubscribed = false;
 	const subscribeToNotificationPermission = () => {
@@ -443,7 +455,8 @@ export function subscribeInboxNotificationSettings(
 	window.addEventListener("storage", handleStorage);
 	window.addEventListener(PREFERENCE_CHANGE_EVENT, onChange);
 	window.addEventListener(DESKTOP_NOTIFICATION_SETTINGS_EVENT, onChange);
-	window.addEventListener("focus", onChange);
+	window.addEventListener("focus", handleFocus);
+	window.addEventListener("blur", onChange);
 	document.addEventListener("visibilitychange", handleVisibilityChange);
 	if (!getDesktopPlatform()) {
 		subscribeToNotificationPermission();
@@ -454,7 +467,8 @@ export function subscribeInboxNotificationSettings(
 		window.removeEventListener("storage", handleStorage);
 		window.removeEventListener(PREFERENCE_CHANGE_EVENT, onChange);
 		window.removeEventListener(DESKTOP_NOTIFICATION_SETTINGS_EVENT, onChange);
-		window.removeEventListener("focus", onChange);
+		window.removeEventListener("focus", handleFocus);
+		window.removeEventListener("blur", onChange);
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
 	};
 }
@@ -466,7 +480,9 @@ async function requestInboxNotificationPermission(): Promise<InboxNotificationPe
 	return await window.Notification.requestPermission();
 }
 
-function readInboxBrowserPreference(input: { userId: string }): boolean | null {
+function readInboxBrowserPreference(input: {
+	userId: string;
+}): boolean | null | "unavailable" {
 	if (typeof window === "undefined") {
 		return null;
 	}
@@ -488,7 +504,59 @@ function readInboxBrowserPreference(input: { userId: string }): boolean | null {
 		console.warn("[openmeld.web.inbox.browser_preference_read_failed]", {
 			error: error instanceof Error ? error.message : String(error),
 		});
-		return null;
+		return "unavailable";
+	}
+}
+
+function setPendingWriteFailure(key: string | null): void {
+	const wasUnavailable = failedPendingWriteKey !== null;
+	failedPendingWriteKey = key;
+	if (wasUnavailable !== (key !== null)) {
+		window.dispatchEvent(new Event(PREFERENCE_CHANGE_EVENT));
+	}
+}
+
+export function recheckPendingWriteAvailability(): void {
+	if (failedPendingWriteKey === null || getDesktopPlatform()) {
+		return;
+	}
+	try {
+		// Probe only on a lifecycle event or bounded observation refresh after a
+		// real failure, never in a React snapshot read. A fresh key tests allocation.
+		const key = `${STORAGE_PROBE_KEY_PREFIX}${crypto.randomUUID()}`;
+		const value = PENDING_ITEM_VALUE.padEnd(
+			Math.max(
+				PENDING_ITEM_VALUE.length,
+				failedPendingWriteKey.length + PENDING_ITEM_VALUE.length - key.length
+			),
+			"."
+		);
+		const storage = window.localStorage;
+		storage.setItem(key, value);
+		let verified = false;
+		try {
+			verified = storage.getItem(key) === value;
+		} finally {
+			storage.removeItem(key);
+		}
+		if (verified) {
+			setPendingWriteFailure(null);
+		}
+	} catch {
+		// Reading or focusing is not recovery evidence. Keep the pause; the next
+		// observation refresh can probe again even if the failed item became read.
+	}
+}
+
+function canReadInboxNotificationStorage(): boolean {
+	if (typeof window === "undefined") {
+		return true;
+	}
+	try {
+		window.localStorage.getItem(DELIVERED_ITEM_IDS_KEY);
+		return true;
+	} catch {
+		return false;
 	}
 }
 
@@ -536,7 +604,8 @@ async function withInboxNotificationClaim(
 	itemId: string,
 	deliver: () =>
 		| InboxNotificationDeliveryResult
-		| Promise<InboxNotificationDeliveryResult>
+		| Promise<InboxNotificationDeliveryResult>,
+	signal?: AbortSignal
 ): Promise<InboxNotificationDeliveryResult> {
 	const claimAndDeliver = async () => {
 		const claim = readInboxNotificationDelivery(itemId);
@@ -549,11 +618,18 @@ async function withInboxNotificationClaim(
 		return await deliver();
 	};
 	if (typeof navigator !== "undefined" && navigator.locks) {
-		return await navigator.locks.request(
-			`openmeld-inbox-notification:${itemId}`,
-			{ mode: "exclusive" },
-			claimAndDeliver
-		);
+		try {
+			return await navigator.locks.request(
+				`openmeld-inbox-notification:${itemId}`,
+				{ mode: "exclusive", ...(signal ? { signal } : {}) },
+				claimAndDeliver
+			);
+		} catch (error) {
+			if (signal?.aborted) {
+				return { reason: "context_changed", status: "deferred" };
+			}
+			throw error;
+		}
 	}
 	return await claimAndDeliver();
 }
@@ -667,17 +743,84 @@ function buildInboxBrowserNotificationPromptKey(input: {
 	return `${PROMPT_DISMISSED_KEY_PREFIX}:${normalizedUserId}`;
 }
 
+async function deliverBrowserInboxNotification(
+	input: Parameters<typeof showInboxNotification>[0],
+	currentItem: InboxItem,
+	deliveryKey: string
+): Promise<InboxNotificationDeliveryResult> {
+	const settings = readInboxNotificationSettings({ userId: input.userId });
+	if (settings.unavailableReason) {
+		return { reason: "claim_failed", status: "deferred" };
+	}
+	if (!settings.enabled) {
+		return { reason: "permission_unavailable", status: "deferred" };
+	}
+	const body = currentItem.contextLabel
+		? `${currentItem.contextLabel}: ${currentItem.preview}`
+		: currentItem.preview;
+	const notification = new window.Notification(currentItem.title, {
+		badge: BADGE_PATH,
+		body,
+		icon: ICON_PATH,
+		requireInteraction:
+			currentItem.importance === "urgent" ||
+			(currentItem.attention === "action_required" &&
+				currentItem.resolutionStatus === "open"),
+		tag: `openmeld-inbox:${currentItem.id}`,
+	});
+	notification.onclick = () => {
+		window.focus();
+		input.onActivate(currentItem);
+		notification.close();
+	};
+	const acknowledgement = await waitForBrowserNotificationAcknowledgement(
+		notification,
+		input.signal
+	);
+	if (acknowledgement !== "shown") {
+		let reason: "context_changed" | "display_failed" | "display_unconfirmed" =
+			"display_unconfirmed";
+		if (acknowledgement === "cancelled") {
+			reason = "context_changed";
+		} else if (acknowledgement === "failed") {
+			reason = "display_failed";
+		}
+		console.warn("[openmeld.web.inbox.browser_notification_unacknowledged]", {
+			itemId: currentItem.id,
+			reason,
+		});
+		return { reason, status: "deferred" };
+	}
+	recordInboxNotificationReceipt(currentItem.id, deliveryKey);
+	try {
+		queueInboxBrowserNotificationSound({
+			item: currentItem,
+			userId: input.userId,
+		});
+	} catch (error) {
+		console.warn(
+			"[openmeld.web.inbox.browser_notification_sound_queue_failed]",
+			{
+				error: error instanceof Error ? error.message : String(error),
+				itemId: currentItem.id,
+			}
+		);
+	}
+	return { notification, status: "delivered" };
+}
+
 async function deliverDesktopInboxNotification(
 	input: Parameters<typeof showInboxNotification>[0],
 	currentItem: InboxItem,
 	deliveryKey: string
 ): Promise<InboxNotificationDeliveryResult> {
-	if (!input.organizationSlug) {
+	const organizationId = currentItem.organizationId ?? input.organizationId;
+	if (!(input.organizationSlug && organizationId)) {
 		return { reason: "context_changed", status: "deferred" };
 	}
 	const result = await getDesktopPlatform()?.showNotification({
 		userId: input.userId,
-		organizationId: currentItem.organizationId,
+		organizationId,
 		organizationSlug: input.organizationSlug,
 		itemId: currentItem.id,
 		soundEnabled: readDesktopNotificationPreference(input.userId, "sound"),

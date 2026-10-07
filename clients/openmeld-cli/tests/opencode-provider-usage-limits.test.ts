@@ -36,6 +36,7 @@ describe("OpenCode provider usage limits", () => {
         "opencode-go": { key: "secret-local-key", type: "api" },
       }),
       fetchFn,
+      environment: { OPENCODE_API_KEY: "different-env-key" },
       observedAt: OBSERVED_AT,
       providerList: createProviderList(["opencode-go"]),
     });
@@ -51,6 +52,93 @@ describe("OpenCode provider usage limits", () => {
       true
     );
     expect(JSON.stringify(limits)).not.toContain("secret-local-key");
+  });
+
+  it("reads the captured OpenRouter free-model counter even when the monetary budget is unbounded", async () => {
+    // Redacted /api/v1/key response observed on 2026-10-01 with the locally
+    // configured OpenCode key. No model request was made.
+    const fetchFn = vi.fn().mockResolvedValue(
+      Response.json({
+        data: {
+          is_free_tier: false,
+          limit: null,
+          limit_remaining: null,
+          free_model_daily_requests: {
+            limit: 1000,
+            used: 0,
+            remaining: 1000,
+          },
+        },
+      })
+    );
+    const limits = await readOpenCodeProviderUsageLimits({
+      authContent: JSON.stringify({
+        openrouter: { type: "api", key: "local-router-key" },
+      }),
+      environment: {},
+      observedAt: OBSERVED_AT,
+      providerList: createProviderList(["openrouter"]),
+      fetchFn,
+    });
+    expect(limits).toEqual([
+      {
+        key: "openrouter:free-model-daily",
+        label: "Free models daily requests",
+        provider: { id: "openrouter", displayName: "OpenRouter" },
+        observedAt: OBSERVED_AT,
+        resetsAt: null,
+        usedPercent: 0,
+        status: "available",
+      },
+    ]);
+    expect(fetchFn).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/key",
+      expect.objectContaining({
+        redirect: "error",
+        headers: { authorization: "Bearer local-router-key" },
+      })
+    );
+    expect(JSON.stringify(limits)).not.toContain("local-router-key");
+  });
+
+  it("uses the Go environment key only without stored auth and distinguishes no entitlement from a failed refresh", async () => {
+    for (const status of [403, 500]) {
+      const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status }));
+      const limits = await readOpenCodeProviderUsageLimits({
+        authContent: "{}",
+        environment: { OPENCODE_API_KEY: "go-env-key" },
+        observedAt: OBSERVED_AT,
+        providerList: createProviderList(["opencode-go"]),
+        fetchFn,
+      });
+      expect(limits[0]?.reason).toBe(
+        status === 403 ? "not_applicable" : "refresh_failed"
+      );
+      expect(fetchFn).toHaveBeenCalledWith(
+        "https://opencode.ai/zen/go/v1/usage",
+        expect.objectContaining({
+          headers: { authorization: "Bearer go-env-key" },
+        })
+      );
+    }
+  });
+
+  it("does not send a custom provider's credential to the default account endpoint", async () => {
+    const providerList = createProviderList(["openrouter"]);
+    for (const provider of providerList.all) {
+      provider.options.baseURL = "https://proxy.example.com/v1";
+    }
+    const fetchFn = vi.fn();
+    const limits = await readOpenCodeProviderUsageLimits({
+      authContent: JSON.stringify({
+        openrouter: { type: "api", key: "proxy-key" },
+      }),
+      observedAt: OBSERVED_AT,
+      providerList,
+      fetchFn,
+    });
+    expect(limits[0]?.reason).toBe("not_applicable");
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it("reports other connected providers as unsupported without making a quota request", async () => {
@@ -84,7 +172,14 @@ function createProviderList(connected: string[]): ProviderListResponse {
       env: [],
       id,
       models: {},
-      name: id === "opencode-go" ? "OpenCode Go" : "OpenAI",
+      name:
+        (
+          {
+            "opencode-go": "OpenCode Go",
+            openai: "OpenAI",
+            openrouter: "OpenRouter",
+          } as Record<string, string>
+        )[id] ?? id,
       options: {},
       source: "config",
     })),

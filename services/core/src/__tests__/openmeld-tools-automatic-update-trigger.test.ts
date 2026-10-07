@@ -295,6 +295,11 @@ function createLocalComponentsStatus(
     schemaVersion: 1,
     generatedAt: "2026-09-01T12:54:00.000Z",
     entrypoint: "setup",
+    installationSource: {
+      distribution: "npm",
+      channel: "stable",
+      platform: "darwin-arm64",
+    },
     summaryLabel: "Everything is up to date",
     summaryDescription: "OpenMeld Tools are ready.",
     setupAction: "none",
@@ -345,3 +350,82 @@ function createLocalComponentsStatus(
     },
   };
 }
+
+it("skips automatic binary upgrades when the source has no installable target, even with skills drift", () => {
+  const input = createDecisionInput();
+  if (!input.capabilities.localComponents) {
+    throw new Error("fixture lacks components");
+  }
+  input.capabilities.localComponents.installationSource = {
+    distribution: "binary",
+    channel: "windows-preview",
+    platform: "windows-x64",
+  };
+  expect(
+    resolveReleaseTriggeredOpenMeldToolsUpdateDecision({
+      ...input,
+      availabilityCatalog: { schemaVersion: 1, entries: [] },
+    })
+  ).toEqual({
+    status: "skipped",
+    reasonCode: "automatic_update.no_actionable_release",
+  });
+});
+
+it.each([
+  { serviceTarget: "0.3.231", cliPolicy: "available" },
+  { serviceTarget: "0.3.225", cliPolicy: "available" },
+  { serviceTarget: "0.3.231", cliPolicy: "required" },
+] as const)("uses safe preview Service $serviceTarget with global CLI policy $cliPolicy for automatic maintenance", ({
+  serviceTarget,
+  cliPolicy,
+}) => {
+  const input = createDecisionInput();
+  if (!(input.capabilities.localComponents && input.releaseManifest)) {
+    throw new Error("fixture lacks components");
+  }
+  const manifest = input.releaseManifest;
+  manifest.components.cli.packageVersion = "0.3.232";
+  manifest.components.cli.updatePolicy = cliPolicy;
+  manifest.components.service.bundleVersion = "0.3.232";
+  manifest.components.service.updatePolicy = "available";
+  const local = input.capabilities.localComponents;
+  local.cli.packageVersion = "0.3.230";
+  local.service.installedBundleVersion = "0.3.231";
+  input.serviceVersion = "0.3.231";
+  local.installationSource = {
+    distribution: "binary",
+    channel: "windows-preview",
+    platform: "windows-x64",
+  };
+  const decision = resolveReleaseTriggeredOpenMeldToolsUpdateDecision({
+    ...input,
+    availabilityCatalog: {
+      schemaVersion: 1,
+      entries: [
+        {
+          channel: "windows-preview",
+          platform: "windows-x64",
+          policy: {
+            cli: { ...manifest.components.cli, packageVersion: "0.3.231" },
+            service: {
+              ...manifest.components.service,
+              bundleVersion: serviceTarget,
+            },
+          },
+        },
+      ],
+    },
+  });
+  if (serviceTarget === "0.3.225" || cliPolicy === "required") {
+    expect(decision).toEqual({
+      status: "skipped",
+      reasonCode: "automatic_update.no_actionable_release",
+    });
+  } else {
+    expect(decision).toMatchObject({
+      status: "request",
+      update: { targetVersion: "0.3.231" },
+    });
+  }
+});

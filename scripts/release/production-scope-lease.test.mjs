@@ -38,6 +38,86 @@ const SCRIPT_PATH = fileURLToPath(
   new URL("./production-scope-lease.mjs", import.meta.url)
 );
 
+test("Windows promotion compares and mutates only its platform pointer under the existing shared lease", async () => {
+  const fixture = createLeaseFixture();
+  const candidate = (platform, hash) => ({
+    schemaVersion: 1,
+    target: "production",
+    platform,
+    version: "0.1.4",
+    releaseSha: fixture.sourceSha,
+    sha256: hash.repeat(64),
+    sizeBytes: 42,
+    windows: {
+      sha512: `${"A".repeat(86)}==`,
+      publisherName: "Fixture Publisher",
+    },
+  });
+  const x64 = candidate("windows-x64", "a");
+  const arm = candidate("windows-arm64", "b");
+  const pointers = new Map();
+  const readKeys = [];
+  const writes = [];
+  const readObject = (key) => {
+    readKeys.push(key);
+    if (key.startsWith("desktop/candidates/")) {
+      return key.includes(x64.sha256) ? x64 : arm;
+    }
+    return pointers.get(key) ?? null;
+  };
+  const writePointer = (pointer, key) => {
+    writes.push(key);
+    pointers.set(key, pointer);
+  };
+  try {
+    for (const manifest of [x64, arm]) {
+      await commitDesktopPromotion({
+        repoRoot: fixture.agentA,
+        manifest,
+        expectedVersion: "none",
+        readObject,
+        writePointer,
+      });
+    }
+    assert.deepEqual(writes, [
+      "desktop/promoted-windows-x64.json",
+      "desktop/promoted-windows-arm64.json",
+    ]);
+    assert.equal(readKeys.includes("desktop/promoted.json"), false);
+    await assert.rejects(
+      commitDesktopPromotion({
+        repoRoot: fixture.agentA,
+        manifest: { ...x64, version: "0.1.5" },
+        expectedVersion: "none",
+        readObject,
+        writePointer,
+      }),
+      VERSION_CHANGED_PATTERN
+    );
+    pointers.set("desktop/promoted-windows-x64.json", {
+      schemaVersion: 1,
+      candidate: arm.sha256,
+      promotedAt: new Date().toISOString(),
+    });
+    await assert.rejects(
+      commitDesktopPromotion({
+        repoRoot: fixture.agentA,
+        manifest: { ...x64, version: "0.1.5" },
+        expectedVersion: "0.1.4",
+        readObject,
+        writePointer,
+      })
+    );
+    assert.equal(writes.length, 2);
+    assert.equal(
+      inspectProductionScopeLease({ cwd: fixture.agentA, scope: "web" }),
+      null
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("concurrent Desktop promotions across clones cannot overwrite a newer release", async () => {
   const fixture = createLeaseFixture();
   const candidate = (version, hash) => ({
@@ -224,6 +304,53 @@ test("serializes one production scope across clones while unrelated scopes proce
       cwd: fixture.agentB,
       leaseSha: authB.leaseSha,
       scope: "auth",
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+const ORIGINAL_LEASE_HELD_PATTERN = /original lease is still held/u;
+const SIMULATED_RELEASE_REJECTION_PATTERN = /simulated release rejection/u;
+
+test("reports a failed release of the original lease with the Git error", () => {
+  const fixture = createLeaseFixture();
+  const hook = path.join(fixture.remote, "hooks", "pre-receive");
+  try {
+    const lease = acquireProductionScopeLease({
+      cwd: fixture.agentA,
+      owner: "local:agent-a",
+      scope: "web",
+      sourceSha: fixture.sourceSha,
+    });
+    writeFileSync(
+      hook,
+      "#!/bin/sh\necho 'simulated release rejection' >&2\nexit 1\n"
+    );
+    chmodSync(hook, 0o755);
+    assert.throws(
+      () =>
+        releaseProductionScopeLease({
+          cwd: fixture.agentA,
+          leaseSha: lease.leaseSha,
+          scope: "web",
+        }),
+      (error) => {
+        assert.match(error.message, ORIGINAL_LEASE_HELD_PATTERN);
+        assert.match(error.message, SIMULATED_RELEASE_REJECTION_PATTERN);
+        return true;
+      }
+    );
+    assert.equal(
+      inspectProductionScopeLease({ cwd: fixture.agentA, scope: "web" })
+        .leaseSha,
+      lease.leaseSha
+    );
+    rmSync(hook);
+    releaseProductionScopeLease({
+      cwd: fixture.agentA,
+      leaseSha: lease.leaseSha,
+      scope: "web",
     });
   } finally {
     fixture.cleanup();
@@ -522,6 +649,7 @@ function createLeaseFixture() {
     agentA,
     agentB,
     cleanup: () => rmSync(root, { force: true, recursive: true }),
+    remote,
     sourceSha,
   };
 }

@@ -2,12 +2,14 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig({
   entry: {
+    postgresql: "src/postgresql.ts",
     index: "src/index.ts",
     auth: "src/auth.ts",
     core: "src/core.ts",
     "core-facts": "src/core-facts.ts",
     diagnostics: "src/diagnostics.ts",
     facts: "src/facts.ts",
+    query: "src/query.ts",
     tooling: "src/tooling.ts",
   },
   outDir: "dist",

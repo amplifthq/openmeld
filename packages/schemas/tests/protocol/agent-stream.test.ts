@@ -3,6 +3,7 @@ import {
   agentStreamsForReplyPlacementReader,
   incomingServerMessageSchema,
   signalEnvelopeSchema,
+  signalSystemNoticeEnvelopeSchema,
   spaceAgentActivitySchema,
   spaceAgentStreamDeltaFrameSchema,
   spaceAgentStreamPartFrameSchema,
@@ -22,6 +23,56 @@ const baseFrame = {
 } as const;
 
 describe("Space Agent stream frames", () => {
+  it("round-trips a stopped partial reply without breaking old notice readers", () => {
+    const signal = {
+      v: 1,
+      id: "stopped-1",
+      spaceId: "space_1",
+      ts: 1,
+      profile: { kind: "system", profileId: "openmeld-system" },
+      type: "signal.system_notice",
+      data: {
+        noticeType: "wake_stopped",
+        dispatchId: "dispatch_1",
+        actorProfileId: baseFrame.profileId,
+        text: "This request was stopped.",
+        generatedBy: "openmeld",
+      },
+      stoppedReplyText: "Partial public response",
+    };
+    expect(
+      signalEnvelopeSchema.parse(JSON.parse(JSON.stringify(signal)))
+    ).toEqual(signal);
+    const legacyReader = signalSystemNoticeEnvelopeSchema.omit({
+      stoppedReplyText: true,
+    });
+    expect(legacyReader.parse(signal)).toEqual({
+      v: signal.v,
+      id: signal.id,
+      spaceId: signal.spaceId,
+      ts: signal.ts,
+      profile: signal.profile,
+      type: signal.type,
+      data: signal.data,
+    });
+  });
+  it.each([
+    "outcome_unknown",
+    "future_outcome",
+  ])("keeps unfamiliar work outcome %s uncertain", (outcome) => {
+    const activity = spaceAgentActivitySchema.parse({
+      v: 1,
+      steps: [
+        {
+          toolName: "github_create_issue_comment",
+          state: "output-available",
+          work: { v: 1, key: "github.issue.comment", outcome },
+        },
+      ],
+      truncated: false,
+    });
+    expect(activity.steps[0]?.work?.outcome).toBe("outcome_unknown");
+  });
   it("projects explicit reply locations for current readers and keeps legacy readers compatible", () => {
     const legacy = spaceAgentStreamDeltaFrameSchema.parse({
       ...baseFrame,
@@ -78,6 +129,7 @@ describe("Space Agent stream frames", () => {
             purpose: "agent_reply_final",
             agentActivity: activity,
             agentWorkSummary: activity,
+            agentPublicProgress: "Checking the organization directory.\n\n",
           },
         },
       })
@@ -86,6 +138,7 @@ describe("Space Agent stream frames", () => {
         meta: {
           agentActivity: activity,
           agentWorkSummary: activity,
+          agentPublicProgress: "Checking the organization directory.\n\n",
         },
       },
     });

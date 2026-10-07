@@ -2,6 +2,7 @@ import type { CoreBindings } from "../lib/bindings";
 import { emitCoreCloudflareRuntimeEvidence } from "../shared/observability/cloudflare-runtime-evidence";
 
 export type RoutineWorkflowRuntimeEvent =
+  | "callback_wait_renewed"
   | "callback_forwarded"
   | "callback_forwarding_failed"
   | "instance_created"

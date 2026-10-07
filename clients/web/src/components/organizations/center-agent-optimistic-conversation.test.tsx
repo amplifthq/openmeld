@@ -44,6 +44,33 @@ describe("CenterAgentOptimisticConversation", () => {
 		).toBeTruthy();
 	});
 
+	it("uses the same attachment rail before a Center Agent Space exists", () => {
+		const view = render(
+			<CenterAgentOptimisticConversation
+				composerText=""
+				onComposerChange={vi.fn()}
+				onSend={vi.fn()}
+				pendingMessage={{
+					clientMessageId: "pending-files",
+					createdAtMs: Date.UTC(2026, 8, 26),
+					text: "",
+					files: [
+						new File(["report"], "report.pdf", { type: "application/pdf" }),
+						new File(["archive"], "sources.zip", { type: "application/zip" }),
+					],
+				}}
+			/>
+		);
+		const rail = screen.getByRole("group", { name: "Message attachments" });
+		expect(within(rail).getByRole("img", { name: "report.pdf" })).toBeTruthy();
+		expect(within(rail).getByRole("img", { name: "sources.zip" })).toBeTruthy();
+		expect(rail.closest("[data-slot='space-message-text-surface']")).toBeNull();
+		expect(
+			view.container.querySelector("[data-slot='space-message-text-surface']")
+				?.childElementCount
+		).toBe(0);
+	});
+
 	it("keeps the intro mounted above the queued message and sending status", () => {
 		const intro = <h2>What should we work on?</h2>;
 		const view = render(
@@ -83,16 +110,16 @@ describe("CenterAgentOptimisticConversation", () => {
 				screen.getByText("Prepare my weekly update.")
 			)
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-		const status = within(optimisticReply).getByRole("status", {
-			name: "Sending to Agent…",
-		});
+		const status = within(optimisticReply).getByRole("status");
 
 		expect(screen.queryByText("Sending…")).toBeNull();
 		expect(screen.getByRole("button", { name: "Sending…" })).toBeTruthy();
-		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
-		expect(status.textContent).toBe("Sending to Agent…");
+		expect(status.textContent).toContain("Center Agent · Working…");
 		expect(
-			status.querySelector('[data-space-agent-orb-state="connecting"]')
+			within(optimisticReply).getByTestId(
+				"space-center-agent-profile-avatar-center-agent"
+			)
 		).toBeTruthy();
+		expect(optimisticReply.querySelector("canvas")).toBeTruthy();
 	});
 });

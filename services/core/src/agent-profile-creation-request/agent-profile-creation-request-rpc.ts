@@ -1,5 +1,10 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
+  agentProfileCreationIntentSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentProfileCreationRequestSelectorSchema,
   centerAgentCreateConfiguredAgentProfileBodySchema,
@@ -36,6 +41,7 @@ import type {
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetCurrentAgentProfileWorkspaceResponse,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { resolveAgentActivitySessionInventoryExecutionSelection } from "../agent-activity/activity-session-inventory-repository";
 import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { projectCenterAgentLocalAgentConnectionCandidates } from "../center-agent/application/product-operations";
@@ -43,7 +49,7 @@ import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
 import { readModelCatalog } from "../config/model-catalog";
 import { forkRuntimeTransportAgentSession } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import { type CoreBindings, identityDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createPersonalRemoteAgentBinding } from "../remote-agent/application/personal-remote-agent-binding";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
@@ -58,8 +64,12 @@ import {
 import { scheduleAgentProfileCreation } from "./agent-profile-creation-execution";
 import { evaluateAgentProfileCreationModelGuard } from "./agent-profile-creation-model-guard";
 import { runAgentProfileCreationPostBindingFollowUps } from "./agent-profile-creation-post-binding-follow-ups";
-import { createD1AgentProfileCreationRequestInboxProjectionService } from "./agent-profile-creation-request-inbox-projection";
-import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
+import {
+  checkpointAgentProfileCreationPostBindingStep,
+  readAgentProfileCreationPostBindingProgress,
+} from "./agent-profile-creation-post-binding-progress";
+import { createPostgresAgentProfileCreationRequestInboxProjectionService } from "./agent-profile-creation-request-inbox-projection";
+import { createPostgresAgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
 import {
   AgentProfileCreationRequestConflictError,
   type AgentProfileCreationRequestExecutionCheckpoint,
@@ -70,43 +80,36 @@ import {
   AgentProfileCreationRequestStateError,
   createAgentProfileCreationRequestService,
 } from "./agent-profile-creation-request-service";
-
 export type CreateAgentProfileCreationRequestRpcInput =
   CreateAgentProfileCreationRequestBody & {
     context?: OpenMeldRequestContext;
     organizationId: string;
   };
-
 export type ListAgentProfileCreationRequestsRpcInput =
   AgentProfileCreationRequestSelector & {
     context?: OpenMeldRequestContext;
     organizationId: string;
   };
-
 export type DecideAgentProfileCreationRequestRpcInput =
   DecideAgentProfileCreationRequestBody & {
     context?: OpenMeldRequestContext;
     organizationId: string;
     requestId: string;
   };
-
 export type MutateAgentProfileCreationRequestRpcInput = {
   context?: OpenMeldRequestContext;
   organizationId: string;
   requestId: string;
 };
-
 export type GetAgentProfileCreationApprovalPreferenceRpcInput = {
   context?: OpenMeldRequestContext;
   organizationId: string;
 };
-
 export type SetAgentProfileCreationApprovalPreferenceRpcInput =
   SetAgentProfileCreationApprovalPreferenceBody & {
     context?: OpenMeldRequestContext;
     organizationId: string;
   };
-
 export type CenterAgentCreateAgentProfileCreationRequestRpcInput = {
   configuration?: AgentProfileCreationConfiguration;
   context?: OpenMeldRequestContext;
@@ -118,31 +121,26 @@ export type CenterAgentCreateAgentProfileCreationRequestRpcInput = {
   sessionStrategy: AgentProfileCreationSessionStrategy;
   targetOwnerUserId: string;
 };
-
 export type CenterAgentListAgentProfileCreationRequestsRpcInput = {
   context?: OpenMeldRequestContext;
   onBehalfOf: CenterAgentOnBehalfOfInput;
 };
-
 export type CenterAgentManageAgentProfileCreationRequestRpcInput = {
   action: "approve" | "decline" | "cancel" | "retry";
   context?: OpenMeldRequestContext;
   onBehalfOf: CenterAgentOnBehalfOfInput;
   requestId: string;
 };
-
 export type CenterAgentGetAgentProfileCreationApprovalPreferenceRpcInput = {
   context?: OpenMeldRequestContext;
   onBehalfOf: CenterAgentOnBehalfOfInput;
 };
-
 export type CenterAgentSetAgentProfileCreationApprovalPreferenceRpcInput = {
   context?: OpenMeldRequestContext;
   existingSessionPolicy: AgentProfileCreationApprovalPolicy;
   newSessionPolicy: AgentProfileCreationApprovalPolicy;
   onBehalfOf: CenterAgentOnBehalfOfInput;
 };
-
 export async function rpcCenterAgentCreateAgentProfileCreationRequest(
   env: CoreBindings,
   input: CenterAgentCreateAgentProfileCreationRequestRpcInput
@@ -161,27 +159,27 @@ export async function rpcCenterAgentCreateAgentProfileCreationRequest(
       organizationId: prepared.organizationId,
       targetOwnerUserId: input.targetOwnerUserId,
     });
-  return await rpcCreateAgentProfileCreationRequest(env, {
+  const body = {
     configuration,
-    context: prepared.context,
-    idempotencyKey: await buildCenterAgentCreationRequestIdempotencyKey({
-      configuration,
-      context: prepared.context,
-      nativeSessionId: input.nativeSessionId ?? null,
-      profileName: input.profileName,
-      sessionStrategy: input.sessionStrategy,
-      targetOwnerUserId: input.targetOwnerUserId,
-    }),
     nativeSessionId: input.nativeSessionId,
-    organizationId: prepared.organizationId,
     profileName: input.profileName,
     requestedSpaceId: input.requestedSpaceId,
     sessionStrategy: input.sessionStrategy,
-    source: "center_agent",
+    source: "center_agent" as const,
     targetOwnerUserId: input.targetOwnerUserId,
+  };
+  return await rpcCreateAgentProfileCreationRequest(env, {
+    ...body,
+    context: prepared.context,
+    idempotencyKey: await resolveCenterAgentCreationRequestIdempotencyKey({
+      body,
+      context: prepared.context,
+      db: requireDb(env),
+      organizationId: prepared.organizationId,
+    }),
+    organizationId: prepared.organizationId,
   });
 }
-
 async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
   configuration: AgentProfileCreationConfiguration | undefined;
   env: CoreBindings;
@@ -191,6 +189,12 @@ async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
 }): Promise<AgentProfileCreationConfiguration | undefined> {
   if (!input.localAgentConnectionCandidateId) {
     return input.configuration;
+  }
+  if (
+    input.configuration?.agentControllerRef ===
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
+    throw invalidPayload("Choose Remote or a Local Agent candidate, not both.");
   }
   const targetContext = await buildMemberHumanContext({
     env: input.env,
@@ -229,7 +233,6 @@ async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
     targetComputerId: candidate.deviceId,
   };
 }
-
 /**
  * Admission-time ACI model precheck shared by every Agent Profile creation
  * entry. Blocks only explicit negative compatibility facts; missing or
@@ -294,7 +297,6 @@ function assertRequestedModelCompatibility(input: {
     status: 409,
   });
 }
-
 export async function rpcCenterAgentListAgentProfileCreationRequests(
   env: CoreBindings,
   input: CenterAgentListAgentProfileCreationRequestsRpcInput
@@ -309,7 +311,6 @@ export async function rpcCenterAgentListAgentProfileCreationRequests(
     organizationId: prepared.organizationId,
   });
 }
-
 export async function rpcCenterAgentManageAgentProfileCreationRequest(
   env: CoreBindings,
   input: CenterAgentManageAgentProfileCreationRequestRpcInput
@@ -339,7 +340,6 @@ export async function rpcCenterAgentManageAgentProfileCreationRequest(
       throw invalidPayload("Unsupported Agent Profile request action.");
   }
 }
-
 export async function rpcCenterAgentGetAgentProfileCreationApprovalPreference(
   env: CoreBindings,
   input: CenterAgentGetAgentProfileCreationApprovalPreferenceRpcInput
@@ -354,7 +354,6 @@ export async function rpcCenterAgentGetAgentProfileCreationApprovalPreference(
     organizationId: prepared.organizationId,
   });
 }
-
 export async function rpcCenterAgentSetAgentProfileCreationApprovalPreference(
   env: CoreBindings,
   input: CenterAgentSetAgentProfileCreationApprovalPreferenceRpcInput
@@ -371,7 +370,6 @@ export async function rpcCenterAgentSetAgentProfileCreationApprovalPreference(
     organizationId: prepared.organizationId,
   });
 }
-
 export async function rpcCreateAgentProfileCreationRequest(
   env: CoreBindings,
   input: CreateAgentProfileCreationRequestRpcInput
@@ -422,7 +420,6 @@ export async function rpcCreateAgentProfileCreationRequest(
     throw translateDomainError(error);
   }
 }
-
 export async function rpcListAgentProfileCreationRequests(
   env: CoreBindings,
   input: ListAgentProfileCreationRequestsRpcInput
@@ -453,7 +450,6 @@ export async function rpcListAgentProfileCreationRequests(
     requests,
   });
 }
-
 export async function rpcDecideAgentProfileCreationRequest(
   env: CoreBindings,
   input: DecideAgentProfileCreationRequestRpcInput
@@ -485,7 +481,6 @@ export async function rpcDecideAgentProfileCreationRequest(
     throw translateDomainError(error);
   }
 }
-
 export async function rpcCancelAgentProfileCreationRequest(
   env: CoreBindings,
   input: MutateAgentProfileCreationRequestRpcInput
@@ -514,7 +509,6 @@ export async function rpcCancelAgentProfileCreationRequest(
     throw translateDomainError(error);
   }
 }
-
 export async function rpcRetryAgentProfileCreationRequest(
   env: CoreBindings,
   input: MutateAgentProfileCreationRequestRpcInput
@@ -539,7 +533,6 @@ export async function rpcRetryAgentProfileCreationRequest(
     throw translateDomainError(error);
   }
 }
-
 export async function rpcGetAgentProfileCreationApprovalPreference(
   env: CoreBindings,
   input: GetAgentProfileCreationApprovalPreferenceRpcInput
@@ -560,7 +553,6 @@ export async function rpcGetAgentProfileCreationApprovalPreference(
     preference
   );
 }
-
 export async function rpcSetAgentProfileCreationApprovalPreference(
   env: CoreBindings,
   input: SetAgentProfileCreationApprovalPreferenceRpcInput
@@ -589,10 +581,9 @@ export async function rpcSetAgentProfileCreationApprovalPreference(
     preference
   );
 }
-
-function createService(env: CoreBindings, db: D1Database) {
+function createService(env: CoreBindings, db: PostgresDatabase) {
   const inboxProjection =
-    createD1AgentProfileCreationRequestInboxProjectionService({ db });
+    createPostgresAgentProfileCreationRequestInboxProjectionService({ db });
   return createAgentProfileCreationRequestService({
     validateNewRequest: async ({ body, organizationId }) => {
       if (body.sessionStrategy !== "new") {
@@ -611,22 +602,26 @@ function createService(env: CoreBindings, db: D1Database) {
     attemptInboxProjection: inboxProjection.attemptForRequest,
     createAgentProfile: async (request, checkpoint) =>
       await createRequestedAgentProfile(env, request, checkpoint),
-    repository: createD1AgentProfileCreationRequestRepository(db),
+    repository: createPostgresAgentProfileCreationRequestRepository(db),
   });
 }
-
 export async function executeAgentProfileCreationRequest(
   env: CoreBindings,
-  selector: { organizationId: string; id: string }
+  selector: {
+    organizationId: string;
+    id: string;
+  }
 ) {
   return await createService(env, requireDb(env)).execute(selector);
 }
-
 async function prepareCenterAgentRepresentedMemberRequest(input: {
   context: OpenMeldRequestContext | undefined;
   env: CoreBindings;
   onBehalfOf: CenterAgentOnBehalfOfInput;
-}): Promise<{ context: OpenMeldRequestContext; organizationId: string }> {
+}): Promise<{
+  context: OpenMeldRequestContext;
+  organizationId: string;
+}> {
   const authorization = await requireCurrentDesignatedCenterAgentCaller({
     context: requireContext(input.context),
     env: input.env,
@@ -659,22 +654,62 @@ async function prepareCenterAgentRepresentedMemberRequest(input: {
     organizationId: authorization.activeOrganization.organizationId,
   };
 }
-
-async function buildCenterAgentCreationRequestIdempotencyKey(input: {
-  configuration?: AgentProfileCreationConfiguration;
+async function resolveCenterAgentCreationRequestIdempotencyKey(input: {
+  body: Omit<CreateAgentProfileCreationRequestBody, "idempotencyKey">;
   context: OpenMeldRequestContext;
-  nativeSessionId: string | null;
-  profileName: string;
-  sessionStrategy: AgentProfileCreationSessionStrategy;
-  targetOwnerUserId: string;
+  db: PostgresDatabase;
+  organizationId: string;
+}): Promise<string> {
+  // The intent owner drops transport fields, including this placeholder key.
+  // Hash exactly what replay equality compares, including the target Space.
+  const intent = agentProfileCreationIntentSchema.safeParse({
+    ...input.body,
+    idempotencyKey: "center-agent",
+  });
+  if (!intent.success) {
+    throw invalidPayload(intent.error.issues[0]?.message);
+  }
+  const requestId = input.context.actorContext.requestId;
+  const fingerprint = await digestCanonicalJson({
+    requestId,
+    intent: intent.data,
+  });
+  const legacyKey =
+    await buildLegacyCenterAgentCreationRequestIdempotencyKey(input);
+  const legacy = await createPostgresAgentProfileCreationRequestRepository(
+    input.db
+  ).findByIdempotencyKey({
+    idempotencyKey: legacyKey,
+    organizationId: input.organizationId,
+    requesterUserId: requireCallerUserId(input.context),
+  });
+  // The old key omitted Space. Reuse only an exact, actor-bound intent; the
+  // normal service still authorizes and replays the existing durable request.
+  if (
+    legacy &&
+    legacy.actorProfileId === input.context.actorContext.openMeldProfileId &&
+    (await digestCanonicalJson({
+      requestId,
+      intent: agentProfileCreationIntentSchema.parse(legacy),
+    })) === fingerprint
+  ) {
+    return legacyKey;
+  }
+  return `center-agent:agent-profile-request:${fingerprint}`;
+}
+// Lookup-only compatibility for persisted pre-canonical requests. Keep the
+// original field order and omitted-value behavior; never create with this key.
+async function buildLegacyCenterAgentCreationRequestIdempotencyKey(input: {
+  body: Omit<CreateAgentProfileCreationRequestBody, "idempotencyKey">;
+  context: OpenMeldRequestContext;
 }): Promise<string> {
   const payload = JSON.stringify({
-    configuration: input.configuration,
-    nativeSessionId: input.nativeSessionId,
-    profileName: input.profileName,
+    configuration: input.body.configuration,
+    nativeSessionId: input.body.nativeSessionId ?? null,
+    profileName: input.body.profileName,
     requestId: input.context.actorContext.requestId,
-    sessionStrategy: input.sessionStrategy,
-    targetOwnerUserId: input.targetOwnerUserId,
+    sessionStrategy: input.body.sessionStrategy,
+    targetOwnerUserId: input.body.targetOwnerUserId,
   });
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -685,7 +720,6 @@ async function buildCenterAgentCreationRequestIdempotencyKey(input: {
   ).join("");
   return `center-agent:agent-profile-request:${fingerprint}`;
 }
-
 async function createRequestedAgentProfile(
   env: CoreBindings,
   request: AgentProfileCreationRequestRecord,
@@ -729,7 +763,6 @@ async function createRequestedAgentProfile(
   }
   return agentProfileId;
 }
-
 async function createRequestedAgentProfileIdentity(
   env: CoreBindings,
   request: AgentProfileCreationRequestRecord
@@ -755,7 +788,6 @@ async function createRequestedAgentProfileIdentity(
   }
   return result.profile.openMeldProfileId;
 }
-
 async function completeRequestedAgentProfileSetup(input: {
   agentProfileId: string;
   env: CoreBindings;
@@ -770,7 +802,6 @@ async function completeRequestedAgentProfileSetup(input: {
       spaceId: input.request.requestedSpaceId,
     });
   }
-
   const agentControllerRef = input.request.configuration.agentControllerRef;
   if (agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
     await createPersonalRemoteAgentBinding({
@@ -778,6 +809,7 @@ async function completeRequestedAgentProfileSetup(input: {
       createdByProfileId: input.request.actorProfileId,
       db: requireDb(input.env),
       modelId: input.request.configuration.modelId,
+      reasoningLevel: input.request.configuration.reasoningLevel,
       organizationId: input.request.organizationId,
       ownerUserId: input.request.targetOwnerUserId,
     });
@@ -818,7 +850,6 @@ async function completeRequestedAgentProfileSetup(input: {
     });
   }
 }
-
 async function addRequestedAgentProfileToSpace(input: {
   agentProfileId: string;
   env: CoreBindings;
@@ -837,7 +868,6 @@ async function addRequestedAgentProfileToSpace(input: {
     spaceId: input.spaceId,
   });
 }
-
 async function connectRequestedAgentProfile(input: {
   agentProfileId: string;
   env: CoreBindings;
@@ -902,7 +932,22 @@ async function connectRequestedAgentProfile(input: {
       `OpenMeld couldn't connect the selected local agent: ${binding.reasonCodes.join(", ") || "unknown reason"}.`
     );
   }
+  const progress = await readAgentProfileCreationPostBindingProgress({
+    agentProfileId: input.agentProfileId,
+    db: requireDb(input.env),
+    profileCreationAttempt: input.request.profileCreationAttempt,
+    requestId: input.request.id,
+  });
   await runAgentProfileCreationPostBindingFollowUps({
+    checkpoint: async (step) =>
+      await checkpointAgentProfileCreationPostBindingStep({
+        agentProfileId: input.agentProfileId,
+        db: requireDb(input.env),
+        profileCreationAttempt: input.request.profileCreationAttempt,
+        requestId: input.request.id,
+        step,
+      }),
+    completed: progress,
     setWorkspace: async () =>
       await rpcSetCurrentAgentProfileWorkspace(input.env, {
         agentProfileId: input.agentProfileId,
@@ -922,7 +967,6 @@ async function connectRequestedAgentProfile(input: {
       : {}),
   });
 }
-
 async function prepareRequestedLocalAgentConnection(input: {
   env: CoreBindings;
   request: AgentProfileCreationRequestRecord;
@@ -989,7 +1033,6 @@ async function prepareRequestedLocalAgentConnection(input: {
   });
   return { candidate, sessionExecutionSelection, targetContext };
 }
-
 async function forkRequestedAgentSession(input: {
   candidate: ReturnType<
     typeof projectCenterAgentLocalAgentConnectionCandidates
@@ -1021,10 +1064,9 @@ async function forkRequestedAgentSession(input: {
   }
   return result.childNativeSessionId;
 }
-
 async function requireRequestedSessionSelection(input: {
   configuration: AgentProfileCreationConfiguration | undefined;
-  db: D1Database;
+  db: PostgresDatabase;
   nativeSessionId: string | null | undefined;
   organizationId: string;
   ownerUserId: string;
@@ -1064,7 +1106,6 @@ async function requireRequestedSessionSelection(input: {
   }
   return selection;
 }
-
 async function buildMemberHumanContext(input: {
   env: CoreBindings;
   organizationId: string;
@@ -1073,23 +1114,23 @@ async function buildMemberHumanContext(input: {
 }): Promise<OpenMeldRequestContext> {
   const db = requireDb(input.env);
   const human = await db
-    .prepare(
-      `
+    .query<{
+      profile_handle: string;
+      profile_id: string;
+      profile_name: string;
+    }>({
+      text: `
         SELECT profile_handle, profile_id, profile_name
-        FROM openmeld_profiles
-        WHERE owner_user_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE owner_user_id = $1
           AND profile_kind = 'human'
           AND is_default = 1
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(input.userId)
-    .first<{
-      profile_handle: string;
-      profile_id: string;
-      profile_name: string;
-    }>();
+      `,
+      values: [input.userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!human) {
     throw new Error("The Agent owner needs an active Human Profile.");
   }
@@ -1106,7 +1147,6 @@ async function buildMemberHumanContext(input: {
     },
   });
 }
-
 function mapProfileSource(
   source: CreateAgentProfileCreationRequestBody["source"]
 ): "web_create" | "cli_create" | "local_agent_create" | "center_agent_create" {
@@ -1123,7 +1163,6 @@ function mapProfileSource(
       throw new Error(`Unsupported Agent Profile creation source: ${source}`);
   }
 }
-
 function requireContext(value: unknown): OpenMeldRequestContext {
   const parsed = openMeldRequestContextSchema.safeParse(value);
   if (!parsed.success) {
@@ -1136,14 +1175,12 @@ function requireContext(value: unknown): OpenMeldRequestContext {
   }
   return parsed.data;
 }
-
 function requireCallerUserId(context: OpenMeldRequestContext): string {
   return requireIdentifier(
     context.actorContext.callerPrincipalId,
     "Authenticated caller"
   );
 }
-
 function requireIdentifier(value: unknown, label: string): string {
   const normalized = String(value ?? "").trim();
   if (!normalized) {
@@ -1151,9 +1188,8 @@ function requireIdentifier(value: unknown, label: string): string {
   }
   return normalized;
 }
-
-function requireDb(env: CoreBindings): D1Database {
-  const db = identityDb(env);
+function requireDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "agent_profile_creation_request.unavailable",
@@ -1163,24 +1199,25 @@ function requireDb(env: CoreBindings): D1Database {
   }
   return db;
 }
-
 async function requireOrganizationMember(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   userId: string;
 }): Promise<void> {
   const member = await input.db
-    .prepare(
-      `
+    .query<{
+      id: string;
+    }>({
+      text: `
         SELECT id
-        FROM members
-        WHERE organization_id = ?
-          AND user_id = ?
+        FROM "openmeld"."members"
+        WHERE organization_id = $1
+          AND user_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.userId)
-    .first<{ id: string }>();
+      `,
+      values: [input.organizationId, input.userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!member?.id) {
     throw createCoreRpcHttpError({
       code: "organization.membership_required",
@@ -1189,7 +1226,6 @@ async function requireOrganizationMember(input: {
     });
   }
 }
-
 function invalidPayload(reason?: string) {
   return createCoreRpcHttpError({
     code: "invalid_payload",
@@ -1197,7 +1233,6 @@ function invalidPayload(reason?: string) {
     status: 400,
   });
 }
-
 function translateDomainError(error: unknown) {
   if (error instanceof AgentProfileCreationRequestConflictError) {
     return createCoreRpcHttpError({
@@ -1229,7 +1264,6 @@ function translateDomainError(error: unknown) {
   }
   return error;
 }
-
 /**
  * Compatibility shim for the pre-Creation-Request "create configured Agent
  * Profile" Center Agent RPC. It exists so Workers deployed before the unified
@@ -1282,7 +1316,6 @@ export async function rpcCenterAgentCreateConfiguredAgentProfile(
     request: response.request,
   });
 }
-
 function parseConfiguredShimBody(
   input: CenterAgentCreateConfiguredAgentProfileInput
 ) {
@@ -1298,7 +1331,6 @@ function parseConfiguredShimBody(
   }
   return parsedBody.data;
 }
-
 async function prepareConfiguredShimActor(input: {
   body: ReturnType<typeof parseConfiguredShimBody>;
   env: CoreBindings;
@@ -1346,7 +1378,6 @@ async function prepareConfiguredShimActor(input: {
     representedUserId,
   };
 }
-
 async function projectConfiguredShimResponse(input: {
   authorizationContext: OpenMeldRequestContext;
   body: ReturnType<typeof parseConfiguredShimBody>;
@@ -1402,7 +1433,6 @@ async function projectConfiguredShimResponse(input: {
       : {}),
   });
 }
-
 function resolveConfiguredShimCreationStepStatus(input: {
   completed: boolean;
   request: CreateAgentProfileCreationRequestResponse["request"];
@@ -1412,7 +1442,6 @@ function resolveConfiguredShimCreationStepStatus(input: {
   }
   return input.request.status === "failed" ? "failed" : "skipped";
 }
-
 async function applyConfiguredShimWorkspace(input: {
   body: ReturnType<typeof parseConfiguredShimBody>;
   completed: boolean;
@@ -1457,7 +1486,6 @@ async function applyConfiguredShimWorkspace(input: {
     };
   }
 }
-
 async function readConfiguredShimReadiness(input: {
   authorizationContext: OpenMeldRequestContext;
   completed: boolean;
@@ -1508,7 +1536,6 @@ async function readConfiguredShimReadiness(input: {
     };
   }
 }
-
 const CONFIGURED_PROFILE_STATUS_STEP_COPY: Partial<
   Record<AgentProfileCreationRequestStatusReason, string>
 > = {
@@ -1519,7 +1546,6 @@ const CONFIGURED_PROFILE_STATUS_STEP_COPY: Partial<
   target_policy_denied:
     "The represented member's approval policy denied this request.",
 };
-
 function resolveUnifiedCreationRequestConfiguration(
   input: CenterAgentCreateConfiguredAgentProfileInput
 ): AgentProfileCreationConfiguration {
@@ -1541,7 +1567,6 @@ function resolveUnifiedCreationRequestConfiguration(
     reasoningLevel: input.reasoningLevel ?? selection?.reasoningLevel ?? null,
   };
 }
-
 async function buildConfiguredShimIdempotencyKey(input: {
   configuration: AgentProfileCreationConfiguration | undefined;
   organizationId: string;

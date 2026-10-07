@@ -5,8 +5,9 @@
 // a readiness invalidation for every profile the session carries on each of
 // those re-registrations is what turned one binding write into an
 // account-wide broadcast storm. On a same-socket re-register the readiness
-// verdict can only change for profiles whose registration facts changed, so
-// the invalidation narrows to the component-level diff below. A new socket
+// verdict changes for profiles whose registration facts changed, or every
+// carried profile when session admission closes/reopens. The invalidation
+// narrows to that diff below. A new socket
 // (connect/reconnect/replace) keeps the full fan-out: every carried profile
 // genuinely flipped between offline and online.
 //
@@ -15,6 +16,7 @@
 // unchanged, and the periodic route reconciliation remains the backstop.
 
 export type SessionReadinessComponentSnapshot = {
+  acceptingDispatches: boolean;
   leaseProfileIds: readonly string[];
   reportIncludedProfileIds: readonly string[];
   reportSkippedKeys: readonly string[];
@@ -22,6 +24,7 @@ export type SessionReadinessComponentSnapshot = {
 };
 
 type SessionReadinessComponentsSource = {
+  acceptingDispatches?: boolean;
   localWakeRouteReport: {
     includedProfileIds: readonly string[];
     skippedProfiles: readonly {
@@ -43,6 +46,7 @@ export function snapshotSessionReadinessComponents(
 ): SessionReadinessComponentSnapshot {
   if (!session) {
     return {
+      acceptingDispatches: false,
       leaseProfileIds: [],
       reportIncludedProfileIds: [],
       reportSkippedKeys: [],
@@ -50,6 +54,7 @@ export function snapshotSessionReadinessComponents(
     };
   }
   return {
+    acceptingDispatches: session.acceptingDispatches !== false,
     leaseProfileIds: [...session.profileIds],
     reportIncludedProfileIds: [
       ...(session.localWakeRouteReport?.includedProfileIds ?? []),
@@ -74,6 +79,9 @@ export function diffSessionReadinessComponents(
   after: SessionReadinessComponentSnapshot
 ): string[] {
   const changedProfileIds = new Set<string>([
+    ...(before.acceptingDispatches === after.acceptingDispatches
+      ? []
+      : [...before.leaseProfileIds, ...after.leaseProfileIds]),
     ...symmetricDifference(before.leaseProfileIds, after.leaseProfileIds),
     ...symmetricDifference(
       before.reportIncludedProfileIds,

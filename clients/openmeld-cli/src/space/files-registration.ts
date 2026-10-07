@@ -18,6 +18,8 @@ import {
   runSpaceFilesUpload,
   runSpaceFilesWrite,
 } from "./files-command";
+import { runSpaceWorkHandoff } from "./work-handoff-command";
+import { runSpaceWorkingCopy } from "./working-copy-command";
 
 export function registerSpaceFilesCommands(spaceCommand: Command): void {
   const filesCommand = spaceCommand
@@ -27,11 +29,145 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
   withSpaceProfileOption(
     withCommonOptions(
       filesCommand
+        .command("handoff")
+        .argument("<space>", "Space ID")
+        .requiredOption(
+          "--manifest <path>",
+          "Selected file and Skill revisions, progress, and next steps"
+        )
+        .requiredOption("--target <profile-id>", "Agent Profile to Wake")
+        .requiredOption(
+          "--client-message-id <id>",
+          "Stable identity; reuse for an unchanged retry"
+        )
+        .option("--thread <id>", "Continue in the originating thread")
+    )
+  ).action(async (space, opts, command: Command) => {
+    await runFilesCommand(command, opts, "handoff", async (common) => {
+      await runSpaceWorkHandoff({
+        ...common,
+        space: String(space),
+        manifest: opts.manifest,
+        target: opts.target,
+        clientMessageId: opts.clientMessageId,
+        thread: opts.thread,
+      });
+    });
+  });
+
+  const workingCopy = filesCommand
+    .command("working-copy")
+    .description("Prepare and submit selected local working files.");
+  withSpaceProfileOption(
+    withCommonOptions(
+      workingCopy
+        .command("prepare")
+        .argument("<space>", "Space ID")
+        .requiredOption(
+          "--selection <path>",
+          "JSON file containing exact file revisions and relative paths"
+        )
+        .requiredOption("--directory <path>", "New empty working directory")
+    )
+  ).action(async (space, opts, command: Command) => {
+    await runFilesCommand(command, opts, "working-copy", async (common) => {
+      await runSpaceWorkingCopy({
+        ...common,
+        action: "prepare",
+        space: String(space),
+        selection: opts.selection,
+        directory: opts.directory,
+      });
+    });
+  });
+  for (const action of [
+    "resume",
+    "status",
+    "commit",
+    "reconcile",
+    "refresh",
+  ] as const) {
+    withSpaceProfileOption(
+      withCommonOptions(
+        workingCopy
+          .command(action)
+          .argument("<space>", "Space ID")
+          .argument("<copy-id>", "Working copy ID returned by prepare")
+      )
+    ).action(async (space, copyId, opts, command: Command) => {
+      await runFilesCommand(command, opts, "working-copy", async (common) => {
+        await runSpaceWorkingCopy({
+          ...common,
+          action,
+          space: String(space),
+          copyId: String(copyId),
+        });
+      });
+    });
+  }
+  withSpaceProfileOption(
+    withCommonOptions(
+      workingCopy
+        .command("resolve")
+        .argument("<space>", "Space ID")
+        .argument("<copy-id>", "Working copy ID")
+        .requiredOption(
+          "--file-id <id>",
+          "Conflicted file to resolve after merging"
+        )
+        .requiredOption(
+          "--revision <number>",
+          "Incoming revision used for the merge"
+        )
+    )
+  ).action(async (space, copyId, opts, command: Command) => {
+    await runFilesCommand(command, opts, "working-copy", async (common) => {
+      await runSpaceWorkingCopy({
+        ...common,
+        action: "resolve",
+        space: String(space),
+        copyId: String(copyId),
+        fileId: opts.fileId,
+        revision: Number(opts.revision),
+      });
+    });
+  });
+  withSpaceProfileOption(
+    withCommonOptions(
+      workingCopy
+        .command("incoming")
+        .argument("<space>", "Space ID")
+        .argument("<copy-id>", "Original working copy to preserve")
+        .requiredOption(
+          "--directory <path>",
+          "New directory for current shared versions"
+        )
+    )
+  ).action(async (space, copyId, opts, command: Command) => {
+    await runFilesCommand(command, opts, "working-copy", async (common) => {
+      await runSpaceWorkingCopy({
+        ...common,
+        space: String(space),
+        copyId: String(copyId),
+        action: "incoming",
+        directory: opts.directory,
+      });
+    });
+  });
+
+  withSpaceProfileOption(
+    withCommonOptions(
+      filesCommand
         .command("list")
         .description("List files and folders in a Space.")
         .argument("<space>", "Space ID (64-character hex)")
         .option("--folder <folder-id>", "Folder ID, or root", "root")
         .option("--trash", "List items in Trash", false)
+        .option(
+          "--all",
+          "Also include files shared as chat uploads, not just artifacts",
+          false
+        )
     )
   ).action(async (space, opts, command: Command) => {
     await runFilesCommand(command, opts, "list", async (common) => {
@@ -40,6 +176,7 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         space: String(space).trim(),
         folder: opts.folder,
         trash: opts.trash === true,
+        all: opts.all === true,
       });
     });
   });

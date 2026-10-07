@@ -1,26 +1,18 @@
+import {
+	createMemoryHistory,
+	createRootRoute,
+	createRoute,
+	createRouter,
+	Outlet,
+	RouterProvider,
+} from "@tanstack/react-router";
 import { cleanup, render, screen } from "@testing-library/react";
-import type { AnchorHTMLAttributes, ReactNode } from "react";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { OrganizationSkillDetailPage } from "./organization-skill-detail-page";
 
 const getCurrentOrganizationSkillMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@tanstack/react-router", () => ({
-	Link: ({
-		children,
-		to,
-		...props
-	}: {
-		children: ReactNode;
-		to: string;
-	} & AnchorHTMLAttributes<HTMLAnchorElement>) => (
-		<a href={to} {...props}>
-			{children}
-		</a>
-	),
-	useNavigate: () => vi.fn(),
-}));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
@@ -35,10 +27,6 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 vi.mock("#/lib/organizations/organization-skills", async (importOriginal) => ({
 	...(await importOriginal()),
 	getCurrentOrganizationSkill: getCurrentOrganizationSkillMock,
-}));
-
-vi.mock("#/components/forms/unsaved-changes-guard", () => ({
-	UnsavedChangesGuard: () => null,
 }));
 
 describe("OrganizationSkillDetailPage", () => {
@@ -90,21 +78,51 @@ describe("OrganizationSkillDetailPage", () => {
 
 	afterEach(cleanup);
 
-	it("wraps long names and keeps Save in normal flow on compact screens", async () => {
+	it("opens directly into one document with a persistent action bar rather than a metadata form", async () => {
+		const root = createRootRoute({
+			component: () => (
+				<NuqsAdapter>
+					<Outlet />
+				</NuqsAdapter>
+			),
+		});
+		const detail = createRoute({
+			getParentRoute: () => root,
+			path: "/o/$orgSlug/skills/$skillId",
+			component: () => <OrganizationSkillDetailPage skillId="skill-1" />,
+		});
+		const router = createRouter({
+			history: createMemoryHistory({
+				initialEntries: ["/o/acme/skills/skill-1"],
+			}),
+			routeTree: root.addChildren([detail]),
+		});
 		render(
 			<TestQueryClientProvider>
-				<OrganizationSkillDetailPage skillId="skill-1" />
+				<RouterProvider router={router} />
 			</TestQueryClientProvider>
 		);
 
 		const heading = await screen.findByRole("heading", {
 			name: "responsive-product-audit-across-every-supported-screen-size",
 		});
-		expect(heading.className).toContain("max-lg:break-words");
-		expect(heading.className).toContain("lg:truncate");
+		expect(heading.contains(screen.getByLabelText("Name"))).toBe(true);
+		expect(screen.getAllByLabelText("Description")).toHaveLength(1);
+		expect(
+			screen
+				.getByLabelText("Instructions", { selector: "[data-slate-editor]" })
+				.getAttribute("contenteditable")
+		).toBe("true");
+		expect(screen.queryByLabelText("License")).toBeNull();
+		expect(screen.queryByText("Metadata")).toBeNull();
+		expect(screen.getByRole("tab", { name: "Files (0)" })).toBeDefined();
 		const save = screen.getByRole("button", { name: "Save" });
-		expect(save.parentElement?.className).toContain("lg:sticky");
-		expect(save.parentElement?.className).toContain("lg:bottom-4");
-		expect(save.parentElement?.classList.contains("sticky")).toBe(false);
+		const actions = save.closest('[data-slot="skill-document-actions"]');
+		expect(
+			actions?.contains(screen.getByRole("link", { name: "All Skills" }))
+		).toBe(true);
+		expect(
+			actions?.contains(screen.getByRole("button", { name: "More actions" }))
+		).toBe(true);
 	});
 });

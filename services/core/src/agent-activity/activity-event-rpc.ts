@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   submitAgentActivityEventsResponseSchema,
   submitAgentActivityEventsRpcInputSchema,
@@ -6,7 +7,7 @@ import type {
   SubmitAgentActivityEventsResponse,
   SubmitAgentActivityEventsRpcInput,
 } from "@openmeld/schemas/types";
-import { agentActivityDb, type CoreBindings } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveOrganizationMembershipById } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { verifyRuntimeReportingAuthority } from "../runtime-reporting/runtime-reporting-authority";
@@ -36,7 +37,7 @@ export async function rpcSubmitAgentActivityEvents(
       status: 401,
     });
   }
-  const db = agentActivityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "agent_activity.store_unavailable",

@@ -74,6 +74,12 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	const [shareView, setShareView] = useState<"link" | "invite">(
 		input.initialShareView === "invite" ? "invite" : "link"
 	);
+	const [inviteVisited, setInviteVisited] = useState(shareView === "invite");
+	useEffect(() => {
+		if (shareView === "invite") {
+			setInviteVisited(true);
+		}
+	}, [shareView]);
 	const [inviteSubmitTarget, setInviteSubmitTarget] =
 		useState<HTMLDivElement | null>(null);
 	const controller = input.draftController;
@@ -270,7 +276,6 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					contentClassName="space-y-4 pr-1"
 					data-testid="space-share-dialog-scroll-area"
 					orientation="vertical"
-					scrollFade={false}
 				>
 					<TabPanel value="link">
 						{renderEditor("reading")}
@@ -310,12 +315,23 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 							</div>
 						) : null}
 					</TabPanel>
-					<TabPanel value="invite">
+					<TabPanel
+						keepMounted={inviteVisited || shareView === "invite"}
+						value="invite"
+					>
 						<InviteView
 							canInviteGuests={input.canManageAccess}
+							key={JSON.stringify([
+								scope?.currentUserId,
+								organization?.id,
+								input.spaceId,
+								input.openMeldProfileId,
+							])}
 							openMeldProfileId={input.openMeldProfileId}
 							spaceId={input.spaceId}
-							submitButtonTarget={inviteSubmitTarget}
+							submitButtonTarget={
+								shareView === "invite" ? inviteSubmitTarget : null
+							}
 						/>
 					</TabPanel>
 				</ScrollArea>
@@ -520,60 +536,86 @@ function SpaceAccessInvitations(input: {
 	openMeldProfileId?: string;
 	submitButtonTarget?: HTMLElement | null;
 }) {
-	const [audience, setAudience] = useState<"organization" | "guest">(
-		input.canInviteGuests ? "guest" : "organization"
-	);
 	const scope = useOptionalAppOrganization();
 	const members = useQuery(
 		spaceMembersQueryOptions({
 			spaceId: input.spaceId,
+			openMeldProfileId: input.openMeldProfileId,
 			enabled: Boolean(
 				scope?.currentOrganization && !scope.currentOrganization.isPersonal
 			),
 		})
 	);
-	const canInvite = [
-		...(members.data?.humans ?? []),
-		...(members.data?.agents ?? []),
-	].some(
-		(person) =>
-			person.status === "active" && person.ownerUserId === scope?.currentUserId
-	);
-	if (scope?.currentOrganization.isPersonal || !canInvite) {
+	if (!scope?.currentOrganization || scope.currentOrganization.isPersonal) {
 		return null;
 	}
-	if (members.isError) {
-		return (
-			<div className="flex items-center justify-between gap-2 text-xs">
-				<span>Unable to load invitation options.</span>
-				<Button onClick={() => members.refetch()} size="sm" variant="secondary">
-					Try again
-				</Button>
-			</div>
-		);
+	const readError = members.isError ? (
+		<div className="flex items-center justify-between gap-2 text-xs">
+			<span role="alert">Unable to load invitation options.</span>
+			<Button onClick={() => members.refetch()} size="sm" variant="secondary">
+				Try again
+			</Button>
+		</div>
+	) : null;
+	if (!members.data && readError) {
+		return readError;
 	}
-	if (members.isPending) {
+	if (!members.data) {
 		return (
 			<p className="text-muted-foreground text-xs">
 				Loading invitation options…
 			</p>
 		);
 	}
+	const canInvite = [...members.data.humans, ...members.data.agents].some(
+		(person) =>
+			person.status === "active" && person.ownerUserId === scope.currentUserId
+	);
+	if (!canInvite) {
+		return (
+			<p className="text-muted-foreground text-xs">
+				Only active Space members can send invitations.
+			</p>
+		);
+	}
+	return (
+		<>
+			{readError}
+			<SpaceAccessInvitationComposer {...input} disabled={members.isError} />
+		</>
+	);
+}
+
+function SpaceAccessInvitationComposer(input: {
+	spaceId: string;
+	canInviteGuests: boolean;
+	openMeldProfileId?: string;
+	submitButtonTarget?: HTMLElement | null;
+	disabled: boolean;
+}) {
+	const [audience, setAudience] = useState<"organization" | "guest">(
+		input.canInviteGuests ? "guest" : "organization"
+	);
+	const [visitedAudiences, setVisitedAudiences] = useState([audience]);
+	const activeAudience = input.canInviteGuests ? audience : "organization";
 	return (
 		<section className="grid gap-3">
 			<Select
 				onValueChange={(value) => {
 					if (value === "organization" || value === "guest") {
 						setAudience(value);
+						setVisitedAudiences((visited) =>
+							visited.includes(value) ? visited : [...visited, value]
+						);
 					}
 				}}
-				value={audience}
+				value={activeAudience}
 			>
 				<SelectTrigger
 					aria-label="Invite as"
 					className="w-full"
 					displayValue={
-						audience === "guest"
+						activeAudience === "guest"
 							? "Guest — this Space only"
 							: "Teammate — organization and this Space"
 					}
@@ -589,19 +631,33 @@ function SpaceAccessInvitations(input: {
 					</SelectItem>
 				</SelectContent>
 			</Select>
-			{audience === "guest" && input.canInviteGuests ? (
-				<SpaceGuestAccessSection
-					openMeldProfileId={input.openMeldProfileId}
-					spaceId={input.spaceId}
-					submitButtonTarget={input.submitButtonTarget}
-				/>
-			) : (
-				<SpaceInvitationForm
-					actionVariant="secondary"
-					spaceId={input.spaceId}
-					submitButtonTarget={input.submitButtonTarget}
-				/>
-			)}
+			{input.canInviteGuests && visitedAudiences.includes("guest") ? (
+				<div hidden={activeAudience !== "guest"}>
+					<SpaceGuestAccessSection
+						disabled={input.disabled || activeAudience !== "guest"}
+						openMeldProfileId={input.openMeldProfileId}
+						spaceId={input.spaceId}
+						submitButtonTarget={
+							activeAudience === "guest" ? input.submitButtonTarget : null
+						}
+					/>
+				</div>
+			) : null}
+			{visitedAudiences.includes("organization") ||
+			activeAudience === "organization" ? (
+				<div hidden={activeAudience !== "organization"}>
+					<SpaceInvitationForm
+						actionVariant="secondary"
+						disabled={input.disabled || activeAudience !== "organization"}
+						spaceId={input.spaceId}
+						submitButtonTarget={
+							activeAudience === "organization"
+								? input.submitButtonTarget
+								: null
+						}
+					/>
+				</div>
+			) : null}
 		</section>
 	);
 }

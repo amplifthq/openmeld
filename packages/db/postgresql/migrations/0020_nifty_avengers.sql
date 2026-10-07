@@ -1,0 +1,2 @@
+ALTER TABLE "openmeld"."connector_connections" DROP CONSTRAINT "connector_connections_service_check";--> statement-breakpoint
+ALTER TABLE "openmeld"."connector_connections" ADD CONSTRAINT "connector_connections_service_check" CHECK ("service" ~ '^[a-z][a-z0-9_-]{0,99}$');

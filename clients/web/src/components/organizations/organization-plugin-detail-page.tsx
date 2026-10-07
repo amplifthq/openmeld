@@ -1,14 +1,12 @@
+import type { PluginDefinition } from "@openmeld/product-catalog/plugins";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
-import { AppLogo } from "./app-logo";
-import { CenterAgentGitHubConnectionCard } from "./center-agent-github-connection-card";
-import { PluginAgentAccess } from "./plugin-agent-access";
-import type { PluginDefinition } from "./plugin-catalog";
-import { PluginConnectionCard } from "./plugin-connection-card";
+import { PluginConnectionSurface } from "./plugin-connection-surface";
 import { PluginScopeTabs, usePluginScope } from "./plugin-scope-tabs";
 import { PluginStatusBadge } from "./plugins-catalog-panel";
 
@@ -82,8 +80,8 @@ export function OrganizationPluginDetailPage(input: {
 						</h2>
 						<p className="mt-1 max-w-2xl text-muted-foreground text-xs leading-5">
 							{scope === "member"
-								? "Connect your account for your own requests."
-								: `Shared with everyone in ${input.organizationName}.`}
+								? "Connect your account, then choose which Agents may use it."
+								: "Connect an organization account, then choose Agent access below."}
 						</p>
 						{scope === "shared" && !input.canManageSharedPlugins ? (
 							<p className="mt-1 text-muted-foreground text-xs">
@@ -91,38 +89,21 @@ export function OrganizationPluginDetailPage(input: {
 							</p>
 						) : null}
 					</div>
-					{input.plugin.service === "github" ? (
-						<CenterAgentGitHubConnectionCard
-							canManage={input.canManageSharedPlugins}
-							isPersonalWorkspace={input.isPersonalWorkspace}
-							key={`${input.organizationId}:github`}
-							mode={scope}
-							organizationId={input.organizationId}
-							organizationName={input.organizationName}
-						/>
-					) : (
-						<PluginConnectionCard
-							canManage={input.canManageSharedPlugins}
-							isPersonalWorkspace={input.isPersonalWorkspace}
-							key={`${input.organizationId}:${input.plugin.service}`}
-							mode={scope}
-							organizationId={input.organizationId}
-							organizationName={input.organizationName}
-							plugin={input.plugin}
-						/>
-					)}
-					<PluginAgentAccess
+					<PluginConnectionSurface
+						canManage={input.canManageSharedPlugins}
+						isPersonalWorkspace={input.isPersonalWorkspace}
+						key={`${input.organizationId}:${input.plugin.service}`}
+						mode={scope}
 						organizationId={input.organizationId}
 						organizationName={input.organizationName}
-						scope={scope}
-						service={input.plugin.service}
+						plugin={input.plugin}
 					/>
 				</section>
 			) : (
 				<section className="rounded-md border border-border/70 bg-card px-4 py-5 sm:px-5">
 					<h2 className="font-medium text-foreground text-sm">Availability</h2>
 					<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
-						{input.plugin.name} is planned and cannot be connected yet.
+						{input.plugin.name} does not have a configured sign-in method yet.
 					</p>
 				</section>
 			)}

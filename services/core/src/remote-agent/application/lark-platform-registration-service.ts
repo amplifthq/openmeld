@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   larkPlatformActiveRegistrationProjectionSchema,
   larkPlatformRegistrationResponseSchema,
@@ -16,11 +17,11 @@ import {
   readRemoteAgentLarkPlatformChannelConnection,
   readRemoteAgentLarkPlatformChannelConnectionForOrganization,
   readRemoteAgentLarkPlatformChannelCredentials,
-} from "../infrastructure/d1/lark-platform-channel-connection-repo";
+} from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   completeLarkPlatformPersistentRegistration,
   prepareLarkPlatformPersistentConnection,
-} from "../infrastructure/d1/lark-platform-persistent-registration-repo";
+} from "../infrastructure/postgresql/lark-platform-persistent-registration-repo";
 import {
   advanceRemoteAgentLarkPlatformRegistrationAttempt,
   claimRemoteAgentLarkPlatformRegistrationAttempt,
@@ -34,7 +35,7 @@ import {
   recordClaimedLarkPlatformApplicationVersion,
   repairRemoteAgentLarkPlatformRegistrationAttempt,
   replacePendingRemoteAgentLarkPlatformRegistrationAttempt,
-} from "../infrastructure/d1/lark-platform-registration-attempt-repo";
+} from "../infrastructure/postgresql/lark-platform-registration-attempt-repo";
 import { configureAndVerifyLarkPlatformPersistentApp } from "./lark-platform-app-configuration";
 import {
   decryptLarkPlatformCredential,
@@ -56,13 +57,11 @@ const REGISTRATION_RETRY_DELAY_MS = 5000;
 const REGISTRATION_MAX_RETRY_DELAY_MS = 5 * 60 * 1000;
 const LARK_PLATFORM_CONFIGURATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const REGISTRATION_RETURN_PATH = "/center-agent/channels";
-
 type RegistrationActor = {
   organizationId: string;
   profileId: string;
   userId: string;
 };
-
 export type RegistrationEnvironment = Pick<
   CoreBindings,
   | "OPENMELD_FEISHU_CHANNEL_ENABLED"
@@ -72,23 +71,23 @@ export type RegistrationEnvironment = Pick<
   | "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS"
   | "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY"
 >;
-
 export class LarkPlatformRegistrationServiceError extends Error {
   readonly reasonCode: string;
   readonly status: number;
-
-  constructor(input: { reasonCode: string; status: number }) {
+  constructor(input: {
+    reasonCode: string;
+    status: number;
+  }) {
     super(input.reasonCode);
     this.name = "LarkPlatformRegistrationServiceError";
     this.reasonCode = input.reasonCode;
     this.status = input.status;
   }
 }
-
 export async function beginRemoteAgentLarkPlatformRegistration(input: {
   actor: RegistrationActor;
   createId?: () => string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: RegistrationEnvironment;
   fetchImpl?: typeof fetch;
   nowMs?: number;
@@ -166,7 +165,6 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
   if (existingConnection && !disconnectedConnection) {
     throw serviceError(input.provider, "connection_already_exists", 409);
   }
-
   let started: Awaited<ReturnType<typeof beginLarkPlatformRegistration>>;
   try {
     started = await beginLarkPlatformRegistration({
@@ -233,7 +231,6 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     db: input.db,
   });
 }
-
 function assertRepairableAttempt(
   repairExisting: boolean | undefined,
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord
@@ -242,12 +239,11 @@ function assertRepairableAttempt(
     throw serviceError(attempt.provider, "repair_unavailable", 409);
   }
 }
-
 async function reauthorizeExistingRegistration(input: {
   actor: RegistrationActor;
   createId: () => string;
   cryptoKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
   fetchImpl?: typeof fetch;
   nowMs: number;
   provider: RemoteAgentLarkPlatformProvider;
@@ -338,13 +334,12 @@ async function reauthorizeExistingRegistration(input: {
     attempt: { ...response.attempt, registrationUrl: started.registrationUrl },
   });
 }
-
 async function repairExistingRegistration(input: {
   actor: RegistrationActor;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord | null;
   createId: () => string;
   cryptoKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   provider: RemoteAgentLarkPlatformProvider;
 }): Promise<LarkPlatformRegistrationResponse> {
@@ -398,7 +393,6 @@ async function repairExistingRegistration(input: {
     db: input.db,
   });
 }
-
 async function replacePendingRegistrationAttempt(input: {
   actor: RegistrationActor;
   attemptInput: Parameters<
@@ -421,10 +415,9 @@ async function replacePendingRegistrationAttempt(input: {
   });
   return replacement;
 }
-
 export async function disconnectRemoteAgentLarkPlatformRegistration(input: {
   actor: RegistrationActor;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs?: number;
   provider: RemoteAgentLarkPlatformProvider;
 }): Promise<MessageChannelConnectionProjection | null> {
@@ -441,13 +434,14 @@ export async function disconnectRemoteAgentLarkPlatformRegistration(input: {
     ? projectRemoteAgentLarkPlatformConnection(disconnected)
     : null;
 }
-
 export async function listRemoteAgentActiveLarkPlatformRegistrations(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs?: number;
   organizationId: string;
   providers: readonly RemoteAgentLarkPlatformProvider[];
-  viewer: RegistrationActor & { canManage: boolean };
+  viewer: RegistrationActor & {
+    canManage: boolean;
+  };
 }): Promise<LarkPlatformActiveRegistrationProjection[]> {
   const attempts = await Promise.all(
     input.providers.map(
@@ -480,13 +474,12 @@ export async function listRemoteAgentActiveLarkPlatformRegistrations(input: {
       : []
   );
 }
-
 export async function pollRemoteAgentLarkPlatformRegistration(input: {
   actor: RegistrationActor;
   attemptId: string;
   clock?: () => number;
   createId?: () => string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: RegistrationEnvironment;
   fetchImpl?: typeof fetch;
   nowMs?: number;
@@ -526,12 +519,11 @@ export async function pollRemoteAgentLarkPlatformRegistration(input: {
     providerRequestTimeoutMs: input.providerRequestTimeoutMs,
   });
 }
-
 export async function continueRemoteAgentLarkPlatformRegistration(input: {
   attemptId: string;
   clock?: () => number;
   createId?: () => string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: RegistrationEnvironment;
   fetchImpl?: typeof fetch;
   nowMs?: number;
@@ -564,7 +556,6 @@ export async function continueRemoteAgentLarkPlatformRegistration(input: {
     providerRequestTimeoutMs: input.providerRequestTimeoutMs,
   });
 }
-
 async function continueRegistrationAttempt(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   clock: () => number;
@@ -573,7 +564,7 @@ async function continueRegistrationAttempt(input: {
     connector: CoreBindings["OPENMELD_LARK_CHANNEL_CONNECTOR"];
   };
   createId?: () => string;
-  db: D1Database;
+  db: PostgresDatabase;
   fetchImpl?: typeof fetch;
   nowMs: number;
   providerRequestTimeoutMs?: number;
@@ -601,7 +592,6 @@ async function continueRegistrationAttempt(input: {
       db: input.db,
     });
   }
-
   const createId = input.createId ?? (() => crypto.randomUUID());
   const claim = await claimRemoteAgentLarkPlatformRegistrationAttempt({
     attemptId: attempt.attemptId,
@@ -645,7 +635,6 @@ async function continueRegistrationAttempt(input: {
     nowMs,
   });
 }
-
 function createClaimDeadlineFetch(input: {
   fetchImpl: typeof fetch;
   timeoutMs: number;
@@ -660,7 +649,6 @@ function createClaimDeadlineFetch(input: {
         : deadline,
     })) as typeof fetch;
 }
-
 function normalizeProviderRequestTimeoutMs(
   timeoutMs: number | undefined
 ): number {
@@ -675,7 +663,6 @@ function normalizeProviderRequestTimeoutMs(
   }
   return value;
 }
-
 async function pollPendingRegistration(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   claimId: string;
@@ -685,7 +672,7 @@ async function pollPendingRegistration(input: {
     connector: CoreBindings["OPENMELD_LARK_CHANNEL_CONNECTOR"];
   };
   createId: () => string;
-  db: D1Database;
+  db: PostgresDatabase;
   fetchImpl?: typeof fetch;
   nowMs: number;
 }): Promise<LarkPlatformRegistrationResponse> {
@@ -735,7 +722,6 @@ async function pollPendingRegistration(input: {
       db: input.db,
     });
   }
-
   const connectionId = input.createId();
   const encryptedAppSecret = await encryptLarkPlatformCredential({
     credential: result.credential.appSecret,
@@ -775,7 +761,6 @@ async function pollPendingRegistration(input: {
     db: input.db,
   });
 }
-
 async function configurePersistedRegistration(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   claimId: string;
@@ -784,7 +769,7 @@ async function configurePersistedRegistration(input: {
     cryptoKey: string;
     connector: CoreBindings["OPENMELD_LARK_CHANNEL_CONNECTOR"];
   };
-  db: D1Database;
+  db: PostgresDatabase;
   fetchImpl?: typeof fetch;
   nowMs: number;
 }): Promise<LarkPlatformRegistrationResponse> {
@@ -937,12 +922,11 @@ async function configurePersistedRegistration(input: {
     });
   }
 }
-
 async function handleRegistrationPollFailure(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   claimId: string;
   cryptoKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
   error: unknown;
   nowMs: number;
 }): Promise<LarkPlatformRegistrationResponse> {
@@ -985,12 +969,11 @@ async function handleRegistrationPollFailure(input: {
     nowMs: input.nowMs,
   });
 }
-
 async function failClaimedAttempt(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   claimId: string;
   cryptoKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
   failureReasonCode: string;
   nowMs: number;
 }): Promise<LarkPlatformRegistrationResponse> {
@@ -1007,11 +990,10 @@ async function failClaimedAttempt(input: {
     db: input.db,
   });
 }
-
 async function projectRegistrationResponse(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   cryptoKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
 }): Promise<LarkPlatformRegistrationResponse> {
   let connection: MessageChannelConnectionProjection | null = null;
   if (input.attempt.connectionId) {
@@ -1054,7 +1036,6 @@ async function projectRegistrationResponse(input: {
     organizationId: input.attempt.organizationId,
   });
 }
-
 function requireRegistrationConfiguration(input: {
   env: RegistrationEnvironment;
   organizationId: string;
@@ -1086,7 +1067,6 @@ function requireRegistrationConfiguration(input: {
     connector: input.env.OPENMELD_LARK_CHANNEL_CONNECTOR,
   };
 }
-
 function assertRegistrationActor(
   actor: RegistrationActor,
   provider: RemoteAgentLarkPlatformProvider
@@ -1101,7 +1081,6 @@ function assertRegistrationActor(
     throw serviceError(provider, "registration_actor_invalid", 403);
   }
 }
-
 function assertAttemptAuthority(input: {
   actor: RegistrationActor;
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord | null;
@@ -1120,7 +1099,6 @@ function assertAttemptAuthority(input: {
     throw serviceError(input.provider, "registration_not_found", 404);
   }
 }
-
 function normalizeRegistrationClientError(
   error: unknown,
   provider: RemoteAgentLarkPlatformProvider
@@ -1133,7 +1111,6 @@ function normalizeRegistrationClientError(
     status: 502,
   });
 }
-
 function normalizeFailureReasonCode(
   error: unknown,
   provider: RemoteAgentLarkPlatformProvider,
@@ -1149,14 +1126,12 @@ function normalizeFailureReasonCode(
   }
   return `${provider}.${fallback}`;
 }
-
 function resolveConfigurationRetryDelayMs(currentDelayMs: number): number {
   return Math.min(
     REGISTRATION_MAX_RETRY_DELAY_MS,
     Math.max(REGISTRATION_RETRY_DELAY_MS, currentDelayMs * 2)
   );
 }
-
 function serviceError(
   provider: RemoteAgentLarkPlatformProvider,
   reason: string,

@@ -22,10 +22,10 @@ import {
 } from "./staging-computer-update-smoke-local.mjs";
 import { formatStagingSmokeCleanupMessage } from "./staging-computer-update-smoke-runner.mjs";
 
-const SETUP_COMMAND =
-  "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --device-code device_staging_demo --view human";
-const LEGACY_OTT_SETUP_COMMAND =
-  "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --ott ott_staging_demo --view human";
+const SETUP_COMMAND_PREFIX =
+  "curl -fsSL --proto '=https' --proto-redir '=https' 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- ";
+const SETUP_COMMAND = `${SETUP_COMMAND_PREFIX}setup --start-session start_staging_demo --device-code device_staging_demo --view human`;
+const LEGACY_OTT_SETUP_COMMAND = `${SETUP_COMMAND_PREFIX}setup --start-session start_staging_demo --ott ott_staging_demo --view human`;
 const SETUP_FILE_REQUIRED_PATTERN = /requires --setup-command-file/u;
 const ONLY_ACCEPTS_PATTERN = /only accepts/u;
 const OFFICIAL_STAGING_COMMAND_PATTERN =
@@ -176,7 +176,7 @@ test("never prints the one-time setup credentials", () => {
   assert.equal(redacted.includes("device_staging_demo"), false);
   assert.equal(
     redacted,
-    "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session [redacted] --device-code [redacted] --view human"
+    `${SETUP_COMMAND_PREFIX}setup --start-session [redacted] --device-code [redacted] --view human`
   );
 });
 

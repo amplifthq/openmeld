@@ -1,4 +1,4 @@
-import { siteConfig } from "#/lib/site";
+import { siteConfig } from "@openmeld/product-catalog/site";
 
 export const authViewSegments = {
 	login: "login",

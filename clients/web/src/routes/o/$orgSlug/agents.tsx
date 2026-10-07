@@ -6,9 +6,10 @@ import {
 	useNavigate,
 } from "@tanstack/react-router";
 import { z } from "zod/v4";
-import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
+import { AgentResolutionPage } from "#/components/agents/agent-resolution-page";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { PeopleAndAgentsPage } from "#/components/profiles/people-and-agents-page";
+import { prefetchAgentsRouteIdentityData } from "#/lib/organizations/app-route-prefetch";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentCreationPath,
@@ -23,7 +24,6 @@ import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/
 
 export const Route = createFileRoute("/o/$orgSlug/agents")({
 	staticData: appShellStaticData.people,
-	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),
 	validateSearch: z.object({
 		profileId: z.string().optional(),
 		requestId: z.string().optional(),
@@ -45,6 +45,17 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 				replace: true,
 			});
 		}
+	},
+	loader: async ({ context, location, params }) => {
+		prefetchAgentsRouteIdentityData({
+			organizationSlug: params.orgSlug,
+			queryClient: context.queryClient,
+			queryPersistence: context.queryPersistence,
+			routeFamily: location.href,
+		}).catch((error: unknown) => {
+			console.error("Failed to prefetch the Agents route data.", error);
+		});
+		return { sidebarStates: await getAppSidebarStatesForRoute() };
 	},
 	component: TeamAgentsRoute,
 });
@@ -89,13 +100,21 @@ function TeamAgentsRoute() {
 	}
 	if (directory.isPending || directory.isError) {
 		return (
-			<AppFullWidthLayout>
-				<p role={directory.isError ? "alert" : "status"}>
-					{directory.isError
-						? "Couldn’t load this Agent. Try again."
-						: "Loading Agent…"}
-				</p>
-			</AppFullWidthLayout>
+			<AgentResolutionPage
+				detail
+				error={directory.isError}
+				initialSidebarStates={sidebarStates}
+				isPending={directory.isPending}
+				isRetrying={directory.isFetching}
+				message="Couldn’t load this Agent."
+				onRetry={
+					directory.isError
+						? () => {
+								directory.refetch().catch(console.error);
+							}
+						: undefined
+				}
+			/>
 		);
 	}
 	const profile = directory.data.agentProfiles.find(
@@ -103,9 +122,12 @@ function TeamAgentsRoute() {
 	);
 	if (profileId && !profile) {
 		return (
-			<AppFullWidthLayout>
-				<p>Agent not found in this workspace.</p>
-			</AppFullWidthLayout>
+			<AgentResolutionPage
+				detail
+				initialSidebarStates={sidebarStates}
+				isPending={false}
+				message="Agent not found in this workspace."
+			/>
 		);
 	}
 	const member = directory.data.members.find(

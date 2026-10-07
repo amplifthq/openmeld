@@ -32,6 +32,35 @@ export function registerPluginCommands(
   });
   common(
     plugins
+      .command("connect <service>")
+      .description(
+        "Offer a secure Plugin connection link; the requester authorizes in OpenMeld."
+      )
+  )
+    .addOption(
+      new Option(
+        "--account <scope>",
+        "Preserve an explicit personal/shared identity; choose asks only when necessary."
+      )
+        .choices(["personal", "shared", "choose"])
+        .default("choose")
+    )
+    .action(
+      async (service: string, flags: { profile?: string; account: string }) => {
+        const request = pluginActionRequestSchema.parse({
+          action: { operation: "connect", service, account: flags.account },
+        });
+        await options.run(["plugins", "connect"], () =>
+          runPluginCommand({
+            action: request.action,
+            profile: flags.profile,
+            view: options.view(),
+          })
+        );
+      }
+    );
+  common(
+    plugins
       .command("actions <service>")
       .description("List permitted actions and their input schemas.")
   )
@@ -46,6 +75,51 @@ export function registerPluginCommands(
           action: { operation: "actions", service, account: flags.account },
         });
         await options.run(["plugins", "actions"], () =>
+          runPluginCommand({
+            action: request.action,
+            profile: flags.profile,
+            view: options.view(),
+          })
+        );
+      }
+    );
+  common(
+    plugins
+      .command("connection <service>")
+      .description(
+        "Inspect a Plugin account or reuse it on your cloud Computer."
+      )
+  )
+    .addOption(
+      new Option("--account <scope>", "Account identity to use.")
+        .choices(["personal", "shared"])
+        .makeOptionMandatory()
+    )
+    .requiredOption("--key <key>", "Stable key for this connection use.")
+    .option(
+      "--computer",
+      "Create a temporary native HTTP connection on your cloud Computer."
+    )
+    .action(
+      async (
+        service: string,
+        flags: {
+          profile?: string;
+          account: string;
+          key: string;
+          computer?: boolean;
+        }
+      ) => {
+        const request = pluginActionRequestSchema.parse({
+          action: {
+            operation: "connection",
+            service,
+            account: flags.account,
+            key: flags.key,
+            computer: flags.computer,
+          },
+        });
+        await options.run(["plugins", "connection"], () =>
           runPluginCommand({
             action: request.action,
             profile: flags.profile,
@@ -72,6 +146,18 @@ export function registerPluginCommands(
     )
     .option("--input <json>", "Action input as a JSON object.", "{}")
     .option("--confirm <token>", "Confirmation returned for this exact action.")
+    .option(
+      "--verify-operation <id>",
+      "Link this read to an original operation without changing its outcome."
+    )
+    .option(
+      "--verify-action <id>",
+      "Original action ID for --verify-operation."
+    )
+    .option(
+      "--replay",
+      "Use the original operation's explicitly permitted, single replay."
+    )
     .action(
       async (
         service: string,
@@ -82,6 +168,9 @@ export function registerPluginCommands(
           operation: string;
           input: string;
           confirm?: string;
+          replay?: boolean;
+          verifyOperation?: string;
+          verifyAction?: string;
         }
       ) => {
         const request = pluginActionRequestSchema.parse({
@@ -93,6 +182,15 @@ export function registerPluginCommands(
             operationId: flags.operation,
             input: JSON.parse(flags.input),
             confirmationToken: flags.confirm,
+            replay: flags.replay,
+            ...(flags.verifyOperation || flags.verifyAction
+              ? {
+                  verificationOf: {
+                    operationId: flags.verifyOperation,
+                    actionId: flags.verifyAction,
+                  },
+                }
+              : {}),
           },
         });
         await options.run(["plugins", "call"], () =>

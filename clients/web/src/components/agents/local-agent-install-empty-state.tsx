@@ -1,3 +1,4 @@
+import { getLocalAgentInstallGuide } from "@openmeld/product-catalog/local-agent-install-guides";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import {
 	MagnifyingDock,
@@ -5,7 +6,6 @@ import {
 } from "@openmeld/ui/components/magnifying-dock";
 import type { ReactNode } from "react";
 import { LOCAL_AGENT_EXAMPLE_IDS } from "#/components/profiles/local-agent-logo-stack";
-import { getLocalAgentInstallGuide } from "#/lib/local-agent-install-guides";
 
 export function LocalAgentInstallEmptyState(input: {
 	description?: string;
@@ -19,7 +19,7 @@ export function LocalAgentInstallEmptyState(input: {
 			<p className="font-medium text-sm">No supported agents detected</p>
 			<p className="max-w-md text-muted-foreground text-xs leading-5">
 				{input.description ??
-					"Install an agent such as Codex or Claude Code on this computer to get started."}
+					"Install a supported local agent on this computer to get started."}
 			</p>
 			<MagnifyingDock
 				aria-label="Supported agents"

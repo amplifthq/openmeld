@@ -30,6 +30,21 @@ is stored on that Agent's Binding, independently of Center Agent settings.
 Each Space, including a Direct Message, has a separate persistent conversation
 for that Remote Agent. This does not add a multi-chat management surface.
 
+Execution family and current availability are separate facts. Hosted Remote and
+Center Agents do not depend on the viewer's Computer, local Service, local Agent
+catalog, or connection/upgrade state. Their member reads must not wait for local
+route preloads. Preload selection uses current Auth identity and validated
+Binding evidence shared with that request's readiness read, never the member's
+historical controller snapshot. Both Local-to-Hosted and Hosted-to-Local changes
+must preserve that boundary without dropping needed Local reads. Real cloud
+authorization, model, binding, and service failures
+still block work; hosted does not mean unconditionally ready. A missing or failed
+binding read is unknown execution evidence, not permission to assume a Local
+Agent. Only confirmed Local identities receive Connect/Reconnect/Prepare local
+recovery. Local missing-binding recovery remains available. Hosted and unknown
+identities keep applicable model/settings guidance or a factual status hint,
+never a local setup action.
+
 Users should understand it as the named AI collaborator they can invite into a
 Space, address in conversation, Wake for work, and recognize across replies.
 
@@ -66,15 +81,27 @@ local process. Those objects may help the Agent Profile reply, but they are
 local execution infrastructure, not the teammate identity users collaborate
 with.
 
-Ordinary Agent Profile avatars intentionally use the bound Agent Controller's
+Local Agent Profile avatars intentionally use the bound Agent Controller's
 brand mark, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode, because the mark helps users
-recognize how that profile runs. Rebinding an ordinary Agent Profile updates
+recognize how that profile runs. Rebinding a Local Agent Profile updates
 that mark. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
 Local Agent message headers show the owner's name after a middle dot, without
 an owner avatar or prefix. Profile popovers place availability beside the Agent
 name and show `Owned by` with the owner's small Human Profile avatar and name.
 Hosted Agents retain the `Hosted by OpenMeld` message attribution.
+Hosted Remote Agent default avatars use the selected model provider's logo,
+resolved from the exact provider namespace in the current `avatarModelId`.
+OpenRouter is the calling channel, not the model provider; Remote Agents never
+borrow Local Agent Controller product marks such as Codex or Claude Code.
+Unknown providers or providers without a supported logo use the generic Agent
+mark. A saved custom image or explicitly selected fluid avatar takes precedence
+and stays in place across model changes. Avatar choice belongs to the Agent
+Profile, not to its Binding. Every Web entrance resolves saved style, shape,
+image, and current model identity from the Organization Profile Directory.
+Missing `avatarStyle` means the automatic provider/controller mark, never an
+invented saved Bot selection. Center Agent defaults remain the generic Agent mark.
+Center Agents use circles; other Agents use rounded squares.
 
 OpenMeld also has Human Profiles. A default Human Profile is created for the
 signed-in user and is the right identity when a human or their current AI
@@ -212,6 +239,36 @@ state machine rather than implementing separate approval rules.
 
 Each request freezes its creation intent.
 
+The Center Agent working-creation tool explicitly selects Remote with
+`connectionSelection: { kind: "remote" }`, or Local with a current
+`{ candidateId }`. Remote selection maps to the existing
+`hosted:remote-agent` configuration and personal Binding flow; `modelId` may
+select a supported model or remain omitted for Core's default. The shared
+configuration contract rejects Local-only settings on Remote requests instead
+of dropping them. Resume/Fork retain their exact eligible Local Session
+selection. Core rejects contradictory Remote/Local selections.
+
+Web and Center working-creation requests require a run target before a new
+request or identity is persisted. CLI/manual identity-only creation remains
+valid with its limited semantics. `createdAgentProfileId` proves identity
+creation; `completed` means the requested setup finished, not that the Agent can
+reply now or that a Wake ran. Current reply readiness stays Core-owned and is
+checked when needed. A failed setup retains its created identity and existing
+retry path. No new watcher, mandatory Wake, or parent continuation is added.
+
+Center-generated idempotency keys hash the existing normalized creation intent,
+including the target Space, plus the originating request ID. Deep JSON key order
+and normalized name/default notation do not define another intent. The same
+intent owner governs both the hash and replay comparison. For an exact retry
+across the key-format upgrade, Core also looks up the pre-canonical key within
+the same Organization and requester. It reuses that key only for an existing
+record with the same actor and complete normalized intent, including Space,
+then delegates to the normal authorized replay path. A different Space still
+uses its canonical key; the legacy format is lookup-only, not a new-write
+format or an alias store. Existing durable requests retain their recorded IDs
+and recovery paths; do not infer a failed creation from a missing response or
+replace an already-created identity.
+
 Web recovery keeps a failed creation's context. **Review setup** opens that
 request rather than ordinary New Agent. Before identity creation, an owner can
 choose a current Computer for the same local controller while retaining the
@@ -319,6 +376,12 @@ Core checkpoints the committed ID on the fenced `approved` request immediately
 after Auth returns and before starting Space, Binding, working-folder, or
 Default Project setup. A stale-attempt recovery therefore cannot relabel a
 known committed identity as a creation failure.
+After Binding, Core completes the working-folder mutation and releases its
+execution-target mutation lease before setting Default Project. The two
+operations must not compete for the same lease. The request checkpoints each
+completed post-Binding step so a retry of the same committed Profile skips that
+step. If the working-folder outcome is unknown, Core does not advance to Default
+Project; the lease and request failure remain visible for safe recovery.
 
 Before Auth creates the Agent Profile identity, Core revalidates the selected
 local-agent candidate against the target member's current Computer projection.
@@ -456,8 +519,10 @@ stored on the Binding. It tells OpenMeld how to launch the selected Agent Contro
 for this Agent Profile using the controller's native permission model. Claude
 Code uses its `--permission-mode` values (`default`, `acceptEdits`, `plan`,
 `auto`, `dontAsk`, `bypassPermissions`). Codex uses its own permission modes
-(`Ask for approval`, `Approve for me`, `Full access`, and
-`Custom (config.toml)`) backed by sandbox, approval, and config settings. The
+(`Ask for approval`, `Approve for me`, and `Full access`) backed by sandbox
+and approval settings. Existing Custom bindings keep their native configuration
+and display as `Previous settings` until their owner selects a current mode;
+Custom is no longer offered in permission pickers. The
 labels and execution flags must stay controller-native, because Claude Code,
 Codex, Grok Build, and future controllers use different permission names and
 enforcement models. Grok Build uses its native `default`, `acceptEdits`, `plan`,
@@ -468,6 +533,14 @@ and explain the selected mode once in plain language. Relevant launch settings
 remain inside technical details.
 Outcome copy must not imply that Agent Controller Permission Mode changes Space
 access, Agent availability, or separate Computer file-access limits.
+
+Antigravity uses native per-invocation modes: Default preserves the CLI's
+configured permissions, Accept edits passes `--mode accept-edits`, Plan passes
+`--mode plan`, and Bypass permissions passes `--dangerously-skip-permissions`
+with explicit owner confirmation. Headless requests cannot present approval
+prompts; actions requiring approval are denied by the CLI. Plan is not a
+filesystem sandbox. These settings apply to subsequent invocations, including
+resumed conversations; Antigravity does not support live permission updates.
 
 Owners may edit Binding-level runtime settings while a Wake is running. The
 accepted Binding id and configuration revision remain the dispatch's immutable
@@ -488,13 +561,38 @@ convergence after an accepted Binding write must not turn that saved write into
 a visible failure. Web shows the saved outcome, refreshes canonical Core
 readiness, and lets that readiness projection decide whether the Agent Profile
 is Available, Checking, Offline, or Unavailable.
+
+Codex app-server versions at or above `0.153.0-alpha.4` can switch the active
+turn's reviewer between Ask for approval and Approve for me. OpenMeld uses
+`turn/settings/update` and requires its `applied` acknowledgement. Full access
+changes the sandbox and approval policy; it remains a next-task setting. A
+running `turn/start` call does not replace that turn's sandbox. OpenMeld does
+not interrupt and replay commands to simulate a live sandbox change. Legacy
+Custom configurations also stay launch-only because their native policy is not
+known from the saved mode name. Claude SDK sessions permit an explicit owner
+switch to bypass permissions after launch, except in repair execution. Cursor
+ACP supports live Default, Ask, and Plan transitions; Auto review and Force
+remain launch-only on this transport.
+
+Pending approvals remain explicit decisions. On a Service that advertises
+permission-mode update sequencing, the owner can choose a mode in the approval
+card; Full access requires explicit confirmation. Web saves the canonical Binding
+before sending the selected approval with the Binding id and saved mode. Service
+waits briefly for the matching canonical route, attempts supported native updates,
+and then delivers the selected approval. It never treats response metadata as
+permission authority, never replaces a newer saved choice, and never claims
+native application from a successful save. Save failure leaves the approval
+pending. Native rejection or delayed catalog delivery retains the current mode
+and still delivers the owner's explicit approval. Older Service requests keep
+the ordinary approval controls without this additional mode selector.
+
 Changing or unbinding the Agent Controller and changing the local working folder
 are different because they change the execution target underneath future work
 and can interrupt an accepted Wake. Every maintenance surface must read the
 owner-sharded RuntimeCoordinator execution state, independent of the current
 Space. That read is advisory: before committing one of these changes, the writer
 must acquire a short-lived owner-shard execution-target mutation admission and
-hold it across the D1 or local Service mutation. RuntimeCoordinator serializes
+hold it across the PostgreSQL or local Service mutation. RuntimeCoordinator serializes
 that admission with new Wake-head acceptance in the same Durable Object storage
 transaction, so a Wake that arrives after admission waits instead of racing the
 execution-target change. An active execution blocks only the disruptive
@@ -530,7 +628,7 @@ implicitly or guess identity from a computer name. A runtime reconnect preserves
 the Binding settings that are current when Core
 accepts the write. Reconnect clients must omit controller settings instead of
 replaying a previously read Binding snapshot; only an explicit settings edit
-may carry those fields and its expected `configurationRevision`. The D1 writer
+may carry those fields and its expected `configurationRevision`. The PostgreSQL writer
 uses that revision as a compare-and-set fence and re-reads before a bounded
 retry when a settings write wins the race. Reconnecting must never overwrite a
 newer permission, model, reasoning, collaboration, conversation, or OpenCode
@@ -538,7 +636,7 @@ permission choice.
 
 An explicit settings edit is successful only when the fresh Binding projection
 contains the requested value. A changed value must be fenced by both the
-Binding id and `configurationRevision` that the writer read, and the D1 update
+Binding id and `configurationRevision` that the writer read, and the PostgreSQL update
 must change that row. If a Service reconnect or another settings edit replaces
 that write target, Core returns a settings conflict instead of accepting the
 new Binding's unchanged value. Web clients also compare an accepted response
@@ -553,9 +651,9 @@ within the Profile's canonical Organization remains the action and audit actor
 and must not become a second Binding owner. A personal Agent Profile write that
 discovers an older enabled Binding under another owner must acquire mutation admission from
 every affected owner shard before changing the Binding. Disabling admitted
-legacy Bindings and installing the Profile owner's target are one atomic D1
+legacy Bindings and installing the Profile owner's target are one atomic PostgreSQL
 write; any failed step leaves the previous enabled Bindings intact. Unavailable
-admission or an incomplete reconciliation fails closed. The D1 write boundary
+admission or an incomplete reconciliation fails closed. The PostgreSQL write boundary
 rejects a new or re-enabled primary Binding when its owner is not the Profile
 owner or another enabled primary Binding already exists for that Profile. The
 migration keeps pre-existing noncanonical rows available for explicit
@@ -584,7 +682,8 @@ Cursor uses five controller-native presets over its ACP interface:
 - **Run Everything** launches `cursor-agent --force acp`, requires explicit
   confirmation, and still respects explicit Cursor deny rules.
 
-When a running Codex, Claude Code, Grok Build, Cursor, or OpenCode turn asks for permission,
+When a running Codex, Claude Code, Grok Build, Cursor, OpenCode, or Antigravity
+turn asks for permission,
 asks a structured question, or finishes a plan that needs review, OpenMeld
 pauses that same Wake and presents the request in its Space. The Binding owner
 can answer there without opening the controller's terminal. OpenMeld returns
@@ -607,10 +706,14 @@ A dispatch-scoped first-party OpenMeld Space Action is not a general controller
 command approval. OpenMeld may make its own `reply`, `status`, and `stay_silent`
 tools approval-free because they can write only one validated proposal for the
 current dispatch and still require RuntimeCoordinator publication. OpenMeld
-must not extend that exception to shell strings, arbitrary `openmeld` commands,
-filesystem access, network access, or another dispatch. `Ask for approval`
-therefore remains authoritative for ordinary Codex actions without blocking the
-Agent's chosen Space outcome.
+may require Antigravity's final response to match a dispatch-scoped structured
+output schema because its CLI has no proven per-invocation structured-tool
+configuration surface. After validating that `reply`, `status`, or `silent`
+outcome, the trusted adapter invokes the same dispatch-owned writer without a
+shell. The model never receives a new command permission, and ordinary shell,
+filesystem, network, and MCP actions remain under the controller's native
+policy. `Ask for approval` therefore remains authoritative for ordinary
+controller actions without blocking the Agent's chosen Space outcome.
 
 Only the Binding owner may see request details or answer. Other authenticated
 Space members may see that the Agent Profile is waiting for its owner, but not
@@ -641,6 +744,15 @@ controller-native permission mode. Neither setting can widen the other. Agent
 Profile UI must not copy the Computer policy or offer a profile-level override;
 the current Computer detail is its one management home. Direct user-launched
 controller sessions remain governed by the controller's own settings.
+
+Starting a new Codex task for its owner does not add a single-folder restriction.
+The same rule applies to a currently verified Center delegation from that owner.
+With no explicit task access choice, the new task uses the current Profile
+permission mode and Computer policy. The Task menu's **New task** starts a
+separate conversation without choosing a narrower file scope. Explicit project,
+read-only, and Space-only tasks keep their selected restrictions. Continuing or
+forking an older restricted task does not reinterpret that restriction as a
+default; the owner can start a new task to use their current settings.
 
 Grok Build's current controller sandbox is too coarse to prove
 `only_selected_folders` or `block_selected_folders`. Its adapter therefore
@@ -759,6 +871,53 @@ the profile to a Project, or move the profile's current controller session.
 Remote Agent and Center Agent Profiles do not show or use this field in the
 MVP.
 
+An existing OpenCode session remains bound to its native working folder. If
+that folder does not resolve to the Agent's current effective working folder,
+Wake must resolve the conflict before prompting or forking the session. Working Folder Recovery
+lets the owner explicitly choose the verified original folder or a new
+conversation for the same Agent Profile. OpenMeld does not run in the former
+folder or replace the session automatically.
+
+### Working Folder Recovery
+
+A working-folder conflict gives the owner an actionable choice in the Wake
+before the Agent starts. The Profile's identity and Space memberships survive recovery.
+The owner can continue the previous conversation in its verified original
+folder, start a new conversation in the currently selected folder, or leave the
+task without running it. Starting a new conversation preserves the old
+native history and explicitly warns that it will not carry into the new one.
+Neither choice changes the execution Computer.
+
+Normal Wakes require no extra confirmation. Only a verified conflict opens a
+recovery decision. A targeted read of the existing native session store avoids
+starting a second controller just to inspect its folder. The local Service verifies the native conversation and its
+folder, current Computer file access, and the expected execution target before
+applying a choice. Paths stay within the existing owner-only local-control
+boundary. A missing folder or unavailable Computer stays actionable and does
+not trigger an inferred substitute or credential change.
+
+Web and the Desktop renderer reuse the existing question card. Human CLI and
+Agent View consume the same typed interaction through `openmeld space respond`,
+with an explicit response and exact request identity in non-interactive use.
+A client must not implement recovery by independently clearing a conversation
+and updating workspace settings.
+
+RuntimeCoordinator owns the existing durable pending interaction and its
+resolution. Inbox projects that question as Needs action for the Profile owner, using the existing delivery
+preferences. Reading or dismissing the Inbox item does not resolve the decision.
+The requester can see that the owner needs to act without gaining local paths or
+management permissions. Repeated reports do not create repeated reminders.
+
+Answering continues the same accepted task; it does not repost its prompt or
+create a second Wake. Continuing the previous folder applies to that task only
+and does not silently change Default Project. A successful new conversation
+uses the existing result-owned Binding update for subsequent Wakes. The old
+native history remains saved. The existing eight-hour interaction expiry,
+response-delivery watchdog, owner authorization, and exact-response idempotency
+apply. Stop, expiry, Service loss, and final reply follow normal visible outcome
+publication. Previously terminal Wakes remain terminal; a new Wake receives the
+new preflight choice without rewriting their history.
+
 The current computer resolves Project intent through its own local state:
 
 ```text
@@ -825,6 +984,24 @@ editor. Permission review opens customization and the Permissions editor,
 focusing the confirmation control. Working-folder blockers offer a one-click
 OpenMeld-managed folder action that clears the Project selection and prevents
 late defaults from overwriting that explicit choice.
+
+Web creation always presents the complete built-in Local Agent catalog in the
+canonical order: Codex, Claude Code, Grok Build, OpenCode, Antigravity, then
+Cursor. Catalog visibility is product discovery, not evidence that an Agent is
+installed, enabled, signed in, or ready. Selecting an unavailable entry keeps it
+selected for inspection while the Binding target remains unset. A full-width
+dashed recovery panel then names the exact blocker and offers the nearest direct
+action: the Agent-specific install guide, an inline enable switch, sign-in or
+setup guidance, or a retry for unknown Computer evidence. Creation becomes
+available only after the existing canonical eligibility projection provides a
+valid local Binding target.
+
+The selected Local Agent's Usage summary appears at the far right of the Agent
+name row above Advanced Agent Settings. It consumes the already loaded local
+runtime projection and its query cache; opening creation must not start a second
+provider Usage request. A small skeleton may replace only that summary while
+the projection is loading. Missing or unsupported Usage leaves the rest of the
+form interactive and does not create another readiness rule.
 
 For a new Web session, a remembered Project id alone is not enough to restore a
 working folder: it does not confirm a connection on the selected computer.
@@ -926,10 +1103,11 @@ the local Service verifies their resource isolation. Legacy work without a
 context drains exclusively. Waiting order is the owner-shard transaction
 acceptance order; a blocked context does not prevent eligible independent work
 from using a free reservation. There is no priority system in this version.
-A source message is visible in its conversation immediately; its Wake
-may show that it is queued, but Web does not hide or stack the message above the
-Composer until execution starts. Different Agent Profiles remain independently
-admissible and may work in parallel.
+A published source message stays visible in its conversation; its admitted Wake
+may show that it is queued. Pending plain-text follow-ups in the Composer Queue
+have not been published or admitted as Wakes yet. They remain editable pending
+Space input until ordinary publication or an explicit Steer consumes them.
+Different Agent Profiles remain independently admissible and may work in parallel.
 
 For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
 native conversation model. The primary Binding still owns the connection and
@@ -954,11 +1132,18 @@ them; a thread alone does not opt an unsupported harness into the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 
-New tasks default to Space context without requiring a local repository. Forks
-inherit the source context's access unless an explicit supported choice changes
-it. Claude Code supports independent Space-context tasks with local tools disabled.
-Codex App Server also supports explicitly selected independent project worktrees,
-or read-only/current-folder access. The CLI options
+New Codex and Claude tasks keep the Agent's native tools and permission mode,
+whether requested by the owner, a teammate, or another Agent. Projects select
+the starting folder; they do not restrict the Agent to that folder. In parallel
+mode, an ordinary Claude Wake starts an independent native context when no
+retained context has been selected. It needs neither Git nor a container engine.
+A Wake continuing a retained context keeps its existing access. Forks preserve
+the source restriction unless an explicit supported choice changes it.
+The Task menu makes New task the default choice and groups optional restrictions
+under Limit task access. Explicit task choices may
+instead select Space-only access, an independent project worktree, or read-only
+current-folder access. Codex App Server also supports independent
+project worktrees or read-only/current-folder access. The CLI options
 are `--task-access space_context|read_only|workspace` and
 `--task-workspace isolated|current`. Current-folder writers wait for conflicting
 local work. An independent project task requires a confirmed working folder that
@@ -971,13 +1156,17 @@ Retries and continuation preserve the task's worktree and frozen starting commit
 The local Agent receives the repository label, task working folder, and starting
 commit; it does not discover a source by searching the computer.
 
-The task boundary confines project files and Git metadata while retaining the
-native runtime's platform temporary-directory rules. This is not a promise of
-complete temporary-directory isolation. Before model execution, a native command
-must prove allowed access inside the task and denied reads/writes to an owned
-sentinel outside its boundary. A worktree under a platform-wide temporary grant
-fails this check and cannot run as an isolated project task. Selecting an
-independent worktree does not grant access to an otherwise forbidden source.
+The task boundary confines project files and Git metadata. Codex retains its
+native runtime's platform temporary-directory rules; that is not a promise of
+complete temporary-directory isolation. Explicit isolated Claude project tasks require a
+running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
+The Service mounts only the task-owned repository and worktree, disables
+container networking, runs as a non-root user, and gives Claude restricted file
+tools plus a dispatch-scoped project shell. Before model execution, it proves
+allowed reads and writes inside the task and denied reads outside. If the engine,
+mount, or containment check fails, the project task fails visibly before Claude
+can read project files. Selecting an independent worktree does not grant access
+to an otherwise forbidden source.
 
 The first accepted Wake request remains frozen while it waits, moves to the
 front, or is redriven after transport recovery. Prompt, attachments, source
@@ -1016,7 +1205,7 @@ guess based on recent output.
 Usage participates in Wakeability only when the Local Agent exposes structured,
 reliable Usage Limits. A Local Agent that explicitly reports Usage as
 unsupported, or that has no reliable Usage capability because reporting is
-passive or not evaluated, does not use Usage as an admission condition. Once a
+observational or not evaluated, does not use Usage as an admission condition. Once a
 Local Agent's versioned capability matrix declares native Usage support,
 missing, stale, expired, or currently unavailable Usage remains an observation,
 not an execution prerequisite. Otherwise ready Agents may attempt a new Wake;
@@ -1034,7 +1223,7 @@ provider evidence and a real smoke test.
 
 A structured Wake failure may update future Usage admission only when the
 accepted execution's exact Agent Controller has native Usage support in that
-same matrix. A passive, unsupported, or not-evaluated controller may still
+same matrix. An observational, unsupported, or not-evaluated controller may still
 report `usage_exhausted` for the current Wake and preserve its raw provider
 detail in Message Details, but that result must not create blocking evidence
 for a later Wake.
@@ -1113,12 +1302,19 @@ projection first. Non-owners see the neutral workload state without this action
 or the interrupted request details.
 
 Owners and other Organization members see the same compact workload summary,
-such as `Working · 3 queued`. Profile Details may show the owner where the
-current Wake is running and which tasks are queued. Other members see only
-neutral workload state and count; they do not receive Space names, task text,
-controller conversation identifiers, local paths, or other owner diagnostics.
-This projection belongs in the existing Profile Details surface, not a separate
-status product.
+such as `1 active · 3 queued`, in existing Profile Details. The read-only workload
+combines existing Space Wake progress and pending Space inputs across the Agent's
+Organization conversations; it does not create another execution queue. A queued
+input and the Wake that consumes it are successive states, not two tasks.
+
+Conversation access controls each row's message preview, Space name and link for
+owners and other members alike. Inaccessible conversations contribute only neutral
+counts. Owning the Agent alone does not reveal private conversations. An unavailable
+or incomplete source makes the workload unavailable rather than claiming an exact
+zero or partial total. This default Organization visibility does not grant Queue,
+Steer, recovery, stop, or settings mutation authority. Controller conversations,
+local paths, Computer details and owner diagnostics keep their existing boundaries.
+Privacy settings are separate future scope, not per-surface switches added here.
 
 Organization-member Agent details may also include one explicit public display
 configuration: the friendly Agent Controller, model, reasoning level,
@@ -1203,6 +1399,10 @@ Controller report as `Checking`, that transient must be bounded and should use
 the controller's product name when known. A client may continue a bounded
 background refresh, but it must preserve Core's public verdict throughout: it
 must not repaint a Core-owned `Offline` or `Unavailable` state as `Checking`.
+It must also show a newer Core `Checking` verdict immediately instead of
+replaying an older `Available` badge. A connected computer that briefly stops
+accepting new tasks is `Checking` while the bounded start wait can recover;
+another current profile, provider, or permission blocker remains `Unavailable`.
 After the client refresh budget expires, it may offer `Check again` without
 changing the public state. It must not relabel an existing Binding as `Connect
 local agent`; connection copy and connection actions are reserved for a

@@ -1,5 +1,8 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import { buildCenterAgentContextMessageProjection } from "@openmeld/protocol";
 import {
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
@@ -15,15 +18,13 @@ import type {
   RemoteAgentWorkerSubmitTurnRequestV4,
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
-import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
 import type { CoreBindings } from "../../lib/bindings";
 import type { ListSignalsInput, ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 
 const CONTINUITY_CONTEXT_TOKEN_BUDGET = 8000;
 const TEXT_ENCODER = new TextEncoder();
-
 type ContinuityEntryDraft = Omit<
   RemoteAgentConversationContinuityEntry,
   "content"
@@ -34,23 +35,36 @@ type ContinuityEntryDraft = Omit<
     truncated: boolean;
   };
 };
-
 class RemoteAgentConversationContinuitySourceError extends Error {
   readonly code: string;
-
-  constructor(input: { code: string; message: string }) {
+  constructor(input: {
+    code: string;
+    message: string;
+  }) {
     super(`${input.code}: ${input.message}`);
     this.code = input.code;
     this.name = "RemoteAgentConversationContinuitySourceError";
   }
 }
-
 export function resolveRemoteAgentLogicalConversationId(
   request: RemoteAgentWorkerSubmitTurnRequest
 ): string {
   return request.conversationId ?? request.spaceId;
 }
-
+export function isRemoteAgentRoutineRunConversation(
+  request: RemoteAgentWorkerSubmitTurnRequest
+): boolean {
+  const trigger = request.turnEnvelope.trigger;
+  return (
+    trigger.source === "routine" &&
+    request.conversationId ===
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: request.agentProfileId,
+        organizationId: request.organizationId,
+        runId: trigger.runId,
+      })
+  );
+}
 export function resolveRemoteAgentRuntimeConversationId(
   request: RemoteAgentWorkerSubmitTurnRequest
 ): string | undefined {
@@ -58,7 +72,6 @@ export function resolveRemoteAgentRuntimeConversationId(
     ? request.runtimeConversation.id
     : request.conversationId;
 }
-
 function resolvePersistedRemoteAgentRuntimeConversationId(
   request: RemoteAgentWorkerSubmitTurnRequest | null
 ): string | undefined {
@@ -67,7 +80,6 @@ function resolvePersistedRemoteAgentRuntimeConversationId(
   }
   return resolveRemoteAgentRuntimeConversationId(request) ?? request.spaceId;
 }
-
 export function resolveRemoteAgentNativeDeliveryRuntimeConversationId(
   input: Pick<
     RemoteAgentNativeDeliveryRecord,
@@ -110,11 +122,15 @@ export function resolveRemoteAgentNativeDeliveryRuntimeConversationId(
   }
   return workerRuntimeConversationId ?? recoveryRuntimeConversationId;
 }
-
 export function buildRemoteAgentWorkerSubmitTurnRequestV4(input: {
   continuityContext?: RemoteAgentConversationContinuityContext;
   generation: number;
-  request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  request: Exclude<
+    RemoteAgentWorkerSubmitTurnRequest,
+    {
+      v: 1;
+    }
+  >;
 }): RemoteAgentWorkerSubmitTurnRequestV4 {
   const {
     continuityContext: _previousContinuityContext,
@@ -148,12 +164,17 @@ export function buildRemoteAgentWorkerSubmitTurnRequestV4(input: {
     v: 4,
   });
 }
-
 export async function buildRemoteAgentConversationContinuityContext(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   generation: number;
-  request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  request: Exclude<
+    RemoteAgentWorkerSubmitTurnRequest,
+    {
+      v: 1;
+    }
+  >;
+  sourceDispatchId?: string;
 }): Promise<RemoteAgentConversationContinuityContext> {
   if (input.generation < 1) {
     throw new Error(
@@ -179,13 +200,28 @@ export async function buildRemoteAgentConversationContinuityContext(input: {
     v: 1,
   };
 }
-
 async function readContinuityEntryDrafts(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   generation: number;
-  request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
-}): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
+  request: Exclude<
+    RemoteAgentWorkerSubmitTurnRequest,
+    {
+      v: 1;
+    }
+  >;
+  sourceDispatchId?: string;
+}): Promise<{
+  entries: ContinuityEntryDraft[];
+  truncated: boolean;
+}> {
+  if (isRemoteAgentRoutineRunConversation(input.request)) {
+    throw new RemoteAgentConversationContinuitySourceError({
+      code: "remote_agent.routine_run_continuity_unavailable",
+      message:
+        "A Routine Run cannot use its publication destination as execution continuity.",
+    });
+  }
   if (
     input.request.turnEnvelope.trigger.source === "slack" ||
     input.request.turnEnvelope.trigger.source === "message_channel" ||
@@ -197,12 +233,20 @@ async function readContinuityEntryDrafts(input: {
   return await readSpaceContinuityEntryDrafts({
     env: input.env,
     request: input.request,
+    sourceDispatchId: input.sourceDispatchId,
   });
 }
-
 function readMessageChannelContinuityEntryDrafts(
-  request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>
-): { entries: ContinuityEntryDraft[]; truncated: boolean } {
+  request: Exclude<
+    RemoteAgentWorkerSubmitTurnRequest,
+    {
+      v: 1;
+    }
+  >
+): {
+  entries: ContinuityEntryDraft[];
+  truncated: boolean;
+} {
   const channelContext = request.turnEnvelope.channelContext;
   if (
     !channelContext ||
@@ -230,11 +274,19 @@ function readMessageChannelContinuityEntryDrafts(
     truncated: channelContext.sync.status === "truncated",
   };
 }
-
 async function readSpaceContinuityEntryDrafts(input: {
   env: CoreBindings;
-  request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
-}): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
+  request: Exclude<
+    RemoteAgentWorkerSubmitTurnRequest,
+    {
+      v: 1;
+    }
+  >;
+  sourceDispatchId?: string;
+}): Promise<{
+  entries: ContinuityEntryDraft[];
+  truncated: boolean;
+}> {
   const stub = resolveSpaceStub(
     input.env.OPENMELD_SPACES,
     input.request.spaceId
@@ -242,8 +294,16 @@ async function readSpaceContinuityEntryDrafts(input: {
     rpcListDispatchConversationContinuitySignalsResult(
       request: ListSignalsInput
     ): Promise<
-      | { ok: true; value: ListSignalsResult }
-      | { code?: string; message: string; ok: false; status: number }
+      | {
+          ok: true;
+          value: ListSignalsResult;
+        }
+      | {
+          code?: string;
+          message: string;
+          ok: false;
+          status: number;
+        }
     >;
   } | null;
   if (!stub) {
@@ -258,7 +318,7 @@ async function readSpaceContinuityEntryDrafts(input: {
     beforeCount: REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES + 1,
     signalTypes: ["signal.text"],
     spaceAccess: createDispatchContinuationSpaceAccessContext({
-      dispatchId: input.request.dispatchId,
+      dispatchId: input.sourceDispatchId ?? input.request.dispatchId,
       requestContext,
       sourceSignalId: input.request.triggerMessageId,
       spaceId: input.request.spaceId,
@@ -308,9 +368,13 @@ async function readSpaceContinuityEntryDrafts(input: {
     truncated: projection.budget.truncated,
   };
 }
-
 function buildContinuityRequestContext(
-  request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>
+  request: Exclude<
+    RemoteAgentWorkerSubmitTurnRequest,
+    {
+      v: 1;
+    }
+  >
 ): OpenMeldRequestContext {
   return {
     activeOrganizationId: request.organizationId,
@@ -330,7 +394,6 @@ function buildContinuityRequestContext(
     },
   };
 }
-
 async function boundContinuityEntries(
   drafts: readonly ContinuityEntryDraft[]
 ): Promise<{
@@ -404,7 +467,6 @@ async function boundContinuityEntries(
   );
   return { entries, truncated };
 }
-
 async function sha256(value: string): Promise<`sha256:${string}`> {
   const digest = await crypto.subtle.digest(
     "SHA-256",

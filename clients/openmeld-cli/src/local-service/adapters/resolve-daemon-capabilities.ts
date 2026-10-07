@@ -1,4 +1,3 @@
-import type { LocalDaemonAdapterContainer } from "@openmeld/local-service";
 import type {
   DaemonRuntimeAdapterCapabilitySnapshot,
   LocalComponentsStatus,
@@ -6,16 +5,13 @@ import type {
 } from "@openmeld/schemas/types";
 import { resolveRegistryRuntimeAdapterCapabilitySnapshot } from "../../agents/registry-source";
 
-export function resolveDaemonCapabilities(input: {
-  localAdapterContainer: LocalDaemonAdapterContainer;
+export function resolveDaemonCapabilitiesFromAdapterIds(input: {
+  adapterIds: readonly string[];
   localComponentsStatus?: LocalComponentsStatus | null;
   profileConfigurationRevision?: boolean;
 }): RuntimeTransportBaseCapabilities {
-  const runtimeAdapters = input.localAdapterContainer
-    .listAdapters()
-    .map((entry) =>
-      resolveRegistryRuntimeAdapterCapabilitySnapshot(entry.adapterId)
-    )
+  const runtimeAdapters = input.adapterIds
+    .map(resolveRegistryRuntimeAdapterCapabilitySnapshot)
     .filter(
       (entry): entry is DaemonRuntimeAdapterCapabilitySnapshot => entry !== null
     )
@@ -25,6 +21,7 @@ export function resolveDaemonCapabilities(input: {
     agentReplyContextReview: true,
     informationProtectionPrompt: true,
     workingLanguagePrompt: true,
+    verifiedRequesterContext: true,
     localAgentInteraction: true,
     ...(input.profileConfigurationRevision === true
       ? { profileConfigurationRevision: true as const }

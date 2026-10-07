@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
@@ -22,6 +23,7 @@ import {
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerInputAttachmentsSchema,
+  remoteAgentWorkerReadAdmissionResponseSchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
@@ -29,6 +31,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_FILE_MAX_SIZE_BYTES,
 } from "../../src/index";
 
 const TEST_CENTER_AGENT_MODEL_ROUTE = {
@@ -57,6 +60,47 @@ const TEST_CENTER_AGENT_MODEL_ROUTE = {
 } as const;
 
 describe("Remote Agent worker contracts", () => {
+  it("requires a finalized replay ACK for admission lookup and keeps missing receipts unconfirmed", () => {
+    const receipt = {
+      v: 1,
+      status: "found",
+      ack: {
+        accepted: false,
+        createdAt: 1000,
+        status: "pending",
+        submissionId: "original-submission",
+        idempotencyKey: "original-operation",
+      },
+    };
+    expect(
+      remoteAgentWorkerReadAdmissionResponseSchema.safeParse(receipt).success
+    ).toBe(true);
+    for (const ack of [
+      { ...receipt.ack, accepted: true },
+      { ...receipt.ack, idempotencyKey: undefined },
+      { ...receipt.ack, submissionId: undefined },
+    ]) {
+      expect(
+        remoteAgentWorkerReadAdmissionResponseSchema.safeParse({
+          ...receipt,
+          ack,
+        }).success
+      ).toBe(false);
+    }
+    for (const status of ["not_found", "unconfirmed"]) {
+      expect(
+        remoteAgentWorkerReadAdmissionResponseSchema.parse({ v: 1, status })
+      ).toEqual({ v: 1, status });
+      expect(
+        remoteAgentWorkerReadAdmissionResponseSchema.safeParse({
+          v: 1,
+          status,
+          ack: receipt.ack,
+        }).success
+      ).toBe(false);
+    }
+  });
+
   it("isolates personal conversations by organization, Agent and Space and rejects mismatched routing", () => {
     const identity = {
       organizationId: "org_1",
@@ -107,6 +151,66 @@ describe("Remote Agent worker contracts", () => {
     expect(
       remoteAgentWorkerSubmitTurnRequestSchema.safeParse(request).success
     ).toBe(true);
+    const routineTrigger = {
+      authorizedActions: [],
+      destination: { kind: "space" as const, spaceId: identity.spaceId },
+      routineId: "routine_1",
+      routineName: "Daily review",
+      runId: "routine_run_1",
+      scheduledFor: 1_783_382_400_000,
+      source: "routine" as const,
+    };
+    const routineConversationId = buildRemoteAgentRoutineRunConversationId({
+      agentProfileId: identity.agentProfileId,
+      organizationId: identity.organizationId,
+      runId: routineTrigger.runId,
+    });
+    expect(
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: identity.agentProfileId,
+        organizationId: identity.organizationId,
+        runId: "routine_run_2",
+      })
+    ).not.toBe(routineConversationId);
+    const routineRequest = {
+      ...request,
+      conversationId: routineConversationId,
+      runtimeConversation: { generation: 0, id: routineConversationId },
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        sender: {
+          createdByUserId: "user_1",
+          delegatedBy: {
+            displayName: "Felix",
+            id: "member_1",
+            ownerUserId: "user_1",
+            verified: true,
+          },
+          kind: "routine",
+          routineId: routineTrigger.routineId,
+        },
+        trigger: routineTrigger,
+      },
+    };
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse(routineRequest).success
+    ).toBe(true);
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
+        ...routineRequest,
+        conversationId,
+        runtimeConversation: { generation: 0, id: conversationId },
+      }).success
+    ).toBe(true);
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
+        ...routineRequest,
+        turnEnvelope: {
+          ...routineRequest.turnEnvelope,
+          trigger: { ...routineTrigger, runId: "routine_run_2" },
+        },
+      }).success
+    ).toBe(false);
     for (const invalid of [
       { v: 3 },
       {
@@ -139,7 +243,7 @@ describe("Remote Agent worker contracts", () => {
       id: `space-file-${index + 1}`,
       mimeType: "image/png" as const,
       objectKey: `org/org_1/space/space_1/files/space-file-${index + 1}/revisions/revision-1`,
-      sizeBytes: 250 * 1024 * 1024,
+      sizeBytes: SPACE_FILE_MAX_SIZE_BYTES,
     }));
 
     expect(
@@ -366,6 +470,8 @@ describe("Remote Agent worker contracts", () => {
       "receiveExecutionInput",
       "readExecutionInput",
       "readExecutionState",
+      "readAdmission",
+      "readAdmissionStop",
       "reconcileExecution",
       "readRuntimeDiagnostics",
       "readUsageDiagnostics",

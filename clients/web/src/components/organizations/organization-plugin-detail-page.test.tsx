@@ -1,8 +1,8 @@
+import { findPluginDefinition } from "@openmeld/product-catalog/plugins";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrganizationPluginDetailPage } from "./organization-plugin-detail-page";
-import { findPluginDefinition } from "./plugin-catalog";
 
 vi.mock("./plugin-agent-access", () => ({ PluginAgentAccess: () => null }));
 vi.mock("./plugin-scope-tabs", () => ({
@@ -150,7 +150,9 @@ describe("OrganizationPluginDetailPage", () => {
 		);
 
 		expect(
-			screen.getByText("Connect your account for your own requests.")
+			screen.getByText(
+				"Connect your account, then choose which Agents may use it."
+			)
 		).toBeTruthy();
 		expect(
 			screen.getByTestId("plugin-access").getAttribute("data-personal")

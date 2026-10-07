@@ -6,7 +6,8 @@ import {
 } from "@openmeld/agent-runtime";
 import { modelCatalogSchema } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import publishedManifest from "../../../release/local-components.json";
 import {
   type AgentProfileBindingCommandStore,
   AgentProfileBindingModelSelectionValidationError,
@@ -31,6 +32,42 @@ const OTHER_OWNER = {
 } as const;
 
 describe("Agent Profile Binding command service", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("does not persist new permission values during the receiver-only rollout", async () => {
+    const receiverManifest = structuredClone(publishedManifest);
+    receiverManifest.components.service.runtimeContractEpoch =
+      "runtime-transport-epoch-2026-09-image-geometry";
+    vi.stubGlobal(
+      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
+      JSON.stringify(receiverManifest)
+    );
+    const bindingStore = createInMemoryBindingStore();
+    const command = createValidCommandInput({
+      agentControllerRef: "builtin:antigravity",
+    });
+    await expect(
+      ensurePrimaryAgentProfileBinding({
+        ...command,
+        agentControllerPermissionMode: "antigravity:acceptEdits",
+        bindingStore,
+      })
+    ).rejects.toThrow("Antigravity permission settings are not available yet");
+    expect(bindingStore.records).toHaveLength(0);
+    await ensurePrimaryAgentProfileBinding({ ...command, bindingStore });
+    await expect(
+      updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+        agentProfileId: "agent-profile-1",
+        agentControllerPermissionMode: "antigravity:plan",
+        bindingStore,
+        nowMs: 3000,
+        ownerAuthorization: { owner: OWNER, status: "allowed" },
+        profileOwnerValidation: { owner: OWNER, status: "valid" },
+      })
+    ).rejects.toThrow("Antigravity permission settings are not available yet");
+    expect(bindingStore.records[0]?.agentControllerPermissionMode).toBeNull();
+    expect(bindingStore.records[0]?.updatedAtMs).toBe(2000);
+  });
   it("creates a routable enabled primary Binding when all required evidence passes", async () => {
     const runtimeLookupInput = ownerAccountRuntimeLookupInput();
     const openMeldServiceRuntimeId = createAuthorityOpenMeldServiceRuntimeId({
@@ -156,6 +193,16 @@ describe("Agent Profile Binding command service", () => {
       modelId: "claude-fable-5",
       reasoningLevel: "max",
     },
+    {
+      agentControllerRef: "builtin:opencode",
+      modelId: "opencode/fledge-alpha-free",
+      reasoningLevel: "high",
+    },
+    {
+      agentControllerRef: "builtin:opencode",
+      modelId: "opencode-go/qwen3.8-max",
+      reasoningLevel: "xhigh",
+    },
   ])("stores supported $modelId and $reasoningLevel selections", async ({
     agentControllerRef,
     modelId,
@@ -205,7 +252,7 @@ describe("Agent Profile Binding command service", () => {
       throw new Error("expected model selection validation error");
     }
     expect(error.message).toBe(
-      `Model "gpt-test-unavailable" is not supported for Agent Controller "builtin:codex". Supported models: ${availableModelIds.join(", ")}.`
+      "This model is unavailable. Check this agent's model settings."
     );
     expect(availableModelIds).not.toContain("gpt-test-unavailable");
     expect(bindingStore.records).toHaveLength(0);
@@ -515,6 +562,55 @@ describe("Agent Profile Binding command service", () => {
     });
 
     expect(bindingStore.records).toHaveLength(1);
+  });
+
+  it("updates a personal Remote Agent model without changing its hosted identity", async () => {
+    const bindingStore = createInMemoryBindingStore();
+    bindingStore.records.push({
+      agentProfileId: "agent-profile-1",
+      agentControllerRef: "hosted:remote-agent",
+      openMeldServiceRuntimeId: "hosted:remote-agent",
+      bindingId: "binding_remote",
+      bindingState: "enabled_primary",
+      createdAtMs: 1000,
+      createdByProfileId: "profile-1",
+      disabledAtMs: null,
+      modelId: "anthropic/claude-fable-5.1",
+      owner: OWNER,
+      reasonCode: "agent_profile_binding.command_eligible",
+      reasoningLevel: null,
+      updatedAtMs: 1000,
+    });
+    const command = {
+      agentProfileId: "agent-profile-1",
+      bindingStore,
+      modelId: "x-ai/grok-4.7",
+      nowMs: 3000,
+      ownerAuthorization: { owner: OWNER, status: "allowed" as const },
+      profileOwnerValidation: { owner: OWNER, status: "valid" as const },
+      reasoningLevel: null,
+    };
+    await expect(
+      updatePrimaryAgentProfileBindingModelSelection(command)
+    ).resolves.toMatchObject({
+      status: "accepted",
+      binding: {
+        bindingId: "binding_remote",
+        agentControllerRef: "hosted:remote-agent",
+        openMeldServiceRuntimeId: "hosted:remote-agent",
+        modelId: "x-ai/grok-4.7",
+      },
+    });
+    await expect(
+      updatePrimaryAgentProfileBindingModelSelection({
+        ...command,
+        modelId: "gpt-6-astra",
+      })
+    ).rejects.toThrow(
+      'Model "gpt-6-astra" is not supported for Agent Controller "hosted:remote-agent". Supported models:'
+    );
+    expect(bindingStore.records).toHaveLength(1);
+    expect(bindingStore.records[0]?.modelId).toBe("x-ai/grok-4.7");
   });
 
   it("rejects model selection updates when no primary Binding exists", async () => {

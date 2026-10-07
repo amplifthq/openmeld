@@ -1,12 +1,14 @@
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative } from "node:path";
 import type {
   AdapterComputerFileAccessBoundary,
+  AdapterComputerFileAccessVerificationResult,
   AdapterInteractionCallback,
   AdapterTransportMode,
   AgentControllerPermissionMode,
 } from "@openmeld/adapter-core";
+import { COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE } from "@openmeld/schemas";
 import type { ComputerFileAccessPolicy } from "@openmeld/schemas/types";
+import { isSameOrDescendantPath } from "../../lib/path-containment";
 import { DaemonServiceRunError } from "../core/types";
 
 const RUN_ONCE_OPTION_ID = "run_once_without_computer_file_access_boundary";
@@ -21,7 +23,7 @@ export async function resolveComputerFileAccessAdmission(input: {
   transportMode: AdapterTransportMode;
   verifyBoundary?: (
     boundary: AdapterComputerFileAccessBoundary
-  ) => Promise<boolean>;
+  ) => Promise<AdapterComputerFileAccessVerificationResult>;
 }): Promise<{
   boundary: AdapterComputerFileAccessBoundary | null;
   bypassedForThisRun: boolean;
@@ -35,13 +37,17 @@ export async function resolveComputerFileAccessAdmission(input: {
     providerRuntimeWorkingDirectory: input.providerRuntimeWorkingDirectory,
   });
 
-  if (input.verifyBoundary && (await input.verifyBoundary(input.policy))) {
+  const verification = await input.verifyBoundary?.(input.policy);
+  if (verification?.supported) {
     return { boundary: input.policy, bypassedForThisRun: false };
   }
 
+  const launchRejected =
+    verification?.reasonCode === "computer.file_access.launch_rejected";
   const response = await input.onInteractionRequest({
-    description:
-      "OpenMeld can’t verify that this local agent can enforce this computer’s file access boundary. Run this Wake once without the boundary, or cancel it.",
+    description: launchRejected
+      ? "The local agent could not start with the requested file access settings. Cancel and check the selected agent’s version and configuration. Running once without this boundary removes the Computer file access restriction for this Wake."
+      : "OpenMeld can’t verify that this local agent can enforce this computer’s file access boundary. Run this Wake once without the boundary, or cancel it.",
     kind: "permission",
     options: [
       {
@@ -69,10 +75,22 @@ export async function resolveComputerFileAccessAdmission(input: {
     return { boundary: null, bypassedForThisRun: true };
   }
 
+  if (
+    response.kind !== "permission" ||
+    response.optionId !== CANCEL_OPTION_ID
+  ) {
+    const code =
+      response.kind === "cancel"
+        ? "computer.file_access.interaction_cancelled"
+        : "computer.file_access.response_invalid";
+    throw new DaemonServiceRunError({
+      code,
+      message: `${code}: the file access decision did not authorize this run`,
+    });
+  }
   throw new DaemonServiceRunError({
-    code: "computer.file_access.owner_cancelled",
-    message:
-      "computer.file_access.owner_cancelled: the Computer owner cancelled this Wake instead of running without the configured file access boundary",
+    code: COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
+    message: `${COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE}: the Computer owner declined running this Wake without the configured file access boundary`,
   });
 }
 
@@ -84,7 +102,7 @@ export async function assertComputerFileAccessWorkingDirectoryAllowed(input: {
     input.providerRuntimeWorkingDirectory
   );
   const matchesConfiguredFolder = input.boundary.folders.some((folder) =>
-    isSameOrDescendant(workingDirectory, folder)
+    isSameOrDescendantPath(workingDirectory, folder)
   );
   const allowed =
     input.boundary.mode === "only_selected_folders"
@@ -99,12 +117,4 @@ export async function assertComputerFileAccessWorkingDirectoryAllowed(input: {
     message:
       "computer.file_access.working_directory_denied: this Wake’s working folder is outside the Computer file access boundary",
   });
-}
-
-function isSameOrDescendant(candidate: string, parent: string): boolean {
-  const relativePath = relative(parent, candidate);
-  return (
-    relativePath === "" ||
-    !(relativePath.startsWith("..") || isAbsolute(relativePath))
-  );
 }

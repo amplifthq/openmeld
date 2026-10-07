@@ -1,10 +1,16 @@
 "use client";
 
+import {
+	FEISHU_CHANNEL_IDENTITY,
+	LARK_CHANNEL_IDENTITY,
+	SLACK_CHANNEL_IDENTITY,
+} from "@openmeld/product-catalog/plugins";
 import type {
 	LarkPlatformActiveRegistrationProjection,
 	LarkPlatformProvider,
 	MessageChannelConnectionProjection,
 } from "@openmeld/schemas/types";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { Card } from "@openmeld/ui/components/card";
@@ -18,14 +24,8 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
-import { AppLogo } from "#/components/organizations/app-logo";
 import { LarkPlatformChannelDialog } from "#/components/organizations/lark-platform-channel-dialog";
 import { requiresLarkPlatformSetupAuthorization } from "#/components/organizations/lark-platform-setup-authorization";
-import {
-	FEISHU_CHANNEL_IDENTITY,
-	LARK_CHANNEL_IDENTITY,
-	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/plugin-catalog";
 import { useLarkPlatformChannelManagement } from "#/components/organizations/use-lark-platform-channel-management";
 import {
 	type AuthorizationBrowser,

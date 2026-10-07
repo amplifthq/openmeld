@@ -1,33 +1,55 @@
 import { env as workerEnv } from "cloudflare:workers";
+import {
+  pluginComputerConnectionRequestSchema,
+  pluginConnectionDescribeRequestSchema,
+} from "@openmeld/schemas";
+import {
+  describePluginConnection,
+  pluginConnectionInstructions,
+} from "../connectors/plugin-connection";
 import { executePluginRuntime } from "../connectors/plugin-runtime";
+import { acknowledgeAccountErasure } from "../flue-adapter/account-deletion";
+import type { AgentComputerNamespace } from "../flue-adapter/agent-computer-workspace-access";
+import { personalComputerProviderName } from "../flue-adapter/computer-identity";
+import type { AgentComputer } from "../flue-adapter/computer-workspace";
 
 // biome-ignore lint/performance/noBarrelFile: Native browser code execution uses a Durable Object facet.
 export { CodemodeRuntime } from "@cloudflare/codemode";
-// The Center Agent's computer: org-level durable workspace DO, the
+// Account-owned personal Computers, the
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
-// and the WorkspaceProxy that carries the container's /ws egress home.
-export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
+// and the WorkspaceProxy that carries the container's /api egress home.
+export { WorkspaceServiceProxy } from "@cloudflare/computer";
+export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
+export { WorkspaceProxy } from "../flue-adapter/computer-workspace-proxy";
 
 import {
+  accountDeletionComputerSchema,
+  accountDeletionConversationSchema,
+  cloudComputerOperationResultSchema,
+  cloudComputerWorkerRequestSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerExecutionInputQuerySchema,
   remoteAgentWorkerExecutionInputRequestSchema,
   remoteAgentWorkerExecutionQuerySchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
-import { summarizeAgentActivityDigest } from "../agent-core/agent-activity-digest";
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
+  readAdmissionFromCenterAgent,
+  readAdmissionStopFromCenterAgent,
   readExecutionInputFromCenterAgent,
   readExecutionStateFromCenterAgent,
   readRuntimeDiagnosticsFromCenterAgent,
   readUsageDiagnosticsFromCenterAgent,
   receiveExecutionInputInCenterAgent,
   reconcileExecutionInCenterAgent,
+  runDurableAuxiliaryInference,
   submitConversationTurnToCenterAgent,
 } from "../flue-adapter/cloudflare-entrypoint";
 import {
@@ -38,6 +60,93 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async describePluginConnection(value: unknown) {
+    const request = pluginConnectionDescribeRequestSchema.parse(value);
+    return await describePluginConnection({
+      ...request,
+      connectorExecution: {
+        baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
+    });
+  },
+  async createPluginComputerConnection(value: unknown) {
+    const request = pluginComputerConnectionRequestSchema.parse(value);
+    if (request.computer.ownerUserId !== request.grant.requesterUserId) {
+      throw new Error("plugin.computer_owner_mismatch");
+    }
+    const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;
+    const stub = namespace.get(
+      namespace.idFromName(personalComputerProviderName(request.computer.id))
+    ) as DurableObjectStub<AgentComputer>;
+    await stub.registerPluginConnectionGrant(request.grant);
+    const description = await describePluginConnection({
+      service: request.grant.service,
+      connectionName: request.grant.connectionName,
+      connectorExecution: {
+        baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
+    });
+    return pluginConnectionInstructions(
+      description,
+      `http://computer.internal/connections/${request.grant.id}`
+    );
+  },
+  async eraseAccountComputer(input: unknown) {
+    const request = accountDeletionComputerSchema.parse(input);
+    const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;
+    await acknowledgeAccountErasure(
+      async () =>
+        await (
+          namespace.get(
+            namespace.idFromName(
+              personalComputerProviderName(request.computerId)
+            )
+          ) as DurableObjectStub<AgentComputer>
+        ).eraseAccountComputer()
+    );
+  },
+  async eraseAccountConversation(input: unknown) {
+    const request = accountDeletionConversationSchema.parse(input);
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
+    await acknowledgeAccountErasure(
+      async () =>
+        await namespace
+          .get(namespace.idFromName(request.runtimeConversationId))
+          .eraseAccountConversation(request)
+    );
+  },
+  async cloudComputerOperation(value: unknown) {
+    const request = cloudComputerWorkerRequestSchema.parse(value);
+    const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;
+    const stub = namespace.get(
+      namespace.idFromName(personalComputerProviderName(request.computer.id))
+    ) as DurableObjectStub<AgentComputer>;
+    return cloudComputerOperationResultSchema.parse(
+      await stub.computerOperation(request.operation)
+    );
+  },
+  readSubmitTurnCapabilities(input: unknown) {
+    const request =
+      remoteAgentWorkerSubmitCapabilitiesRequestSchema.safeParse(input);
+    if (!request.success) {
+      throw request.error;
+    }
+    return Promise.resolve(
+      remoteAgentWorkerSubmitCapabilitiesSchema.parse({
+        v: 1,
+        taskId: true,
+      })
+    );
+  },
+  async generateCenterAgentSessionTitle(input: unknown) {
+    return await runDurableAuxiliaryInference({
+      namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+      operation: "generateCenterAgentSessionTitle",
+      request: input,
+    });
+  },
   async pluginRuntime(input: unknown) {
     return await executePluginRuntime(input, {
       baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
@@ -97,6 +206,21 @@ export default {
     });
   },
 
+  async readAdmission(input: unknown) {
+    const request = remoteAgentWorkerSubmitTurnRequestSchema.parse(input);
+    return await observeRemoteAgentRpc({
+      env,
+      operation: "readAdmission",
+      requestId: request.dispatchId,
+      spaceId: request.spaceId,
+      execute: () =>
+        readAdmissionFromCenterAgent({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          request,
+        }),
+    });
+  },
+
   async reconcileExecution(input: unknown) {
     const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
@@ -111,17 +235,29 @@ export default {
     });
   },
 
+  async readAdmissionStop(input: unknown) {
+    const request = remoteAgentWorkerSubmitTurnRequestSchema.parse(input);
+    return await observeRemoteAgentRpc({
+      env,
+      operation: "readAdmissionStop",
+      requestId: request.dispatchId,
+      spaceId: request.spaceId,
+      execute: () =>
+        readAdmissionStopFromCenterAgent({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          request,
+        }),
+    });
+  },
+
   async summarizeAgentActivityDigest(input: unknown) {
     return await observeRemoteAgentRpc({
       env,
       execute: () =>
-        summarizeAgentActivityDigest({
-          env: env as unknown as Parameters<
-            typeof summarizeAgentActivityDigest
-          >[0]["env"],
-          request: input as Parameters<
-            typeof summarizeAgentActivityDigest
-          >[0]["request"],
+        runDurableAuxiliaryInference({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          operation: "summarizeAgentActivityDigest",
+          request: input,
         }),
       operation: "summarizeAgentActivityDigest",
     });

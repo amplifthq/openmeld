@@ -3,13 +3,14 @@
 import { execFileSync } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-
-import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
-import { buildProductionReleasePlan } from "./production-release.mjs";
+import { checkProductionArtifact } from "./production-artifact-check.mjs";
+import { collectProductionReleaseStatus } from "./production-release-status.mjs";
+import {
+  assertProductionStageAdmission,
+  isProductionCompatibilityReceiverSatisfied,
+} from "./production-stage-admission.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
-const CANONICAL_VERSION_PATTERN =
-  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 const STATIC_HOSTED_SCOPE_ORDER = [
   "db",
   "auth",
@@ -17,6 +18,8 @@ const STATIC_HOSTED_SCOPE_ORDER = [
   "gateway",
   "core",
   "remote-agent",
+  "website",
+  "docs",
 ];
 const FLEET_SCOPES = new Set(["cloud", "full"]);
 
@@ -42,103 +45,75 @@ export async function admitHostedFleetPlan(input, dependencies = {}) {
     );
   }
 
-  const fetchStableVersion =
-    dependencies.fetchStableVersion ?? readStableCliVersion;
-  const stableVersion = String(await fetchStableVersion()).trim();
-  if (!CANONICAL_VERSION_PATTERN.test(stableVersion)) {
+  const status = await (
+    dependencies.collectStatus ?? collectProductionReleaseStatus
+  )({
+    argv: ["--ref", releaseSha],
+  });
+  const sourceBlockers = status.sourceValidationBlockers ?? status.blockers;
+  if (sourceBlockers.length) {
     throw new Error(
-      `Hosted fleet-plan admission requires a canonical stable CLI version, found ${stableVersion || "missing"}.`
+      `Hosted fleet preflight is blocked: ${sourceBlockers.map((entry) => `${entry.name}: ${entry.detail}`).join(" | ")}`
     );
   }
-
-  const stableTag = `v${stableVersion}`;
-  const baseRef = `refs/tags/${stableTag}`;
-  const resolveTagSha = dependencies.resolveTagSha ?? resolveImmutableTagSha;
-  const baseSha = requireExactSha(
-    "stable CLI tag SHA",
-    resolveTagSha(stableTag, releaseSource, releaseSha)
+  const selected = STATIC_HOSTED_SCOPE_ORDER.filter(
+    (entry) => scope === "full" || entry !== "db"
   );
-  const buildPlan = dependencies.buildPlan ?? buildProductionReleasePlan;
-  const plan = buildPlan({
-    base: baseRef,
-    scope,
+  assertProductionStageAdmission({
+    components: status.components,
+    selectedScopes: selected,
     sourceSha: releaseSha,
   });
-  const deployOrderProfile = String(plan.deployOrderProfile ?? "").trim();
-  const deployScopeOrder = requireStringArray(
-    "planned deploy scope order",
-    plan.deployScopeOrder
+  const releaseDependencies = status.components.flatMap((component) =>
+    component.state === "pending"
+      ? (component.compatibilityDependencies ?? [])
+          .filter(([, producer]) => producer === component.scope)
+          .map((edge) => ({ component, edge }))
+      : []
   );
-  const selectedScopes = new Set(
-    requireStringArray("planned release scopes", plan.scopes)
+  const reversed = releaseDependencies.filter(
+    ({ component, edge: [receiver, producer] }) =>
+      selected.includes(receiver) &&
+      selected.includes(producer) &&
+      selected.indexOf(receiver) > selected.indexOf(producer) &&
+      !isProductionCompatibilityReceiverSatisfied(
+        status.components,
+        component,
+        [receiver, producer],
+        releaseSha
+      )
   );
-  const supportedScopeOrder = STATIC_HOSTED_SCOPE_ORDER.filter((candidate) =>
-    selectedScopes.has(candidate)
-  );
-  if (!hasSameValuesInOrder(deployScopeOrder, supportedScopeOrder)) {
+  if (reversed.length > 0) {
     throw new Error(
       [
         `Hosted ${scope} release refused before any Production mutation.`,
-        `The exact ${baseRef}..${releaseSha} plan requires ${deployOrderProfile || "an unknown deploy order"}: ${deployScopeOrder.join(" -> ") || "no deploy scopes"}.`,
-        `release-on-main.yml can execute only: ${supportedScopeOrder.join(" -> ") || "no deploy scopes"}.`,
+        `The receipt-based plan at ${releaseSha} requires: ${reversed.map(({ edge }) => edge.join(" -> ")).join(", ")}.`,
+        `release-on-main.yml can execute only: ${selected.join(" -> ")}.`,
         "Do not approximate this receiver-first plan with the ordinary hosted fleet workflow.",
         "Inspect the trusted ordered plan from a clean current-main worktree:",
-        `  pnpm run release:plan -- --base ${baseRef} --scope auto`,
+        "  pnpm run release:status -- --json",
         "Use the guarded ordered release path printed by that plan, or add reviewed hosted support for this exact deploy-order profile before retrying.",
       ].join("\n")
     );
   }
 
+  // This parent job completes before Database or any Worker can mutate Production.
+  // A separate deploy runner must independently verify its own build output.
+  await (dependencies.checkArtifact ?? checkProductionArtifact)({
+    root: releaseSource,
+    scope: "web",
+    sourceSha: releaseSha,
+  });
   return {
-    baseRef,
-    baseSha,
-    deployOrderProfile,
-    deployScopeOrder,
+    compatibilityDependencies: releaseDependencies.map(({ edge }) => edge),
+    deployScopeOrder: selected,
     releaseSha,
     scope,
   };
 }
 
-function hasSameValuesInOrder(actual, expected) {
-  return (
-    actual.length === expected.length &&
-    actual.every((value, index) => value === expected[index])
-  );
-}
-
-function requireStringArray(label, value) {
-  if (
-    !Array.isArray(value) ||
-    value.some((item) => typeof item !== "string" || item.length === 0)
-  ) {
-    throw new Error(`Hosted fleet-plan admission requires ${label}.`);
-  }
-  return value;
-}
-
-async function readStableCliVersion() {
-  const manifest = await fetchCliChannelManifest();
-  return manifest.channels.stable.version;
-}
-
 function readReleaseHeadSha(releaseSource) {
   return runGit(releaseSource, ["rev-parse", "HEAD"]);
-}
-
-function resolveImmutableTagSha(tag, releaseSource, releaseSha) {
-  const tagSha = runGit(releaseSource, ["rev-parse", `${tag}^{commit}`]);
-  try {
-    execFileSync("git", ["merge-base", "--is-ancestor", tagSha, releaseSha], {
-      cwd: releaseSource,
-      stdio: "pipe",
-    });
-  } catch (cause) {
-    throw new Error(
-      `Stable CLI tag ${tag} (${tagSha}) is not an ancestor of release ${releaseSha}.`,
-      { cause }
-    );
-  }
-  return tagSha;
 }
 
 function runGit(cwd, args) {

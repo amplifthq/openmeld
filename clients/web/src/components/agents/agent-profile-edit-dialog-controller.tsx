@@ -211,17 +211,17 @@ function useAgentProfileEditController(input: {
 		try {
 			await action();
 			toast.success(successMessage);
-			try {
-				await input.context.onSaved(input.profile.openMeldProfileId);
-			} catch (error) {
-				console.error(
-					"Agent Profile was saved, but current views could not be refreshed.",
-					error
-				);
-				toast.error(
-					"The Agent was saved, but OpenMeld could not refresh the latest settings. Refresh the page to see them."
-				);
-			}
+			input.context
+				.onSaved(input.profile.openMeldProfileId)
+				.catch((error: unknown) => {
+					console.error(
+						"Agent Profile was saved, but current views could not be refreshed.",
+						error
+					);
+					toast.warning(
+						"The Agent was saved, but OpenMeld could not refresh the latest settings. Refresh the page to see them."
+					);
+				});
 		} catch (error) {
 			updateError = error;
 			toast.error(formatMutationError(error, errorMessage));
@@ -257,14 +257,12 @@ function useAgentProfileEditController(input: {
 	const handleControllerPermissionModeUpdate = async (
 		agentControllerPermissionMode: AgentControllerPermissionMode
 	) =>
-		await runEditAction(
-			async () =>
-				await updateAgentProfileControllerPermissionMode({
-					agentControllerPermissionMode,
-					context: editActionContext,
-				}),
-			`OpenMeld could not update ${input.profile.profileName}.`
-		);
+		await runEditAction(async () => {
+			await updateAgentProfileControllerPermissionMode({
+				agentControllerPermissionMode,
+				context: editActionContext,
+			});
+		}, `OpenMeld could not update ${input.profile.profileName}.`);
 	const handleModelSelectionUpdate = async (
 		modelSelection: AgentProfileModelSelectionUpdate
 	) =>

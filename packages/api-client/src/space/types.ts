@@ -61,6 +61,7 @@ import type {
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMeta,
+  SpaceTaskDetailOptions,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
   SpaceTaskResponse,
@@ -209,6 +210,7 @@ export type SpaceApi = {
       clientMutationId: string;
       mimeType: string;
       name: string;
+      origin: "artifact" | "chat_upload";
       parentId?: string | null;
       onProgress?: (uploadedBytes: number, totalBytes: number) => void;
     }
@@ -303,6 +305,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       includePageInfo?: boolean;
       includePreviewText?: boolean;
+      includeReplyPlacement?: boolean;
       includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
@@ -335,6 +338,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       clientMessageId: string;
       includePreviewText?: boolean;
+      includeReplyPlacement?: boolean;
       includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
@@ -409,7 +413,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & { phase?: SpaceTaskPhase }
   ) => Promise<ListSpaceTasksResponse>;
   getTask: (
-    input: SpaceRequestInput & { taskId: string }
+    input: SpaceRequestInput & SpaceTaskDetailOptions & { taskId: string }
   ) => Promise<SpaceTaskResponse>;
   createTask: (
     input: SpaceRequestInput & { body: CreateSpaceTaskBody }

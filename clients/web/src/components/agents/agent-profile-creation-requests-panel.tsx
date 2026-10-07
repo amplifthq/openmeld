@@ -1,6 +1,9 @@
 "use client";
 
-import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
+import {
+	isHostedAgentControllerRef,
+	TEAMMATE_AGENT_REQUESTS_ENABLED,
+} from "@openmeld/schemas";
 
 import type {
 	AgentProfileCreationRequest,
@@ -10,6 +13,17 @@ import type {
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
+import {
 	Table,
 	TableBody,
 	TableCell,
@@ -17,9 +31,13 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
+import { SlidersHorizontalIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
+import { DirectorySearch } from "#/components/directory/directory-search";
+import { modelBrandName } from "#/components/models/model-brand";
 import { formatAgentCreationFailure } from "#/lib/profiles/agent-creation-failure";
 import {
 	continuePendingAgentProfileCreationLocalSetup,
@@ -36,6 +54,8 @@ import {
 	agentProfileCreationRequestsQueryOptions,
 } from "#/query/profiles/agent-profile-creation-requests";
 import { AgentCreationComputerRecovery } from "./agent-creation-computer-recovery";
+import { agentCreationNeedsAttention } from "./agent-creation-history-model";
+import { normalizeAgentSearch } from "./agent-list-model";
 
 type DirectoryMember = OrganizationProfileDirectoryResponse["members"][number];
 
@@ -53,6 +73,9 @@ export function AgentProfileCreationRequestsPanel(input: {
 	storageScope: string;
 }) {
 	const queryClient = useQueryClient();
+	const [search, setSearch] = useState("");
+	const [resultFilter, setResultFilter] = useState("all");
+	const [typeFilter, setTypeFilter] = useState("all");
 	const [recoveryRequest, setRecoveryRequest] =
 		useState<AgentProfileCreationRequest | null>(null);
 	const focusedRequestRef = useRef<HTMLTableRowElement | null>(null);
@@ -67,7 +90,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 		})
 	);
 	// Retain the teammate UI for reopening, but also filter stale client caches.
-	const visibleRequests =
+	const allRequests =
 		requestsQuery.data?.requests
 			.filter(
 				(request) =>
@@ -77,7 +100,69 @@ export function AgentProfileCreationRequestsPanel(input: {
 			.toSorted((left, right) =>
 				right.createdAt.localeCompare(left.createdAt)
 			) ?? [];
+	const localSetups = new Map(
+		allRequests.map((request) => [
+			request.id,
+			request.status === "completed" && request.createdAgentProfileId
+				? readPendingAgentProfileCreationLocalSetup({
+						organizationId: input.organizationId,
+						requestId: request.id,
+						storageScope: input.storageScope,
+					})
+				: null,
+		])
+	);
+	const attentionCount = allRequests.filter((request) =>
+		agentCreationNeedsAttention(request, Boolean(localSetups.get(request.id)))
+	).length;
+	const resultLabels: Record<string, string> = {
+		all: "All results",
+		attention: "Needs attention",
+		progress: "In progress",
+		completed: "Agent created",
+		cancelled: "Cancelled",
+	};
+	const visibleRequests = allRequests.filter((request) => {
+		const attention = agentCreationNeedsAttention(
+			request,
+			Boolean(localSetups.get(request.id))
+		);
+		const remote = isHostedAgentControllerRef(
+			request.configuration?.agentControllerRef
+		);
+		const text = normalizeAgentSearch(
+			[
+				request.profileName,
+				request.configuration?.agentControllerRef,
+				request.configuration?.modelId,
+				modelBrandName(request.configuration?.modelId ?? null),
+			].join(" ")
+		);
+		const matchesResult =
+			resultFilter === "all" ||
+			(resultFilter === "attention" && attention) ||
+			(resultFilter === "progress" && request.status === "approved") ||
+			(resultFilter === "completed" &&
+				request.status === "completed" &&
+				!attention) ||
+			(resultFilter === "cancelled" && request.status === "cancelled");
+		return (
+			matchesResult &&
+			(typeFilter === "all" ||
+				(typeFilter === "remote"
+					? remote
+					: Boolean(request.configuration?.agentControllerRef) && !remote)) &&
+			normalizeAgentSearch(search)
+				.split(" ")
+				.every((term) => text.includes(term))
+		);
+	});
 	const requestCount = visibleRequests.length;
+	const clearFilters = () => {
+		setSearch("");
+		setResultFilter("all");
+		setTypeFilter("all");
+	};
 	const mutation = useMutation({
 		mutationFn: async (action: RequestAction) => {
 			switch (action.kind) {
@@ -198,6 +283,107 @@ export function AgentProfileCreationRequestsPanel(input: {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
+			{allRequests.length > 0 && (
+				<fieldset
+					aria-label="Creation history filters"
+					className="flex flex-wrap items-center gap-2"
+				>
+					<Button
+						aria-pressed={resultFilter === "all"}
+						onClick={() => setResultFilter("all")}
+						size="sm"
+						variant={resultFilter === "all" ? "secondary" : "outline"}
+					>
+						All ({allRequests.length})
+					</Button>
+					<Button
+						aria-pressed={resultFilter === "attention"}
+						onClick={() => setResultFilter("attention")}
+						size="sm"
+						variant={resultFilter === "attention" ? "secondary" : "outline"}
+					>
+						Needs attention ({attentionCount})
+					</Button>
+					<div className="ml-auto flex flex-wrap items-center gap-2">
+						{typeFilter !== "all" && (
+							<SidebarFilterBadge
+								label={typeFilter === "local" ? "Local Agent" : "Remote Agent"}
+								onRemove={() => setTypeFilter("all")}
+							/>
+						)}
+						{!["all", "attention"].includes(resultFilter) && (
+							<SidebarFilterBadge
+								label={resultLabels[resultFilter] ?? resultFilter}
+								onRemove={() => setResultFilter("all")}
+							/>
+						)}
+						<DirectorySearch
+							label="Search creation history"
+							onChange={setSearch}
+							value={search}
+							variant="secondary"
+						/>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label="Filter creation history"
+										size="icon-sm"
+										variant="secondary"
+									/>
+								}
+							>
+								<SlidersHorizontalIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" className="w-60">
+								<div className="flex items-center justify-between px-2 py-1">
+									<span className="text-sm">Filters</span>
+									<DropdownMenuItem
+										className="py-1"
+										disabled={
+											resultFilter === "all" && typeFilter === "all" && !search
+										}
+										onClick={clearFilters}
+										render={<Button size="sm" variant="secondary" />}
+									>
+										Reset
+									</DropdownMenuItem>
+								</div>
+								<DropdownMenuGroup>
+									<DropdownMenuLabel>Agent type</DropdownMenuLabel>
+									<DropdownMenuRadioGroup
+										onValueChange={setTypeFilter}
+										value={typeFilter}
+									>
+										<DropdownMenuRadioItem value="all">
+											All types
+										</DropdownMenuRadioItem>
+										<DropdownMenuRadioItem value="local">
+											Local Agent
+										</DropdownMenuRadioItem>
+										<DropdownMenuRadioItem value="remote">
+											Remote Agent
+										</DropdownMenuRadioItem>
+									</DropdownMenuRadioGroup>
+								</DropdownMenuGroup>
+								<DropdownMenuGroup>
+									<DropdownMenuLabel>Result</DropdownMenuLabel>
+									<DropdownMenuRadioGroup
+										onValueChange={setResultFilter}
+										value={resultFilter}
+									>
+										{Object.entries(resultLabels).map(([value, label]) => (
+											<DropdownMenuRadioItem key={value} value={value}>
+												{label}
+											</DropdownMenuRadioItem>
+										))}
+									</DropdownMenuRadioGroup>
+								</DropdownMenuGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+				</fieldset>
+			)}
 			{recoveryRequest ? (
 				<AgentCreationComputerRecovery
 					currentUserId={input.currentUserId}
@@ -266,9 +452,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 			) : null}
 
 			{requestsQuery.isPending ? (
-				<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
-					Loading Agent creation history…
-				</p>
+				<SkeletonTable columns={4} label="Loading Agent creation history" />
 			) : null}
 			{requestsQuery.isError ? (
 				<div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 px-4 py-3">
@@ -286,7 +470,19 @@ export function AgentProfileCreationRequestsPanel(input: {
 			) : null}
 			{requestsQuery.data && visibleRequests.length === 0 ? (
 				<p className="rounded-md border border-border border-dashed px-4 py-8 text-center text-muted-foreground text-sm">
-					No Agent creation history yet.
+					{allRequests.length
+						? "No creation history matches these filters."
+						: "No Agent creation history yet."}
+					{allRequests.length > 0 && (
+						<Button
+							className="ml-2"
+							onClick={clearFilters}
+							size="sm"
+							variant="secondary"
+						>
+							Clear search and filters
+						</Button>
+					)}
 				</p>
 			) : null}
 			{visibleRequests.length > 0 ? (
@@ -302,14 +498,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 					<TableBody>
 						{visibleRequests.map((request, index) => {
 							const isFocused = request.id === input.focusRequestId;
-							const localSetup =
-								request.status === "completed" && request.createdAgentProfileId
-									? readPendingAgentProfileCreationLocalSetup({
-											organizationId: input.organizationId,
-											requestId: request.id,
-											storageScope: input.storageScope,
-										})
-									: null;
+							const localSetup = localSetups.get(request.id);
 							const localSetupPending = Boolean(localSetup);
 							const localSetupPathMissing = localSetup?.workspacePath === null;
 							return (

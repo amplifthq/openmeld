@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 import { runtimeExecutionAuthorityOpenMeldServiceRuntimeIdSchema } from "./execution-identity";
 import { runtimeCoordinatorSafeEventPayloadJsonSchema } from "./runtime-coordinator-execution-token";
+import { runtimeTransportAdmissionEvidenceSchema } from "./runtime-transport-admission-evidence";
 
 export const RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION =
   "openmeld.runtime_coordinator.execution.v1" as const;
@@ -115,6 +116,21 @@ export const runtimeCoordinatorLegacyPointersSchema = z.strictObject({
   daemonSessionId: nullableIdentifierSchema,
   connectionGeneration: nullablePositiveIntegerSchema,
   leaseEpoch: nullablePositiveIntegerSchema,
+});
+
+/**
+ * Secret-free facts observed at the final Runtime Transport delivery boundary.
+ * These fields explain one exact delivery decision; they are not a second
+ * readiness projection or execution authority.
+ */
+export const runtimeCoordinatorDeliveryRouteEvidenceSchema = z.strictObject({
+  owner: z.enum(["matching", "unclaimed", "mismatched"]),
+  profileLease: z.enum(["matching", "missing", "mismatched"]),
+  session: z.enum(["matching", "missing", "connection_replaced"]),
+  socket: z.enum(["present", "missing"]),
+  acceptingDispatches: z.enum(["accepting", "not_accepting", "unknown"]),
+  admissionEvidence: runtimeTransportAdmissionEvidenceSchema.optional(),
+  profileRoute: z.enum(["registered", "not_registered", "unknown"]),
 });
 
 export const runtimeCoordinatorExecutionRecordSchema = z

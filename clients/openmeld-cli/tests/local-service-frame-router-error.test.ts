@@ -6,14 +6,12 @@ import {
 } from "@openmeld/local-service";
 import { RUNTIME_TRANSPORT_SCHEMA_VERSION } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  emitDaemonErrorFrame,
-  handleDaemonSocketFrame,
-} from "../src/local-service/carrier/frame-router";
+import { emitDaemonErrorFrame } from "../src/local-service/carrier/daemon-frame-transport";
+import { handleExecutionHostFrame } from "../src/local-service/execution-host/frame-router";
 import type { Presenter } from "../src/runtime/presenter/types";
 import type { WsClient } from "../src/transport/ws";
 
-type FrameRouterInput = Parameters<typeof handleDaemonSocketFrame>[0];
+type FrameRouterInput = Parameters<typeof handleExecutionHostFrame>[0];
 
 const createPresenter = (): {
   presenter: Presenter;
@@ -94,16 +92,10 @@ describe("local service frame-router error handling", () => {
       profileOwnerUserId: "user-1",
       routeByProfileId: new Map(),
       socket,
-      waiters: {
-        heartbeatRejecter: null,
-        heartbeatResolver: null,
-        registerRejecter: null,
-        registerResolver: null,
-      },
     };
-    handleDaemonSocketFrame(input);
+    handleExecutionHostFrame(input);
     expect(changed).not.toHaveBeenCalled();
-    handleDaemonSocketFrame({
+    handleExecutionHostFrame({
       ...input,
       parsedFrame: {
         code: "daemon.reasoning.preferences",
@@ -283,7 +275,7 @@ describe("local service frame-router error handling", () => {
       },
     ]);
 
-    handleDaemonSocketFrame({
+    handleExecutionHostFrame({
       computerFileAccessStorePath:
         "/tmp/openmeld-test-missing-computer-file-access-policy.json",
       contextStore: new Map(),
@@ -318,12 +310,6 @@ describe("local service frame-router error handling", () => {
       profileOwnerUserId: "user-1",
       routeByProfileId: new Map(),
       socket,
-      waiters: {
-        heartbeatRejecter: null,
-        heartbeatResolver: null,
-        registerRejecter: null,
-        registerResolver: null,
-      },
     });
 
     await vi.waitFor(() => expect(socket.send).toHaveBeenCalledTimes(1));
@@ -378,7 +364,7 @@ describe("local service frame-router error handling", () => {
       },
     ]);
 
-    handleDaemonSocketFrame({
+    handleExecutionHostFrame({
       computerFileAccessStorePath:
         "/tmp/openmeld-test-missing-computer-file-access-policy.json",
       contextStore: new Map(),
@@ -412,12 +398,6 @@ describe("local service frame-router error handling", () => {
       profileOwnerUserId: "user-1",
       routeByProfileId: new Map(),
       socket,
-      waiters: {
-        heartbeatRejecter: null,
-        heartbeatResolver: null,
-        registerRejecter: null,
-        registerResolver: null,
-      },
     });
 
     await vi.waitFor(() => expect(socket.send).toHaveBeenCalledTimes(1));
@@ -474,7 +454,7 @@ describe("local service frame-router error handling", () => {
       },
     ]);
 
-    handleDaemonSocketFrame({
+    handleExecutionHostFrame({
       computerFileAccessStorePath:
         "/tmp/openmeld-test-missing-computer-file-access-policy.json",
       contextStore: new Map(),
@@ -510,12 +490,6 @@ describe("local service frame-router error handling", () => {
       profileOwnerUserId: "user-1",
       routeByProfileId: new Map(),
       socket,
-      waiters: {
-        heartbeatRejecter: null,
-        heartbeatResolver: null,
-        registerRejecter: null,
-        registerResolver: null,
-      },
     });
 
     await vi.waitFor(() => expect(socket.send).toHaveBeenCalledTimes(1));
@@ -564,7 +538,7 @@ describe("local service frame-router error handling", () => {
       },
     ]);
 
-    handleDaemonSocketFrame({
+    handleExecutionHostFrame({
       computerFileAccessStorePath:
         "/tmp/openmeld-test-missing-computer-file-access-policy.json",
       contextStore: new Map(),
@@ -598,12 +572,6 @@ describe("local service frame-router error handling", () => {
       profileOwnerUserId: "user-1",
       routeByProfileId: new Map(),
       socket,
-      waiters: {
-        heartbeatRejecter: null,
-        heartbeatResolver: null,
-        registerRejecter: null,
-        registerResolver: null,
-      },
     });
 
     await vi.waitFor(() => expect(socket.send).toHaveBeenCalledTimes(1));

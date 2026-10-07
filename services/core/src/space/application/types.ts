@@ -24,9 +24,12 @@ export type FinalOutcomeWriteAuthority =
   | "approved_compatibility";
 
 export type SignalPublishContext = {
+  queuedInputHandoff?: { inputId: string; afterDispatchId: string };
+  spaceTaskDeliveryId?: string;
   agentReplyObservation?: {
     observedThroughSignalId: string;
     sourceSignalId: string;
+    sourceThreadId?: string | null;
     targetProfileId: string;
   };
   agentStreamId?: string;

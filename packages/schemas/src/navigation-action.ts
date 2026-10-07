@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { connectorServiceSchema } from "./schemas/http/connector-connections";
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 const LOCAL_WEB_URL = "http://localhost";
@@ -36,6 +37,12 @@ export const computerSetupNavigationTargetSchema = z.discriminatedUnion(
 );
 
 export const openMeldNavigationTargetSchema = z.union([
+  z.strictObject({
+    kind: z.literal("plugin_connection"),
+    service: connectorServiceSchema,
+    // A presentation request, never permission to connect or use an account.
+    scope: z.enum(["member", "shared", "choose"]),
+  }),
   z.strictObject({
     kind: z.literal("organization_app"),
     service: z.literal("github"),
@@ -129,6 +136,16 @@ export function buildOpenMeldNavigationAction(input: {
   const organizationPath = url.pathname.replace(TRAILING_SLASH_PATTERN, "");
   let label: string;
   switch (target.kind) {
+    case "plugin_connection":
+      label = "Open Plugin connection";
+      url.pathname = `${organizationPath}/plugins/${encodePathSegment(target.service)}`;
+      if (target.scope !== "choose") {
+        url.searchParams.set(
+          "scope",
+          target.scope === "member" ? "personal" : "organization"
+        );
+      }
+      break;
     case "organization_app":
       label = "Open GitHub access";
       url.pathname = `${organizationPath}/center-agent/plugins/${encodePathSegment(target.service)}`;

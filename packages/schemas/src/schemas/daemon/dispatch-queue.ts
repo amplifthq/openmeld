@@ -1,4 +1,6 @@
 import * as z from "../../lazy-zod";
+import { spaceEvidenceReferencesSchema } from "../../space-evidence";
+import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import {
   spaceMessageFileReferenceSchema,
   spaceMessageFileReferencesSchema,
@@ -103,6 +105,8 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  evidenceRefs: spaceEvidenceReferencesSchema.optional(),
+  workHandoff: spaceWorkHandoffSchema.optional(),
   contextMessages: z
     .array(
       z.strictObject({
@@ -208,6 +212,8 @@ export const openMeldDaemonDispatchQueueMessageSchema = z
     deliveryRecoveryReason:
       openMeldDaemonDispatchQueueRecoveryReasonSchema.optional(),
     idempotencyKey: z.string().min(1),
+    // Stable age of the Space outbox item; enqueuedAtMs tracks the latest handoff.
+    outboxCreatedAtMs: z.number().int().nonnegative().optional(),
     enqueuedAtMs: z.number().int().nonnegative(),
   })
   .superRefine((value, context) => {

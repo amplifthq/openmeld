@@ -1,15 +1,16 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentProfileCreationPreferenceSelection,
   ModelCatalog,
 } from "@openmeld/schemas/types";
+import { assertAgentControllerPermissionModeReleased } from "../../local-components/runtime-contract-rollout";
 import { readProjectRecord } from "../../projects/project-repository";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
   type AgentProfileCreationDefaultsRecord,
   upsertAgentProfileCreationDefaultsRecord,
-} from "../infrastructure/d1/agent-profile-creation-defaults-repo";
-
+} from "../infrastructure/postgresql/agent-profile-creation-defaults-repo";
 export function resolveFirstUseAgentProfileCreationDefaults(input: {
   agentControllerRef: string;
   modelCatalog: ModelCatalog;
@@ -40,15 +41,17 @@ export function resolveFirstUseAgentProfileCreationDefaults(input: {
       : null;
   return { modelId: defaultModel.id, reasoningLevel };
 }
-
 export async function rememberAgentProfileCreationDefaults(input: {
   agentControllerRef: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   selection: AgentProfileCreationPreferenceSelection;
   userId: string;
 }): Promise<AgentProfileCreationDefaultsRecord> {
+  assertAgentControllerPermissionModeReleased(
+    input.selection.agentControllerPermissionMode
+  );
   if (input.selection.defaultProjectId) {
     const project = await readProjectRecord({
       db: input.db,
@@ -63,7 +66,6 @@ export async function rememberAgentProfileCreationDefaults(input: {
       });
     }
   }
-
   return await upsertAgentProfileCreationDefaultsRecord({
     ...input.selection,
     agentControllerRef: input.agentControllerRef,

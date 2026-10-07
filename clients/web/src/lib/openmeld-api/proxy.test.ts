@@ -1,8 +1,11 @@
+// @vitest-environment node
 import {
 	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
 	OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
 	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+	OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+	OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import { OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
@@ -22,6 +25,70 @@ const UUID_HEADER_PATTERN = /^[0-9a-f-]+$/u;
 const TRACE_ID = "0123456789abcdef0123456789abcdef";
 
 describe("OpenMeld gateway proxy", () => {
+	it("streams a versioned media range with the existing Organization and cookie boundary", async () => {
+		const request = new Request(
+			"https://openmeld.test/v1/spaces/space-123/files/file-1/content?revision=2&__openmeld_organization_slug=acme",
+			{
+				headers: {
+					cookie: "session=abc",
+					range: "bytes=4-7",
+					"if-range": '"revision-2"',
+					authorization: "untrusted",
+				},
+			}
+		);
+		const fetchMock = vi.fn<typeof fetch>(() =>
+			Promise.resolve(
+				new Response("part", {
+					status: 206,
+					headers: {
+						"content-type": "video/mp4",
+						"content-range": "bytes 4-7/10",
+						"accept-ranges": "bytes",
+						"content-length": "4",
+						"cache-control": "private, no-store",
+					},
+				})
+			)
+		);
+		const directlyBuilt = buildOpenMeldGatewayUpstreamHeaders({
+			requestHeaders: request.headers,
+			webAppUrl: "https://openmeld.test",
+		});
+		expect(Object.fromEntries(directlyBuilt.entries())).toMatchObject({
+			range: "bytes=4-7",
+		});
+		const response = await proxyOpenMeldGatewayRequest({
+			request,
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			fetchImpl: fetchMock,
+		});
+		const [url, init] = fetchMock.mock.calls[0] ?? [];
+		expect(String(url)).toBe(
+			"https://gateway.openmeld.test/v1/spaces/space-123/files/file-1/content?revision=2"
+		);
+		const headers = new Headers(init?.headers);
+		expect(Object.fromEntries(request.headers)).toMatchObject({
+			range: "bytes=4-7",
+			"if-range": '"revision-2"',
+		});
+		expect(
+			Object.fromEntries((init?.headers as Headers).entries())
+		).toMatchObject({ range: "bytes=4-7", "if-range": '"revision-2"' });
+		expect(headers.get("x-openmeld-requested-organization-slug")).toBe("acme");
+		expect(headers.get("cookie")).toBe("session=abc");
+		expect(headers.get("range")).toBe("bytes=4-7");
+		expect(headers.get("if-range")).toBe('"revision-2"');
+		expect(headers.has("authorization")).toBe(false);
+		expect(init?.signal).toBe(request.signal);
+		expect(response.status).toBe(206);
+		expect(response.headers.get("content-range")).toBe("bytes 4-7/10");
+		expect(response.headers.get("content-length")).toBe("4");
+		expect(response.headers.get("cache-control")).toBe("private, no-store");
+		expect(await response.text()).toBe("part");
+	});
+
 	it("preserves the incoming /v1 path and query against the gateway origin", () => {
 		const upstreamUrl = buildOpenMeldGatewayUpstreamUrl({
 			gatewayUrl: "https://gateway.openmeld.test",
@@ -135,6 +202,34 @@ describe("OpenMeld gateway proxy", () => {
 			fetchImpl: fetchMock,
 		});
 
+		expect(response.status).toBe(200);
+	});
+
+	it("forwards Space Files capabilities while blocking untrusted headers", async () => {
+		const fetchMock = vi.fn<typeof fetch>((_input, init) => {
+			const headers = init?.headers as Headers;
+			expect(headers.get(OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION)).toBe("1");
+			expect(headers.get(OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION)).toBe(
+				"1"
+			);
+			expect(headers.has("x-openmeld-untrusted")).toBe(false);
+			return Promise.resolve(new Response("ok", { status: 200 }));
+		});
+		const response = await proxyOpenMeldGatewayRequest({
+			request: new Request(
+				"https://openmeld.test/v1/spaces/space-1/files?origin=all",
+				{
+					headers: {
+						[OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]: "1",
+						[OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]: "1",
+						"x-openmeld-untrusted": "blocked",
+					},
+				}
+			),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			fetchImpl: fetchMock,
+		});
 		expect(response.status).toBe(200);
 	});
 

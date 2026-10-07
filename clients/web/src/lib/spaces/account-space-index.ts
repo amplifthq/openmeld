@@ -55,6 +55,7 @@ const listAccountSpaceIndexImpl = createIsomorphicFn()
 				includeRecentlyDeletedItems: true,
 				includeMemberPreviews: true,
 				includeMessagePreviews: true,
+				includeDirectoryPreviews: true,
 			})
 			.catch((error: unknown) =>
 				rethrowAccountSpaceApiFailure(

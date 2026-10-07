@@ -8,11 +8,11 @@ import {
 } from "../src/remote-agent/application/slack-installation-welcome-preparation-service";
 import { buildJoinedMemberWelcomeMessage } from "../src/remote-agent/application/slack-invited-member-onboarding-service";
 import { buildPrivateTeammateInvitationMessage } from "../src/remote-agent/application/slack-welcome-interaction-service";
-import { enqueueSlackInstallationWelcomePreparation } from "../src/remote-agent/infrastructure/d1/slack-installation-welcome-preparation-repo";
+import { enqueueSlackInstallationWelcomePreparation } from "../src/remote-agent/infrastructure/postgresql/slack-installation-welcome-preparation-repo";
 import {
-  createFaultInjectingD1Database,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createFaultInjectingPostgresDatabase,
+  createPostgresHarness,
+} from "./helpers/postgresql-harness.test-support";
 
 const PRESSURE_OR_NARROW_PRODUCT_LANGUAGE_PATTERN =
   /review|approve|discard|GitHub|coding agent/iu;
@@ -20,42 +20,24 @@ const PRESSURE_OR_GITHUB_LANGUAGE_PATTERN = /review|approve|discard|GitHub/iu;
 const PRESSURE_LANGUAGE_PATTERN = /review|approve|discard/iu;
 
 describe("Slack trust-first welcome preparation", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    harness.run({
-      sql: `
-        CREATE TABLE slack_installation_welcome_preparations (
-          slack_team_id TEXT NOT NULL,
-          organization_id TEXT NOT NULL,
-          recipient_slack_user_id TEXT NOT NULL,
-          connection_created_at_ms INTEGER NOT NULL,
-          welcome_version INTEGER NOT NULL,
-          message_kind TEXT NOT NULL,
-          installed_by_user_id TEXT NOT NULL,
-          installed_by_profile_id TEXT NOT NULL,
-          status TEXT NOT NULL,
-          claim_id TEXT,
-          research_task_id TEXT,
-          failure_code TEXT,
-          created_at_ms INTEGER NOT NULL,
-          updated_at_ms INTEGER NOT NULL,
-          PRIMARY KEY (
-            slack_team_id,
-            organization_id,
-            recipient_slack_user_id,
-            connection_created_at_ms,
-            welcome_version
-          )
-        )
-      `,
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
+    await harness.query({
+      text: `INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('org-1','Ampli Lift','ampli-lift',1000)`,
+    });
+    await harness.query({
+      text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ('user-installer','Alex','alex@example.test')`,
+    });
+    await harness.query({
+      text: `INSERT INTO "openmeld"."center_agent_member_research_batches" (id,organization_id,scope,status,requested_by_user_id,requested_by_member_id,requested_by_profile_id,requested_by_display_name,direct_message_space_id,created_at_ms,updated_at_ms) VALUES ('research-batch-1','org-1','member','completed','user-installer','member-installer','11111111-1111-4111-8111-111111111111','Alex','research-dm',1000,1100)`,
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllGlobals();
-    harness.close();
+    await harness.close();
   });
 
   it("speaks plainly, proves that learning happened, and stays low pressure", () => {
@@ -182,74 +164,24 @@ describe("Slack trust-first welcome preparation", () => {
   });
 
   it("closes the loop with a plain next step when a prepared welcome has an invalid Web app URL", async () => {
-    for (const sql of [
-      `CREATE TABLE center_agent_member_research_tasks (
-        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
-        observed_language_tag TEXT, report_result TEXT
-      )`,
-      `CREATE TABLE center_agent_member_research_computer_files (
-        task_id TEXT PRIMARY KEY, document_id TEXT NOT NULL,
-        subject_user_id TEXT NOT NULL, path TEXT NOT NULL
-      )`,
-      `CREATE TABLE organization_documents (
-        id TEXT PRIMARY KEY, organization_id TEXT NOT NULL,
-        content TEXT NOT NULL, draft_content TEXT,
-        last_member_research_task_id TEXT
-      )`,
-      `CREATE TABLE organizations (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL
-      )`,
-      "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
-      `CREATE TABLE connector_connections (
-        organization_id TEXT NOT NULL, status TEXT NOT NULL
-      )`,
-      `CREATE TABLE organization_working_language_preferences (
-        organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
-      )`,
-      `CREATE TABLE slack_installation_welcome_deliveries (
-        slack_team_id TEXT NOT NULL, organization_id TEXT NOT NULL,
-        recipient_slack_user_id TEXT NOT NULL,
-        connection_created_at_ms INTEGER NOT NULL, welcome_version INTEGER NOT NULL,
-        message_kind TEXT NOT NULL, status TEXT NOT NULL, claim_id TEXT NOT NULL,
-        attempt_count INTEGER NOT NULL, message_ts TEXT, failure_code TEXT,
-        created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (slack_team_id, organization_id, recipient_slack_user_id,
-          connection_created_at_ms, welcome_version)
-      )`,
-      `CREATE TABLE slack_workspace_tokens (
-        slack_team_id TEXT PRIMARY KEY, encrypted_bot_token TEXT NOT NULL,
-        bot_user_id TEXT NOT NULL, granted_bot_scopes TEXT,
-        installed_by_user_id TEXT NOT NULL,
-        organization_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL
-      )`,
-    ]) {
-      harness.run({ sql });
-    }
-    harness.run({
-      sql: `INSERT INTO center_agent_member_research_tasks (
-        id, status, failure_code, observed_language_tag, report_result
-      ) VALUES ('research-task-1', 'completed', NULL, NULL, 'evidence_backed')`,
+    await harness.query({
+      text: `INSERT INTO "openmeld"."center_agent_member_research_tasks" (
+        id, status, failure_code, observed_language_tag, report_result, batch_id, subject_user_id, subject_display_name, position, created_at_ms, started_at_ms, finished_at_ms
+      ) VALUES ('research-task-1', 'completed', NULL, NULL, 'evidence_backed', 'research-batch-1', 'user-installer', 'Alex', 1, 1000, 1000, 1100)`,
     });
-    harness.run({
-      sql: `INSERT INTO organization_documents VALUES (
-        'document-1', 'org-1', '## Working profile', NULL, 'research-task-1'
+    await harness.query({
+      text: `INSERT INTO "openmeld"."organization_documents" (id, organization_id, content, draft_content, last_member_research_task_id, kind, subject_user_id, title) VALUES (
+        'document-1', 'org-1', '## Working profile', NULL, 'research-task-1', 'member_profile', 'user-installer', 'Profile Report'
       )`,
     });
-    harness.run({
-      sql: `INSERT INTO center_agent_member_research_computer_files VALUES (
+    await harness.query({
+      text: `INSERT INTO "openmeld"."center_agent_member_research_computer_files" (task_id, document_id, subject_user_id, path, created_at_ms) VALUES (
         'research-task-1', 'document-1', 'user-installer',
-        '/computer/home/documents/Profile Reports/Alex/2026-08-15 — Work Profile.md'
+        '/computer/home/documents/Profile Reports/Alex/2026-08-15 — Work Profile.md', 1000
       )`,
     });
-    harness.run({
-      sql: "INSERT INTO organizations VALUES ('org-1', 'Ampli Lift', 'ampli-lift')",
-    });
-    harness.run({
-      sql: "INSERT INTO users VALUES ('user-installer', 'Alex Kim')",
-    });
-    harness.run({
-      sql: `INSERT INTO slack_installation_welcome_preparations VALUES (
+    await harness.query({
+      text: `INSERT INTO "openmeld"."slack_installation_welcome_preparations" (slack_team_id, organization_id, recipient_slack_user_id, connection_created_at_ms, welcome_version, message_kind, installed_by_user_id, installed_by_profile_id, status, claim_id, research_task_id, failure_code, created_at_ms, updated_at_ms) VALUES (
         'T123', 'org-1', 'U_INSTALLER', 100, 2, 'connected',
         'user-installer', 'profile-installer', 'ready', 'claim-1',
         'research-task-1', NULL, 100, 100
@@ -279,8 +211,8 @@ describe("Slack trust-first welcome preparation", () => {
     expect(body.text).toContain("couldn’t finish your first Profile Report");
     expect(body.text).toContain("Reply “try again”");
     expect(
-      harness.queryFirst({
-        sql: "SELECT status, failure_code FROM slack_installation_welcome_preparations",
+      await harness.queryFirst({
+        text: 'SELECT status, failure_code FROM "openmeld"."slack_installation_welcome_preparations"',
       })
     ).toEqual({
       failure_code: "welcome_preparation_failed",
@@ -354,8 +286,8 @@ describe("Slack trust-first welcome preparation", () => {
     });
 
     expect(
-      harness.queryFirst({
-        sql: "SELECT status, claim_id, research_task_id, failure_code FROM slack_installation_welcome_preparations",
+      await harness.queryFirst({
+        text: 'SELECT status, claim_id, research_task_id, failure_code FROM "openmeld"."slack_installation_welcome_preparations"',
       })
     ).toEqual({
       claim_id: null,
@@ -366,16 +298,10 @@ describe("Slack trust-first welcome preparation", () => {
   });
 
   it("keeps an accepted research task recoverable when attaching it fails", async () => {
-    harness.run({
-      sql: `CREATE TABLE center_agent_member_research_tasks (
-        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
-        observed_language_tag TEXT, report_result TEXT
-      )`,
-    });
-    harness.run({
-      sql: `INSERT INTO center_agent_member_research_tasks (
-        id, status, failure_code, observed_language_tag, report_result
-      ) VALUES ('research-task-accepted', 'running', NULL, NULL, NULL)`,
+    await harness.query({
+      text: `INSERT INTO "openmeld"."center_agent_member_research_tasks" (
+        id, status, failure_code, observed_language_tag, report_result, batch_id, subject_user_id, subject_display_name, position, created_at_ms, started_at_ms
+      ) VALUES ('research-task-accepted', 'running', NULL, NULL, NULL, 'research-batch-1', 'user-installer', 'Alex', 1, 100, 100)`,
     });
     await enqueueSlackInstallationWelcomePreparation({
       allowCreate: true,
@@ -392,12 +318,12 @@ describe("Slack trust-first welcome preparation", () => {
     const startResearch = vi.fn(async () => ({
       taskId: "research-task-accepted",
     }));
-    const checkpointDb = createFaultInjectingD1Database({
+    const checkpointDb = createFaultInjectingPostgresDatabase({
       db: harness.db,
-      matches: (sql, operation) =>
-        operation === "run" &&
-        sql.includes("UPDATE slack_installation_welcome_preparations") &&
-        sql.includes("research_task_id = ?"),
+      matches: (sql) =>
+        sql.includes(
+          'UPDATE "openmeld"."slack_installation_welcome_preparations"'
+        ) && sql.includes("research_task_id = $6"),
     });
 
     await runSlackInstallationWelcomePreparationTick({
@@ -408,9 +334,9 @@ describe("Slack trust-first welcome preparation", () => {
     });
 
     expect(
-      harness.queryFirst({
-        sql: `SELECT status, research_task_id, failure_code
-          FROM slack_installation_welcome_preparations`,
+      await harness.queryFirst({
+        text: `SELECT status, research_task_id, failure_code
+          FROM "openmeld"."slack_installation_welcome_preparations"`,
       })
     ).toEqual({
       failure_code: null,
@@ -427,9 +353,9 @@ describe("Slack trust-first welcome preparation", () => {
 
     expect(startResearch).toHaveBeenCalledTimes(2);
     expect(
-      harness.queryFirst({
-        sql: `SELECT status, research_task_id, failure_code
-          FROM slack_installation_welcome_preparations`,
+      await harness.queryFirst({
+        text: `SELECT status, research_task_id, failure_code
+          FROM "openmeld"."slack_installation_welcome_preparations"`,
       })
     ).toEqual({
       failure_code: null,
@@ -439,42 +365,6 @@ describe("Slack trust-first welcome preparation", () => {
   });
 
   it("sends a plain next step instead of silently disappearing when first research fails", async () => {
-    for (const sql of [
-      `CREATE TABLE slack_installation_welcome_deliveries (
-        slack_team_id TEXT NOT NULL, organization_id TEXT NOT NULL,
-        recipient_slack_user_id TEXT NOT NULL,
-        connection_created_at_ms INTEGER NOT NULL, welcome_version INTEGER NOT NULL,
-        message_kind TEXT NOT NULL, status TEXT NOT NULL, claim_id TEXT NOT NULL,
-        attempt_count INTEGER NOT NULL, message_ts TEXT, failure_code TEXT,
-        created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (slack_team_id, organization_id, recipient_slack_user_id,
-          connection_created_at_ms, welcome_version)
-      )`,
-      `CREATE TABLE slack_workspace_tokens (
-        slack_team_id TEXT PRIMARY KEY, encrypted_bot_token TEXT NOT NULL,
-        bot_user_id TEXT NOT NULL, granted_bot_scopes TEXT,
-        installed_by_user_id TEXT NOT NULL,
-        organization_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL
-      )`,
-      "CREATE TABLE organizations (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
-      "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
-      `CREATE TABLE center_agent_member_research_tasks (
-        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
-        observed_language_tag TEXT, report_result TEXT
-      )`,
-      `CREATE TABLE organization_working_language_preferences (
-        organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
-      )`,
-    ]) {
-      harness.run({ sql });
-    }
-    harness.run({
-      sql: "INSERT INTO organizations VALUES ('org-1', 'Ampli Lift')",
-    });
-    harness.run({
-      sql: "INSERT INTO users VALUES ('user-installer', 'Alex Kim')",
-    });
     await enqueueSlackInstallationWelcomePreparation({
       allowCreate: true,
       connectionCreatedAtMs: 100,
@@ -509,8 +399,8 @@ describe("Slack trust-first welcome preparation", () => {
     expect(body.text).toContain("couldn’t finish your first Profile Report");
     expect(body.text).toContain("Reply “try again”");
     expect(
-      harness.queryFirst({
-        sql: "SELECT status, failure_code FROM slack_installation_welcome_preparations",
+      await harness.queryFirst({
+        text: 'SELECT status, failure_code FROM "openmeld"."slack_installation_welcome_preparations"',
       })
     ).toEqual({
       failure_code: "member_research_start_failed",
@@ -519,60 +409,27 @@ describe("Slack trust-first welcome preparation", () => {
   });
 
   it("uses the published Profile Report when the draft was saved before welcome delivery", async () => {
-    for (const sql of [
-      `CREATE TABLE center_agent_member_research_tasks (
-        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
-        observed_language_tag TEXT, report_result TEXT
-      )`,
-      `CREATE TABLE center_agent_member_research_computer_files (
-        task_id TEXT PRIMARY KEY, document_id TEXT NOT NULL,
-        subject_user_id TEXT NOT NULL, path TEXT NOT NULL
-      )`,
-      `CREATE TABLE organization_documents (
-        id TEXT PRIMARY KEY, organization_id TEXT NOT NULL,
-        content TEXT NOT NULL, draft_content TEXT,
-        last_member_research_task_id TEXT
-      )`,
-      `CREATE TABLE organizations (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL
-      )`,
-      "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
-      `CREATE TABLE connector_connections (
-        organization_id TEXT NOT NULL, status TEXT NOT NULL
-      )`,
-      `CREATE TABLE organization_working_language_preferences (
-        organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
-      )`,
-    ]) {
-      harness.run({ sql });
-    }
-    harness.run({
-      sql: `INSERT INTO center_agent_member_research_tasks (
-        id, status, failure_code, observed_language_tag, report_result
-      ) VALUES ('research-task-1', 'completed', NULL, NULL, 'evidence_backed')`,
+    await harness.query({
+      text: `INSERT INTO "openmeld"."center_agent_member_research_tasks" (
+        id, status, failure_code, observed_language_tag, report_result, batch_id, subject_user_id, subject_display_name, position, created_at_ms, started_at_ms, finished_at_ms
+      ) VALUES ('research-task-1', 'completed', NULL, NULL, 'evidence_backed', 'research-batch-1', 'user-installer', 'Alex', 1, 1000, 1000, 1100)`,
     });
-    harness.run({
-      sql: `INSERT INTO organization_documents VALUES (
+    await harness.query({
+      text: `INSERT INTO "openmeld"."organization_documents" (id, organization_id, content, draft_content, last_member_research_task_id, kind, subject_user_id, title) VALUES (
         'document-1', 'org-1',
-        '### Current focus\n- 2026-08-15 — Replaced a prior **Insufficient evidence** draft with clearer onboarding findings. Source: Slack #product',
-        NULL, 'research-task-1'
+        '### Current focus
+- 2026-08-15 — Replaced a prior **Insufficient evidence** draft with clearer onboarding findings. Source: Slack #product',
+        NULL, 'research-task-1', 'member_profile', 'user-installer', 'Profile Report'
       )`,
     });
-    harness.run({
-      sql: `INSERT INTO center_agent_member_research_computer_files VALUES (
+    await harness.query({
+      text: `INSERT INTO "openmeld"."center_agent_member_research_computer_files" (task_id, document_id, subject_user_id, path, created_at_ms) VALUES (
         'research-task-1', 'document-1', 'user-installer',
-        '/computer/home/documents/Profile Reports/Alex/2026-08-15 — Work Profile.md'
+        '/computer/home/documents/Profile Reports/Alex/2026-08-15 — Work Profile.md', 1000
       )`,
     });
-    harness.run({
-      sql: "INSERT INTO organizations VALUES ('org-1', 'Ampli Lift', 'ampli-lift')",
-    });
-    harness.run({
-      sql: "INSERT INTO users VALUES ('user-installer', 'Alex Kim')",
-    });
-    harness.run({
-      sql: `INSERT INTO organization_working_language_preferences
-        VALUES ('org-1', 'zh-CN')`,
+    await harness.query({
+      text: `INSERT INTO "openmeld"."organization_working_language_preferences" (organization_id, language_tag, mode, created_at_ms, updated_at_ms) VALUES ('org-1', 'zh-CN', 'automatic', 1000, 1000)`,
     });
 
     const report = await readPreparedProfileReport({

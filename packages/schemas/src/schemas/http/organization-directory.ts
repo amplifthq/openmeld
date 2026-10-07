@@ -4,8 +4,12 @@ import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { agentProfileIdSchema, uuidProfileIdSchema } from "../protocol/profile";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
 import { agentProfileBindingModelSelectionSchema } from "./agent-profile-binding";
+import { agentWorkloadSnapshotSchema } from "./agent-workload";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
-import { authProfileManagedRoleSchema } from "./profiles";
+import {
+  agentAvatarStyleSchema,
+  authProfileManagedRoleSchema,
+} from "./profiles";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -94,6 +98,8 @@ export const organizationDirectoryAgentProfileIdentitySchema = z.strictObject({
   ownerUserId: nullableTrimmedStringSchema,
   ownerName: trimmedNonEmptyStringSchema.optional(),
   avatarUrl: trimmedNonEmptyStringSchema.optional(),
+  avatarStyle: agentAvatarStyleSchema.nullable().optional(),
+  avatarModelId: nullableTrimmedStringSchema.optional(),
   source: trimmedNonEmptyStringSchema,
   managedRole: z.union([authProfileManagedRoleSchema, z.null()]),
   createdByUserId: nullableTrimmedStringSchema,
@@ -139,6 +145,7 @@ export const organizationProfileDirectoryResponseSchema = z.strictObject({
 
 export const organizationAgentRuntimeOverviewItemSchema = z.strictObject({
   profileId: agentProfileIdSchema,
+  workload: agentWorkloadSnapshotSchema.optional(),
   lastTaskActivityAt: ISO_DATE_TIME_SCHEMA.nullable().optional(),
   operationalContext:
     organizationDirectoryAgentProfileOperationalContextSchema.optional(),

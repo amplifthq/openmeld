@@ -8,7 +8,7 @@ const STAGING_DB_ID = "10da3483-0644-459a-8523-381a2a17ac39";
 const STAGING_KV_ID = "ce0678aff60e4d5b864ad0591ea5e88a";
 const PRODUCTION_RESOURCE_PATTERN = /-prod/u;
 const PRODUCTION_URL_PATTERN =
-  /https:\/\/(?:auth\.|gateway\.)?openmeld\.ai(?:["/])/u;
+  /https:\/\/(?:(?:app|auth|gateway)\.)?openmeld\.ai(?:["/])/u;
 const DEPLOY_STAGING_SCRIPT_PATTERN = /deploy:stg/u;
 const STAGING_ARGUMENT_PATTERN = /stg/u;
 const PRODUCTION_ARGUMENT_PATTERN = /prod/u;
@@ -28,6 +28,8 @@ const configs = {
   gateway: readConfig("services/gateway/wrangler.jsonc"),
   remoteAgent: readConfig("services/remote-agent/wrangler.jsonc"),
   web: readConfig("clients/web/wrangler.jsonc"),
+  website: readConfig("clients/website/wrangler.jsonc"),
+  docs: readConfig("clients/docs/wrangler.jsonc"),
 };
 
 const packageManifests = {
@@ -36,6 +38,8 @@ const packageManifests = {
   gateway: readConfig("services/gateway/package.json"),
   remoteAgent: readConfig("services/remote-agent/package.json"),
   web: readConfig("clients/web/package.json"),
+  website: readConfig("clients/website/package.json"),
+  docs: readConfig("clients/docs/package.json"),
 };
 
 test("declares one isolated staging environment for every internal Worker", () => {
@@ -60,7 +64,15 @@ test("declares one isolated staging environment for every internal Worker", () =
 test("routes staging public Workers through staging.openmeld.ai", () => {
   assert.deepEqual(configs.web.env.stg.route, {
     custom_domain: true,
+    pattern: "app.staging.openmeld.ai",
+  });
+  assert.deepEqual(configs.website.env.stg.route, {
+    custom_domain: true,
     pattern: "staging.openmeld.ai",
+  });
+  assert.deepEqual(configs.docs.env.stg.route, {
+    custom_domain: true,
+    pattern: "docs.staging.openmeld.ai",
   });
   assert.deepEqual(configs.auth.env.stg.route, {
     custom_domain: true,
@@ -97,9 +109,12 @@ test("binds Auth and Core only to the staging database", () => {
 });
 
 test("keeps staging service bindings, queues, and storage inside staging", () => {
+  assert.deepEqual(configs.website.env.stg.services, [
+    { binding: "APP", service: "openmeld-web-stg" },
+  ]);
   assert.deepEqual(
     configs.core.env.stg.services.map((binding) => binding.service),
-    ["openmeld-auth-stg", "openmeld-remote-agent-stg"]
+    ["openmeld-gateway-stg", "openmeld-auth-stg", "openmeld-remote-agent-stg"]
   );
   assert.deepEqual(
     configs.gateway.env.stg.services.map((binding) => binding.service),

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
@@ -7,10 +8,9 @@ import {
   type AgentProfileBindingRecord,
   ensurePrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecord,
-} from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+} from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { resolveCenterAgentModelRouteForBinding } from "../../center-agent/application/center-agent-model-service";
 import { readModelCatalog } from "../../config/model-catalog";
-
 export function isPersonalRemoteAgentBinding(
   binding: AgentProfileBindingRecord
 ): boolean {
@@ -32,11 +32,10 @@ export function isPersonalRemoteAgentBinding(
     return false;
   }
 }
-
 export async function requirePersonalRemoteAgentBinding(input: {
   agentProfileId: string;
   bindingId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   ownerUserId: string | null;
 }): Promise<AgentProfileBindingRecord> {
@@ -62,39 +61,45 @@ export async function requirePersonalRemoteAgentBinding(input: {
   }
   return binding;
 }
-
 async function requirePersonalRemoteAgentOwner(input: {
   agentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   ownerUserId: string;
 }): Promise<void> {
   const profile = await input.db
-    .prepare(`
-    SELECT p.profile_id FROM openmeld_profiles p
-    JOIN members m ON m.organization_id = p.organization_id AND m.user_id = p.owner_user_id
-    WHERE p.profile_id = ? AND p.organization_id = ? AND p.owner_user_id = ?
+    .query({
+      text: `
+    SELECT p.profile_id FROM "openmeld"."openmeld_profiles" p
+    JOIN "openmeld"."members" m ON m.organization_id = p.organization_id AND m.user_id = p.owner_user_id
+    WHERE p.profile_id = $1 AND p.organization_id = $2 AND p.owner_user_id = $3
       AND p.profile_kind = 'agent' AND p.managed_role IS NULL AND p.status = 'active'
     LIMIT 1
-  `)
-    .bind(input.agentProfileId, input.organizationId, input.ownerUserId)
-    .first();
+  `,
+      values: [input.agentProfileId, input.organizationId, input.ownerUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!profile) {
     throw new Error("remote_agent.personal_profile_unavailable");
   }
 }
-
 export async function createPersonalRemoteAgentBinding(input: {
   agentProfileId: string;
   createdByProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   modelId: string | null;
+  reasoningLevel: string | null;
   organizationId: string;
   ownerUserId: string;
 }): Promise<void> {
   await requirePersonalRemoteAgentOwner(input);
   resolveCenterAgentModelRouteForBinding({
-    binding: { configurationRevision: 1, modelId: input.modelId },
+    binding: {
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      configurationRevision: 1,
+      modelId: input.modelId,
+      reasoningLevel: input.reasoningLevel,
+    },
     catalog: readModelCatalog(),
   });
   const nowMs = Date.now();
@@ -110,6 +115,7 @@ export async function createPersonalRemoteAgentBinding(input: {
         HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY
       ),
       modelId: input.modelId,
+      reasoningLevel: input.reasoningLevel,
       openMeldServiceRuntimeId: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
       owner: { id: input.ownerUserId, kind: "owner_account" },
       runtimeKind: "hosted_remote_agent",

@@ -74,6 +74,11 @@ test("gives concurrent worktrees separate complete port blocks", async () => {
     assert.equal(first.ports.remoteAgent, first.ports.web + 3);
     assert.equal(first.ports.cliBinary, first.ports.web + 4);
     assert.equal(
+      buildIsolatedDevEnvironment(first)
+        .VITE_OPENMELD_SETUP_USER_FACING_COMMAND,
+      "openmeld-dev"
+    );
+    assert.equal(
       buildIsolatedDevEnvironment(first).VITE_OPENMELD_CLI_BINARY_MANIFEST_URL,
       `http://127.0.0.1:${first.ports.cliBinary}/cli/manifest.json`
     );

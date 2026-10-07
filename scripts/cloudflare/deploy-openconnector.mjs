@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import {
+  constants,
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import path from "node:path";
+import { OPENMELD_GIT_PROXY_UPSTREAM_SHA } from "../../config/openconnector/github-working-copy-policy.mjs";
 
 import {
   assertRequiredOpenConnectorRuntimeSecrets,
@@ -19,6 +26,14 @@ const temporaryConfigName = `.openmeld-openconnector-${options.environment}.json
 const sourceDirectory = path.resolve(options.source);
 const packageJsonPath = path.join(sourceDirectory, "package.json");
 const temporaryConfigPath = path.join(sourceDirectory, temporaryConfigName);
+const overlays = [
+  ["working-copy-worker.mjs", ".openmeld-working-copy-worker.mjs"],
+  [
+    "github-working-copy-policy.mjs",
+    ".openmeld-github-working-copy-policy.mjs",
+  ],
+];
+const createdOverlays = [];
 
 if (
   options.environment === "staging" &&
@@ -50,6 +65,18 @@ if (dirtyFiles.trim()) {
 }
 
 const sourceSha = run("git", ["rev-parse", "HEAD"], sourceDirectory).trim();
+if (sourceSha !== OPENMELD_GIT_PROXY_UPSTREAM_SHA) {
+  throw new Error(
+    "This Git working-copy integration requires its reviewed OpenConnector revision. Revalidate its per-policy app cache before updating the pin."
+  );
+}
+for (const [, name] of overlays) {
+  if (existsSync(path.join(sourceDirectory, name))) {
+    throw new Error(
+      `Refusing to overwrite existing deployment overlay ${name}.`
+    );
+  }
+}
 if (sourceSha !== options.sourceSha) {
   throw new Error(
     `OpenConnector source SHA mismatch: expected ${options.sourceSha}, found ${sourceSha}.`
@@ -95,6 +122,15 @@ console.log(
 copyFileSync(deploymentConfigPath, temporaryConfigPath);
 
 try {
+  for (const [source, destination] of overlays) {
+    const target = path.join(sourceDirectory, destination);
+    copyFileSync(
+      path.join(repoRoot, "config/openconnector", source),
+      target,
+      constants.COPYFILE_EXCL
+    );
+    createdOverlays.push(target);
+  }
   if (!deploymentSecrets) {
     const secretMetadata = JSON.parse(
       run(
@@ -141,7 +177,14 @@ try {
     deploymentEnvironment
   );
   const wranglerPath = path.join(sourceDirectory, "node_modules/.bin/wrangler");
-  const deployArgs = ["deploy", "--config", temporaryConfigName, "--minify"];
+  const deployArgs = [
+    "deploy",
+    "--config",
+    temporaryConfigName,
+    "--minify",
+    "--message",
+    `OpenConnector source ${sourceSha}`,
+  ];
   if (deploymentSecrets) {
     runStreamingWithInput(
       wranglerPath,
@@ -169,6 +212,9 @@ try {
   }
 } finally {
   rmSync(temporaryConfigPath, { force: true });
+  for (const target of createdOverlays) {
+    rmSync(target, { force: true });
+  }
 }
 
 function parseOptions(args) {

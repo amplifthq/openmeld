@@ -654,16 +654,17 @@ describe("SpaceMemberRow", () => {
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
 	});
 
-	it("uses a circular Fluid avatar for the Center Agent in an ordinary Space", () => {
+	it("uses a Bot avatar for the Center Agent in an ordinary Space", () => {
 		renderSpaceMemberRow({
 			centerAgentProfileId: "agt-1",
 			entry: buildAgentEntry({
 				agentControllerRef: "builtin:codex",
+				avatarStyle: "clover",
 			}),
 		});
 
 		const avatar = screen.getByTestId("space-profile-icon-agt-1");
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 
@@ -893,8 +894,12 @@ describe("SpaceMemberRow", () => {
 		).toBeNull();
 	});
 
-	it("shows transient readiness checks instead of hard service disconnect guidance", () => {
+	it.each([
+		"default",
+		"compact",
+	] as const)("shows transient readiness checks at %s density without hard disconnect guidance", (density) => {
 		renderSpaceMemberRow({
+			density,
 			agentRecoveryPlan: buildServiceConnectionPlan(),
 			memberTransientState: "checking",
 		});
@@ -908,13 +913,22 @@ describe("SpaceMemberRow", () => {
 		expect(indicator.getAttribute("data-refreshing")).toBe("true");
 		expect(getAgentAvailabilityIndicatorDot().className).toContain("bg-sky-");
 		expect(screen.queryByText("Service not connected")).toBeNull();
+		expect(indicator.tabIndex).toBe(0);
 		expect(
-			screen.getByText("OpenMeld is checking this agent's local connection.")
-		).toBeTruthy();
+			Boolean(
+				screen.queryByText(
+					"OpenMeld is checking this agent's local connection."
+				)
+			)
+		).toBe(density === "default");
 	});
 
-	it("shows active Wake progress over hard Connect availability", () => {
+	it.each([
+		"default",
+		"compact",
+	] as const)("shows active Wake progress at %s density over hard Connect availability", (density) => {
 		renderSpaceMemberRow({
+			density,
 			agentRecoveryPlan: buildConnectControllerPlan(),
 			entry: buildAgentEntry({
 				availabilityAction: "reconnect_binding",
@@ -939,8 +953,10 @@ describe("SpaceMemberRow", () => {
 		expect(indicator.getAttribute("data-refreshing")).toBe("true");
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(
-			screen.getByText("This agent is working on a Wake in this Space.")
-		).toBeTruthy();
+			Boolean(
+				screen.queryByText("This agent is working on a Wake in this Space.")
+			)
+		).toBe(density === "default");
 		expect(screen.queryByText("Wake in progress")).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: "Connect local agent" })
@@ -1235,8 +1251,12 @@ describe("SpaceMemberRow", () => {
 		).toBeTruthy();
 	});
 
-	it("shows Checking connection as a distinct public agent state", () => {
+	it.each([
+		"default",
+		"compact",
+	] as const)("shows Checking connection at %s density as a distinct public agent state", (density) => {
 		renderSpaceMemberRow({
+			density,
 			entry: buildAgentEntry({
 				presenceLabel: "checking connection",
 				presenceStatus: "checking_connection",
@@ -1251,8 +1271,12 @@ describe("SpaceMemberRow", () => {
 			"Checking Wake availability"
 		);
 		expect(
-			screen.getByText("OpenMeld is checking this agent's local connection.")
-		).toBeTruthy();
+			Boolean(
+				screen.queryByText(
+					"OpenMeld is checking this agent's local connection."
+				)
+			)
+		).toBe(density === "default");
 		expect(getProfileNameElement("Codex")?.className).toContain(
 			"text-foreground"
 		);

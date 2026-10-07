@@ -6,7 +6,7 @@ import type { CoreBindings } from "../../lib/bindings";
 import {
   projectRemoteAgentNativeDeliveryTurnDiagnostic,
   type RemoteAgentNativeDeliveryRecord,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 import { readRemoteAgentRuntimeDiagnosticsForConversation } from "./remote-agent-runtime-diagnostics-service";
 

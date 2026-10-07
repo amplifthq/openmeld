@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { isWorkerZodImportCheckPath } from "../cloudflare/worker-zod-import-contract.mjs";
+import { isCliSkillCheckPath } from "../release/cli-skill-check.mjs";
 
 const DOCUMENTATION_PATH =
   /^(?:AGENTS\.md$|CLAUDE\.md$|README\.md$|CHANGELOG\.md$|(?:developing|docs)\/.*\.md$|changelog\/|\.agents\/skills\/.*(?:\.md|\/UPSTREAM\.json|\/LICENSE)$|\.claude\/.*\.md$)/u;
@@ -11,9 +13,24 @@ const CONTROL_PATH =
 const SOURCE_PATH = /\.[cm]?[jt]sx?$/u;
 const NODE_SOURCE_PATH = /^scripts\/.*\.mjs$/u;
 const VITEST_SCRIPT = /^vitest run(?: --(?:config|environment) [\w./-]+)*$/u;
+const NATIVE_POSTGRESQL_VITEST_SCRIPT =
+  /^node \.\.\/\.\.\/tooling\/postgresql\/local\.mjs run pnpm exec (vitest run.*)$/u;
 const WHITESPACE = /\s+/u;
 const NODE_EXTENSION = /\.mjs$/u;
+const VITEST_TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const VITEST_TEST_SUFFIXES = [
+  ".test.ts",
+  ".test.tsx",
+  ".test.js",
+  ".test.jsx",
+  ".spec.ts",
+  ".spec.tsx",
+  ".spec.js",
+  ".spec.jsx",
+];
 const SCRIPT_ALIAS = /^pnpm run ([\w:-]+)$/u;
+const DISPATCH_COMMAND_PATH =
+  /[\\/]runtime[\\/]daemon[\\/](?:dispatch-space-actions[\\/][^\\/]+[\\/]bin|bin[\\/]dispatch-owned-cli)$/u;
 
 // Resolve plain unit-test aliases, never reinterpret shell pipelines or Worker
 // integration commands. Unsupported runners retain their package-owned command.
@@ -31,23 +48,35 @@ export function resolveUnitTestScript(
   return alias ? resolveUnitTestScript(scripts, alias[1], seen) : command;
 }
 
+export function buildValidationEnvironment(source, lane, gitLocalNames) {
+  const environment = { ...source, OPENMELD_HOME: lane };
+  if (source.PATH) {
+    // A dispatch shim embeds its original authority and can restore it even
+    // after the environment markers are removed.
+    environment.PATH = source.PATH.split(path.delimiter)
+      .filter((entry) => !DISPATCH_COMMAND_PATH.test(entry))
+      .join(path.delimiter);
+  }
+  for (const name of Object.keys(environment)) {
+    if (
+      name.startsWith("OPENMELD_DISPATCH_") ||
+      name.startsWith("OPENMELD_SPACE_ACTION_") ||
+      name === "OPENMELD_USER_FACING_CLI_COMMAND" ||
+      gitLocalNames.includes(name)
+    ) {
+      delete environment[name];
+    }
+  }
+  return environment;
+}
+
 export function planPrChecks(paths, options = {}) {
-  const commands = [];
-  if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
-    commands.push(["run", "verify:docs", "--", "--strict"]);
-  }
-  if (
-    paths.some(
-      (file) => file.startsWith("changelog/") || file === "CHANGELOG.md"
-    )
-  ) {
-    commands.push(["run", "verify:changelog"]);
-  }
-  if (!options.feedback && paths.some((file) => CONTROL_PATH.test(file))) {
-    commands.push(["run", "verify:release-workflows"]);
-  }
+  const commands = planGlobalChecks(paths);
   if (options.feedback) {
     return [...commands, ...planFocusedChecks(paths, options)];
+  }
+  if (paths.some((file) => CONTROL_PATH.test(file))) {
+    commands.push(["run", "verify:release-workflows"]);
   }
   if (paths.some((file) => !DOCUMENTATION_PATH.test(file))) {
     // Preserve Turbo's package graph, lockfile handling, and downstream selection.
@@ -72,6 +101,27 @@ export function planPrChecks(paths, options = {}) {
         "--log-order=stream",
       ]
     );
+  }
+  return commands;
+}
+
+function planGlobalChecks(paths) {
+  const commands = [];
+  if (paths.some(isWorkerZodImportCheckPath)) {
+    commands.push(["run", "verify:worker-zod-imports"]);
+  }
+  if (paths.some(isCliSkillCheckPath)) {
+    commands.push(["run", "verify:cli-skill"]);
+  }
+  if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
+    commands.push(["run", "verify:docs", "--", "--strict"]);
+  }
+  if (
+    paths.some(
+      (file) => file.startsWith("changelog/") || file === "CHANGELOG.md"
+    )
+  ) {
+    commands.push(["run", "verify:changelog"]);
   }
   return commands;
 }
@@ -108,35 +158,27 @@ function planFocusedChecks(paths, options) {
       : null;
   const workspaceCommands = [];
   const buildFilters = [];
-  for (const workspace of options.workspaces ?? []) {
-    const sources = paths
-      .filter(
+  const selectedWorkspaces = (options.workspaces ?? []).filter(
+    (workspace) =>
+      workspace.test &&
+      paths.some(
         (file) =>
           file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
       )
-      .map((file) => file.slice(workspace.directory.length + 1));
-    if (sources.length > 0 && workspace.test) {
-      if (workspace.name) {
-        buildFilters.push(`--filter=${workspace.name}^...`);
-      }
-      if (!VITEST_SCRIPT.test(workspace.test ?? "")) {
-        workspaceCommands.push(["--dir", workspace.directory, "run", "test"]);
-        continue;
-      }
-      workspaceCommands.push([
-        "--dir",
-        workspace.directory,
-        "exec",
-        "vitest",
-        "related",
-        "--run",
-        ...workspace.test.split(WHITESPACE).slice(2),
-        "--passWithNoTests",
-        "--maxWorkers=2",
-        "--no-file-parallelism",
-        ...sources,
-      ]);
+  );
+  for (const workspace of selectedWorkspaces) {
+    const focusedCommands = focusedWorkspaceCommands(
+      paths,
+      workspace,
+      existingFiles
+    );
+    if (focusedCommands.length === 0) {
+      continue;
     }
+    if (workspace.name) {
+      buildFilters.push(`--filter=${workspace.name}^...`);
+    }
+    workspaceCommands.push(...focusedCommands);
   }
   if (buildFilters.length > 0) {
     commands.push([
@@ -152,6 +194,52 @@ function planFocusedChecks(paths, options) {
     commands.push(nodeTestCommand);
   }
   return [...commands, ...workspaceCommands];
+}
+
+function focusedWorkspaceCommands(paths, workspace, existingFiles) {
+  const sources = paths
+    .filter(
+      (file) =>
+        file.startsWith(`${workspace.directory}/`) &&
+        SOURCE_PATH.test(file) &&
+        existingFiles.has(file)
+    )
+    .map((file) => file.slice(workspace.directory.length + 1));
+  const nativeCommand = NATIVE_POSTGRESQL_VITEST_SCRIPT.exec(workspace.test);
+  const unitCommand = nativeCommand?.[1] ?? workspace.test;
+  if (!VITEST_SCRIPT.test(unitCommand)) {
+    return [];
+  }
+  const tests = new Set();
+  for (const source of sources) {
+    if (VITEST_TEST_FILE.test(source)) {
+      tests.add(source);
+      continue;
+    }
+    const stem = source.replace(SOURCE_PATH, "");
+    for (const suffix of VITEST_TEST_SUFFIXES) {
+      const adjacent = `${stem}${suffix}`;
+      if (existingFiles.has(`${workspace.directory}/${adjacent}`)) {
+        tests.add(adjacent);
+      }
+    }
+  }
+  if (tests.size === 0) {
+    return [];
+  }
+  return [
+    [
+      ...(nativeCommand
+        ? ["exec", "node", "tooling/postgresql/local.mjs", "run", "pnpm"]
+        : []),
+      "exec",
+      "node",
+      "scripts/dev/run-focused-workspace-tests.mjs",
+      workspace.directory,
+      unitCommand,
+      ...tests,
+    ],
+  ];
 }
 
 export function runPrChecks(commands, run = spawnSync) {
@@ -208,7 +296,11 @@ export function runVerification(options = {}) {
           };
         })
     : [];
-  const commands = planPrChecks(paths, { feedback, existingFiles, workspaces });
+  const commands = planPrChecks(paths, {
+    feedback,
+    existingFiles,
+    workspaces,
+  });
   if (options.plan) {
     console.log(
       JSON.stringify(
@@ -220,14 +312,13 @@ export function runVerification(options = {}) {
     return 0;
   }
   const lane = mkdtempSync(path.join(tmpdir(), "openmeld-focused-checks-"));
-  const validationEnv = { ...process.env, OPENMELD_HOME: lane };
   // Hooks export repository-local Git state. Tests that create temporary repos
-  // must not inherit the pushed worktree's GIT_DIR/GIT_INDEX_FILE, etc.
-  for (const name of git(["rev-parse", "--local-env-vars"])
-    .trim()
-    .split(WHITESPACE)) {
-    delete validationEnv[name];
-  }
+  // must not inherit it or the launching Agent's live dispatch authority.
+  const validationEnv = buildValidationEnvironment(
+    process.env,
+    lane,
+    git(["rev-parse", "--local-env-vars"]).trim().split(WHITESPACE)
+  );
   try {
     console.log(
       `Focused validation: ${base}...HEAD; isolated OPENMELD_HOME=${lane}`

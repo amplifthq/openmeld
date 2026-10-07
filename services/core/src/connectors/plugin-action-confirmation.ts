@@ -1,30 +1,33 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { createCoreRpcHttpError } from "../rpc/errors";
 
 const CONFIRMATION_TTL_MS = 15 * 60 * 1000;
-
 export async function preparePluginActionConfirmation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   actorProfileId: string;
   requestSignature: string;
   accessRevision: number;
   token?: string;
-}): Promise<{ token: string; expiresAtMs: number } | null> {
+}): Promise<{
+  token: string;
+  expiresAtMs: number;
+} | null> {
   const now = Date.now();
   if (input.token) {
     const row = await input.db
-      .prepare(
-        "SELECT token FROM plugin_action_confirmations WHERE token = ? AND organization_id = ? AND actor_profile_id = ? AND request_signature = ? AND access_revision = ? AND expires_at_ms > ?"
-      )
-      .bind(
-        input.token,
-        input.organizationId,
-        input.actorProfileId,
-        input.requestSignature,
-        input.accessRevision,
-        now
-      )
-      .first();
+      .query({
+        text: 'SELECT token FROM "openmeld"."plugin_action_confirmations" WHERE token = $1 AND organization_id = $2 AND actor_profile_id = $3 AND request_signature = $4 AND access_revision = $5 AND expires_at_ms > $6',
+        values: [
+          input.token,
+          input.organizationId,
+          input.actorProfileId,
+          input.requestSignature,
+          input.accessRevision,
+          now,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!row) {
       throw createCoreRpcHttpError({
         code: "plugin.confirmation_invalid",
@@ -39,24 +42,25 @@ export async function preparePluginActionConfirmation(input: {
   }
   const token = crypto.randomUUID();
   const expiresAtMs = now + CONFIRMATION_TTL_MS;
-  await input.db.batch([
-    input.db
-      .prepare(
-        "DELETE FROM plugin_action_confirmations WHERE expires_at_ms <= ?"
-      )
-      .bind(now),
-    input.db
-      .prepare(
-        "INSERT INTO plugin_action_confirmations (token, organization_id, actor_profile_id, request_signature, access_revision, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?)"
-      )
-      .bind(
-        token,
-        input.organizationId,
-        input.actorProfileId,
-        input.requestSignature,
-        input.accessRevision,
-        expiresAtMs
-      ),
-  ]);
+  await input.db.transaction(
+    async (client) =>
+      [
+        await client.query({
+          text: 'DELETE FROM "openmeld"."plugin_action_confirmations" WHERE expires_at_ms <= $1',
+          values: [now],
+        }),
+        await client.query({
+          text: 'INSERT INTO "openmeld"."plugin_action_confirmations" (token, organization_id, actor_profile_id, request_signature, access_revision, expires_at_ms) VALUES ($1, $2, $3, $4, $5, $6)',
+          values: [
+            token,
+            input.organizationId,
+            input.actorProfileId,
+            input.requestSignature,
+            input.accessRevision,
+            expiresAtMs,
+          ],
+        }),
+      ] as const
+  );
   return { token, expiresAtMs };
 }

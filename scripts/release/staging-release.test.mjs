@@ -36,14 +36,16 @@ test("explicitly keeps existing containers only for Remote Agent deployments", (
   assert.throws(() =>
     parseStagingReleaseArgs(["verify", "--containers-rollout=none"])
   );
-  assert.throws(() =>
-    parseStagingReleaseArgs([
-      "deploy",
-      "--scope",
-      "web",
-      "--containers-rollout=none",
-    ])
-  );
+  for (const scope of ["auth", "web", "website", "docs"]) {
+    assert.throws(() =>
+      parseStagingReleaseArgs([
+        "deploy",
+        "--scope",
+        scope,
+        "--containers-rollout=none",
+      ])
+    );
+  }
   assert.throws(() =>
     parseStagingReleaseArgs(["deploy", "--containers-rollout=immediate"])
   );
@@ -96,6 +98,8 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
       "Deploy staging Gateway",
       "Deploy staging Web",
       "Deploy staging Remote Agent",
+      "Deploy staging Website",
+      "Deploy staging Docs",
       "Verify staging resources",
       "Verify staging user entry points",
     ]
@@ -138,6 +142,23 @@ test("verifies the same staging resources without mutating them", () => {
 });
 
 test("deploys one non-database Worker without redeploying unrelated components", () => {
+  const docsSteps = buildStagingDeployStepSpecs({ scope: "docs" });
+  assert.deepEqual(
+    docsSteps.map((step) => step.label),
+    [
+      "Verify staging environment contracts",
+      "Deploy staging Docs",
+      "Verify staging Docs entry points",
+    ]
+  );
+  assert.equal(
+    docsSteps.flatMap((step) => step.args ?? []).includes("component:stg"),
+    true
+  );
+  assert.equal(
+    docsSteps.flatMap((step) => step.args ?? []).includes("docs"),
+    true
+  );
   const webSteps = buildStagingDeployStepSpecs({ scope: "web" });
   assert.deepEqual(
     webSteps.map((step) => step.label),

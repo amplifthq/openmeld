@@ -6,9 +6,13 @@ import {
 export const CLI_BINARY_MANIFEST_ROUTE_PATH = "/cli/manifest.json";
 export const CLI_BINARY_DOWNLOAD_ROUTE_PREFIX = "/cli/download";
 export const CLI_BINARY_MANIFEST_R2_OBJECT_KEY = "cli/manifest.json";
+export const WINDOWS_INTERNAL_PREVIEW_MANIFEST_R2_OBJECT_KEY =
+	"cli/windows-preview/manifest.json";
 
 const CLI_BINARY_ARTIFACT_NAME_RE =
-	/^openmeld-cli-[a-z0-9]+-[a-z0-9]+-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\.gz)?$/u;
+	/^(?!.*\.exe$)openmeld-cli-[a-z0-9]+-[a-z0-9]+-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\.gz)?$/u;
+const WINDOWS_INTERNAL_PREVIEW_ARTIFACT_NAME_RE =
+	/^openmeld-(?:(?:cli|service)-windows-x64-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|windows-process)-[a-f0-9]{64}\.exe$/u;
 
 type CliBinaryManifestStore = {
 	get: (key: string) => Promise<{ json: () => Promise<unknown> } | null>;
@@ -27,8 +31,11 @@ export function parseCliBinaryManifest(value: unknown): CliBinaryManifest {
 
 export async function readCliBinaryManifest(input: {
 	store: CliBinaryManifestStore;
+	objectKey?: string;
 }): Promise<CliBinaryManifest | null> {
-	const object = await input.store.get(CLI_BINARY_MANIFEST_R2_OBJECT_KEY);
+	const object = await input.store.get(
+		input.objectKey ?? CLI_BINARY_MANIFEST_R2_OBJECT_KEY
+	);
 	if (!object) {
 		return null;
 	}
@@ -37,13 +44,20 @@ export async function readCliBinaryManifest(input: {
 }
 
 export function resolveCliBinaryArtifactObjectKey(
-	artifactName: string
+	artifactName: string,
+	channel: "stable" | "windows-preview" = "stable"
 ): string | null {
 	const normalizedArtifactName = artifactName.trim();
-	if (!CLI_BINARY_ARTIFACT_NAME_RE.test(normalizedArtifactName)) {
+	if (
+		!(
+			channel === "windows-preview"
+				? WINDOWS_INTERNAL_PREVIEW_ARTIFACT_NAME_RE
+				: CLI_BINARY_ARTIFACT_NAME_RE
+		).test(normalizedArtifactName)
+	) {
 		return null;
 	}
-	return `cli/${normalizedArtifactName}`;
+	return `cli/${channel === "windows-preview" ? "windows-preview/" : ""}${normalizedArtifactName}`;
 }
 
 export function buildCliBinaryManifestHeaders(input: {

@@ -7,6 +7,10 @@
   "description": "OpenMeld - DB tooling, facts, registries, and diagnostics helpers",
   "license": "MIT",
   "exports": {
+    "./postgresql": {
+      "types": "./dist/postgresql.d.mts",
+      "default": "./dist/postgresql.mjs"
+    },
     ".": {
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
@@ -31,6 +35,10 @@
       "types": "./dist/facts.d.mts",
       "default": "./dist/facts.mjs"
     },
+    "./query": {
+      "types": "./dist/query.d.mts",
+      "default": "./dist/query.mjs"
+    },
     "./tooling": {
       "types": "./dist/tooling.d.mts",
       "default": "./dist/tooling.mjs"
@@ -42,31 +50,33 @@
   "scripts": {
     "dev": "tsdown --watch --no-clean",
     "build": "tsdown --no-clean",
-    "db:check": "node --experimental-strip-types ./scripts/db-check.ts",
-    "db:inspect:dev": "node --experimental-strip-types ./scripts/db-inspect.ts dev",
-    "db:generate": "node --experimental-strip-types ./scripts/db-generate.ts",
-    "db:migrate:dev": "node --experimental-strip-types ./scripts/db-migrate.ts dev",
-    "db:migrate:prod": "node --experimental-strip-types ./scripts/db-migrate.ts prod",
-    "db:verify:dev": "node --experimental-strip-types ./scripts/db-verify.ts dev",
-    "db:verify:prod": "node --experimental-strip-types ./scripts/db-verify.ts prod",
-    "db:optimize:dev": "node --experimental-strip-types ./scripts/db-optimize.ts dev",
-    "db:optimize:prod": "node --experimental-strip-types ./scripts/db-optimize.ts prod",
+    "db:check": "pnpm exec drizzle-kit check --config postgresql/drizzle.config.ts",
+    "db:inspect:dev": "node ../../tooling/postgresql/cli.mjs inspect local",
+    "db:generate": "pnpm exec drizzle-kit generate --config postgresql/drizzle.config.ts",
+    "db:migrate:dev": "node ../../tooling/postgresql/cli.mjs migrate local",
+    "db:migrate:prod": "node ../../tooling/postgresql/cli.mjs migrate production",
+    "db:verify:dev": "node ../../tooling/postgresql/cli.mjs accept local",
+    "db:verify:prod": "node ../../tooling/postgresql/cli.mjs accept production",
+    "db:optimize:dev": "node ../../tooling/postgresql/cli.mjs optimize local",
+    "db:optimize:prod": "node ../../tooling/postgresql/cli.mjs optimize production",
     "auth:generate": "node --experimental-strip-types ./scripts/auth-generate.ts",
-    "db:studio": "pnpm exec drizzle-kit studio --config drizzle.config.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "db:studio": "pnpm exec drizzle-kit studio --config postgresql/drizzle.config.ts",
+    "test": "node ../../tooling/postgresql/local.mjs run pnpm exec vitest run",
+    "test:watch": "node ../../tooling/postgresql/local.mjs run pnpm exec vitest",
     "typecheck": "tsc -p tsconfig.json",
     "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck",
     "fix": "biome check --write --no-errors-on-unmatched ./"
   },
   "dependencies": {
     "@openmeld/schemas": "workspace:*",
-    "better-sqlite3": "^12.6.2",
-    "drizzle-orm": "^0.45.2"
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2",
+    "pg": "8.23.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.3.0",
+    "@types/pg": "8.15.6",
     "drizzle-kit": "^0.31.9",
     "oxc-resolver": "^11.0.0",
     "tsdown": "^0.20.3",

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CenterAgentMemberResearchReport } from "@openmeld/schemas";
 import type { CoreBindings } from "../../lib/bindings";
 import {
@@ -9,8 +10,8 @@ import {
   markSlackInstallationWelcomePreparationReady,
   releaseSlackInstallationWelcomePreparation,
   type SlackInstallationWelcomePreparation,
-} from "../infrastructure/d1/slack-installation-welcome-preparation-repo";
-import { readSlackInstallationWelcomeDeliveryStatus } from "../infrastructure/d1/slack-installation-welcome-repo";
+} from "../infrastructure/postgresql/slack-installation-welcome-preparation-repo";
+import { readSlackInstallationWelcomeDeliveryStatus } from "../infrastructure/postgresql/slack-installation-welcome-repo";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import type { SlackBlockKitBlock } from "./slack-client";
 import { deliverSlackInstallationWelcome } from "./slack-installation-welcome-service";
@@ -29,7 +30,6 @@ const PROFILE_CURRENT_FOCUS_SECTION_PATTERN =
   /### Current focus\s+([\s\S]*?)(?:\n### |\n## |$)/u;
 const PROFILE_OBSERVATION_ITEM_PATTERN =
   /^- \d{4}-\d{2}-\d{2} — (.+?) Source: /mu;
-
 type PreparedProfileReport = {
   activeConnectedAppCount: number;
   documentId: string;
@@ -41,21 +41,22 @@ type PreparedProfileReport = {
   languageTag: string | null;
   path: string;
 };
-
 export async function runSlackInstallationWelcomePreparationTick(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
-  startResearch: (
-    preparation: SlackInstallationWelcomePreparation
-  ) => Promise<{ taskId: string }>;
+  startResearch: (preparation: SlackInstallationWelcomePreparation) => Promise<{
+    taskId: string;
+  }>;
 }): Promise<void> {
   const claimed = await claimQueuedSlackInstallationWelcomePreparations({
     db: input.db,
     nowMs: input.nowMs,
   });
   for (const preparation of claimed) {
-    let research: { taskId: string };
+    let research: {
+      taskId: string;
+    };
     try {
       research = await input.startResearch(preparation);
     } catch (error) {
@@ -98,7 +99,6 @@ export async function runSlackInstallationWelcomePreparationTick(input: {
       );
     }
   }
-
   const active = await listActiveSlackInstallationWelcomePreparations({
     db: input.db,
   });
@@ -120,9 +120,8 @@ export async function runSlackInstallationWelcomePreparationTick(input: {
     }
   }
 }
-
 async function advancePreparation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   preparation: SlackInstallationWelcomePreparation;
@@ -133,21 +132,21 @@ async function advancePreparation(input: {
     return;
   }
   const research = await input.db
-    .prepare(
-      `
-        SELECT status, failure_code, observed_language_tag, report_result
-        FROM center_agent_member_research_tasks
-        WHERE id = ?
-        LIMIT 1
-      `
-    )
-    .bind(researchTaskId)
-    .first<{
+    .query<{
       failure_code: string | null;
       observed_language_tag: string | null;
       report_result: CenterAgentMemberResearchReport["result"] | null;
       status: string;
-    }>();
+    }>({
+      text: `
+        SELECT status, failure_code, observed_language_tag, report_result
+        FROM "openmeld"."center_agent_member_research_tasks"
+        WHERE id = $1
+        LIMIT 1
+      `,
+      values: [researchTaskId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!research) {
     await failPreparationSafely({
       db: input.db,
@@ -288,14 +287,22 @@ async function advancePreparation(input: {
     });
   }
 }
-
 export async function readPreparedProfileReport(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   preparation: SlackInstallationWelcomePreparation;
 }): Promise<PreparedProfileReport | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      active_connected_app_count: number;
+      document_id: string;
+      report_content: string;
+      installer_display_name: string;
+      organization_name: string;
+      organization_slug: string;
+      path: string;
+      report_result: CenterAgentMemberResearchReport["result"] | null;
+    }>({
+      text: `
         SELECT
           documents.id AS document_id,
           COALESCE(documents.draft_content, documents.content) AS report_content,
@@ -306,42 +313,33 @@ export async function readPreparedProfileReport(input: {
           organizations.slug AS organization_slug,
           (
             SELECT COUNT(*)
-            FROM connector_connections
+            FROM "openmeld"."connector_connections"
             WHERE organization_id = organizations.id
               AND status = 'active'
           ) AS active_connected_app_count
-        FROM center_agent_member_research_computer_files AS files
-        INNER JOIN organization_documents AS documents
+        FROM "openmeld"."center_agent_member_research_computer_files" AS files
+        INNER JOIN "openmeld"."organization_documents" AS documents
           ON documents.id = files.document_id
          AND documents.last_member_research_task_id = files.task_id
-        INNER JOIN organizations
+        INNER JOIN "openmeld"."organizations"
           ON organizations.id = documents.organization_id
-        INNER JOIN users
-          ON users.id = ?
-        INNER JOIN center_agent_member_research_tasks AS tasks
+        INNER JOIN "openmeld"."users"
+          ON users.id = $1
+        INNER JOIN "openmeld"."center_agent_member_research_tasks" AS tasks
           ON tasks.id = files.task_id
-        WHERE files.task_id = ?
-          AND files.subject_user_id = ?
-          AND documents.organization_id = ?
+        WHERE files.task_id = $2
+          AND files.subject_user_id = $3
+          AND documents.organization_id = $4
         LIMIT 1
-      `
-    )
-    .bind(
-      input.preparation.installedByUserId,
-      input.preparation.researchTaskId,
-      input.preparation.installedByUserId,
-      input.preparation.key.organizationId
-    )
-    .first<{
-      active_connected_app_count: number;
-      document_id: string;
-      report_content: string;
-      installer_display_name: string;
-      organization_name: string;
-      organization_slug: string;
-      path: string;
-      report_result: CenterAgentMemberResearchReport["result"] | null;
-    }>();
+      `,
+      values: [
+        input.preparation.installedByUserId,
+        input.preparation.researchTaskId,
+        input.preparation.installedByUserId,
+        input.preparation.key.organizationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -362,7 +360,6 @@ export async function readPreparedProfileReport(input: {
     path: row.path,
   };
 }
-
 export function buildTrustFirstSlackWelcomeMessage(input: {
   firstObservation: string | null;
   hasUsefulEvidence: boolean;
@@ -373,7 +370,6 @@ export function buildTrustFirstSlackWelcomeMessage(input: {
 }): string {
   return buildLocalizedTrustFirstSlackWelcomeMessage(input);
 }
-
 export function buildTrustFirstSlackWelcomeBlocks(input: {
   activeConnectedAppCount: number;
   documentId: string;
@@ -421,7 +417,6 @@ export function buildTrustFirstSlackWelcomeBlocks(input: {
     { type: "actions", elements: actions },
   ];
 }
-
 export function readFirstProfileObservation(content: string): string | null {
   const section = content.match(PROFILE_CURRENT_FOCUS_SECTION_PATTERN)?.[1];
   if (!section) {
@@ -430,7 +425,6 @@ export function readFirstProfileObservation(content: string): string | null {
   const firstItem = section.match(PROFILE_OBSERVATION_ITEM_PATTERN)?.[1];
   return firstItem?.trim() || null;
 }
-
 function slackLinkButton(input: {
   actionId: string;
   label: string;
@@ -446,7 +440,6 @@ function slackLinkButton(input: {
     url: input.url,
   };
 }
-
 function slackActionButton(input: {
   actionId: string;
   label: string;
@@ -458,9 +451,8 @@ function slackActionButton(input: {
     type: "button",
   };
 }
-
 async function failPreparationSafely(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   error?: unknown;
   failureCode: string;
@@ -498,33 +490,32 @@ async function failPreparationSafely(input: {
     slackTeamId: input.preparation.key.slackTeamId,
   });
 }
-
 async function deliverResearchUnavailableWelcome(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   preparation: SlackInstallationWelcomePreparation;
 }): Promise<void> {
   const context = await input.db
-    .prepare(
-      `
+    .query<{
+      display_name: string;
+      organization_name: string;
+    }>({
+      text: `
         SELECT
           organizations.name AS organization_name,
           users.name AS display_name
-        FROM organizations
-        INNER JOIN users ON users.id = ?
-        WHERE organizations.id = ?
+        FROM "openmeld"."organizations"
+        INNER JOIN "openmeld"."users" ON users.id = $1
+        WHERE organizations.id = $2
         LIMIT 1
-      `
-    )
-    .bind(
-      input.preparation.installedByUserId,
-      input.preparation.key.organizationId
-    )
-    .first<{
-      display_name: string;
-      organization_name: string;
-    }>();
+      `,
+      values: [
+        input.preparation.installedByUserId,
+        input.preparation.key.organizationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!context) {
     throw new Error("Slack welcome failure notice context is unavailable.");
   }
@@ -560,7 +551,6 @@ async function deliverResearchUnavailableWelcome(input: {
     slackTeamId: input.preparation.key.slackTeamId,
   });
 }
-
 function toOptionalErrorMessage(error: unknown): string | null {
   if (error === undefined) {
     return null;

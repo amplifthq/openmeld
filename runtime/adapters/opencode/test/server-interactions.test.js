@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,220 +24,7 @@ const createRuntimeContext = (providerRuntimeWorkingDirectory) => ({
   providerRuntimeWorkingDirectory,
 });
 
-async function writeFakeOpenCodeServer(fixturePath) {
-  await writeFile(
-    fixturePath,
-    [
-      "#!/usr/bin/env node",
-      "import { appendFileSync, existsSync, writeFileSync } from 'node:fs';",
-      "import { createServer } from 'node:http';",
-      "const args = process.argv.slice(2);",
-      "if (args.includes('--version')) {",
-      "  console.log('1.18.7');",
-      "  process.exit(0);",
-      "}",
-      "if (args[0] !== 'serve') throw new Error('missing serve command');",
-      "const readArg = (name, fallback) => {",
-      "  const inline = args.find((arg) => arg.startsWith(name + '='));",
-      "  if (inline) return inline.slice(name.length + 1);",
-      "  const index = args.indexOf(name);",
-      "  return index >= 0 ? args[index + 1] : fallback;",
-      "};",
-      "const host = readArg('--hostname', '127.0.0.1');",
-      "const port = Number(readArg('--port', '4096'));",
-      "const logPath = process.env.OPENMELD_FAKE_OPENCODE_SERVER_LOG;",
-      "if (process.env.OPENMELD_FAKE_OPENCODE_START_STDERR) console.error(process.env.OPENMELD_FAKE_OPENCODE_START_STDERR);",
-      "const stalledStartMarkerPath = process.env.OPENMELD_FAKE_OPENCODE_STALLED_START_MARKER;",
-      "const stalledStart = Boolean(stalledStartMarkerPath && !existsSync(stalledStartMarkerPath));",
-      "if (stalledStartMarkerPath && stalledStart) writeFileSync(stalledStartMarkerPath, 'stalled', 'utf8');",
-      "const stalledHealthMarkerPath = process.env.OPENMELD_FAKE_OPENCODE_STALLED_HEALTH_MARKER;",
-      "const stalledHealth = Boolean(stalledHealthMarkerPath && !existsSync(stalledHealthMarkerPath));",
-      "if (stalledHealthMarkerPath && stalledHealth) writeFileSync(stalledHealthMarkerPath, 'stalled', 'utf8');",
-      "const ignoreSigterm = process.env.OPENMELD_FAKE_OPENCODE_IGNORE_SIGTERM === '1';",
-      "const interaction = process.env.OPENMELD_FAKE_OPENCODE_INTERACTION;",
-      "const staleIdleOnResume = process.env.OPENMELD_FAKE_OPENCODE_STALE_IDLE_ON_RESUME === '1';",
-      "const sessionID = process.env.OPENMELD_FAKE_OPENCODE_SESSION_ID ?? 'opencode-session-server';",
-      "const forkSessionID = 'opencode-session-fork-1';",
-      "const sseClients = new Set();",
-      "const queuedEvents = [];",
-      "let promptMessageID = null;",
-      "let promptSessionID = sessionID;",
-      "let promptFinished = false;",
-      "const log = (entry) => {",
-      "  if (!logPath) return;",
-      "  appendFileSync(logPath, JSON.stringify(entry) + '\\n', 'utf8');",
-      "};",
-      "log({ argv: args, permission: process.env.OPENCODE_PERMISSION ?? null });",
-      "const sendJson = (response, status, body) => {",
-      "  response.writeHead(status, { 'content-type': 'application/json' });",
-      "  response.end(JSON.stringify(body));",
-      "};",
-      "const readBody = async (request) => {",
-      "  let body = '';",
-      "  for await (const chunk of request) body += chunk;",
-      "  return body ? JSON.parse(body) : null;",
-      "};",
-      "const emit = (event) => {",
-      "  const frame = 'data: ' + JSON.stringify(event) + '\\n\\n';",
-      "  if (sseClients.size === 0) { queuedEvents.push(frame); return; }",
-      "  for (const client of sseClients) client.write(frame);",
-      "};",
-      "const finishPrompt = () => {",
-      "  if (!promptMessageID || promptFinished) return;",
-      "  promptFinished = true;",
-      "  emit({ id: 'event-assistant', type: 'message.updated', properties: { sessionID: promptSessionID, info: { id: 'assistant-1', sessionID: promptSessionID, role: 'assistant', parentID: promptMessageID } } });",
-      // Official SDK v2 ReasoningPart and EventMessagePartDelta wire shapes.
-      "  emit({ type: 'message.part.updated', properties: { part: { id: 'reasoning-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'reasoning', text: 'Checking', time: { start: Date.now() } } } });",
-      "  emit({ type: 'message.part.delta', properties: { sessionID: promptSessionID, messageID: 'assistant-1', partID: 'reasoning-1', field: 'text', delta: ' dependencies.' } });",
-      "  emit({ id: 'event-part', type: 'message.part.updated', properties: { sessionID: promptSessionID, time: Date.now(), part: { id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' } } });",
-      "  emit({ id: 'event-idle', type: 'session.idle', properties: { sessionID: promptSessionID } });",
-      "};",
-      "const server = createServer(async (request, response) => {",
-      "  const url = new URL(request.url, 'http://' + host + ':' + port);",
-      "  if (request.method === 'GET' && url.pathname === '/event') {",
-      "    response.writeHead(200, {",
-      "      'cache-control': 'no-cache',",
-      "      connection: 'keep-alive',",
-      "      'content-type': 'text/event-stream',",
-      "    });",
-      "    sseClients.add(response);",
-      "    response.write('data: ' + JSON.stringify({ id: 'server-connected', type: 'server.connected', properties: {} }) + '\\n\\n');",
-      "    for (const frame of queuedEvents.splice(0)) response.write(frame);",
-      "    request.on('close', () => sseClients.delete(response));",
-      "    return;",
-      "  }",
-      "  if (request.method === 'GET' && url.pathname === '/global/health') {",
-      "    if (stalledHealth) return;",
-      "    sendJson(response, 200, { healthy: true, version: '1.18.7' });",
-      "    return;",
-      "  }",
-      "  if (request.method === 'POST' && url.pathname === '/session') {",
-      "    const body = await readBody(request);",
-      "    log({ body, method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: sessionID });",
-      "    return;",
-      "  }",
-      "  if (request.method === 'POST' && url.pathname === '/session/' + sessionID + '/fork') {",
-      "    const body = await readBody(request);",
-      "    log({ body, method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: forkSessionID });",
-      "    return;",
-      "  }",
-      "  if (request.method === 'PATCH' && url.pathname === '/session/opencode-session-fork-1') {",
-      "    const body = await readBody(request);",
-      "    log({ body, method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: 'opencode-session-fork-1', title: body.title });",
-      "    return;",
-      "  }",
-      "  if (request.method === 'GET' && (url.pathname === '/session/' + sessionID || url.pathname === '/session/' + forkSessionID)) {",
-      "    log({ method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: url.pathname.endsWith(forkSessionID) ? forkSessionID : sessionID });",
-      "    return;",
-      "  }",
-      "  if (request.method === 'GET' && (url.pathname === '/session/' + sessionID + '/message' || url.pathname === '/session/' + forkSessionID + '/message')) {",
-      "    sendJson(response, 200, promptFinished ? [{",
-      "      info: { id: 'assistant-1', sessionID: promptSessionID, role: 'assistant', parentID: promptMessageID },",
-      "      parts: [{ id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' }],",
-      "    }] : []);",
-      "    return;",
-      "  }",
-      "  if (request.method === 'POST' && (url.pathname === '/session/' + sessionID + '/prompt_async' || url.pathname === '/session/' + forkSessionID + '/prompt_async')) {",
-      "    const body = await readBody(request);",
-      "    log({ body, method: request.method, path: url.pathname });",
-      "    promptSessionID = url.pathname.includes('/session/' + forkSessionID + '/') ? forkSessionID : sessionID;",
-      "    promptMessageID = body.messageID ?? 'msg_server_generated_current';",
-      "    sendJson(response, 204);",
-      "    if (process.env.OPENMELD_FAKE_OPENCODE_SESSION_ERROR) {",
-      "      emit({ type: 'session.error', properties: { sessionID: promptSessionID, error: { name: 'UnknownError', data: { message: process.env.OPENMELD_FAKE_OPENCODE_SESSION_ERROR } } } });",
-      "      return;",
-      "    }",
-      "    emit({ id: 'event-user', type: 'message.updated', properties: { sessionID: promptSessionID, info: { id: promptMessageID, sessionID: promptSessionID, role: 'user' } } });",
-      "    if (staleIdleOnResume) {",
-      "      setTimeout(() => emit({ id: 'event-stale-idle', type: 'session.idle', properties: { sessionID: promptSessionID } }), 10);",
-      "      setTimeout(finishPrompt, 40);",
-      "      return;",
-      "    }",
-      "    if (interaction === 'permission' || interaction === 'permission_then_exit') {",
-      "      emit({ id: 'event-permission', type: 'permission.asked', properties: {",
-      "        id: 'permission-1',",
-      "        sessionID: promptSessionID,",
-      "        permission: 'edit',",
-      "        patterns: ['src/**'],",
-      "        always: ['src/**'],",
-      "        metadata: { description: 'Edit app files' },",
-      "      } });",
-      "      if (interaction === 'permission_then_exit') setTimeout(() => process.exit(17), 25);",
-      "      return;",
-      "    }",
-      "    if (interaction === 'child_permission') {",
-      "      emit({ id: 'event-child-session', type: 'session.created', properties: { sessionID: 'child-session-1', info: { id: 'child-session-1', parentID: promptSessionID } } });",
-      "      emit({ id: 'event-child-permission', type: 'permission.asked', properties: {",
-      "        id: 'permission-1',",
-      "        sessionID: 'child-session-1',",
-      "        permission: 'bash',",
-      "        patterns: ['pnpm test'],",
-      "        always: [],",
-      "        metadata: { command: 'pnpm test' },",
-      "      } });",
-      "      return;",
-      "    }",
-      "    if (interaction === 'question') {",
-      "      emit({ id: 'event-question', type: 'question.asked', properties: {",
-      "        id: 'question-1',",
-      "        sessionID: promptSessionID,",
-      "        questions: [",
-      "          { header: 'Release', question: 'Which release?', options: [{ label: 'Stable', description: 'Ship the stable channel' }], multiple: false, custom: false },",
-      "          { header: 'Checks', question: 'Which checks?', options: [{ label: 'Unit', description: 'Run unit tests' }, { label: 'Smoke', description: 'Run smoke tests' }], multiple: true, custom: true },",
-      "        ],",
-      "      } });",
-      "      return;",
-      "    }",
-      "    finishPrompt();",
-      "    return;",
-      "  }",
-      "  if (request.method === 'POST' && url.pathname === '/permission/permission-1/reply') {",
-      "    const body = await readBody(request);",
-      "    log({ body, method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, true);",
-      "    finishPrompt();",
-      "    return;",
-      "  }",
-      "  if (request.method === 'POST' && url.pathname === '/question/question-1/reply') {",
-      "    const body = await readBody(request);",
-      "    log({ body, method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, true);",
-      "    finishPrompt();",
-      "    return;",
-      "  }",
-      "  if (request.method === 'POST' && url.pathname === '/question/question-1/reject') {",
-      "    log({ method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, true);",
-      "    finishPrompt();",
-      "    return;",
-      "  }",
-      "  if (request.method === 'POST' && (url.pathname === '/session/' + sessionID + '/abort' || url.pathname === '/session/' + forkSessionID + '/abort')) {",
-      "    sendJson(response, 200, true);",
-      "    finishPrompt();",
-      "    return;",
-      "  }",
-      "  sendJson(response, 404, { name: 'NotFoundError', data: { message: 'not found: ' + url.pathname } });",
-      "});",
-      "if (process.env.OPENMELD_FAKE_OPENCODE_NO_LISTENER !== '1') server.listen(port, host, () => {",
-      "  if (!stalledStart) setTimeout(() => console.log('opencode server listening on http://' + host + ':' + port), Number(process.env.OPENMELD_FAKE_OPENCODE_START_DELAY_MS ?? 0));",
-      "});",
-      "const shutdown = () => {",
-      "  for (const client of sseClients) client.end();",
-      "  server.close(() => process.exit(0));",
-      "  setTimeout(() => process.exit(0), 250).unref();",
-      "};",
-      "process.on('SIGTERM', () => { if (!ignoreSigterm) shutdown(); });",
-      "process.on('SIGINT', shutdown);",
-      "if (process.env.OPENMELD_FAKE_OPENCODE_NO_LISTENER === '1') setInterval(() => {}, 1000);",
-    ].join("\n"),
-    "utf8"
-  );
-  await chmod(fixturePath, 0o755);
-}
+import { writeFakeOpenCodeServer } from "./fixtures/server-v1.js";
 
 test("preserves the structured OpenCode error independently of diagnostic stderr", async () => {
   const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
@@ -268,7 +62,9 @@ async function readLog(logPath) {
 }
 
 async function withServerFixture(callback) {
-  const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-server-fixture-"));
+  const fixtureDir = await realpath(
+    await mkdtemp(join(tmpdir(), "opencode-server-fixture-"))
+  );
   const fixturePath = join(fixtureDir, "fake-opencode-server.mjs");
   const logPath = join(fixtureDir, "requests.jsonl");
   await writeFakeOpenCodeServer(fixturePath);
@@ -726,6 +522,194 @@ test("OpenCode ignores stale idle events while resuming a session", async () => 
 
     assert.equal(result.output, "OpenCode server reply");
     assert.equal(result.sessionId, "opencode-session-server");
+  });
+});
+
+test("OpenCode adapter resumes through the server when no interaction callback is needed", async () => {
+  const { createOpenCodeAdapter } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const adapter = createOpenCodeAdapter({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openCodeTimeoutMs: 5000,
+    });
+    const result = await adapter.dispatch({
+      agentControllerConversationId: "opencode-session-server",
+      agentId: "opencode-resume",
+      conversationPolicy: {
+        model: "openai/gpt-5.4",
+        reasoningLevel: "high",
+      },
+      env: { OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath },
+      prompt: "Continue the existing session",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-opencode-resume",
+      spaceId: "space-opencode-resume",
+      taskId: "task-opencode-resume",
+    });
+    assert.equal(result.status, "success", JSON.stringify(result));
+    assert.equal(result.output, "OpenCode server reply");
+    const promptRequests = (await readLog(logPath)).filter((entry) =>
+      entry.path?.endsWith("/prompt_async")
+    );
+    assert.equal(promptRequests.length, 1);
+    assert.deepEqual(promptRequests[0].body.model, {
+      modelID: "gpt-5.4",
+      providerID: "openai",
+    });
+    assert.equal(promptRequests[0].body.variant, "high");
+  });
+});
+
+test("OpenCode rejects a resumed session outside the selected working folder before prompt or fork", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  for (const executionMode of ["normal", "repair"]) {
+    await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+      const oldDirectory = join(fixtureDir, "old-session-directory");
+      await mkdir(oldDirectory);
+      await assert.rejects(
+        invokeOpenCodeServerTransport({
+          env: {
+            OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath,
+            OPENMELD_FAKE_OPENCODE_SESSION_DIRECTORY: oldDirectory,
+          },
+          executionMode,
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          openCodeTimeoutMs: 5000,
+          openCodeWorkdir: fixtureDir,
+          prompt: "Continue the existing session",
+          sessionId: "opencode-session-server",
+        }),
+        (error) => {
+          assert.equal(error.code, "context.workspace_mismatch");
+          assert.equal(error.message.includes("old-session-directory"), false);
+          return true;
+        }
+      );
+      const log = await readLog(logPath);
+      assert.equal(
+        log.filter(
+          (entry) =>
+            entry.path?.endsWith("/prompt_async") ||
+            entry.path?.endsWith("/fork")
+        ).length,
+        0
+      );
+    });
+  }
+});
+
+test("OpenCode adapter preserves the existing conversation when its folder differs", async () => {
+  const { createOpenCodeAdapter } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const oldDirectory = join(fixtureDir, "old-session-directory");
+    await mkdir(oldDirectory);
+    const adapter = createOpenCodeAdapter({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openCodeTimeoutMs: 5000,
+    });
+    const result = await adapter.dispatch({
+      agentControllerConversationId: "opencode-session-server",
+      agentId: "opencode-resume",
+      env: {
+        OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath,
+        OPENMELD_FAKE_OPENCODE_SESSION_DIRECTORY: oldDirectory,
+      },
+      prompt: "Continue the existing session",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-opencode-resume",
+      spaceId: "space-opencode-resume",
+      taskId: "task-opencode-resume",
+    });
+    assert.equal(result.status, "failed", JSON.stringify(result));
+    assert.equal(result.errorCode, "context.workspace_mismatch");
+    const log = await readLog(logPath);
+    assert.equal(
+      log.some(
+        (entry) =>
+          entry.path === "/session" ||
+          entry.path?.endsWith("/prompt_async") ||
+          entry.path?.endsWith("/fork")
+      ),
+      false
+    );
+  });
+});
+
+test("OpenCode rejects a missing or unavailable session directory before prompt", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  for (const [sessionDirectory, expectedCode] of [
+    ["", "protocol.invalid"],
+    ["missing", "context.workspace_unavailable"],
+  ]) {
+    await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+      await assert.rejects(
+        invokeOpenCodeServerTransport({
+          env: {
+            OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath,
+            OPENMELD_FAKE_OPENCODE_SESSION_DIRECTORY: sessionDirectory
+              ? join(fixtureDir, sessionDirectory)
+              : "",
+          },
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          openCodeTimeoutMs: 5000,
+          openCodeWorkdir: fixtureDir,
+          prompt: "Continue the existing session",
+          sessionId: "opencode-session-server",
+        }),
+        (error) => {
+          assert.equal(error.code, expectedCode);
+          return true;
+        }
+      );
+      assert.equal(
+        (await readLog(logPath)).some((entry) =>
+          entry.path?.endsWith("/prompt_async")
+        ),
+        false
+      );
+    });
+  }
+});
+
+test("OpenCode resumes an equivalent folder alias through the session's event directory", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const aliasDirectory = join(fixtureDir, "alias");
+    await symlink(fixtureDir, aliasDirectory, "dir");
+    const result = await invokeOpenCodeServerTransport({
+      env: { OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath },
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openCodeTimeoutMs: 5000,
+      openCodeWorkdir: aliasDirectory,
+      prompt: "Continue the existing session",
+      sessionId: "opencode-session-server",
+    });
+    assert.equal(result.output, "OpenCode server reply");
+    const log = await readLog(logPath);
+    assert.equal(
+      log.find((entry) => entry.path === "/event")?.directory,
+      fixtureDir
+    );
+  });
+});
+
+test("OpenCode reports an empty completed assistant turn", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath }) => {
+    await assert.rejects(
+      invokeOpenCodeServerTransport({
+        env: { OPENMELD_FAKE_OPENCODE_EMPTY_OUTPUT: "1" },
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        openCodeTimeoutMs: 5000,
+        openCodeWorkdir: fixtureDir,
+        prompt: "Reply exactly OK",
+        sessionId: "opencode-session-server",
+      }),
+      (error) => {
+        assert.equal(error.code, "runtime.output.empty");
+        return true;
+      }
+    );
   });
 });
 

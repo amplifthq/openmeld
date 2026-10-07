@@ -1,7 +1,12 @@
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { DesktopInboxAttention } from "@openmeld/schemas";
+import type {
+  DesktopInboxAttention,
+  DesktopUpdaterState,
+} from "@openmeld/schemas";
 import {
+  ArrowClockwiseIcon,
   BellIcon,
   DesktopIcon,
   DesktopTowerIcon,
@@ -28,6 +33,7 @@ import {
   WINDOW_IPC,
 } from "../shared/ipc-contract";
 import { isDesktopAppHref } from "../shared/navigation";
+import { desktopUpdaterPresentation } from "../shared/updater-presentation";
 import type { CliProblem, ServiceView } from "../shared/view-types";
 import {
   normalizeExternalBrowserUrl,
@@ -44,6 +50,12 @@ import type {
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
+import {
+  createTrayTemplateImage,
+  hasTrayUnreadDot,
+  trayAttentionTitle,
+} from "./tray-image";
+import { createDesktopUpdateInboxReporter } from "./update/desktop-update-inbox-reporter";
 import { registerAppUpdater } from "./update/register-app-updater";
 
 // Keep the native window at the full Desktop workspace size from launch so the
@@ -52,13 +64,14 @@ const APP_WIDTH = 1040;
 const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
-const APP_NAME = "OpenMeld";
-// These UTF-16 text budgets keep native auto-layout compact without claiming a
-// pixel width. Truncation always retreats to a complete grapheme boundary.
-const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 30;
-const TRAY_PREVIEW_BODY_TEXT_BUDGET = 32;
-const TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET = 22;
-const TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET = 18;
+// Packaging writes the selected channel name into package metadata. Do not
+// replace it with the production brand or infer it from the launch environment.
+const APP_NAME = app.getName();
+// Budget the complete row, including separators and ellipses. Wide Latin and
+// non-ASCII graphemes cost two units; this is conservative, not a pixel measure.
+const TRAY_PREVIEW_TEXT_BUDGET = 48;
+const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 12;
+const WIDE_NATIVE_MENU_GRAPHEME = /[^\u0020-\u007e]|[MWmw@%&]/u;
 const NATIVE_MENU_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
   granularity: "grapheme",
 });
@@ -82,19 +95,16 @@ let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayAttention: DesktopInboxAttention | null = null;
-let trayAttentionTitle = "";
 let trayContext: DesktopTrayContext | null = null;
 let trayMenuOpen = false;
 let trayMenuRefreshPending = false;
 let trayPresentation: DesktopTrayPresentation = { status: "loading" };
+let trayUpdaterState: DesktopUpdaterState | null = null;
 const pilot = initializeDesktopPilot(
   () => mainWindow,
   (attention) => {
     trayAttention = attention;
-    if (process.platform === "darwin") {
-      trayAttentionTitle = formatTrayAttentionTitle(attention);
-      tray?.setTitle(trayAttentionTitle);
-    }
+    updateTrayImage();
     updateTrayMenu();
   },
   (presentation) => {
@@ -108,6 +118,9 @@ const pilot = initializeDesktopPilot(
   invalidateOpenTrayMenu
 );
 let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
+let inboxUpdateReporter:
+  | ReturnType<typeof createDesktopUpdateInboxReporter>
+  | undefined;
 
 type SyncTrayOptions = {
   showProblem: boolean;
@@ -125,7 +138,10 @@ function createMainWindow(
     show: false,
     title: APP_NAME,
     backgroundColor: WINDOW_BACKGROUND,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    ...(process.platform !== "darwin"
+      ? { titleBarOverlay: { height: 38 } }
+      : {}),
     webPreferences: {
       ...(pilot ? { session: pilot.getSession() } : {}),
       preload: join(import.meta.dirname, "../preload/index.cjs"),
@@ -421,9 +437,7 @@ function sendWindowDestination(
 function createTray(): Tray {
   const nextTray = new Tray(createTrayImage());
   tray = nextTray;
-  if (process.platform === "darwin") {
-    nextTray.setTitle(trayAttentionTitle);
-  }
+  updateTrayImage();
   updateTrayMenu();
   runBackgroundTask(refreshTrayStatus(), { showError: false });
   return nextTray;
@@ -465,17 +479,34 @@ function invalidateOpenTrayMenu(): void {
 
 function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const preview = trayPreviewMenuItems(trayPresentation);
+  const updater = trayUpdaterMenuItems(trayUpdaterState);
   const unreadCount = trayContext?.unreadCount;
   const computer = trayContext?.computer;
   const computerStatus = computer?.statusLabel ?? "Checking…";
-  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
   return [
     ...preview,
     trayActionItem({
       icon: "inbox",
       label: "Open Inbox",
-      ...(unreadCount && unreadCount > 0
-        ? { sublabel: `${unreadCount} unread` }
+      ...(trayAttention || (unreadCount && unreadCount > 0)
+        ? {
+            sublabel: [
+              ...(unreadCount && unreadCount > 0
+                ? [`${unreadCount} unread`]
+                : []),
+              ...(trayAttention?.unreadMentionCount
+                ? [
+                    `${trayAttention.unreadMentionCount} ${trayAttention.unreadMentionCount === 1 ? "mention" : "mentions"}`,
+                  ]
+                : []),
+              ...(trayAttention?.unresolvedActionCount
+                ? [`${trayAttention.unresolvedActionCount} pending`]
+                : []),
+              ...(trayAttention?.unreadUrgentUpdateCount
+                ? [`${trayAttention.unreadUrgentUpdateCount} urgent`]
+                : []),
+            ].join(" · "),
+          }
         : {}),
       click: () => showDesktopWindow("inbox"),
     }),
@@ -485,28 +516,56 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
       label: "Open App",
       click: showStatusWindow,
     }),
-    trayActionItem({
-      icon: "computer",
-      label: nativeMenuCapabilities.badge
-        ? "Computer"
-        : `Computer — ${computerStatus}`,
-      accessibilityLabel: `Computer, ${computerStatus}`,
-      ...(nativeMenuCapabilities.badge
-        ? { badge: { type: "none" as const, content: computerStatus } }
-        : {}),
-      enabled: computer?.available ?? Boolean(pilot),
-      click: () => showDesktopWindow("computer"),
-    }),
+    trayActionItem(
+      {
+        icon: "computer",
+        label: `Computer — ${computerStatus}`,
+        accessibilityLabel: `Computer, ${computerStatus}`,
+        enabled: computer?.available ?? Boolean(pilot),
+        click: () => showDesktopWindow("computer"),
+      },
+      trayComputerIconColor(computer?.statusTone)
+    ),
     trayActionItem({
       icon: "settings",
       label: "Settings…",
       click: showSettingsWindow,
     }),
+    ...updater,
     { type: "separator" },
     trayActionItem({
       icon: "quit",
-      label: "Quit OpenMeld",
+      label: `Quit ${APP_NAME}`,
       click: quitDesktop,
+    }),
+  ];
+}
+
+function trayUpdaterMenuItems(
+  state: DesktopUpdaterState | null
+): MenuItemConstructorOptions[] {
+  const presentation = desktopUpdaterPresentation(state);
+  if (!presentation.attention) {
+    return [];
+  }
+  const label = (() => {
+    if (state?.status === "downloading") {
+      return "Downloading Update…";
+    }
+    if (state?.status === "downloaded") {
+      return "Restart to Update…";
+    }
+    if (state?.status === "error") {
+      return "Update Needs Attention…";
+    }
+    return "Update Available…";
+  })();
+  return [
+    trayActionItem({
+      icon: "updates",
+      label,
+      accessibilityLabel: `${presentation.headline}. ${presentation.description}`,
+      click: () => appUpdater?.showNative().catch(console.error),
     }),
   ];
 }
@@ -521,28 +580,31 @@ function trayPreviewMenuItems(
       ? `${item.title} · ${item.contextLabel}`
       : item.title;
     const relativeTime = formatRelativeTime(item.occurredAt);
-    const headline = `${truncateNativeMenuText(
-      source,
-      TRAY_PREVIEW_SOURCE_TEXT_BUDGET
-    )} · ${relativeTime}`;
-    const preview = truncateNativeMenuText(
-      item.preview,
-      TRAY_PREVIEW_BODY_TEXT_BUDGET
-    );
-    const supportsSublabel = resolveNativeMenuCapabilities().sublabel;
+    const title = normalizeNativeMenuText(item.title);
+    const preview = normalizeNativeMenuText(item.preview);
+    const separator = title && preview ? " — " : "";
+    const completeLabel = `${title}${separator}${preview}`;
+    let label = completeLabel;
+    if (nativeMenuTextUnits(completeLabel) > TRAY_PREVIEW_TEXT_BUDGET) {
+      const sourceLabel = truncateNativeMenuText(
+        title,
+        preview ? TRAY_PREVIEW_SOURCE_TEXT_BUDGET : TRAY_PREVIEW_TEXT_BUDGET
+      );
+      const prefix = sourceLabel && preview ? `${sourceLabel} — ` : sourceLabel;
+      label = preview
+        ? `${prefix}${truncateNativeMenuText(
+            preview,
+            TRAY_PREVIEW_TEXT_BUDGET - nativeMenuTextUnits(prefix)
+          )}`
+        : sourceLabel;
+    }
     return [
-      { label: "Latest unread", enabled: false },
+      { label: `Latest unread · ${relativeTime}`, enabled: false },
       {
-        label: supportsSublabel
-          ? headline
-          : `${truncateNativeMenuText(
-              source,
-              TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET
-            )} · ${relativeTime} — ${truncateNativeMenuText(
-              item.preview,
-              TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET
-            )}`,
-        ...(supportsSublabel ? { sublabel: preview } : {}),
+        // Native labels size the menu to their content. macOS sublabels can
+        // wrap independently, so keep the preview in the single-line label.
+        label,
+        accessibilityLabel: `${source} · ${relativeTime} — ${item.preview}`,
         toolTip: item.preview,
         click: () => {
           showDesktopWindow();
@@ -558,7 +620,7 @@ function trayPreviewMenuItems(
   }
   const label = {
     loading: "Loading notifications…",
-    no_unread_messages: "No unread messages",
+    no_unread_messages: "No message preview available",
     signed_out: "Sign in to view notifications",
     unavailable: "Notifications unavailable",
   }[presentation.status];
@@ -566,13 +628,33 @@ function trayPreviewMenuItems(
 }
 
 function trayActionItem(
-  item: MenuItemConstructorOptions & { icon: TrayMenuIconName }
+  item: MenuItemConstructorOptions & { icon: TrayMenuIconName },
+  iconColor = TRAY_MENU_ICON_COLOR
 ): MenuItemConstructorOptions {
-  const icon = createTrayMenuIcon(item.icon);
+  const icon = createTrayMenuIcon(item.icon, iconColor);
   return icon ? { ...item, icon } : { ...item, icon: undefined };
 }
 
-type TrayMenuIconName = "computer" | "desktop" | "inbox" | "quit" | "settings";
+function trayComputerIconColor(
+  tone: "connected" | "offline" | "attention" | undefined
+): string {
+  switch (tone) {
+    case "connected":
+      return "#34d399";
+    case "attention":
+      return "#fbbf24";
+    default:
+      return TRAY_MENU_ICON_COLOR;
+  }
+}
+
+type TrayMenuIconName =
+  | "computer"
+  | "desktop"
+  | "inbox"
+  | "quit"
+  | "settings"
+  | "updates";
 
 type TrayMenuIconComponent = ComponentType<{
   color?: string;
@@ -586,16 +668,20 @@ const TRAY_MENU_ICONS = {
   inbox: BellIcon,
   quit: PowerIcon,
   settings: GearSixIcon,
+  updates: ArrowClockwiseIcon,
 } satisfies Record<TrayMenuIconName, TrayMenuIconComponent>;
 
-function createTrayMenuIcon(name: TrayMenuIconName) {
+function createTrayMenuIcon(
+  name: TrayMenuIconName,
+  color = TRAY_MENU_ICON_COLOR
+) {
   if (process.platform !== "darwin") {
     return undefined;
   }
   const Icon = TRAY_MENU_ICONS[name];
   const svg = renderToStaticMarkup(
     createElement(Icon, {
-      color: TRAY_MENU_ICON_COLOR,
+      color,
       size: TRAY_MENU_ICON_SIZE,
       weight: "regular",
     })
@@ -659,26 +745,6 @@ function resolveTrayTooltip(): string {
   return attention ? `${service}\n${attention}` : service;
 }
 
-function formatTrayAttentionTitle(
-  attention: DesktopInboxAttention | null
-): string {
-  if (!attention) {
-    return "";
-  }
-  const important =
-    attention.unresolvedActionCount + attention.unreadUrgentUpdateCount;
-  const segments = [
-    ...(important > 0 ? [`!${formatTrayAttentionCount(important)}`] : []),
-    ...(attention.unreadMentionCount > 0
-      ? [`@${formatTrayAttentionCount(attention.unreadMentionCount)}`]
-      : []),
-  ];
-  if (segments.length > 0) {
-    return segments.join(" ");
-  }
-  return attention.ordinaryUnreadCount > 0 ? "•" : "";
-}
-
 function formatTrayAttentionTooltip(
   attention: DesktopInboxAttention | null
 ): string | null {
@@ -686,6 +752,11 @@ function formatTrayAttentionTooltip(
     return null;
   }
   const details = [
+    ...(attention.needsActionCount === undefined
+      ? []
+      : [
+          `${attention.needsActionCount} needs action, ${attention.needsReviewCount ?? 0} needs review`,
+        ]),
     ...(attention.unresolvedActionCount > 0
       ? [
           `${attention.unresolvedActionCount} pending ${attention.unresolvedActionCount === 1 ? "action or review" : "actions or reviews"}`,
@@ -693,7 +764,7 @@ function formatTrayAttentionTooltip(
       : []),
     ...(attention.unreadUrgentUpdateCount > 0
       ? [
-          `${attention.unreadUrgentUpdateCount} unread urgent ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
+          `${attention.unreadUrgentUpdateCount} unread priority ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
         ]
       : []),
     ...(attention.unreadMentionCount > 0
@@ -712,50 +783,35 @@ function formatTrayAttentionTooltip(
     : "Inbox - All caught up";
 }
 
-function formatTrayAttentionCount(count: number): string {
-  return count > 99 ? "99+" : String(count);
+function nativeMenuTextUnits(value: string): number {
+  let units = 0;
+  for (const { segment } of NATIVE_MENU_GRAPHEME_SEGMENTER.segment(value)) {
+    units += WIDE_NATIVE_MENU_GRAPHEME.test(segment) ? 2 : 1;
+  }
+  return units;
 }
 
-function resolveNativeMenuCapabilities(): {
-  badge: boolean;
-  sublabel: boolean;
-} {
-  if (
-    process.platform !== "darwin" ||
-    typeof process.getSystemVersion !== "function"
-  ) {
-    return { badge: false, sublabel: false };
-  }
-  const [major = 0, minor = 0] = process
-    .getSystemVersion()
-    .split(".")
-    .map((part) => Number.parseInt(part, 10));
-  return {
-    badge: major >= 14,
-    sublabel: major > 14 || (major === 14 && minor >= 4),
-  };
+function normalizeNativeMenuText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function truncateNativeMenuText(value: string, textBudget: number): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= textBudget) {
+  const normalized = normalizeNativeMenuText(value);
+  if (nativeMenuTextUnits(normalized) <= textBudget) {
     return normalized;
   }
-  if (textBudget <= 0) {
+  if (textBudget < nativeMenuTextUnits("…")) {
     return "";
   }
-  if (textBudget === 1) {
-    return "…";
-  }
-
-  const contentBudget = textBudget - 1;
+  const contentBudget = textBudget - nativeMenuTextUnits("…");
+  let units = 0;
   let truncationIndex = 0;
   for (const grapheme of NATIVE_MENU_GRAPHEME_SEGMENTER.segment(normalized)) {
-    const nextIndex = grapheme.index + grapheme.segment.length;
-    if (nextIndex > contentBudget) {
+    units += WIDE_NATIVE_MENU_GRAPHEME.test(grapheme.segment) ? 2 : 1;
+    if (units > contentBudget) {
       break;
     }
-    truncationIndex = nextIndex;
+    truncationIndex = grapheme.index + grapheme.segment.length;
   }
   return `${normalized.slice(0, truncationIndex).trimEnd()}…`;
 }
@@ -787,13 +843,27 @@ function quitDesktop(): void {
   app.quit();
 }
 
-function createTrayImage() {
+function createTrayImage(unread = false) {
   const image = nativeImage.createFromPath(TRAY_ICON_PATH);
+  if (process.platform === "darwin" && !image.isEmpty()) {
+    return createTrayTemplateImage(image, unread);
+  }
   const resizedImage = image.isEmpty()
     ? createAppIcon()
     : image.resize({ height: 18 });
   resizedImage?.setTemplateImage(true);
   return resizedImage ?? nativeImage.createEmpty();
+}
+
+function updateTrayImage(): void {
+  if (!tray || process.platform !== "darwin") {
+    return;
+  }
+  const title = trayAttentionTitle(trayAttention);
+  const unread = hasTrayUnreadDot(trayAttention);
+  // Native text keeps counts crisp and accessible; ordinary unread has no title.
+  tray.setTitle(title, { fontType: "monospacedDigit" });
+  tray.setImage(createTrayImage(unread));
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -823,13 +893,40 @@ function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
       pilot?.install(authorizeRenderer);
+      const nativeUpdatesEnabled =
+        app.isPackaged &&
+        (process.platform === "darwin" || process.platform === "win32") &&
+        pilot?.installedTarget?.kind === "production";
+      if (nativeUpdatesEnabled && pilot) {
+        try {
+          const currentPilot = pilot;
+          inboxUpdateReporter = createDesktopUpdateInboxReporter({
+            userData: app.getPath("userData"),
+            lane: "prod",
+            deviceName: hostname(),
+            platform: process.platform === "win32" ? "win32" : "darwin",
+            currentUserId: async () =>
+              (await currentPilot.auth.session()).user?.id ?? null,
+            send: currentPilot.reportDesktopUpdateObservation,
+          });
+          currentPilot.setDesktopUpdateAccountListener(
+            inboxUpdateReporter.accountChanged
+          );
+        } catch (error) {
+          console.warn("[openmeld.desktop.inbox_update_source_unavailable]", {
+            error,
+          });
+        }
+      }
       const updater = registerAppUpdater({
-        enabled:
-          app.isPackaged &&
-          process.platform === "darwin" &&
-          pilot?.installedTarget?.kind === "production",
+        enabled: nativeUpdatesEnabled,
+        inboxSource: inboxUpdateReporter,
         authorize: authorizeRenderer,
         getWindow: () => mainWindow,
+        onStateChanged: (state) => {
+          trayUpdaterState = state;
+          updateTrayMenu();
+        },
         setInstalling: (value) => {
           quitIntent = value ? "updater-install" : "none";
         },
@@ -950,6 +1047,7 @@ function createWindowIpcHandlers(
 }
 
 app.on("will-quit", () => {
+  inboxUpdateReporter?.dispose();
   pilot?.dispose();
   ipcDisposer?.();
   ipcDisposer = null;

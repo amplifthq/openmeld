@@ -193,13 +193,17 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
     const valueOrderCtx = useContext(TabsValueOrderContext);
     const [optimisticIdx, setOptimisticIdx] = useState<number | null>(null);
 
+    const renderedChildren = useMemo(
+      () => Children.toArray(children),
+      [children]
+    );
     const values = useMemo(
       () =>
-        Children.toArray(children)
+        renderedChildren
           .filter(isValidElement)
           .map((child) => (child.props as { value?: string }).value)
           .filter((v): v is string => typeof v === "string"),
-      [children]
+      [renderedChildren]
     );
     const setValueOrder = valueOrderCtx?.setValueOrder;
 
@@ -257,7 +261,9 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
     const isHoveringSelected = hoveredIndex === activeSelectedIdx;
     const isHovering = hoveredIndex !== null && !isHoveringSelected;
 
-    const indexedChildren = Children.map(children, (child, i) => {
+    // React.Children.map counts hidden/null slots. Index the rendered children
+    // so value order, measurements, and the active indicator share one position.
+    const indexedChildren = renderedChildren.map((child, i) => {
       // Skip plain DOM elements — injecting _index into e.g. a <div>
       // triggers React's unknown-prop warning.
       if (isValidElement(child) && typeof child.type !== "string") {
@@ -280,7 +286,9 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
           activateOnFocus
           className={cn(
             "relative inline-flex select-none items-center gap-0.5",
-            background ? "bg-muted p-0.5" : "bg-transparent p-0",
+            background
+              ? "bg-muted p-0.5 dark:bg-surface-2"
+              : "bg-transparent p-0",
             // This is a control group, not a large surface. The shape system
             // gives those roles different radii while keeping both responsive
             // to the user's rounded or square preference.
@@ -339,6 +347,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
               className={cn(
                 "pointer-events-none absolute",
                 surfaceClasses(indicatorLevel),
+                "dark:bg-surface-4",
                 shape.bg
               )}
               initial={false}
@@ -440,6 +449,8 @@ interface TabItemProps
   value: string;
   icon?: IconComponent;
   label: string;
+  /** Badge or status after the standard label, preserving its typography. */
+  trailing?: ReactNode;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
   children?: ReactNode;
@@ -451,6 +462,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
       value,
       icon: Icon,
       label,
+      trailing,
       children,
       _index = 0,
       className,
@@ -546,6 +558,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
               </span>
             </>
           )}
+          {trailing}
         </SurfaceProvider>
       </TabsPrimitive.Tab>
     );

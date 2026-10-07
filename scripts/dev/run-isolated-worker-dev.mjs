@@ -21,6 +21,10 @@ const coreIsolatedConfigPath = resolve(
   repoRoot,
   "services/core/.wrangler-isolated.json"
 );
+const authPostgresConfigPath = resolve(
+  repoRoot,
+  "services/auth/.wrangler-isolated.json"
+);
 const remoteAgentConfigDirectory = resolve(
   repoRoot,
   "services/remote-agent/dist/openmeld_remote_agent"
@@ -54,6 +58,15 @@ export function resolveIsolatedWorkerDevPlan(input) {
     "OPENMELD_DEV_WRANGLER_STATE_DIR"
   );
   const commonArgs = ["--persist-to", persistTo];
+  const pluginFixture = resolveLocalPluginFixtureEnvironment(
+    env.OPENMELD_DEV_PLUGIN_FIXTURE_URL
+  );
+  const pluginFixtureArgs = Object.entries(pluginFixture ?? {}).flatMap(
+    ([name, value]) => ["--var", `${name}:${value}`]
+  );
+  const pluginFixtureEnv = pluginFixture
+    ? { ...env, ...pluginFixture }
+    : undefined;
 
   switch (input.service) {
     case "auth":
@@ -71,7 +84,9 @@ export function resolveIsolatedWorkerDevPlan(input) {
           "wrangler",
           "dev",
           "-c",
-          "./wrangler.jsonc",
+          ...(env.OPENMELD_PG_ISOLATED === "1"
+            ? [authPostgresConfigPath]
+            : ["./wrangler.jsonc"]),
           "-c",
           requireText(input.coreConfigPath, "coreConfigPath"),
           ...commonArgs,
@@ -97,6 +112,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
       };
     case "gateway":
       return {
+        env: pluginFixtureEnv,
         args: [
           "exec",
           "wrangler",
@@ -110,7 +126,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
           `OPENMELD_GATEWAY_URL:${requireEnvironmentValue(env, "OPENMELD_GATEWAY_URL")}`,
           "--var",
           `WEB_APP_URL:${requireEnvironmentValue(env, "WEB_APP_URL")}`,
-          ...localPluginFixtureArgs(env.OPENMELD_DEV_PLUGIN_FIXTURE_URL),
+          ...pluginFixtureArgs,
           ...(env.OPENMELD_SLACK_OAUTH_REDIRECT_URL
             ? [
                 "--var",
@@ -125,6 +141,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
       const sandboxEnabled =
         env.OPENMELD_DEV_REMOTE_AGENT_SANDBOX_ENABLED !== "false";
       return {
+        env: pluginFixtureEnv,
         args: [
           "exec",
           "wrangler",
@@ -142,6 +159,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
           requirePort(env, "OPENMELD_DEV_REMOTE_AGENT_INSPECTOR_PORT"),
           "--var",
           `OPENMELD_FEEDBACK_SUBMIT_BASE_URL:${requireEnvironmentValue(env, "OPENMELD_GATEWAY_URL")}`,
+          ...pluginFixtureArgs,
         ],
         command: "pnpm",
         preCommands: [{ args: ["run", "build"], command: "pnpm" }],
@@ -152,11 +170,18 @@ export function resolveIsolatedWorkerDevPlan(input) {
   }
 }
 
-function localPluginFixtureArgs(value) {
-  if (!value) {
-    return [];
+function resolveLocalPluginFixtureEnvironment(value) {
+  if (value === undefined) {
+    return null;
   }
-  const url = new URL(value);
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(
+      "Plugin fixtures must use an http://127.0.0.1 loopback origin."
+    );
+  }
   if (
     url.protocol !== "http:" ||
     url.hostname !== "127.0.0.1" ||
@@ -170,12 +195,14 @@ function localPluginFixtureArgs(value) {
       "Plugin fixtures must use an http://127.0.0.1 loopback origin."
     );
   }
-  return [
-    "--var",
-    `OPENMELD_CONNECTORS_BASE_URL:${url.origin}`,
-    "--var",
-    "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN:local-plugin-fixture",
-  ];
+  // Explicit fixture mode replaces both credential roles before build/start.
+  // Runtime --var overrides also prevent loaded .dev.vars/config from routing
+  // either client back to the real connector. These strings grant no live access.
+  return {
+    OPENMELD_CONNECTORS_BASE_URL: url.origin,
+    OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "local-plugin-fixture",
+    OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "local-plugin-fixture",
+  };
 }
 
 export function resolveIsolatedWorkerDopplerCommand(
@@ -225,6 +252,7 @@ export function buildIsolatedCoreWranglerConfig(input) {
 
   return {
     ...sourceConfig,
+    ...(env.OPENMELD_PG_ISOLATED === "1" ? localPostgresBinding(env) : {}),
     dev: {
       ...(sourceConfig.dev ?? {}),
       inspector_port: Number(
@@ -261,6 +289,20 @@ export async function runIsolatedWorker(service) {
 
   if (service === "auth") {
     writeIsolatedCoreConfig(process.env);
+    if (process.env.OPENMELD_PG_ISOLATED === "1") {
+      const source = parseJsoncObject(
+        readFileSync(resolve(repoRoot, "services/auth/wrangler.jsonc"), "utf8")
+      );
+      writeFileSync(
+        authPostgresConfigPath,
+        JSON.stringify(
+          { ...source, ...localPostgresBinding(process.env) },
+          null,
+          2
+        ),
+        { mode: 0o600 }
+      );
+    }
   }
   const plan = resolveIsolatedWorkerDevPlan({
     coreConfigPath: coreIsolatedConfigPath,
@@ -270,6 +312,7 @@ export async function runIsolatedWorker(service) {
 
   for (const preCommand of plan.preCommands) {
     const exitCode = await runCommand(preCommand.command, preCommand.args, {
+      env: plan.env,
       forwardSignals: true,
     });
     if (exitCode !== 0) {
@@ -301,6 +344,35 @@ export async function runIsolatedWorker(service) {
     }
   );
   return exitCode;
+}
+
+function localPostgresBinding(env) {
+  const value = requireEnvironmentValue(
+    env,
+    "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_OPENMELD_POSTGRESQL"
+  );
+  const url = new URL(value);
+  if (
+    url.hostname !== "127.0.0.1" ||
+    url.pathname !== "/openmeld_pg_development" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "Isolated Workers require the worktree loopback PostgreSQL database"
+    );
+  }
+  // Wrangler uses its official local connection override. Generated configs
+  // contain no credential and cannot select a shared cloud database.
+  return {
+    d1_databases: [],
+    hyperdrive: [
+      {
+        binding: "OPENMELD_POSTGRESQL",
+        id: "00000000000000000000000000000000",
+      },
+    ],
+  };
 }
 
 function writeIsolatedCoreConfig(env) {

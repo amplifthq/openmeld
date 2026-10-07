@@ -1,4 +1,12 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import type { Profile, SignalEnvelope, SpaceMeta } from "@openmeld/protocol";
+import type {
+  PluginChannelSelection,
+  PluginChannelSourceProof,
+} from "@openmeld/schemas";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
   buildAgentTaskKey,
@@ -6,6 +14,7 @@ import {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildSlackIdentityLinkNavigationAction,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
   CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
@@ -13,19 +22,21 @@ import {
   CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   deriveCenterAgentDirectMessageSpaceProjection,
+  formatPublicAgentFailureFacts,
+  formatPublicInterruptedTaskFailureFacts,
+  formatPublicRoutineFailureFacts,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   type NavigationAction,
-  projectTargetWakeLifecycleIdentity,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_FAILURE_PURPOSE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
-  RUNTIME_TRANSPORT_SCHEMA_VERSION,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
+  remoteAgentExecutionReconciliationObservationSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerExecutionQueryResponseSchema,
@@ -67,6 +78,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   buildDirectMessagePairKey,
+  buildPublicSpaceEntryUrl,
   createAuthenticatedSpaceAccessContext,
   createDispatchContinuationSpaceAccessContext,
   renderDispatchSourceText,
@@ -75,9 +87,13 @@ import {
 import {
   type AgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecord,
-} from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+} from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { recordAndEnqueueAgentTaskTerminalOutcome } from "../../agent-task-coordination/application/agent-task-terminal-outcome-service";
-import { hasAgentTaskResumeContinuationByObserverTask } from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import {
+  hasAgentTaskResumeContinuationByObserverTask,
+  readAgentTaskCompletionSubscription,
+  readAgentTaskTerminalOutcome,
+} from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { resolveCenterAgentAttentionRequestsForReply } from "../../center-agent/application/center-agent-attention-service";
 import { recordCenterAgentLocalAgentRequest } from "../../center-agent/application/center-agent-interaction-audit-service";
 import {
@@ -85,34 +101,31 @@ import {
   resolveCenterAgentModelRouteForBinding,
 } from "../../center-agent/application/center-agent-model-service";
 import { isHostedCenterAgentExecutionTarget } from "../../center-agent/application/hosted-center-agent-binding";
+import {
+  continueTaskSummary,
+  readInterruptedTaskResults,
+} from "../../center-agent/application/task-summary-recovery-service";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { isCenterAgentMemberResearchDelivery } from "../../center-agent-member-research/member-research-repository";
 import { createCoreCenterAgentMemoryService } from "../../center-agent-memory/core-memory-service";
 import { resolveCenterAgentMemoryFrozenTurnContext } from "../../center-agent-memory/frozen-turn-context";
 import type { CenterAgentMemoryService } from "../../center-agent-memory/memory-service";
 import { readModelCatalog } from "../../config/model-catalog";
+import { preparePluginChannelNavigation } from "../../connectors/plugin-channel-navigation";
 import { buildDispatchReplyTargetProfile } from "../../dispatch/application/dispatch-reply-foundation";
 import {
   markDispatchStatus,
   OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE,
   OPENMELD_DAEMON_DISPATCH_STATE,
   writeDispatchDlq,
-} from "../../dispatch/infrastructure/d1/dispatch-ledger-d1";
-import { readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace } from "../../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
+} from "../../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 import { createDispatchChainContext } from "../../dispatch/rules/dispatch-chain-context";
 import {
   DISPATCH_HINT_SYSTEM_PROFILE_ID,
   DISPATCH_HINT_SYSTEM_PROFILE_NAME,
 } from "../../dispatch/rules/dispatch-hint-policy";
 import type { CoreBindings } from "../../lib/bindings";
-import {
-  agentTaskCoordinationDb,
-  identityDb,
-  inboxDb,
-  localStateDb,
-  routineDb,
-  wakeEvidenceDb,
-} from "../../lib/bindings";
+
 import { readEnabledOrganizationSkillReleaseSelection } from "../../organization-skills/organization-skill-service";
 import {
   readOrganizationAccountIdentityProjection,
@@ -157,6 +170,10 @@ import {
   readSpaceIndexOrganizationJoinTarget,
 } from "../../space-index/space-index-repository";
 import {
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON,
+} from "../../usage/ai-usage-policy";
+import {
   blockRemoteAgentRoutineRecoveryForTargetMismatch,
   claimRemoteAgentAcceptedDeliveryProbeSchedule,
   claimRemoteAgentFinalPublication,
@@ -168,6 +185,8 @@ import {
   claimRemoteAgentRoutineSubmissionFailure,
   claimRemoteAgentRoutineSubmissionRecoveryAttempt,
   claimRemoteAgentSlackAdmissionFailurePublication,
+  claimRemoteAgentTaskContinuationAdmissionRetry,
+  claimRemoteAgentWorkerSubmission,
   clearPreviousRoutineWorkerSubmitRequest,
   countRemoteAgentWorkLoopAttempts,
   expireRemoteAgentFinalPublicationClaim,
@@ -197,6 +216,7 @@ import {
   markRemoteAgentSlackFinalPublicationOutcomeUnknown,
   markRemoteAgentSlackFinalPublicationPublished,
   persistRemoteAgentWorkerSubmitRequest,
+  projectUnadmittedNativeDeliveryStopped,
   REMOTE_AGENT_ROUTINE_TARGET_RECOVERY_BLOCKED_CODE,
   type RemoteAgentFinalPublicationPayload,
   type RemoteAgentNativeDeliveryRecord,
@@ -205,35 +225,39 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
   readRemoteAgentWorkLoopAttemptByCallbackIdentity,
+  readRemoteAgentWorkLoopOrigin,
   rearmRemoteAgentNativeDeliveryForWorkLoop,
   reconcileRemoteAgentRoutineSubmissionWithTerminalRun,
+  recordRemoteAgentExecutionReconciliation,
   recordRemoteAgentNativeDeliveryRepresentedMember,
   releaseRemoteAgentAcceptedDeliveryProbeSchedule,
   releaseRemoteAgentFinalPublicationClaim,
   releaseRemoteAgentMessageChannelAdmissionWatchdogClaim,
   releaseRemoteAgentNativeDeliveryAdmissionWatchdog,
   releaseRemoteAgentSlackAdmissionFailureClaim,
+  releaseRemoteAgentWorkerSubmission,
   reopenRetiredDeadlineFailureForLateCallback,
+  scheduleRemoteAgentTaskContinuationAdmissionRetry,
   skipRemoteAgentRoutineSubmissionRecovery,
   suppressLinkedSlackNativeDeliveryInboxProjectionIfRecipientMissing,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
+import {
+  readPluginChannelMetadata,
+  recordPluginChannelAdmission,
+} from "../infrastructure/postgresql/plugin-channel-metadata-repo";
 import {
   advanceSlackIdentityContinuationAttempt,
   expireSlackIdentityLinkToken,
   insertSlackIdentityLinkToken,
   readSlackIdentityLinkTokenForUser,
   type SlackIdentityLinkTokenRecord,
-} from "../infrastructure/d1/slack-user-identity-link-repo";
-import { readRemoteAgentSlackWorkspaceBinding } from "../infrastructure/d1/slack-workspace-binding-repo";
+} from "../infrastructure/postgresql/slack-user-identity-link-repo";
+import { readRemoteAgentSlackWorkspaceBinding } from "../infrastructure/postgresql/slack-workspace-binding-repo";
 import {
   discardFrozenContextScopeForNewTurn,
   parseCoreOwnedRemoteAgentTurnEnvelope,
 } from "./center-agent-context-scope";
-import {
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON,
-} from "./daily-admission-policy";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
 import { publishRemoteAgentMessageChannelAdmissionFailure } from "./message-channel-admission-watchdog-publication";
 import { createConfiguredMessageChannelProviderRegistry } from "./message-channel-provider-runtime";
@@ -256,14 +280,36 @@ import {
   startRemoteAgentTurnContextAndSkills,
 } from "./native-delivery-admission-concurrency";
 import {
+  observeTaskContinuationPreparation,
+  reportNativeDeliveryAdmissionEvidence,
+} from "./native-delivery-admission-evidence";
+import {
   buildRemoteAgentAdmissionWatchdogSubmissionId,
   enqueueRemoteAgentAdmissionWatchdog,
-  isRemoteAgentAdmissionWatchdogProbe,
+  enqueueRemoteAgentTaskContinuationAdmissionRetry,
+  REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
+  REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+  resolveRemoteAgentAdmissionProbe,
+  resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds,
 } from "./native-delivery-admission-watchdog";
-import { stopRemoteAgentNativeDelivery } from "./native-delivery-cancellation-service";
+import {
+  requestRemoteAgentWorkerCancellation as forwardRemoteAgentWorkerCancellation,
+  requestRemoteAgentNativeDeliveryStop,
+  stopRemoteAgentNativeDelivery,
+} from "./native-delivery-cancellation-service";
+import {
+  buildRoutineExecutionFailureFacts,
+  buildRoutineUnconfirmedAdmissionFailureFacts,
+  buildTaskContinuationAdmissionFailureFacts,
+  readNativeFailureLanguageFallback,
+  resolveNativeFailureLanguage,
+} from "./native-delivery-failure-facts";
 import { buildRemoteAgentFinalPublicationMetadata } from "./native-delivery-final-publication-identity";
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
-import { projectLinkedSlackNativeDeliveryInboxItem } from "./native-delivery-inbox-producer";
+import {
+  projectLinkedSlackNativeDeliveryInboxItem,
+  projectTaskContinuationAdmissionExhaustedInboxItem,
+} from "./native-delivery-inbox-producer";
 import {
   isPersonalRemoteAgentBinding,
   requirePersonalRemoteAgentBinding,
@@ -274,8 +320,12 @@ import { attachCenterAgentMemoryToTurnEnvelope as attachCenterAgentMemoryToTurnE
 import { resolveRemoteAgentRuntimeAvailability } from "./remote-agent-runtime-policy";
 import { truncateRemoteAgentTriggerText } from "./remote-agent-trigger-text";
 import {
+  finishAcknowledgedAdmission,
   type RemoteAgentWorkerAdmission,
+  readRemoteAgentWorkerAdmission,
+  readRemoteAgentWorkerAdmissionStop,
   resolveRemoteAgentAdmissionPublicCopy,
+  resolveRemoteAgentWorkerTaskAttribution,
   submitRemoteAgentWorkerAdmission,
 } from "./remote-agent-worker-admission";
 import { resolveSlackBotToken } from "./slack-bot-token";
@@ -301,8 +351,13 @@ import {
   clearRemoteAgentSlackThreadWorkingStatus,
   setRemoteAgentSlackThreadWorkingStatus,
 } from "./slack-working-status";
+import {
+  isRemoteAgentSpaceWakeStopRequested,
+  resolvePendingRemoteAgentCancellationTarget,
+} from "./space-wake-stop-intent";
 import { buildRemoteAgentStreamId } from "./stream-callback-target";
 import { closeRemoteAgentStreamProjection } from "./stream-delta-service";
+import { requireTaskContinuationSummaryPolicy } from "./task-continuation-summary-policy";
 import {
   readActiveRepresentedHumanSender,
   resolveRemoteAgentMemberResearchTurnEnvelope,
@@ -312,9 +367,8 @@ import {
   resolveRemoteAgentTaskWatchContinuationTurnEnvelope,
   resolveRemoteAgentTurnEnvelope,
 } from "./turn-envelope";
-
 export type RemoteAgentMemberResearchDeliveryInput = {
-  db: D1Database;
+  db: PostgresDatabase;
   directMessageSpaceId: string;
   env: CoreBindings;
   nowMs: number;
@@ -324,12 +378,13 @@ export type RemoteAgentMemberResearchDeliveryInput = {
   subjectUserId: string;
   taskId: string;
 };
-
 type RemoteAgentTaskContinuationDeliveryInputBase = {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   idempotencyKey: string;
   instruction: string;
+  replyLanguageTag?: string;
+  summaryOnly?: true;
   isAuthorized: () => Promise<boolean>;
   memoryService?: CenterAgentMemoryService | null;
   messageChannelNowMs?: () => number;
@@ -340,7 +395,6 @@ type RemoteAgentTaskContinuationDeliveryInputBase = {
   subscriptionId: string;
   watchedTask: AgentTaskHandle;
 };
-
 export type RemoteAgentTaskContinuationDeliveryInput =
   RemoteAgentTaskContinuationDeliveryInputBase &
     (
@@ -357,25 +411,32 @@ export type RemoteAgentTaskContinuationDeliveryInput =
           watchId: string;
         }
     );
-
 type RemoteAgentTaskContinuationDeliveryResult = {
   status: "cancelled" | "submitted" | "terminal";
-  task: (AgentTaskHandle & { kind: "native_delivery" }) | null;
+  task:
+    | (AgentTaskHandle & {
+        kind: "native_delivery";
+      })
+    | null;
 };
-
 type RemoteAgentFailedCallbackBody = Extract<
   RemoteAgentCoreCallbackBody,
-  { status: "failed" }
+  {
+    status: "failed";
+  }
 >;
 type RemoteAgentWorkLoopContinuationCallbackBody = Extract<
   RemoteAgentCoreCallbackEvent,
-  { status: "continuation_required" }
+  {
+    status: "continuation_required";
+  }
 >;
 type RemoteAgentCompletedCallbackBody = Extract<
   RemoteAgentCoreCallbackBody,
-  { text: string }
+  {
+    text: string;
+  }
 >;
-
 type NativeDeliveryBindingSnapshot = {
   bindingId: string;
   personalAgent?: boolean;
@@ -388,9 +449,8 @@ type NativeDeliveryBindingSnapshot = {
   organizationId: string;
   ownerUserId: string | null;
 };
-
 type RemoteAgentSpaceNativeDeliveryInput = {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   executionAttemptId: string;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -399,19 +459,20 @@ type RemoteAgentSpaceNativeDeliveryInput = {
   memoryService?: CenterAgentMemoryService | null;
   timing?: SpaceBootstrapTimingCollector;
 };
-
 type RemoteAgentSpaceNativeDeliveryResult = {
   shouldAck: boolean;
   status: "submitted" | "failed" | "stopped";
 };
-
 type NativeDeliveryPublishRecord = Pick<
   RemoteAgentNativeDeliveryRecord,
+  | "admissionAttemptCount"
   | "anonymousMemberSpeaker"
   | "bindingId"
   | "conversationKind"
+  | "controllerNormalizationSnapshot"
   | "deliveryId"
   | "dispatchId"
+  | "finalPublicationPayload"
   | "executionRecoverySubmitRequest"
   | "idempotencyKey"
   | "messageChannelLocator"
@@ -431,8 +492,9 @@ type NativeDeliveryPublishRecord = Pick<
   routineNameSnapshot?: string | null;
   routineRunId?: string | null;
 };
-
 type RemoteAgentSlackNativeDeliveryInputBase = {
+  pluginSourceProof?: PluginChannelSourceProof;
+  pluginSelection?: PluginChannelSelection;
   agentProfileId: string;
   agentProfileOwnerUserId: string | null;
   author: RemoteAgentWorkerAuthorContext;
@@ -454,7 +516,6 @@ type RemoteAgentSlackNativeDeliveryInputBase = {
   triggerMessageId: string;
   turnEnvelope: RemoteAgentTurnEnvelope;
 };
-
 export type RemoteAgentSlackNativeDeliveryInput =
   RemoteAgentSlackNativeDeliveryInputBase &
     (
@@ -467,7 +528,6 @@ export type RemoteAgentSlackNativeDeliveryInput =
           workerRequestVersion?: 2;
         }
     );
-
 export type RemoteAgentSlackNativeDeliveryAdmission = Pick<
   RemoteAgentSlackNativeDeliveryInputBase,
   | "agentProfileId"
@@ -485,7 +545,6 @@ export type RemoteAgentSlackNativeDeliveryAdmission = Pick<
   | "speakerMember"
   | "triggerMessageId"
 >;
-
 type CenterAgentMemoryRuntimeOptions = {
   bypassRoutineWorkflowRouting?: boolean;
   memoryService?: CenterAgentMemoryService | null;
@@ -494,17 +553,19 @@ type CenterAgentMemoryRuntimeOptions = {
   reconcileMemberResearch?: () => Promise<void>;
   waitUntil?: (promise: Promise<unknown>) => void;
 };
-
 const REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE =
   "remote_agent.admission_timeout";
 const REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT =
-  "Center Agent did not accept this request in time. Please try again.";
+  resolveCenterAgentCallbackFailureMessage({
+    failureCode: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE,
+    failureMessage: "OpenMeld did not receive a startup acknowledgement.",
+  });
 const CENTER_AGENT_ROUTINE_PREPARATION_FAILED_PUBLIC_COPY =
   "Center Agent couldn't prepare this Routine. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
 const CENTER_AGENT_ROUTINE_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent isn't available right now. Run this Routine again in a moment.";
 const CENTER_AGENT_ROUTINE_START_UNCONFIRMED_PUBLIC_COPY =
-  "OpenMeld couldn't confirm whether Center Agent started this Routine, so it did not retry automatically. Run the Routine again.";
+  "OpenMeld could not recover this Routine's startup acknowledgement.";
 const CENTER_AGENT_ROUTINE_START_TIMEOUT_PUBLIC_COPY =
   "This Routine did not start in time. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
 const CENTER_AGENT_ROUTINE_START_FAILED_PUBLIC_COPY =
@@ -534,18 +595,84 @@ const REMOTE_AGENT_EXECUTION_RECONCILIATION_RPC_TIMEOUT_MS = 30_000;
 export const REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS =
   5 * 60_000;
 export const REMOTE_AGENT_ROUTINE_SUBMISSION_RECOVERY_MIN_AGE_MS = 60_000;
-
 class RemoteAgentExecutionReconciliationTimeoutError extends Error {
   constructor() {
     super("Remote Agent execution reconciliation timed out.");
     this.name = "RemoteAgentExecutionReconciliationTimeoutError";
   }
 }
-
+class RemoteAgentExecutionReconciliationProtocolError extends Error {
+  readonly failureKind: "invalid_response" | "unsupported";
+  constructor(failureKind: "invalid_response" | "unsupported") {
+    super(`Remote Agent execution reconciliation ${failureKind}.`);
+    this.failureKind = failureKind;
+  }
+}
+function parseExactExecutionReconciliation(
+  response: unknown,
+  delivery: RemoteAgentNativeDeliveryRecord,
+  submissionId: string
+) {
+  if (response === undefined) {
+    throw new RemoteAgentExecutionReconciliationProtocolError("unsupported");
+  }
+  const parsed =
+    remoteAgentWorkerExecutionQueryResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    throw new RemoteAgentExecutionReconciliationProtocolError(
+      "invalid_response"
+    );
+  }
+  const result = parsed.data;
+  if (
+    result.status === "found" &&
+    (result.execution.idempotencyKey !== delivery.idempotencyKey ||
+      result.execution.submissionId !== submissionId ||
+      result.execution.organizationId !== delivery.organizationId ||
+      result.execution.spaceId !== delivery.spaceId)
+  ) {
+    throw new RemoteAgentExecutionReconciliationProtocolError(
+      "invalid_response"
+    );
+  }
+  return result;
+}
+function unavailableReconciliationObservation(
+  delivery: RemoteAgentNativeDeliveryRecord,
+  nowMs: number,
+  failureKind: "transport" | "invalid_response" | "unsupported" | "not_found"
+) {
+  return remoteAgentExecutionReconciliationObservationSchema.parse({
+    v: 1,
+    consecutiveFailures:
+      (delivery.executionReconciliation?.consecutiveFailures ?? 0) + 1,
+    firstUnavailableAtMs:
+      delivery.executionReconciliation?.firstUnavailableAtMs ?? nowMs,
+    lastObservedAtMs: nowMs,
+    failureKind,
+    retryState:
+      failureKind === "invalid_response" || failureKind === "unsupported"
+        ? "paused"
+        : "retrying",
+  });
+}
+function reconciliationBackoffMs(
+  baseDelayMs: number,
+  consecutiveFailures = 1
+): number {
+  return Math.min(
+    900_000,
+    baseDelayMs * 2 ** Math.min(consecutiveFailures - 1, 4)
+  );
+}
 export class RemoteAgentSlackSubmissionOutcomeUnknownError extends Error {
   readonly reasonCode = "remote_agent.slack_worker_submit_outcome_unknown";
-
-  constructor(message: string, options: { cause?: unknown } = {}) {
+  constructor(
+    message: string,
+    options: {
+      cause?: unknown;
+    } = {}
+  ) {
     super(message);
     this.name = "RemoteAgentSlackSubmissionOutcomeUnknownError";
     if (options.cause !== undefined) {
@@ -553,17 +680,14 @@ export class RemoteAgentSlackSubmissionOutcomeUnknownError extends Error {
     }
   }
 }
-
 export class RemoteAgentTaskContinuationTerminalError extends Error {
   readonly reasonCode: string;
-
   constructor(reasonCode: string) {
     super(reasonCode);
     this.name = "RemoteAgentTaskContinuationTerminalError";
     this.reasonCode = reasonCode;
   }
 }
-
 export async function attachCenterAgentMemoryToTurnEnvelope(input: {
   env: CoreBindings;
   memoryService?: CenterAgentMemoryService | null;
@@ -578,7 +702,6 @@ export const REMOTE_AGENT_ROUTINE_SUBMISSION_AMBIGUITY_TIMEOUT_MS = 4 * 60_000;
 export const REMOTE_AGENT_ROUTINE_FAILURE_PUBLICATION_RETRY_BASE_MS = 60_000;
 export const REMOTE_AGENT_ROUTINE_FAILURE_PUBLICATION_RETRY_MAX_MS =
   60 * 60_000;
-
 class RemoteAgentRoutineSubmissionOutcomeUnknownError extends Error {
   constructor(cause: unknown) {
     super(
@@ -588,7 +711,6 @@ class RemoteAgentRoutineSubmissionOutcomeUnknownError extends Error {
     this.name = "RemoteAgentRoutineSubmissionOutcomeUnknownError";
   }
 }
-
 export const REMOTE_AGENT_SLACK_FINAL_PUBLICATION_CLAIM_LEASE_MS = 30_000;
 export const REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS = 20_000;
 const REMOTE_AGENT_CALLBACK_PUBLISH_FAILED_FAILURE_CODE =
@@ -609,17 +731,19 @@ const HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT = [
   "Return the best faithful final answer you can recover from this conversation.",
   "Your answer is content only. OpenMeld decides recovery status from the typed provider outcome, never from words in your answer.",
 ].join(" ");
-
 export type RemoteAgentExecutionRecoverySubmission = {
   dispatchId: string;
   idempotencyKey: string;
   status: "already_requested" | "requested";
 };
-
 export class RemoteAgentExecutionRecoverySubmissionOutcomeUnknownError extends Error {
   readonly reasonCode = "execution_recovery.hosted_submission_outcome_unknown";
-
-  constructor(message: string, options: { cause?: unknown } = {}) {
+  constructor(
+    message: string,
+    options: {
+      cause?: unknown;
+    } = {}
+  ) {
     super(message);
     this.name = "RemoteAgentExecutionRecoverySubmissionOutcomeUnknownError";
     if (options.cause !== undefined) {
@@ -627,13 +751,14 @@ export class RemoteAgentExecutionRecoverySubmissionOutcomeUnknownError extends E
     }
   }
 }
-
 function buildRemoteAgentSourceText(
   message: OpenMeldDaemonDispatchQueueMessage
 ): string | null {
   const rawText = normalizeOptionalText(message.sourceSignalSnapshot?.text);
   const text = rawText
     ? renderDispatchSourceText({
+        evidenceRefs: message.sourceSignalSnapshot?.evidenceRefs,
+        workHandoff: message.sourceSignalSnapshot?.workHandoff,
         text: rawText,
         quotedMessage: message.sourceSignalSnapshot?.quotedMessage,
         contextMessages: message.sourceSignalSnapshot?.contextMessages,
@@ -652,11 +777,15 @@ function buildRemoteAgentSourceText(
         (file) =>
           `- ${JSON.stringify(file.name)} — fileId=${file.fileId}, revision=${file.revision}, type=${file.mimeType}, size=${file.sizeBytes} bytes.`
       ),
-      "Use openmeld_read_space_file for text content and openmeld_save_space_file to create or update text files. The fileId and revision identify the exact bytes that were sent.",
+      "Use openmeld_read_space_file for text content. For binary content, download the exact revision into your Computer with openmeld_download_space_file. Use openmeld_save_space_file to create or update text files. The fileId and revision identify the exact bytes that were sent.",
+      ...(files.some((file) => file.mimeType.startsWith("video/"))
+        ? [
+            "For video content, download the file, then use openmeld_inspect_computer_video to sample frames and transcribe audio in bounded intervals. State which intervals you inspected; do not claim to have watched the entire video unless you covered it.",
+          ]
+        : []),
     ].join("\n"),
   ].join("\n\n");
 }
-
 export async function submitRemoteAgentNativeDelivery(
   input: RemoteAgentSpaceNativeDeliveryInput
 ): Promise<RemoteAgentSpaceNativeDeliveryResult> {
@@ -722,7 +851,7 @@ export async function submitRemoteAgentNativeDelivery(
   if (replayOutcome) {
     return replayOutcome;
   }
-  const designationDb = identityDb(input.env);
+  const designationDb = getPostgresDatabase(input.env);
   const designation = await prepareRemoteAgentAdmissionFoundation({
     persistAdmissionIntent: () => Promise.resolve(admittedDelivery),
     readDesignation: () =>
@@ -767,7 +896,6 @@ export async function submitRemoteAgentNativeDelivery(
     });
     return { shouldAck: true, status: "failed" };
   }
-
   const availability = resolveRemoteAgentRuntimeAvailability({
     env: input.env,
     organizationId: input.binding.organizationId,
@@ -781,7 +909,6 @@ export async function submitRemoteAgentNativeDelivery(
     });
     return { shouldAck: true, status: "failed" };
   }
-
   const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
   if (!worker?.submitConversationTurn) {
     await rejectNativeDeliveryWithSpaceFailure({
@@ -792,7 +919,6 @@ export async function submitRemoteAgentNativeDelivery(
     });
     return { shouldAck: true, status: "failed" };
   }
-
   if (
     existingDelivery?.status === "submitted" &&
     existingDelivery.workerSubmitRequest
@@ -802,7 +928,6 @@ export async function submitRemoteAgentNativeDelivery(
       durableWorkerRequest: existingDelivery.workerSubmitRequest,
     });
   }
-
   if (!sourceText) {
     await rejectNativeDeliveryWithSpaceFailure({
       ...input,
@@ -812,7 +937,6 @@ export async function submitRemoteAgentNativeDelivery(
     });
     return { shouldAck: true, status: "failed" };
   }
-
   const preparation = startRemoteAgentTurnContextAndSkills({
     readOrganizationSkills: () =>
       measureRemoteAgentAdmissionStage(
@@ -825,6 +949,8 @@ export async function submitRemoteAgentNativeDelivery(
           readEnabledOrganizationSkillReleaseSelection({
             db: input.db,
             organizationId: input.binding.organizationId,
+            selectedReleases:
+              input.message.sourceSignalSnapshot?.workHandoff?.skills,
           })
       ),
     resolveTurnContext: async () => {
@@ -975,7 +1101,6 @@ export async function submitRemoteAgentNativeDelivery(
       });
     }
   }
-
   const candidateWorkerRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse(
     {
       ...(input.binding.personalAgent
@@ -1010,6 +1135,10 @@ export async function submitRemoteAgentNativeDelivery(
       bindingId: input.binding.bindingId,
       triggerMessageId: input.message.sourceEventId,
       dispatchId: input.message.dispatchId,
+      ...(await resolveRemoteAgentWorkerTaskAttribution(
+        worker,
+        input.message.taskId
+      )),
       sourceClientMessageId: input.message.sourceClientMessageId ?? null,
       idempotencyKey: input.message.idempotencyKey,
       messages: [
@@ -1022,6 +1151,7 @@ export async function submitRemoteAgentNativeDelivery(
       author,
       onBehalfOf: author,
       organizationSkillReleases,
+      workHandoff: input.message.sourceSignalSnapshot?.workHandoff,
       modelRoute: input.binding.modelRoute,
       turnEnvelope,
     }
@@ -1049,7 +1179,6 @@ export async function submitRemoteAgentNativeDelivery(
     durableWorkerRequest,
   });
 }
-
 async function submitDurableRemoteAgentSpaceAdmission(
   input: RemoteAgentSpaceNativeDeliveryInput & {
     durableWorkerRequest: RemoteAgentWorkerSubmitTurnRequest;
@@ -1116,6 +1245,26 @@ async function submitDurableRemoteAgentSpaceAdmission(
     });
     return { shouldAck: false, status: "submitted" };
   }
+  if (
+    admission.status === "rejected" &&
+    admission.response.reasonCode === "remote_agent.execution_cancelled"
+  ) {
+    const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+      db: input.db,
+      idempotencyKey: input.message.idempotencyKey,
+    });
+    if (
+      delivery &&
+      (await settlePendingNativeStopFromSpaceOutcome({ ...input, delivery }))
+    ) {
+      return { shouldAck: true, status: "stopped" };
+    }
+    // This submit was suppressed, but an earlier ambiguous submit may already
+    // be running. Keep its watchdog; never turn Stop intent into DLQ/failure or
+    // terminal execution proof. Space's alarm repairs a missing withdrawal.
+    await admissionAttempt.watchdog;
+    return { shouldAck: false, status: "submitted" };
+  }
   if (admission.status === "rejected") {
     await rejectNativeDeliveryWithSpaceFailure({
       ...input,
@@ -1161,7 +1310,6 @@ async function submitDurableRemoteAgentSpaceAdmission(
   }
   return result;
 }
-
 async function resolveRepresentedMemberCenterAgentAttention(input: {
   env: CoreBindings;
   nowMs: number;
@@ -1169,7 +1317,7 @@ async function resolveRepresentedMemberCenterAgentAttention(input: {
   spaceId: string;
   userId: string;
 }): Promise<void> {
-  const attentionProjectionDb = inboxDb(input.env);
+  const attentionProjectionDb = getPostgresDatabase(input.env);
   if (!attentionProjectionDb) {
     console.error("[core.remote_agent.attention_resolution.unavailable]", {
       event: CORE_LOG_EVENTS.coreInternalError,
@@ -1197,7 +1345,6 @@ async function resolveRepresentedMemberCenterAgentAttention(input: {
     });
   }
 }
-
 const measureRemoteAgentAdmissionStage = async <T>(
   input: {
     timing?: SpaceBootstrapTimingCollector;
@@ -1213,10 +1360,9 @@ const measureRemoteAgentAdmissionStage = async <T>(
   }
   return await input.timing.measure(metric, read);
 };
-
 async function finalizeRemoteAgentSpaceAdmission(input: {
   ack: RemoteAgentWorkerSubmitMessagesResult;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
@@ -1227,8 +1373,9 @@ async function finalizeRemoteAgentSpaceAdmission(input: {
 }> {
   let acceptedDelivery: RemoteAgentNativeDeliveryRecord;
   try {
-    acceptedDelivery = await markRemoteAgentNativeDeliveryAck({
+    acceptedDelivery = await markRemoteAgentNativeDeliveryAckWithProbe({
       db: input.db,
+      env: input.env,
       nowMs: input.nowMs,
       idempotencyKey: input.message.idempotencyKey,
       submissionId: input.ack.submissionId,
@@ -1245,73 +1392,60 @@ async function finalizeRemoteAgentSpaceAdmission(input: {
     return { shouldAck: false, status: "submitted" };
   }
   if (
-    await isRemoteAgentSpaceWakeStoppedBeforeExecution({
-      delivery: acceptedDelivery,
-      env: input.env,
-      ownerUserId: input.targetOwnerUserId,
-    })
-  ) {
-    await requestRemoteAgentWorkerCancellationAfterStop({
-      delivery: acceptedDelivery,
-      env: input.env,
-    });
-    try {
-      const stopped = await settleRemoteAgentNativeDeliveryStopped({
-        db: input.db,
-        delivery: acceptedDelivery,
-        env: input.env,
-        idempotencyKey: input.message.idempotencyKey,
-        nowMs: input.nowMs,
-        submissionId: input.ack.submissionId,
-      });
-      if (!stopped) {
-        throw new Error(
-          "remote_agent.admission_stop_settlement_retry_required"
-        );
-      }
-    } catch (error) {
-      console.warn(
-        "[core.remote_agent.native_delivery.admission_stop_settlement_failed]",
-        {
-          dispatchId: input.message.dispatchId,
-          error: toErrorMessage(error),
-          submissionId: input.ack.submissionId,
-          targetProfileId: input.message.targetProfileId,
-        }
-      );
-      return { shouldAck: false, status: "stopped" };
-    }
-    return { shouldAck: true, status: "stopped" };
-  }
-  try {
-    await ensureRemoteAgentAcceptedDeliveryProbe({
+    await reconcileRemoteAgentAdmissionStop({
       db: input.db,
       delivery: acceptedDelivery,
       env: input.env,
       nowMs: input.nowMs,
-    });
-  } catch (error) {
-    console.warn(
-      "[core.remote_agent.native_delivery.accepted_probe_durability_failed]",
-      {
-        dispatchId: acceptedDelivery.dispatchId,
-        error: toErrorMessage(error),
-        event: CORE_LOG_EVENTS.coreInternalError,
-        submissionId: input.ack.submissionId,
-        targetProfileId: acceptedDelivery.profileId,
-      }
-    );
-    return { shouldAck: false, status: "submitted" };
+    })
+  ) {
+    return { shouldAck: true, status: "stopped" };
   }
   return { shouldAck: true, status: "submitted" };
 }
-
+/** An ACK is retained and probed even when Stop transport fails. Only the
+ * execution owner's confirmed aborted response permits terminal settlement. */
+async function reconcileRemoteAgentAdmissionStop(input: {
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+}): Promise<boolean> {
+  try {
+    if (!(await isRemoteAgentSpaceWakeStopRequested(input))) {
+      return false;
+    }
+    const stopped = await stopRemoteAgentNativeDelivery(input);
+    if (!stopped) {
+      return false;
+    }
+    await projectRemoteAgentNativeDeliveryTerminalEffects({
+      ...input,
+      delivery: stopped,
+    });
+    return true;
+  } catch (error) {
+    console.warn(
+      "[core.remote_agent.native_delivery.admission_stop_deferred]",
+      {
+        dispatchId: input.delivery.dispatchId,
+        submissionId: input.delivery.submissionId,
+        error: toErrorMessage(error),
+      }
+    );
+    return false;
+  }
+}
 export async function retryMissingRemoteAgentAcceptedDeliveryProbes(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   limit?: number;
   nowMs: number;
-}): Promise<{ enqueued: number; errors: number; scanned: number }> {
+}): Promise<{
+  enqueued: number;
+  errors: number;
+  scanned: number;
+}> {
   const deliveries = await listRemoteAgentNativeDeliveriesMissingAcceptedProbe({
     db: input.db,
     limit: input.limit,
@@ -1346,9 +1480,8 @@ export async function retryMissingRemoteAgentAcceptedDeliveryProbes(input: {
   }
   return summary;
 }
-
 async function resolveRemoteAgentSpaceDeliveryReplay(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord | null;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -1418,14 +1551,21 @@ async function resolveRemoteAgentSpaceDeliveryReplay(input: {
   }
   return { shouldAck: true, status: "stopped" };
 }
-
 export async function submitRemoteAgentSlackNativeDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   request: RemoteAgentSlackNativeDeliveryInput;
-}): Promise<{ shouldAck: boolean; status: "submitted" | "failed" }> {
-  await admitRemoteAgentSlackNativeDelivery(input);
+}): Promise<{
+  shouldAck: boolean;
+  status: "submitted" | "failed";
+}> {
+  const admitted = await admitRemoteAgentSlackNativeDelivery(input);
+  await recordPluginChannelAdmission(
+    input.db,
+    admitted.deliveryId,
+    input.request
+  );
   const existingDelivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
     db: input.db,
     idempotencyKey: input.request.idempotencyKey,
@@ -1440,7 +1580,6 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
   if (existingDelivery && existingDelivery.status !== "submitted") {
     return { shouldAck: true, status: "failed" };
   }
-
   const availability = resolveRemoteAgentRuntimeAvailability({
     env: input.env,
     organizationId: input.request.organizationId,
@@ -1457,7 +1596,6 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
     });
     return { shouldAck: true, status: "failed" };
   }
-
   const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
   if (!worker?.submitConversationTurn) {
     await rejectNativeDeliveryWithSlackFailure({
@@ -1471,7 +1609,6 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
     });
     return { shouldAck: true, status: "failed" };
   }
-
   const workerRequestVersion = input.request.workerRequestVersion ?? 2;
   const candidateWorkerRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse(
     {
@@ -1509,7 +1646,6 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
   if (!durableWorkerRequest) {
     throw new Error("Slack native delivery lost its durable worker request");
   }
-
   await enqueueRemoteAgentAdmissionWatchdog({
     ack: {
       submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
@@ -1526,91 +1662,144 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
       spaceId: input.request.conversationId,
     },
   });
+  return submitDurableSlackWorkerRequest(input, durableWorkerRequest, worker);
+}
 
-  const admission = await submitRemoteAgentWorkerAdmission({
-    db: input.db,
-    env: input.env,
-    nowMs: input.nowMs,
-    organizationId: input.request.organizationId,
-    request: durableWorkerRequest,
-    worker,
-  });
-  if (admission.status === "rejected") {
-    await rejectNativeDeliveryWithSlackFailure({
-      db: input.db,
-      env: input.env,
-      failureCode: admission.response.reasonCode,
-      failureDetail: admission.response.message,
-      ledgerStatus: "failed",
-      nowMs: input.nowMs,
-      request: input.request,
-      text: resolveRemoteAgentAdmissionPublicCopy({
-        conversationKind: "slack",
-        reasonCode: admission.response.reasonCode,
-      }),
-    });
-    return { shouldAck: true, status: "failed" };
-  }
+async function submitDurableSlackWorkerRequest(
+  input: Parameters<typeof submitRemoteAgentSlackNativeDelivery>[0],
+  durableWorkerRequest: RemoteAgentWorkerSubmitTurnRequest,
+  worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>
+): Promise<{ shouldAck: boolean; status: "submitted" | "failed" }> {
+  const claimId = crypto.randomUUID();
   if (
-    admission.status === "outcome_unknown" ||
-    admission.status === "protocol_error"
-  ) {
-    const message = toErrorMessage(admission.error);
-    console.warn("[core.remote_agent.native_delivery.submit_outcome_unknown]", {
-      event: CORE_LOG_EVENTS.coreInternalError,
-      dispatchId: input.request.dispatchId,
-      error: message,
-      reasonCode: "remote_agent.slack_worker_submit_outcome_unknown",
-      targetProfileId: input.request.agentProfileId,
-    });
-    throw new RemoteAgentSlackSubmissionOutcomeUnknownError(message, {
-      cause: admission.error,
-    });
-  }
-  if (admission.status !== "acknowledged") {
-    await rejectNativeDeliveryWithSlackFailure({
+    !(await claimRemoteAgentWorkerSubmission({
       db: input.db,
-      env: input.env,
-      failureCode: "remote_agent.worker_submit_failed",
-      ledgerStatus: "worker_unavailable",
-      nowMs: input.nowMs,
-      request: input.request,
-      text: CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
-    });
-    return { shouldAck: true, status: "failed" };
-  }
-  const ack = admission.ack;
-  try {
-    await markRemoteAgentNativeDeliveryAckWithProbe({
-      db: input.db,
-      env: input.env,
-      nowMs: input.nowMs,
       idempotencyKey: input.request.idempotencyKey,
-      submissionId: ack.submissionId,
-      workerRequestId: ack.requestId ?? null,
-      accepted: ack.accepted,
+      claimId,
+      nowMs: input.nowMs,
+      expiresAtMs: input.nowMs + 120_000,
+    }))
+  ) {
+    const current = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+      db: input.db,
+      idempotencyKey: input.request.idempotencyKey,
     });
-    return { shouldAck: true, status: "submitted" };
-  } catch (error) {
-    const message = toErrorMessage(error);
-    console.warn("[core.remote_agent.native_delivery.submit_outcome_unknown]", {
-      event: CORE_LOG_EVENTS.coreInternalError,
-      dispatchId: input.request.dispatchId,
-      error: message,
-      reasonCode: "remote_agent.slack_worker_submit_outcome_unknown",
-      targetProfileId: input.request.agentProfileId,
+    if (!current) {
+      throw new Error(
+        "Slack native submission claim lost its durable delivery"
+      );
+    }
+    return {
+      shouldAck: true,
+      status: ["submitted", "accepted", "retry_observed", "completed"].includes(
+        current.status
+      )
+        ? "submitted"
+        : "failed",
+    };
+  }
+  try {
+    const admission = await submitRemoteAgentWorkerAdmission({
+      db: input.db,
+      env: input.env,
+      nowMs: input.nowMs,
+      organizationId: input.request.organizationId,
+      request: durableWorkerRequest,
+      worker,
     });
-    throw new RemoteAgentSlackSubmissionOutcomeUnknownError(message, {
-      cause: error,
+    if (admission.status === "rejected") {
+      await rejectNativeDeliveryWithSlackFailure({
+        db: input.db,
+        env: input.env,
+        failureCode: admission.response.reasonCode,
+        failureDetail: admission.response.message,
+        ledgerStatus: "failed",
+        nowMs: input.nowMs,
+        request: input.request,
+        text: resolveRemoteAgentAdmissionPublicCopy({
+          conversationKind: "slack",
+          reasonCode: admission.response.reasonCode,
+        }),
+      });
+      return { shouldAck: true, status: "failed" };
+    }
+    if (
+      admission.status === "outcome_unknown" ||
+      admission.status === "protocol_error"
+    ) {
+      const message = toErrorMessage(admission.error);
+      console.warn(
+        "[core.remote_agent.native_delivery.submit_outcome_unknown]",
+        {
+          event: CORE_LOG_EVENTS.coreInternalError,
+          dispatchId: input.request.dispatchId,
+          error: message,
+          reasonCode: "remote_agent.slack_worker_submit_outcome_unknown",
+          targetProfileId: input.request.agentProfileId,
+        }
+      );
+      throw new RemoteAgentSlackSubmissionOutcomeUnknownError(message, {
+        cause: admission.error,
+      });
+    }
+    if (admission.status !== "acknowledged") {
+      await rejectNativeDeliveryWithSlackFailure({
+        db: input.db,
+        env: input.env,
+        failureCode: "remote_agent.worker_submit_failed",
+        ledgerStatus: "worker_unavailable",
+        nowMs: input.nowMs,
+        request: input.request,
+        text: CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
+      });
+      return { shouldAck: true, status: "failed" };
+    }
+    const ack = admission.ack;
+    try {
+      await markRemoteAgentNativeDeliveryAckWithProbe({
+        db: input.db,
+        env: input.env,
+        nowMs: input.nowMs,
+        idempotencyKey: input.request.idempotencyKey,
+        submissionId: ack.submissionId,
+        workerRequestId: ack.requestId ?? null,
+        accepted: ack.accepted,
+      });
+      return { shouldAck: true, status: "submitted" };
+    } catch (error) {
+      const message = toErrorMessage(error);
+      console.warn(
+        "[core.remote_agent.native_delivery.submit_outcome_unknown]",
+        {
+          event: CORE_LOG_EVENTS.coreInternalError,
+          dispatchId: input.request.dispatchId,
+          error: message,
+          reasonCode: "remote_agent.slack_worker_submit_outcome_unknown",
+          targetProfileId: input.request.agentProfileId,
+        }
+      );
+      throw new RemoteAgentSlackSubmissionOutcomeUnknownError(message, {
+        cause: error,
+      });
+    }
+  } finally {
+    await releaseRemoteAgentWorkerSubmission({
+      db: input.db,
+      idempotencyKey: input.request.idempotencyKey,
+      claimId,
     });
   }
 }
-
 function resolveSlackIdentityContinuationWorkerSemantics(
   originalRequest: RemoteAgentWorkerSubmitTurnRequest
 ):
-  | { modelRoute: CenterAgentModelRoute; workerRequestVersion: 2 }
-  | { workerRequestVersion: 1 } {
+  | {
+      modelRoute: CenterAgentModelRoute;
+      workerRequestVersion: 2;
+    }
+  | {
+      workerRequestVersion: 1;
+    } {
   if (originalRequest.v !== 1) {
     return {
       modelRoute: originalRequest.modelRoute,
@@ -1619,10 +1808,9 @@ function resolveSlackIdentityContinuationWorkerSemantics(
   }
   return { workerRequestVersion: 1 };
 }
-
 async function resolveSlackIdentityContinuationSource(input: {
   consumedToken: SlackIdentityLinkTokenRecord;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   slackTeamId: string;
   slackUserId: string;
@@ -1704,9 +1892,8 @@ async function resolveSlackIdentityContinuationSource(input: {
     triggerText: sourceDelivery.triggerText,
   };
 }
-
 export async function continueSlackIdentityOnboardingRequest(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   organizationId: string;
@@ -1716,7 +1903,10 @@ export async function continueSlackIdentityOnboardingRequest(input: {
   tokenHash: string;
   openmeldUserId: string;
 }): Promise<{
-  slackThreadTarget: { channelId: string; messageTs: string } | null;
+  slackThreadTarget: {
+    channelId: string;
+    messageTs: string;
+  } | null;
   status: "legacy" | "retryable_failure" | "submitted";
 }> {
   if (!input.sourceDeliveryId) {
@@ -1796,7 +1986,12 @@ export async function continueSlackIdentityOnboardingRequest(input: {
       identity: continuationIdentity,
     });
   }
+  const pluginMetadata = await readPluginChannelMetadata(
+    input.db,
+    sourceDelivery.deliveryId
+  );
   const continuationRequest: RemoteAgentSlackNativeDeliveryInput = {
+    ...(pluginMetadata ? { pluginSourceProof: pluginMetadata.proof } : {}),
     agentProfileId: sourceDelivery.profileId,
     agentProfileOwnerUserId: originalRequest.agentProfileOwnerUserId,
     author: {
@@ -1863,7 +2058,6 @@ export async function continueSlackIdentityOnboardingRequest(input: {
       submission.status === "submitted" ? "submitted" : "retryable_failure",
   };
 }
-
 function buildSlackIdentityContinuationKey(input: {
   attempt: number;
   identity: string;
@@ -1871,9 +2065,8 @@ function buildSlackIdentityContinuationKey(input: {
   const base = `remote-agent-slack-identity-continuation:${input.identity}`;
   return input.attempt === 0 ? base : `${base}:retry:${input.attempt}`;
 }
-
 export async function admitRemoteAgentSlackNativeDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   request: RemoteAgentSlackNativeDeliveryAdmission;
@@ -1902,13 +2095,12 @@ export async function admitRemoteAgentSlackNativeDelivery(input: {
     triggerText,
   });
 }
-
 export async function submitRemoteAgentExecutionRecoveryTurn(input: {
   action: Extract<
     ExecutionRecoveryAction,
     "resume_controller_conversation" | "retry_as_new_execution"
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   markEffectStarted: () => Promise<void>;
   nowMs: number;
@@ -1931,7 +2123,6 @@ export async function submitRemoteAgentExecutionRecoveryTurn(input: {
   if (!originalRequest) {
     throw new Error("execution_recovery.hosted_request_unavailable");
   }
-
   const identity = buildRemoteAgentExecutionRecoveryIdentity({
     action: input.action,
     operationId: input.operationId,
@@ -2022,7 +2213,6 @@ export async function submitRemoteAgentExecutionRecoveryTurn(input: {
       triggerText: truncateRemoteAgentTriggerText(messages[0]?.content ?? ""),
     });
   }
-
   const durableDelivery = await persistRemoteAgentWorkerSubmitRequest({
     db: input.db,
     idempotencyKey: identity.idempotencyKey,
@@ -2090,7 +2280,6 @@ export async function submitRemoteAgentExecutionRecoveryTurn(input: {
   });
   return { ...identity, status: "requested" };
 }
-
 function resolveExistingRemoteAgentExecutionRecoverySubmission(input: {
   candidateWorkerRequest: RemoteAgentWorkerSubmitTurnRequest;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -2116,9 +2305,8 @@ function resolveExistingRemoteAgentExecutionRecoverySubmission(input: {
   }
   return null;
 }
-
 export async function reconcileRemoteAgentRetainedResultPublication(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -2144,7 +2332,6 @@ export async function reconcileRemoteAgentRetainedResultPublication(input: {
   });
   return recovered;
 }
-
 function assertRemoteAgentExecutionRecoverySource(input: {
   action: "resume_controller_conversation" | "retry_as_new_execution";
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -2169,7 +2356,6 @@ function assertRemoteAgentExecutionRecoverySource(input: {
     throw new Error("execution_recovery.hosted_source_attachments_unavailable");
   }
 }
-
 export function buildRemoteAgentExecutionRecoveryIdentity(input: {
   action: "resume_controller_conversation" | "retry_as_new_execution";
   operationId: string;
@@ -2197,7 +2383,6 @@ export function buildRemoteAgentExecutionRecoveryIdentity(input: {
     idempotencyKey: deliveryId,
   };
 }
-
 function buildRemoteAgentExecutionRecoveryNamespacedIdentity(
   namespace: string,
   parts: readonly string[]
@@ -2206,7 +2391,6 @@ function buildRemoteAgentExecutionRecoveryNamespacedIdentity(
     .map((part) => `${part.length}:${part}`)
     .join("|")}`;
 }
-
 async function resolveExecutionRecoveryProviderPublicationIdempotencyKey(input: {
   deliveryId: string;
   originalDelivery: RemoteAgentNativeDeliveryRecord;
@@ -2220,7 +2404,6 @@ async function resolveExecutionRecoveryProviderPublicationIdempotencyKey(input: 
       })
     : null;
 }
-
 function assertRemoteAgentExecutionRecoveryDeliveryMatches(input: {
   candidateWorkerRequest: RemoteAgentWorkerSubmitTurnRequest;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -2248,7 +2431,6 @@ function assertRemoteAgentExecutionRecoveryDeliveryMatches(input: {
     throw new Error("execution_recovery.hosted_operation_conflict");
   }
 }
-
 export function buildCenterAgentMemberResearchInstructions(input: {
   nowMs: number;
   subjectDisplayName: string;
@@ -2310,18 +2492,15 @@ export function buildCenterAgentMemberResearchInstructions(input: {
     "- Do not provide evidence-backed section fields.",
   ].join("\n");
 }
-
 type TaskContinuationObserverContext = {
   observer: RemoteAgentNativeDeliveryRecord;
   requesterProfileId: string;
   requesterUserId: string;
   routineRunId: string | null;
 };
-
 type RemoteAgentTargetProfile = Awaited<
   ReturnType<typeof resolveRemoteAgentTargetProfile>
 >;
-
 function requireTaskContinuationObserverContext(
   input: RemoteAgentTaskContinuationDeliveryInput
 ): TaskContinuationObserverContext {
@@ -2343,7 +2522,6 @@ function requireTaskContinuationObserverContext(
   }
   return { observer, requesterProfileId, requesterUserId, routineRunId };
 }
-
 async function resolveTaskContinuationTurnContext(input: {
   continuationContext: TaskContinuationObserverContext;
   input: RemoteAgentTaskContinuationDeliveryInput;
@@ -2404,6 +2582,12 @@ async function resolveTaskContinuationTurnContext(input: {
       watchId: input.input.watchId,
     });
   }
+  if (
+    input.input.summaryOnly &&
+    turnEnvelope.trigger.source === "task_continuation"
+  ) {
+    turnEnvelope.trigger.summaryOnly = true;
+  }
   return {
     author: resolveTaskContinuationAuthor({
       observer,
@@ -2414,7 +2598,6 @@ async function resolveTaskContinuationTurnContext(input: {
     turnEnvelope,
   };
 }
-
 function resolveTaskContinuationAuthor(input: {
   observer: RemoteAgentNativeDeliveryRecord;
   targetProfile: RemoteAgentTargetProfile;
@@ -2442,7 +2625,6 @@ function resolveTaskContinuationAuthor(input: {
   }
   throw new Error("Remote Agent task continuation lost its represented member");
 }
-
 async function stageTaskContinuationDelivery(input: {
   continuationContext: TaskContinuationObserverContext;
   input: RemoteAgentTaskContinuationDeliveryInput;
@@ -2491,10 +2673,9 @@ async function stageTaskContinuationDelivery(input: {
   });
   return stagedDelivery;
 }
-
 async function claimRoutineContinuationFinalResultOwnership(input: {
   continuationDelivery: RemoteAgentNativeDeliveryRecord;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   previousDelivery: RemoteAgentNativeDeliveryRecord;
 }): Promise<void> {
@@ -2556,9 +2737,8 @@ async function claimRoutineContinuationFinalResultOwnership(input: {
     runId,
   });
 }
-
 async function projectRoutineContinuationFailureAndNotify(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -2632,14 +2812,16 @@ async function projectRoutineContinuationFailureAndNotify(input: {
     runId,
   });
 }
-
 export async function finalizeRemoteAgentRoutineContinuationFailure(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   failureCode: string;
   nowMs: number;
   runId: string;
-}): Promise<{ finalized: true; terminal: true }> {
+}): Promise<{
+  finalized: true;
+  terminal: true;
+}> {
   const failureCode = normalizeOptionalText(input.failureCode);
   if (!failureCode) {
     throw new Error(
@@ -2699,10 +2881,9 @@ export async function finalizeRemoteAgentRoutineContinuationFailure(input: {
   }
   return { finalized: true, terminal: true };
 }
-
 async function failTaskContinuationBeforeExecution(input: {
   continuationDelivery: RemoteAgentNativeDeliveryRecord;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   failureCode: string;
   failureDetail?: string;
@@ -2760,10 +2941,9 @@ async function failTaskContinuationBeforeExecution(input: {
     nowMs: settlementNowMs,
   });
 }
-
 async function settleTaskContinuationPreExecutionFailure(input: {
   continuationDelivery: RemoteAgentNativeDeliveryRecord;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   failureCode: string;
   failureDetail?: string;
@@ -2794,7 +2974,6 @@ async function settleTaskContinuationPreExecutionFailure(input: {
     });
     return;
   }
-
   if (input.continuationDelivery.conversationKind === "slack") {
     const outcome = await publishRemoteAgentSlackAdmissionFailure({
       db: input.db,
@@ -2819,7 +2998,6 @@ async function settleTaskContinuationPreExecutionFailure(input: {
     });
     return;
   }
-
   if (input.continuationDelivery.conversationKind === "message_channel") {
     const registry =
       input.messageChannelProviderRegistry ??
@@ -2867,7 +3045,6 @@ async function settleTaskContinuationPreExecutionFailure(input: {
     });
     return;
   }
-
   await markRemoteAgentNativeDeliveryFailure({
     db: input.db,
     failureCode: input.failureCode,
@@ -2916,7 +3093,6 @@ async function settleTaskContinuationPreExecutionFailure(input: {
     nowMs: input.nowMs,
   });
 }
-
 function requireMessageChannelContinuationFailureClaim(
   claim: RemoteAgentNativeDeliveryRecord | null
 ): RemoteAgentNativeDeliveryRecord & {
@@ -2934,9 +3110,8 @@ function requireMessageChannelContinuationFailureClaim(
   }
   return { ...claim, status: claim.status };
 }
-
 async function projectTaskContinuationPreExecutionTerminal(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   idempotencyKey: string;
   nowMs: number;
@@ -2960,29 +3135,39 @@ async function projectTaskContinuationPreExecutionTerminal(input: {
     nowMs: input.nowMs,
   });
 }
-
 async function publishTaskContinuationSpacePreExecutionFailure(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   failureCode: string;
   failureMessage: string;
 }): Promise<SignalEnvelope> {
-  const replyThreadContext =
-    await resolveNativeDeliveryReplyThreadContext(input);
+  const replyThreadContext = input.delivery.threadContext;
   const targetProfile = await resolveRemoteAgentTargetProfile({
     env: input.env,
     profileId: input.delivery.profileId,
   });
+  const personalAgent = isPersonalHostedDelivery(input.delivery);
   const profileName =
-    normalizeOptionalText(targetProfile.profileName) ?? "Center Agent";
+    normalizeOptionalText(targetProfile.profileName) ??
+    (personalAgent ? "Agent" : "Center Agent");
   const profile = buildDispatchReplyTargetProfile({
     agentControllerConversationId: null,
-    agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    agentControllerRef: personalAgent
+      ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      : HOSTED_CENTER_AGENT_CONTROLLER_REF,
     ownerUserId: targetProfile.ownerUserId,
     profileHandle: targetProfile.profileHandle,
     targetProfileId: input.delivery.profileId,
     targetProfileName: profileName,
   });
+  const failureText = personalAgent
+    ? resolveCenterAgentCallbackFailureMessage({
+        agentLabel: profileName,
+        failureCode: input.failureCode,
+        failureDetail: input.delivery.failureDetail,
+        failureMessage: input.failureMessage,
+      })
+    : input.failureMessage;
   const requestId = `task-continuation-failure:${input.delivery.deliveryId}`;
   const context: OpenMeldRequestContext = {
     activeOrganizationId: input.delivery.organizationId,
@@ -3006,7 +3191,7 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
       activationTargets: [],
       referenceTargets: [],
       replyToSignalId: input.delivery.triggerMessageId,
-      text: input.failureMessage,
+      text: failureText,
     },
     meta: {
       clientMessageId: requestId,
@@ -3025,15 +3210,14 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
       targetProfileId: input.delivery.profileId,
     }),
     spaceId: input.delivery.spaceId,
-    text: input.failureMessage,
+    text: failureText,
     ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
   });
 }
-
 async function cancelTaskContinuationWithRoutineFinalization(input: {
   admittedSubmissionId?: string;
   continuationDelivery: RemoteAgentNativeDeliveryRecord;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   previousDelivery: RemoteAgentNativeDeliveryRecord;
@@ -3062,7 +3246,6 @@ async function cancelTaskContinuationWithRoutineFinalization(input: {
     });
   }
 }
-
 function requireInheritedCenterAgentWorkerRequest(
   observer: RemoteAgentNativeDeliveryRecord
 ): RemoteAgentWorkerSubmitTurnRequest {
@@ -3075,18 +3258,39 @@ function requireInheritedCenterAgentWorkerRequest(
   }
   return originalWorkerRequest;
 }
-
 type RemoteAgentTaskContinuationWorkerProtocol =
-  | Pick<Extract<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>, "v">
   | Pick<
-      Extract<RemoteAgentWorkerSubmitTurnRequest, { v: 2 }>,
+      Extract<
+        RemoteAgentWorkerSubmitTurnRequest,
+        {
+          v: 1;
+        }
+      >,
+      "v"
+    >
+  | Pick<
+      Extract<
+        RemoteAgentWorkerSubmitTurnRequest,
+        {
+          v: 2;
+        }
+      >,
       "modelRoute" | "v"
     >
   | Pick<
-      Extract<RemoteAgentWorkerSubmitTurnRequest, { v: 4 }>,
-      "conversationId" | "modelRoute" | "runtimeConversation" | "v"
+      Extract<
+        RemoteAgentWorkerSubmitTurnRequest,
+        {
+          v: 4;
+        }
+      >,
+      | "conversationId"
+      | "conversationIdentity"
+      | "modelRoute"
+      | "runtimeConversation"
+      | "spaceDispatchContext"
+      | "v"
     >;
-
 function inheritRemoteAgentTaskContinuationWorkerProtocol(
   request: RemoteAgentWorkerSubmitTurnRequest
 ): RemoteAgentTaskContinuationWorkerProtocol {
@@ -3098,8 +3302,14 @@ function inheritRemoteAgentTaskContinuationWorkerProtocol(
     case 4:
       return {
         conversationId: request.conversationId,
+        ...(request.conversationIdentity
+          ? { conversationIdentity: request.conversationIdentity }
+          : {}),
         modelRoute: request.modelRoute,
         runtimeConversation: request.runtimeConversation,
+        ...(request.spaceDispatchContext
+          ? { spaceDispatchContext: request.spaceDispatchContext }
+          : {}),
         v: request.v,
       };
     default: {
@@ -3110,18 +3320,22 @@ function inheritRemoteAgentTaskContinuationWorkerProtocol(
     }
   }
 }
-
 export async function submitRemoteAgentTaskContinuationDelivery(
   input: RemoteAgentTaskContinuationDeliveryInput
 ): Promise<RemoteAgentTaskContinuationDeliveryResult> {
-  if (!(await input.isAuthorized())) {
-    return { status: "cancelled", task: null };
-  }
-  const replay = await resolveRemoteAgentTaskContinuationReplay(input);
+  const replay = await observeTaskContinuationPreparation(
+    input,
+    "preparation",
+    async () => {
+      if (!(await input.isAuthorized())) {
+        return { status: "cancelled" as const, task: null };
+      }
+      return await resolveRemoteAgentTaskContinuationReplay(input);
+    }
+  );
   if (replay) {
     return replay;
   }
-
   const continuationContext = requireTaskContinuationObserverContext(input);
   const { observer } = continuationContext;
   const availability = resolveRemoteAgentRuntimeAvailability({
@@ -3136,27 +3350,39 @@ export async function submitRemoteAgentTaskContinuationDelivery(
     throw new Error("remote_agent.worker_unavailable");
   }
   const { author, targetProfile, turnEnvelope } =
-    await resolveTaskContinuationTurnContext({
-      continuationContext,
-      input,
-    });
+    await observeTaskContinuationPreparation(input, "turn_context", () =>
+      resolveTaskContinuationTurnContext({
+        continuationContext,
+        input,
+      })
+    );
   const continuationInstructions =
     buildRemoteAgentTaskContinuationInstructions(input);
-  const turnEnvelopeWithMemory = await attachCenterAgentMemoryToTurnEnvelope({
-    env: input.env,
-    memoryService: input.memoryService,
-    organizationId: observer.organizationId,
-    query: continuationInstructions,
-    turnEnvelope,
-  });
+  const turnEnvelopeWithMemory = await observeTaskContinuationPreparation(
+    input,
+    "memory",
+    () =>
+      attachCenterAgentMemoryToTurnEnvelope({
+        env: input.env,
+        memoryService: input.memoryService,
+        organizationId: observer.organizationId,
+        query: continuationInstructions,
+        turnEnvelope,
+      })
+  );
   const targetOwnerUserId = normalizeOptionalText(targetProfile.ownerUserId);
   const isRoutineContinuation = turnEnvelope.sender.kind === "routine";
-  const organizationSkillReleases = isRoutineContinuation
-    ? requireRoutineContinuationOrganizationSkillReleases(observer)
-    : await readEnabledOrganizationSkillReleaseSelection({
-        db: input.db,
-        organizationId: observer.organizationId,
-      });
+  const organizationSkillReleases = await observeTaskContinuationPreparation(
+    input,
+    "skill_selection",
+    async () =>
+      isRoutineContinuation
+        ? requireRoutineContinuationOrganizationSkillReleases(observer)
+        : await readEnabledOrganizationSkillReleaseSelection({
+            db: input.db,
+            organizationId: observer.organizationId,
+          })
+  );
   const inheritedWorkerRequest =
     requireInheritedCenterAgentWorkerRequest(observer);
   const request = remoteAgentWorkerSubmitTurnRequestSchema.parse({
@@ -3212,23 +3438,36 @@ export async function submitRemoteAgentTaskContinuationDelivery(
     });
     return { status: "cancelled", task: null };
   }
-  await enqueueRemoteAgentAdmissionWatchdog({
-    ack: {
-      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
-        input.idempotencyKey
-      ),
-    },
-    env: input.env,
-    nowMs: input.nowMs,
-    target: {
-      dispatchId: input.idempotencyKey,
-      idempotencyKey: input.idempotencyKey,
-      organizationId: observer.organizationId,
-      profileId: observer.profileId,
-      spaceId: observer.spaceId,
-    },
-  });
+  await observeTaskContinuationPreparation(input, "watchdog_enqueue", () =>
+    enqueueRemoteAgentAdmissionWatchdog({
+      ack: {
+        submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+          input.idempotencyKey
+        ),
+      },
+      env: input.env,
+      nowMs: input.nowMs,
+      target: {
+        dispatchId: input.idempotencyKey,
+        idempotencyKey: input.idempotencyKey,
+        organizationId: observer.organizationId,
+        profileId: observer.profileId,
+        spaceId: observer.spaceId,
+      },
+    })
+  );
+  const continuitySourceDispatchId = await observeTaskContinuationPreparation(
+    input,
+    "source_dispatch",
+    () =>
+      resolveTaskContinuationSpaceSourceDispatchId({
+        db: input.db,
+        observer,
+      })
+  );
   const admission = await submitRemoteAgentWorkerAdmission({
+    continuitySourceDispatchId,
+    admissionDelivery: durableDelivery,
     db: input.db,
     env: input.env,
     nowMs: input.nowMs,
@@ -3327,7 +3566,6 @@ export async function submitRemoteAgentTaskContinuationDelivery(
   }
   return { status: "submitted", task };
 }
-
 function requireRoutineContinuationOrganizationSkillReleases(
   observer: RemoteAgentNativeDeliveryRecord
 ): OrganizationSkillRuntimeReleaseSelection[] {
@@ -3339,13 +3577,14 @@ function requireRoutineContinuationOrganizationSkillReleases(
   }
   return releases;
 }
-
 async function resolveTaskContinuationAckPersistenceFailure(input: {
   admittedSubmissionId: string;
   delivery: RemoteAgentNativeDeliveryRecord;
   error: unknown;
   input: RemoteAgentTaskContinuationDeliveryInput;
-  task: AgentTaskHandle & { kind: "native_delivery" };
+  task: AgentTaskHandle & {
+    kind: "native_delivery";
+  };
 }): Promise<RemoteAgentTaskContinuationDeliveryResult> {
   console.warn("[core.remote_agent.task_continuation.ack_persistence_failed]", {
     error: toErrorMessage(input.error),
@@ -3366,7 +3605,6 @@ async function resolveTaskContinuationAckPersistenceFailure(input: {
   });
   return { status: "cancelled", task: null };
 }
-
 async function resolveRemoteAgentTaskContinuationReplay(
   input: RemoteAgentTaskContinuationDeliveryInput
 ): Promise<RemoteAgentTaskContinuationDeliveryResult | null> {
@@ -3375,6 +3613,16 @@ async function resolveRemoteAgentTaskContinuationReplay(
     db: input.db,
     idempotencyKey: input.idempotencyKey,
   });
+  if (existingDelivery) {
+    await requireTaskContinuationSummaryPolicy({
+      env: input.env,
+      summaryOnly: input.summaryOnly,
+      requests: [
+        existingDelivery.workerSubmitRequest,
+        existingDelivery.executionRecoverySubmitRequest,
+      ],
+    });
+  }
   if (
     existingDelivery &&
     existingDelivery.status !== "submitted" &&
@@ -3457,17 +3705,22 @@ async function resolveRemoteAgentTaskContinuationReplay(
     },
   };
 }
-
 export async function activateCenterAgentFallbackSpaceWake(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   isAuthorized: () => Promise<boolean>;
   observerDelivery: RemoteAgentNativeDeliveryRecord;
-  task: AgentTaskHandle & { kind: "space_wake" };
+  task: AgentTaskHandle & {
+    kind: "space_wake";
+  };
   text: string;
 }): Promise<{
   status: "cancelled" | "submitted";
-  task: (AgentTaskHandle & { kind: "space_wake" }) | null;
+  task:
+    | (AgentTaskHandle & {
+        kind: "space_wake";
+      })
+    | null;
 }> {
   const observer = input.observerDelivery;
   if (
@@ -3576,21 +3829,21 @@ export async function activateCenterAgentFallbackSpaceWake(input: {
   }
   return { status: "submitted", task: input.task };
 }
-
 async function cancelRemoteAgentTaskContinuationDelivery(input: {
   admittedSubmissionId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
   return await stopRemoteAgentNativeDelivery(input);
 }
-
 async function stopCancelledFallbackSpaceWake(input: {
   env: CoreBindings;
   observer: RemoteAgentNativeDeliveryRecord;
-  task: AgentTaskHandle & { kind: "space_wake" };
+  task: AgentTaskHandle & {
+    kind: "space_wake";
+  };
 }): Promise<void> {
   const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, input.task.spaceId);
   if (!stub) {
@@ -3630,25 +3883,40 @@ async function stopCancelledFallbackSpaceWake(input: {
     );
   }
 }
-
 function buildRemoteAgentTaskContinuationInstructions(
   input: RemoteAgentTaskContinuationDeliveryInput
 ): string {
+  const childExecutionNote =
+    "errorCode" in input.outcome &&
+    input.outcome.errorCode === "runtime_coordinator.delivery_expired"
+      ? [
+          "- The child Wake expired before it reached the local Agent. No child task result is available; tell the requester that the task did not run.",
+        ]
+      : [];
+  const languageGuidance = input.replyLanguageTag
+    ? [
+        `Upstream Agent reply-language decision: ${input.replyLanguageTag}. Preserve it for this continuation unless the requester explicitly changes the language. It does not change the Organization language preference.`,
+      ]
+    : [];
   if (input.watchId !== undefined) {
     return [
       input.instruction,
+      ...languageGuidance,
       "",
       "OpenMeld task watch continuation:",
       `- watchId: ${input.watchId}`,
       `- subscriptionId: ${input.subscriptionId}`,
       `- observed task: ${JSON.stringify(input.watchedTask)}`,
       `- observed outcome: ${JSON.stringify(input.outcome)}`,
+      buildTaskContinuationResultAvailabilityNote(input.outcome),
+      ...childExecutionNote,
       "",
-      "Continue only from this exact completion evidence. If a publishedSignalId is present, read that exact result before proceeding. Reply to the original requester in the original conversation.",
+      "Continue only from this exact completion evidence. If a publishedSignalId is present, read that exact result through the existing authorized tools. If it cannot be read, explicitly mark that result unavailable and continue with the available evidence. Do not guess another result locator, relax access checks, or repeat the observed task merely to fill the gap. Reply to the original requester in the original conversation.",
     ].join("\n");
   }
   return [
     input.instruction,
+    ...languageGuidance,
     "",
     "OpenMeld task continuation:",
     `- delegationId: ${input.delegationId}`,
@@ -3657,16 +3925,63 @@ function buildRemoteAgentTaskContinuationInstructions(
     `- subscriptionId: ${input.subscriptionId}`,
     `- triggering child task: ${JSON.stringify(input.watchedTask)}`,
     `- triggering child outcome: ${JSON.stringify(input.outcome)}`,
+    ...childExecutionNote,
     "- delegation children:",
-    ...input.delegation.children.map(
-      (child) =>
-        `  - ${child.agentProfileId} (${child.role}): ${child.state}; outcome=${JSON.stringify(child.terminalOutcome)}`
+    ...input.delegation.children.map((child) =>
+      [
+        `  - ${child.agentProfileId} (${child.role}): ${child.state}; outcome=${JSON.stringify(child.terminalOutcome)}`,
+        child.terminalOutcome
+          ? buildTaskContinuationResultAvailabilityNote(child.terminalOutcome)
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
     ),
     "",
-    "Continue only from this completion evidence. If a publishedSignalId is present, read that exact result before synthesizing. Reply to the original requester in the original conversation.",
+    "Continue only from this completion evidence. If a publishedSignalId is present, read that exact result through the existing authorized tools before synthesizing. If a child's result cannot be read, explicitly mark that child's result unavailable and summarize the other available results. Do not guess another result locator, relax access checks, or repeat a child task merely to fill the gap. Reply to the original requester in the original conversation.",
   ].join("\n");
 }
-
+function buildTaskContinuationResultAvailabilityNote(
+  outcome: AgentTaskCompletionObservation
+): string {
+  if (outcome.status === "needs_attention" || outcome.publishedSignalId) {
+    return "";
+  }
+  return "    Result unavailable in this completion evidence: no published-result locator was supplied. This does not prove that execution never happened or that a retained result was lost. Report the missing result explicitly and continue with the other available evidence; do not repeat the child task.";
+}
+async function resolveTaskContinuationSpaceSourceDispatchId(input: {
+  db: PostgresDatabase;
+  observer: RemoteAgentNativeDeliveryRecord;
+}): Promise<string> {
+  const { observer } = input;
+  if (observer.conversationKind !== "space" || observer.sourceClientMessageId) {
+    return observer.dispatchId;
+  }
+  // A continuation may itself become the parent of another delegation. Its
+  // dispatch is native-delivery-only; the Space owns the original Wake scope.
+  const source = await input.db
+    .query<{
+      dispatch_id: string;
+    }>({
+      text: `SELECT dispatch_id
+       FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+       WHERE organization_id = $1
+         AND space_id = $2
+         AND profile_id = $3
+         AND trigger_message_id = $4
+         AND source_client_message_id IS NOT NULL
+       ORDER BY created_at_ms ASC NULLS FIRST
+       LIMIT 1`,
+      values: [
+        observer.organizationId,
+        observer.spaceId,
+        observer.profileId,
+        observer.triggerMessageId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
+  return source?.dispatch_id ?? observer.dispatchId;
+}
 function resolveTaskContinuationExternalSpaceEnvelope(
   observer: RemoteAgentNativeDeliveryRecord
 ): RemoteAgentTurnEnvelope["space"] {
@@ -3716,7 +4031,6 @@ function resolveTaskContinuationExternalSpaceEnvelope(
       locator.provider === "lark" ? "Lark conversation" : "Feishu conversation",
   };
 }
-
 function requireRoutineContinuationEnvelope(
   observer: RemoteAgentNativeDeliveryRecord
 ): RemoteAgentTurnEnvelope {
@@ -3732,7 +4046,6 @@ function requireRoutineContinuationEnvelope(
   }
   return envelope;
 }
-
 function resolveRemoteAgentTurnEnvelopeRepresentedMember(
   turnEnvelope: RemoteAgentTurnEnvelope
 ): {
@@ -3755,10 +4068,12 @@ function resolveRemoteAgentTurnEnvelopeRepresentedMember(
     userId: sender.ownerUserId,
   };
 }
-
 export async function submitRemoteAgentMemberResearchDelivery(
   input: RemoteAgentMemberResearchDeliveryInput
-): Promise<{ failureCode?: string; status: "failed" | "submitted" }> {
+): Promise<{
+  failureCode?: string;
+  status: "failed" | "submitted";
+}> {
   const existingDelivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
     db: input.db,
     idempotencyKey: input.taskId,
@@ -3777,7 +4092,6 @@ export async function submitRemoteAgentMemberResearchDelivery(
       status: "failed",
     };
   }
-
   const targetResolution =
     await resolveDelegatedRemoteAgentNativeDeliveryTarget({
       authWorker: input.env.OPENMELD_AUTH_WORKER,
@@ -3813,7 +4127,6 @@ export async function submitRemoteAgentMemberResearchDelivery(
       status: "failed",
     };
   }
-
   const author: RemoteAgentWorkerAuthorContext = {
     displayName: requester.displayName,
     profileId: requester.profileId,
@@ -3909,7 +4222,6 @@ export async function submitRemoteAgentMemberResearchDelivery(
       spaceId: input.directMessageSpaceId,
     },
   });
-
   const admission = await submitRemoteAgentWorkerAdmission({
     db: input.db,
     env: input.env,
@@ -3978,7 +4290,6 @@ export async function submitRemoteAgentMemberResearchDelivery(
     return { status: "submitted" };
   }
 }
-
 function resolveMemberResearchTargetFailureCode(failureCode: string): string {
   if (failureCode === "delegated_native_delivery.member_unavailable") {
     return "center_agent_member_research.requester_unavailable";
@@ -3988,16 +4299,14 @@ function resolveMemberResearchTargetFailureCode(failureCode: string): string {
   }
   return failureCode;
 }
-
 type RemoteAgentRoutineDeliveryInput = {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   memoryService?: CenterAgentMemoryService | null;
   nowMs: number;
   routine: StoredRoutine;
   run: CenterAgentRoutineRun;
 };
-
 type DelegatedNativeDeliveryTarget = {
   personalAgent?: boolean;
   bindingId: string;
@@ -4007,7 +4316,6 @@ type DelegatedNativeDeliveryTarget = {
   profileId: string;
   profileName: string;
 };
-
 function requireDelegatedNativeDeliveryMember(
   target: DelegatedNativeDeliveryTarget
 ): DelegatedNativeDeliveryMember {
@@ -4016,7 +4324,6 @@ function requireDelegatedNativeDeliveryMember(
   }
   return target.delegatedMember;
 }
-
 function requireDelegatedNativeDeliveryModelRoute(
   target: DelegatedNativeDeliveryTarget
 ): CenterAgentModelRoute {
@@ -4025,7 +4332,6 @@ function requireDelegatedNativeDeliveryModelRoute(
   }
   return target.modelRoute;
 }
-
 type DelegatedNativeDeliveryMember = {
   displayName: string;
   memberId: string;
@@ -4033,7 +4339,6 @@ type DelegatedNativeDeliveryMember = {
   role: string;
   userId: string;
 };
-
 type RoutineDeliveryDestination = Pick<
   StoredRoutine,
   | "destinationKind"
@@ -4045,7 +4350,6 @@ type RoutineDeliveryDestination = Pick<
   | "slackThreadTs"
   | "targetSpaceId"
 >;
-
 function resolveRoutineConversationId(
   destination: RoutineDeliveryDestination
 ): string | null {
@@ -4058,7 +4362,6 @@ function resolveRoutineConversationId(
     ? normalizeOptionalText(destination.targetSpaceId)
     : normalizeOptionalText(destination.slackConversationId);
 }
-
 function routineRunDestination(
   run: CenterAgentRoutineRun
 ): RoutineDeliveryDestination {
@@ -4073,17 +4376,16 @@ function routineRunDestination(
     targetSpaceId: run.targetSpaceId,
   };
 }
-
 type RoutineDeliveryStatus = "failed" | "skipped" | "submitted";
-
 type PreparedRoutineSubmissionRecovery =
-  | { status: "settled" }
+  | {
+      status: "settled";
+    }
   | {
       request: RemoteAgentWorkerSubmitTurnRequest;
       status: "ready";
       worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>;
     };
-
 type RoutineAdmissionAuthority =
   | {
       routine: StoredRoutine;
@@ -4098,8 +4400,9 @@ type RoutineAdmissionAuthority =
       target: DelegatedNativeDeliveryTarget;
       worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>;
     }
-  | { status: "skipped" };
-
+  | {
+      status: "skipped";
+    };
 function resolveRoutineDeliveryStatus(
   status: CenterAgentRoutineRun["status"] | undefined
 ): RoutineDeliveryStatus {
@@ -4111,10 +4414,9 @@ function resolveRoutineDeliveryStatus(
   }
   return "submitted";
 }
-
 async function resolveRoutineAdmissionAuthority(input: {
   agentProfileIdSnapshot: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   destination: RoutineDeliveryDestination;
   env: CoreBindings;
   organizationId: string;
@@ -4140,7 +4442,6 @@ async function resolveRoutineAdmissionAuthority(input: {
     ...currentRoutine,
     ...input.destination,
   };
-
   let targetResolution: Awaited<
     ReturnType<typeof resolveDelegatedRemoteAgentNativeDeliveryTarget>
   >;
@@ -4178,7 +4479,6 @@ async function resolveRoutineAdmissionAuthority(input: {
       target: targetResolution.target,
     };
   }
-
   const availability = resolveRemoteAgentRuntimeAvailability({
     env: input.env,
     organizationId: currentRoutine.organizationId,
@@ -4209,9 +4509,8 @@ async function resolveRoutineAdmissionAuthority(input: {
     worker,
   };
 }
-
 async function resolveRoutineTurnEnvelopeWithMemory(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   memoryService?: CenterAgentMemoryService | null;
   routine: StoredRoutine;
@@ -4259,7 +4558,6 @@ async function resolveRoutineTurnEnvelopeWithMemory(input: {
   if (!memoryService) {
     return turnEnvelope;
   }
-
   try {
     const memory = await memoryService.recallForOrganization({
       organizationId: input.routine.organizationId,
@@ -4279,7 +4577,6 @@ async function resolveRoutineTurnEnvelopeWithMemory(input: {
   }
   return turnEnvelope;
 }
-
 function requireRoutineConversationId(
   destination: RoutineDeliveryDestination
 ): string {
@@ -4289,11 +4586,13 @@ function requireRoutineConversationId(
   }
   return conversationId;
 }
-
 function requireRoutineTurnEnvelopeDestination(
   destination: RoutineDeliveryDestination
 ):
-  | { kind: "space"; spaceId: string }
+  | {
+      kind: "space";
+      spaceId: string;
+    }
   | {
       kind: "message_channel";
       locator: NonNullable<StoredRoutine["messageChannelLocator"]>;
@@ -4337,10 +4636,11 @@ function requireRoutineTurnEnvelopeDestination(
     threadTs,
   };
 }
-
 export async function submitRemoteAgentRoutineDelivery(
   input: RemoteAgentRoutineDeliveryInput
-): Promise<{ status: RoutineDeliveryStatus }> {
+): Promise<{
+  status: RoutineDeliveryStatus;
+}> {
   const currentRun = await readRoutineRunExecutionRecord({
     db: input.db,
     runId: input.run.id,
@@ -4360,7 +4660,6 @@ export async function submitRemoteAgentRoutineDelivery(
   if (!conversationId) {
     throw new Error(`Routine Run ${currentRun.id} has no destination snapshot`);
   }
-
   const admission = await resolveRoutineAdmissionAuthority({
     agentProfileIdSnapshot: currentRun.agentProfileIdSnapshot,
     db: input.db,
@@ -4406,7 +4705,6 @@ export async function submitRemoteAgentRoutineDelivery(
     return { status: "failed" };
   }
   const { routine: currentRoutine, target, worker } = admission;
-
   let turnEnvelope: RemoteAgentTurnEnvelope;
   try {
     turnEnvelope = await resolveRoutineTurnEnvelopeWithMemory({
@@ -4437,7 +4735,6 @@ export async function submitRemoteAgentRoutineDelivery(
     });
     return result;
   }
-
   const workerSubmitRequest = buildRemoteAgentRoutineWorkerSubmitRequest({
     modelRoute: requireDelegatedNativeDeliveryModelRoute(target),
     nowMs: input.nowMs,
@@ -4462,7 +4759,6 @@ export async function submitRemoteAgentRoutineDelivery(
   if (lostClaim) {
     return lostClaim;
   }
-
   const workerAdmission = await submitRemoteAgentWorkerAdmission({
     db: input.db,
     env: input.env,
@@ -4528,7 +4824,6 @@ export async function submitRemoteAgentRoutineDelivery(
     return { status: "submitted" };
   }
   const parsedAck = workerAdmission.ack;
-
   try {
     await persistRemoteAgentRoutineWorkerAck({
       ack: parsedAck,
@@ -4551,24 +4846,24 @@ export async function submitRemoteAgentRoutineDelivery(
   }
   return { status: "submitted" };
 }
-
 export type RoutineWorkflowSubmission =
   | {
       reasonCode: typeof REMOTE_AGENT_ROUTINE_TARGET_RECOVERY_BLOCKED_CODE;
       status: "blocked";
     }
-  | { status: "terminal" }
+  | {
+      status: "terminal";
+    }
   | {
       dispatchId: string;
       idempotencyKey: string;
       organizationId: string;
       spaceId: string;
       status: "waiting";
-      submissionId: string | null;
+      submissionId: string;
     };
-
 export async function ensureRemoteAgentRoutineWorkflowSubmission(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   runId: string;
@@ -4610,7 +4905,6 @@ export async function ensureRemoteAgentRoutineWorkflowSubmission(input: {
       return { status: "terminal" };
     }
   }
-
   let delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
     db: input.db,
     idempotencyKey: run.id,
@@ -4642,10 +4936,9 @@ export async function ensureRemoteAgentRoutineWorkflowSubmission(input: {
   const submissionId = delivery
     ? resolveActiveRemoteAgentSubmissionId(delivery)
     : null;
-  const request = delivery?.workerSubmitRequest;
-  if (!(delivery && (submissionId || request))) {
+  if (!(delivery && submissionId)) {
     throw new Error(
-      `Workflow Routine Run ${run.id} has no durable Remote Agent submission`
+      `Workflow Routine Run ${run.id} has no acknowledged Remote Agent submission`
     );
   }
   return {
@@ -4657,9 +4950,8 @@ export async function ensureRemoteAgentRoutineWorkflowSubmission(input: {
     submissionId,
   };
 }
-
 async function recoverRemoteAgentRoutineWorkflowAcknowledgement(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -4687,7 +4979,6 @@ async function recoverRemoteAgentRoutineWorkflowAcknowledgement(input: {
     idempotencyKey: input.runId,
   });
 }
-
 function isTerminalRoutineRunStatus(
   status: CenterAgentRoutineRun["status"]
 ): status is Extract<
@@ -4696,7 +4987,6 @@ function isTerminalRoutineRunStatus(
 > {
   return status === "completed" || status === "failed" || status === "skipped";
 }
-
 function buildRemoteAgentRoutineWorkerSubmitRequest(input: {
   modelRoute: CenterAgentModelRoute;
   nowMs: number;
@@ -4715,11 +5005,17 @@ function buildRemoteAgentRoutineWorkerSubmitRequest(input: {
       : input.target.profileId,
     profileKind: input.target.personalAgent ? "human" : "agent",
   };
+  const conversationId = buildRemoteAgentRoutineRunConversationId({
+    agentProfileId: input.target.profileId,
+    organizationId: input.routine.organizationId,
+    runId: input.run.id,
+  });
   return remoteAgentWorkerSubmitTurnRequestSchema.parse({
     agentProfileId: input.target.profileId,
     agentProfileOwnerUserId: input.target.ownerUserId,
     author,
     bindingId: input.target.bindingId,
+    conversationId,
     dispatchId: input.run.id,
     idempotencyKey: input.run.id,
     messages: [{ content: input.routine.instructions, role: "user" }],
@@ -4732,32 +5028,23 @@ function buildRemoteAgentRoutineWorkerSubmitRequest(input: {
     triggerMessageId: input.run.id,
     turnEnvelope: input.turnEnvelope,
     ...(input.target.personalAgent
-      ? (() => {
-          const conversationId = buildPersonalRemoteAgentConversationId({
-            organizationId: input.routine.organizationId,
+      ? {
+          v: 4,
+          conversationIdentity: {
+            kind: "personal_agent",
             agentProfileId: input.target.profileId,
-            spaceId: requireRoutineConversationId(input.routine),
-          });
-          return {
-            v: 4,
-            conversationId,
-            conversationIdentity: {
-              kind: "personal_agent",
-              agentProfileId: input.target.profileId,
-            },
-            runtimeConversation: { generation: 0, id: conversationId },
-            spaceDispatchContext: createDispatchChainContext({
-              dispatchId: input.run.id,
-            }),
-          };
-        })()
+          },
+          runtimeConversation: { generation: 0, id: conversationId },
+          spaceDispatchContext: createDispatchChainContext({
+            dispatchId: input.run.id,
+          }),
+        }
       : { v: 2 }),
   });
 }
-
 async function persistRemoteAgentRoutineWorkerAck(input: {
   ack: ReturnType<typeof remoteAgentWorkerSubmitMessagesResultSchema.parse>;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   request: RemoteAgentWorkerSubmitTurnRequest;
@@ -4772,13 +5059,16 @@ async function persistRemoteAgentRoutineWorkerAck(input: {
     workerRequestId: input.ack.requestId ?? null,
   });
 }
-
 export async function retryRemoteAgentRoutineSubmissions(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   limit?: number;
   nowMs: number;
-}): Promise<{ errors: number; recovered: number; scanned: number }> {
+}): Promise<{
+  errors: number;
+  recovered: number;
+  scanned: number;
+}> {
   const deliveries = await listRecoverableRemoteAgentRoutineDeliveries({
     ambiguityCutoffMs:
       input.nowMs - REMOTE_AGENT_ROUTINE_SUBMISSION_AMBIGUITY_TIMEOUT_MS,
@@ -4841,9 +5131,8 @@ export async function retryRemoteAgentRoutineSubmissions(input: {
   );
   return summary;
 }
-
 async function recoverRemoteAgentRoutineSubmission(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -4870,13 +5159,18 @@ async function recoverRemoteAgentRoutineSubmission(input: {
     await recoverUnacknowledgedRemoteAgentRoutineSubmission(input);
   }
 }
-
 async function resolveRoutineRecoveryTargetAuthority(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
 }): Promise<
-  { status: "blocked" } | { runTargetSpaceId: string; status: "ready" }
+  | {
+      status: "blocked";
+    }
+  | {
+      runTargetSpaceId: string;
+      status: "ready";
+    }
 > {
   const runId = input.delivery.routineRunId;
   if (!runId) {
@@ -4907,7 +5201,6 @@ async function resolveRoutineRecoveryTargetAuthority(input: {
   if (input.delivery.spaceId === runTargetSpaceId) {
     return { runTargetSpaceId, status: "ready" };
   }
-
   const blocked = await blockRemoteAgentRoutineRecoveryForTargetMismatch({
     db: input.db,
     deliveryId: input.delivery.deliveryId,
@@ -4932,9 +5225,8 @@ async function resolveRoutineRecoveryTargetAuthority(input: {
   }
   return { status: "blocked" };
 }
-
 async function recoverUnacknowledgedRemoteAgentRoutineSubmission(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -4943,7 +5235,6 @@ async function recoverUnacknowledgedRemoteAgentRoutineSubmission(input: {
   if (prepared.status === "settled") {
     return null;
   }
-
   const admission = await submitRemoteAgentWorkerAdmission({
     db: input.db,
     env: input.env,
@@ -5003,7 +5294,6 @@ async function recoverUnacknowledgedRemoteAgentRoutineSubmission(input: {
     return null;
   }
   const ack = admission.ack;
-
   const delivery = await markRemoteAgentNativeDeliveryAckWithProbe({
     accepted: ack.accepted,
     db: input.db,
@@ -5015,9 +5305,8 @@ async function recoverUnacknowledgedRemoteAgentRoutineSubmission(input: {
   });
   return resolveActiveRemoteAgentSubmissionId(delivery);
 }
-
 async function prepareRemoteAgentRoutineSubmissionRecovery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -5140,7 +5429,6 @@ async function prepareRemoteAgentRoutineSubmissionRecovery(input: {
     worker: admission.worker,
   };
 }
-
 function logRoutineDeliveryTargetMismatch(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   resolution: "fail_closed" | "recovery_blocked";
@@ -5156,7 +5444,6 @@ function logRoutineDeliveryTargetMismatch(input: {
     runTargetSpaceId: input.runTargetSpaceId,
   });
 }
-
 function assertRoutineDeliveryTargetMatches(input: {
   delivery: RemoteAgentNativeDeliveryRecord | null;
   expectedTargetSpaceId: string;
@@ -5180,9 +5467,8 @@ function assertRoutineDeliveryTargetMatches(input: {
     `Routine Run ${input.runId} target does not match its native delivery ledger`
   );
 }
-
 async function assertRoutineSubmissionRecoverySettledByRace(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   runId: string;
 }): Promise<void> {
@@ -5205,9 +5491,13 @@ async function assertRoutineSubmissionRecoverySettledByRace(input: {
     `Routine Run ${input.runId} lost its recovery claim without a competing state transition`
   );
 }
-
 function doesRoutineRecoveryRequestMatchAuthority(input: {
-  admission: Extract<RoutineAdmissionAuthority, { status: "ready" }>;
+  admission: Extract<
+    RoutineAdmissionAuthority,
+    {
+      status: "ready";
+    }
+  >;
   request: RemoteAgentWorkerSubmitTurnRequest;
   runId: string;
 }): boolean {
@@ -5224,9 +5514,8 @@ function doesRoutineRecoveryRequestMatchAuthority(input: {
     request.bindingId === admission.target.bindingId
   );
 }
-
 async function terminalizeRemoteAgentRoutineSubmissionRecoveryFailure(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   failureCode: string;
@@ -5240,14 +5529,12 @@ async function terminalizeRemoteAgentRoutineSubmissionRecoveryFailure(input: {
     throw new Error(input.invariantMessage);
   }
 }
-
 function buildRemoteAgentAdmissionFailureDetail(input: {
   message: string;
   reasonCode: string;
 }): string {
   return `${input.reasonCode}: ${input.message}`;
 }
-
 function resolveRoutineAdmissionFailureReason(input: {
   message: string;
   reasonCode: string;
@@ -5257,10 +5544,12 @@ function resolveRoutineAdmissionFailureReason(input: {
     failureDetail: input.message,
   });
 }
-
 function resolveRemoteAgentNativeDeliveryReplayOutcome(
   existingDelivery: RemoteAgentNativeDeliveryRecord | null
-): { shouldAck: true; status: "submitted" | "failed" } | null {
+): {
+  shouldAck: true;
+  status: "submitted" | "failed";
+} | null {
   if (!existingDelivery || existingDelivery.status === "submitted") {
     return null;
   }
@@ -5273,7 +5562,6 @@ function resolveRemoteAgentNativeDeliveryReplayOutcome(
       return { shouldAck: true, status: "failed" };
   }
 }
-
 function resolveRoutineFailureReasonForDisplay(input: {
   failureCode: string;
   failureDetail: string;
@@ -5301,19 +5589,19 @@ function resolveRoutineFailureReasonForDisplay(input: {
     ? REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON
     : reason;
 }
-
 function isRemoteAgentWorkerAdmissionOutcomeUnknown(
   admission: RemoteAgentWorkerAdmission
 ): admission is Extract<
   RemoteAgentWorkerAdmission,
-  { status: "outcome_unknown" | "protocol_error" }
+  {
+    status: "outcome_unknown" | "protocol_error";
+  }
 > {
   return (
     admission.status === "outcome_unknown" ||
     admission.status === "protocol_error"
   );
 }
-
 function resolveRemoteAgentWorkerSubmitFailure(): {
   failureCode: string;
   ledgerStatus: "failed" | "worker_unavailable";
@@ -5325,9 +5613,8 @@ function resolveRemoteAgentWorkerSubmitFailure(): {
     text: CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
   };
 }
-
 async function reconcileTerminalRoutineRunBeforeWorker(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -5386,9 +5673,8 @@ async function reconcileTerminalRoutineRunBeforeWorker(input: {
     `Routine Run ${runId} is ${run.status} after its native delivery was claimed`
   );
 }
-
 async function maybeFailExpiredRoutineSubmissionRecovery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -5407,7 +5693,6 @@ async function maybeFailExpiredRoutineSubmissionRecovery(input: {
     failureReason: CENTER_AGENT_ROUTINE_START_UNCONFIRMED_PUBLIC_COPY,
   });
 }
-
 function isPastRoutineSubmissionReplayWindow(
   delivery: RemoteAgentNativeDeliveryRecord,
   nowMs: number
@@ -5417,9 +5702,8 @@ function isPastRoutineSubmissionReplayWindow(
     REMOTE_AGENT_ROUTINE_SUBMISSION_RECOVERY_TIMEOUT_MS
   );
 }
-
 async function failRemoteAgentRoutineSubmissionRecovery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   failureCode: string;
@@ -5499,9 +5783,8 @@ async function failRemoteAgentRoutineSubmissionRecovery(input: {
   });
   return true;
 }
-
 async function failRemoteAgentRoutineAdmissionForTarget(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   failureCode: string;
   failureReason: string;
@@ -5509,7 +5792,9 @@ async function failRemoteAgentRoutineAdmissionForTarget(input: {
   routine: StoredRoutine;
   run: CenterAgentRoutineRun;
   target: DelegatedNativeDeliveryTarget;
-}): Promise<{ status: RoutineDeliveryStatus }> {
+}): Promise<{
+  status: RoutineDeliveryStatus;
+}> {
   const deliveryClaim = await claimRemoteAgentRoutineAdmissionFailure({
     bindingId: input.target.bindingId,
     conversationKind:
@@ -5550,15 +5835,16 @@ async function failRemoteAgentRoutineAdmissionForTarget(input: {
   await failRemoteAgentRoutineDelivery(input);
   return { status: "failed" };
 }
-
 async function claimRoutineDeliveryForTarget(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   routine: StoredRoutine;
   runId: string;
   target: DelegatedNativeDeliveryTarget;
   workerSubmitRequest: RemoteAgentWorkerSubmitTurnRequest | null;
-}): Promise<{ status: RoutineDeliveryStatus } | null> {
+}): Promise<{
+  status: RoutineDeliveryStatus;
+} | null> {
   const deliveryClaim = await claimRemoteAgentRoutineNativeDelivery({
     bindingId: input.target.bindingId,
     conversationKind:
@@ -5596,15 +5882,16 @@ async function claimRoutineDeliveryForTarget(input: {
     runId: input.runId,
   });
 }
-
 async function resolveLostRoutineDeliveryClaim(input: {
   currentRoutine: StoredRoutine;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord | null;
   expectedTargetSpaceId: string;
   nowMs: number;
   runId: string;
-}): Promise<{ status: RoutineDeliveryStatus }> {
+}): Promise<{
+  status: RoutineDeliveryStatus;
+}> {
   const latestRun = await readRoutineRunRecord({
     db: input.db,
     runId: input.runId,
@@ -5655,12 +5942,19 @@ async function resolveLostRoutineDeliveryClaim(input: {
   }
   throw new Error(`Routine Run ${input.runId} lost its delivery claim`);
 }
-
 type DelegatedNativeDeliveryDestination =
-  | { kind: "message_channel"; locator: StoredRoutine["messageChannelLocator"] }
-  | { kind: "slack"; teamId: string | null }
-  | { kind: "space"; spaceId: string | null };
-
+  | {
+      kind: "message_channel";
+      locator: StoredRoutine["messageChannelLocator"];
+    }
+  | {
+      kind: "slack";
+      teamId: string | null;
+    }
+  | {
+      kind: "space";
+      spaceId: string | null;
+    };
 function toDelegatedNativeDeliveryDestination(
   destination: RoutineDeliveryDestination
 ): DelegatedNativeDeliveryDestination {
@@ -5674,11 +5968,13 @@ function toDelegatedNativeDeliveryDestination(
     ? { kind: "space", spaceId: destination.targetSpaceId }
     : { kind: "slack", teamId: destination.slackTeamId };
 }
-
 function resolveRoutineTargetFailure(input: {
   failureCode: string;
   failureReason: string;
-}): { failureCode: string; failureReason: string } {
+}): {
+  failureCode: string;
+  failureReason: string;
+} {
   if (input.failureCode === "delegated_native_delivery.member_unavailable") {
     return {
       failureCode: "routine.member_actor_required",
@@ -5700,12 +5996,18 @@ function resolveRoutineTargetFailure(input: {
   }
   return input;
 }
-
 function resolveDelegatedNativeDeliveryModelRoute(
   binding: AgentProfileBindingRecord
 ):
-  | { modelRoute: CenterAgentModelRoute; ok: true }
-  | { failureCode: string; failureReason: string; ok: false } {
+  | {
+      modelRoute: CenterAgentModelRoute;
+      ok: true;
+    }
+  | {
+      failureCode: string;
+      failureReason: string;
+      ok: false;
+    } {
   try {
     return {
       modelRoute: resolveCenterAgentModelRouteForBinding({
@@ -5725,16 +6027,18 @@ function resolveDelegatedNativeDeliveryModelRoute(
     };
   }
 }
-
 async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
   agentProfileId?: string | null;
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
-  db: D1Database;
+  db: PostgresDatabase;
   delegatedByUserId: string;
   destination: DelegatedNativeDeliveryDestination;
   organizationId: string;
 }): Promise<
-  | { ok: true; target: DelegatedNativeDeliveryTarget }
+  | {
+      ok: true;
+      target: DelegatedNativeDeliveryTarget;
+    }
   | {
       failureCode: string;
       failureReason: string;
@@ -5777,24 +6081,27 @@ async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
     };
   }
   const profile = await input.db
-    .prepare(
-      `
+    .query<{
+      owner_user_id: string;
+      profile_name: string;
+    }>({
+      text: `
         SELECT owner_user_id, profile_name
-        FROM openmeld_profiles
-        WHERE profile_id = ?
-          AND organization_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
+          AND organization_id = $2
           AND profile_kind = 'agent'
-          AND ${input.agentProfileId ? "managed_role IS NULL AND owner_user_id = ?" : "managed_role = 'center_agent'"}
+          AND ${input.agentProfileId ? "managed_role IS NULL AND owner_user_id = $3" : "managed_role = 'center_agent'"}
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(
-      agentProfileId,
-      input.organizationId,
-      ...(input.agentProfileId ? [input.delegatedByUserId] : [])
-    )
-    .first<{ owner_user_id: string; profile_name: string }>();
+      `,
+      values: [
+        agentProfileId,
+        input.organizationId,
+        ...(input.agentProfileId ? [input.delegatedByUserId] : []),
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!profile) {
     return {
       failureCode: input.agentProfileId
@@ -5878,14 +6185,16 @@ async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
     },
   });
 }
-
 async function validateDelegatedNativeDeliveryDestination(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   destination: DelegatedNativeDeliveryDestination;
   organizationId: string;
   target: DelegatedNativeDeliveryTarget;
 }): Promise<
-  | { ok: true; target: DelegatedNativeDeliveryTarget }
+  | {
+      ok: true;
+      target: DelegatedNativeDeliveryTarget;
+    }
   | {
       ok: false;
       target: DelegatedNativeDeliveryTarget;
@@ -5988,13 +6297,11 @@ async function validateDelegatedNativeDeliveryDestination(input: {
       };
     }
   }
-
   return {
     ok: true,
     target,
   };
 }
-
 async function readDelegatedNativeDeliveryMember(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
   organizationId: string;
@@ -6017,9 +6324,8 @@ async function readDelegatedNativeDeliveryMember(input: {
     userId: account.userId,
   };
 }
-
 async function failRemoteAgentRoutineDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   failureCode: string;
   failureDetail?: string;
@@ -6065,15 +6371,43 @@ async function failRemoteAgentRoutineDelivery(input: {
       status: resolveRoutineFailureLedgerStatus(input.failureCode),
     });
   }
-  const text = buildRoutineFailureText({
-    failureCode: input.failureCode,
-    failureReason: input.failureReason,
-    routineName: input.routine.name,
-  });
+  const runUrl = input.target?.personalAgent
+    ? undefined
+    : await resolveRoutineRunUrl({
+        env: input.env,
+        organizationId: input.routine.organizationId,
+        routineId: input.routine.id,
+        runId: input.run.id,
+      });
+  const text =
+    input.failureCode === "remote_agent.worker_ack_recovery_expired"
+      ? await buildRoutineUnconfirmedAdmissionFailureText({
+          delivery: existingDelivery,
+          env: input.env,
+          organizationId: input.routine.organizationId,
+          routineName: input.routine.name,
+          runId: input.run.id,
+          runUrl,
+          spaceId: requireRoutineConversationId(input.routine),
+        })
+      : buildRoutineFailureText({
+          languageTag: await resolveRoutineFailureLanguage({
+            delivery: existingDelivery,
+            env: input.env,
+            organizationId: input.routine.organizationId,
+          }),
+          failureCode: input.failureCode,
+          failureReason: input.failureReason,
+          routineName: input.routine.name,
+          runId: input.run.id,
+          runUrl,
+        });
   let publishedSignalId: string | null = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      let signal: { id?: string | null } | null;
+      let signal: {
+        id?: string | null;
+      } | null;
       if (input.routine.destinationKind === "message_channel") {
         signal = await publishRoutineMessageChannelText({
           env: input.env,
@@ -6141,15 +6475,16 @@ async function failRemoteAgentRoutineDelivery(input: {
     });
   }
 }
-
 async function publishRoutineMessageChannelText(input: {
   env: CoreBindings;
   organizationId: string;
   locator: StoredRoutine["messageChannelLocator"];
   runId: string;
   text: string;
-}): Promise<{ id: string } | null> {
-  const db = routineDb(input.env);
+}): Promise<{
+  id: string;
+} | null> {
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw new Error("Routine storage is unavailable");
   }
@@ -6220,7 +6555,6 @@ async function publishRoutineMessageChannelText(input: {
   }
   return outcome.status === "published" ? { id: outcome.resultId } : null;
 }
-
 async function publishRoutineSlackThreadText(input: {
   env: CoreBindings;
   routine: {
@@ -6229,11 +6563,13 @@ async function publishRoutineSlackThreadText(input: {
     slackThreadTs: string | null;
   };
   text: string;
-}): Promise<{ id?: string | null } | null> {
+}): Promise<{
+  id?: string | null;
+} | null> {
   const channelId = normalizeOptionalText(input.routine.slackChannelId);
   const slackTeamId = normalizeOptionalText(input.routine.slackTeamId);
   const threadTs = normalizeOptionalText(input.routine.slackThreadTs);
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!(channelId && db && slackTeamId && threadTs)) {
     throw new Error("Routine Slack thread destination is incomplete");
   }
@@ -6250,13 +6586,16 @@ async function publishRoutineSlackThreadText(input: {
     threadTs,
   });
 }
-
 export async function retryRemoteAgentRoutineFailurePublications(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   limit?: number;
   nowMs: number;
-}): Promise<{ errors: number; published: number; scanned: number }> {
+}): Promise<{
+  errors: number;
+  published: number;
+  scanned: number;
+}> {
   const runs = await listUnpublishedFailedRoutineRuns({
     db: input.db,
     limit: input.limit ?? 50,
@@ -6359,7 +6698,6 @@ export async function retryRemoteAgentRoutineFailurePublications(input: {
   );
   return summary;
 }
-
 async function publishRetriedRoutineFailure(input: {
   conversationId: string;
   delivery: Awaited<
@@ -6368,12 +6706,61 @@ async function publishRetriedRoutineFailure(input: {
   destination: RoutineDeliveryDestination;
   env: CoreBindings;
   run: Awaited<ReturnType<typeof listUnpublishedFailedRoutineRuns>>[number];
-}): Promise<{ id?: string | null } | null> {
-  const text = buildRoutineFailureText({
-    failureCode: input.run.failureCode,
-    failureReason: resolveRoutineFailurePublicationReason(input.run),
-    routineName: input.run.routineName,
-  });
+}): Promise<{
+  id?: string | null;
+} | null> {
+  const runUrl = isPersonalHostedDelivery(input.delivery)
+    ? undefined
+    : await resolveRoutineRunUrl({
+        env: input.env,
+        organizationId: input.run.organizationId,
+        routineId: input.run.routineId,
+        runId: input.run.runId,
+      });
+  let text: string;
+  if (input.run.failureCode === "remote_agent.worker_ack_recovery_expired") {
+    text = await buildRoutineUnconfirmedAdmissionFailureText({
+      delivery: input.delivery,
+      env: input.env,
+      organizationId: input.run.organizationId,
+      routineName: input.run.routineName,
+      runId: input.run.runId,
+      runUrl,
+      spaceId: input.conversationId,
+    });
+  } else if (input.delivery && input.delivery.acceptedAtMs !== null) {
+    text = formatPublicRoutineFailureFacts(
+      buildRoutineExecutionFailureFacts({
+        delivery: input.delivery,
+        failureCode: input.run.failureCode,
+        failureDetail: input.run.failureDetail,
+        languageTag: await resolveNativeFailureLanguage({
+          coordinationDb: getPostgresDatabase(input.env),
+          db: getPostgresDatabase(input.env),
+          delivery: input.delivery,
+        }),
+      }),
+      {
+        agentLabel: "The Agent",
+        routineName: input.run.routineName,
+        runId: input.run.runId,
+        runUrl,
+      }
+    );
+  } else {
+    text = buildRoutineFailureText({
+      languageTag: await resolveRoutineFailureLanguage({
+        delivery: input.delivery,
+        env: input.env,
+        organizationId: input.run.organizationId,
+      }),
+      failureCode: input.run.failureCode,
+      failureReason: resolveRoutineFailurePublicationReason(input.run),
+      routineName: input.run.routineName,
+      runId: input.run.runId,
+      runUrl,
+    });
+  }
   if (input.run.destinationKind === "message_channel") {
     return await publishRoutineMessageChannelText({
       env: input.env,
@@ -6398,7 +6785,7 @@ async function publishRetriedRoutineFailure(input: {
     : null;
   return await publishRemoteAgentRoutineText({
     clientMessageId: input.run.runId,
-    personalAgent: isPersonalRoutineDelivery(input.delivery),
+    personalAgent: isPersonalHostedDelivery(input.delivery),
     delivery: {
       dispatchId: input.run.runId,
       organizationId: input.run.organizationId,
@@ -6415,7 +6802,37 @@ async function publishRetriedRoutineFailure(input: {
     text,
   });
 }
-
+async function buildRoutineUnconfirmedAdmissionFailureText(input: {
+  delivery: RemoteAgentNativeDeliveryRecord | null;
+  env: CoreBindings;
+  organizationId: string;
+  routineName: string;
+  runId: string;
+  runUrl?: string;
+  spaceId: string;
+}): Promise<string> {
+  return formatPublicRoutineFailureFacts(
+    buildRoutineUnconfirmedAdmissionFailureFacts({
+      // The retained Run still proves that admission was unconfirmed. Losing
+      // its delivery receipt must not turn that fact into "did not execute".
+      delivery: input.delivery ?? {
+        dispatchId: input.runId,
+        spaceId: input.spaceId,
+      },
+      languageTag: input.delivery
+        ? await resolveNativeFailureLanguage({
+            coordinationDb: getPostgresDatabase(input.env),
+            db: getPostgresDatabase(input.env),
+            delivery: input.delivery,
+          })
+        : await readNativeFailureLanguageFallback({
+            db: getPostgresDatabase(input.env),
+            organizationId: input.organizationId,
+          }),
+    }),
+    input
+  );
+}
 function resolveRoutineFailurePublicationReason(input: {
   failureCode: string;
   failureDetail: string | null;
@@ -6434,7 +6851,6 @@ function resolveRoutineFailurePublicationReason(input: {
       })
     : CENTER_AGENT_ROUTINE_FAILED_PUBLIC_COPY;
 }
-
 function resolveRoutineFailureLedgerStatus(
   failureCode: string
 ): "failed" | "flag_rejected" | "worker_unavailable" {
@@ -6453,37 +6869,140 @@ function resolveRoutineFailureLedgerStatus(
   return "failed";
 }
 
+async function resolveRoutineFailureLanguage(input: {
+  delivery: RemoteAgentNativeDeliveryRecord | null;
+  env: CoreBindings;
+  organizationId: string;
+}): Promise<string | undefined> {
+  return input.delivery
+    ? await resolveNativeFailureLanguage({
+        coordinationDb: getPostgresDatabase(input.env),
+        db: getPostgresDatabase(input.env),
+        delivery: input.delivery,
+      })
+    : await readNativeFailureLanguageFallback({
+        db: getPostgresDatabase(input.env),
+        organizationId: input.organizationId,
+      });
+}
+
 function buildRoutineFailureText(input: {
+  languageTag?: string;
   failureCode: string;
   failureReason: string;
   routineName: string;
+  runId: string;
+  runUrl?: string;
 }): string {
+  if (input.languageTag?.split("-")[0]?.toLowerCase() === "zh") {
+    const runReference = `Run ID: ${input.runId}${input.runUrl ? `\n[查看 Run 详情](${input.runUrl})` : ""}`;
+    let reason: string;
+    if (input.failureCode === "remote_agent.empty_assistant_response") {
+      reason =
+        "没有发布结果，Agent 没有生成回复。请先检查已有成果，再决定是否重新发起。";
+    } else if (
+      input.failureCode === "remote_agent.turn.output_limit_exceeded"
+    ) {
+      reason =
+        "没有发布结果，Agent 在回复前达到了模型的输出上限。已完成的操作没有撤销；请先检查结果，再请求继续。";
+    } else if (
+      CENTER_AGENT_MODEL_RESOLUTION_FAILURE_CODES.has(input.failureCode)
+    ) {
+      reason = "未能运行，所选模型不可用。请让组织所有者或管理员选择可用模型。";
+    } else if (
+      input.failureCode === REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE
+    ) {
+      reason = "未能运行，组织的每日 AI 额度已用完，将在 00:00 UTC 重置。";
+    } else if (
+      input.failureCode ===
+      REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE
+    ) {
+      reason = "未能继续，当前会话已达到历史记录上限。请打开诊断查看详情。";
+    } else if (
+      remoteAgentWorkerAdmissionRejectionCodeSchema.safeParse(input.failureCode)
+        .success
+    ) {
+      reason =
+        "未能运行，Agent 无法接纳本次请求。可以重试此 Routine，或打开诊断查看详情。";
+    } else {
+      reason = `未能运行。${resolveRoutineFailureReasonForDisplay({ failureCode: input.failureCode, failureDetail: input.failureReason }).trim()}`;
+    }
+    return `Routine “${input.routineName}”${reason}\n${runReference}`;
+  }
+  const runReference = `Run ID: ${input.runId}${input.runUrl ? `\n[View Run details](${input.runUrl})` : ""}`;
+  if (input.failureCode === "remote_agent.empty_assistant_response") {
+    return `Routine “${input.routineName}” did not publish a result. The Agent produced no reply. If you still need the result, ask the Agent to do this work again.\n${runReference}`;
+  }
+  if (input.failureCode === "remote_agent.turn.output_limit_exceeded") {
+    return `Routine “${input.routineName}” did not publish a result. The Agent reached the model's response limit before it could reply. Completed actions were not undone. Check the results before asking the Agent to continue.\n${runReference}`;
+  }
   const reason = resolveRoutineFailureReasonForDisplay({
     failureCode: input.failureCode,
     failureDetail: input.failureReason,
   }).trim();
-  return `Routine “${input.routineName}” could not run because ${reason}`;
+  return `Routine “${input.routineName}” could not run because ${reason}\n${runReference}`;
 }
-
+async function resolveRoutineRunUrl(input: {
+  env: CoreBindings;
+  organizationId: string;
+  routineId: string;
+  runId: string;
+}): Promise<string | undefined> {
+  const webAppUrl = normalizeOptionalText(input.env.WEB_APP_URL);
+  if (!webAppUrl) {
+    return undefined;
+  }
+  try {
+    const organizationSlug = await readOrganizationRouteSlug({
+      env: input.env,
+      organizationId: input.organizationId,
+      requestId: input.runId,
+    });
+    if (!organizationSlug) {
+      return undefined;
+    }
+    const url = new URL(
+      buildOpenMeldOrganizationWebUrl({ organizationSlug, webAppUrl })
+    );
+    url.pathname = `${url.pathname}/center-agent/routines`;
+    url.searchParams.set("routineId", input.routineId);
+    url.searchParams.set("runId", input.runId);
+    return url.toString();
+  } catch (error) {
+    console.warn("[core.remote_agent.routine_run_navigation_unavailable]", {
+      error: toErrorMessage(error),
+      organizationId: input.organizationId,
+      routineId: input.routineId,
+      runId: input.runId,
+    });
+    return undefined;
+  }
+}
 function buildRoutinePublisherProfileOwner(input: {
   isSystemProfile: boolean;
   ownerUserId: string | null;
-}): { owner?: string } {
+}): {
+  owner?: string;
+} {
   if (input.isSystemProfile || !input.ownerUserId) {
     return {};
   }
   return { owner: input.ownerUserId };
 }
-
-function isPersonalRoutineDelivery(
+function isPersonalHostedDelivery(
   delivery: NativeDeliveryPublishRecord | null
 ): boolean {
-  const request = delivery?.workerSubmitRequest;
+  const request =
+    delivery?.executionRecoverySubmitRequest ?? delivery?.workerSubmitRequest;
+  const normalizationSnapshot = delivery?.controllerNormalizationSnapshot;
   return (
-    request?.v === 4 && request.conversationIdentity?.kind === "personal_agent"
+    (request?.v === 4 &&
+      request.conversationIdentity?.kind === "personal_agent") ||
+    (normalizationSnapshot?.storedAgentControllerRefStatus === "canonical" &&
+      normalizationSnapshot.storedAgentControllerRef ===
+        HOSTED_REMOTE_AGENT_CONTROLLER_REF)
   );
 }
-
 function buildRoutinePublisherActorContext(input: {
   personalAgent?: boolean;
   isSystemProfile: boolean;
@@ -6508,7 +7027,6 @@ function buildRoutinePublisherActorContext(input: {
       : {}),
   };
 }
-
 async function publishRemoteAgentRoutineText(input: {
   mentionTargets?: string[];
   personalAgent?: boolean;
@@ -6598,7 +7116,6 @@ async function publishRemoteAgentRoutineText(input: {
     text: input.text,
   });
 }
-
 function scheduleCenterAgentMemoryRemember(input: {
   body: RemoteAgentCompletedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
@@ -6623,7 +7140,6 @@ function scheduleCenterAgentMemoryRemember(input: {
   if (!memoryService) {
     return;
   }
-
   const promise = rememberCenterAgentCompletedTurn({
     body: input.body,
     delivery: input.delivery,
@@ -6641,7 +7157,6 @@ function scheduleCenterAgentMemoryRemember(input: {
   });
   input.waitUntil?.(promise);
 }
-
 async function rememberCenterAgentCompletedTurn(input: {
   body: RemoteAgentCompletedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
@@ -6682,7 +7197,6 @@ async function rememberCenterAgentCompletedTurn(input: {
       "Message Channel memory write requires its durable provider locator"
     );
   }
-
   await input.memoryService.rememberTurn({
     assistantMessage: input.body.text,
     interactionEnvironment: frozenContext.interactionEnvironment,
@@ -6696,7 +7210,6 @@ async function rememberCenterAgentCompletedTurn(input: {
     userMessage,
   });
 }
-
 function resolveCenterAgentMemoryFrozenContext(
   delivery: NativeDeliveryPublishRecord
 ): {
@@ -6714,15 +7227,16 @@ function resolveCenterAgentMemoryFrozenContext(
   ) {
     return null;
   }
-
   return resolveCenterAgentMemoryFrozenTurnContext(turnEnvelope);
 }
-
 async function resolveDeliveryMemorySpeaker(input: {
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
   sender: RemoteAgentTurnEnvelope["sender"];
-}): Promise<{ memberId: string; userId: string } | null> {
+}): Promise<{
+  memberId: string;
+  userId: string;
+} | null> {
   if (input.sender.kind !== "member" || !input.sender.verified) {
     return null;
   }
@@ -6749,7 +7263,6 @@ async function resolveDeliveryMemorySpeaker(input: {
     }
     return { memberId: account.membership.memberId, userId: account.userId };
   }
-
   const sourceProfileId = normalizeOptionalText(
     input.delivery.onBehalfOfProfileId
   );
@@ -6771,7 +7284,6 @@ async function resolveDeliveryMemorySpeaker(input: {
   }
   return { memberId: account.membership.memberId, userId: account.userId };
 }
-
 async function resolveCenterAgentMemorySource(input: {
   conversationKind: NativeDeliveryPublishRecord["conversationKind"];
   env: CoreBindings;
@@ -6790,7 +7302,7 @@ async function resolveCenterAgentMemorySource(input: {
   if (input.conversationKind === "slack") {
     return "slack_conversation";
   }
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }
@@ -6818,7 +7330,6 @@ async function resolveCenterAgentMemorySource(input: {
   });
   return projection ? "ca_dm" : "space_conversation";
 }
-
 async function readRemoteAgentSourceSignalText(input: {
   body: RemoteAgentCompletedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
@@ -6830,7 +7341,6 @@ async function readRemoteAgentSourceSignalText(input: {
   ) {
     return normalizeOptionalText(input.delivery.triggerText);
   }
-
   const targetProfile = await resolveRemoteAgentTargetProfile({
     env: input.env,
     profileId: input.delivery.profileId,
@@ -6862,7 +7372,6 @@ async function readRemoteAgentSourceSignalText(input: {
   });
   return signal ? readSignalText(signal) : null;
 }
-
 async function readRemoteAgentSubmissionAttachments(input: {
   binding: NativeDeliveryBindingSnapshot;
   env: CoreBindings;
@@ -6906,8 +7415,14 @@ async function readRemoteAgentSubmissionAttachments(input: {
       return [];
     }
     const currentMessages = signals.filter(
-      (item): item is Extract<SignalEnvelope, { type: "signal.text" }> =>
-        item?.type === "signal.text" && !item.data.meta?.recalledAt
+      (
+        item
+      ): item is Extract<
+        SignalEnvelope,
+        {
+          type: "signal.text";
+        }
+      > => item?.type === "signal.text" && !item.data.meta?.recalledAt
     );
     const legacyAttachments = spaceMessageAttachmentsSchema.safeParse(
       [
@@ -6991,9 +7506,11 @@ async function readRemoteAgentSubmissionAttachments(input: {
     return [];
   }
 }
-
 class RemoteAgentCanonicalImageResolutionError extends Error {
-  constructor(input: { cause: unknown; fileId: string }) {
+  constructor(input: {
+    cause: unknown;
+    fileId: string;
+  }) {
     super(
       `Canonical Space File image ${input.fileId} could not be resolved: ${toErrorMessage(input.cause)}`,
       { cause: input.cause }
@@ -7001,7 +7518,6 @@ class RemoteAgentCanonicalImageResolutionError extends Error {
     this.name = "RemoteAgentCanonicalImageResolutionError";
   }
 }
-
 async function resolveRemoteAgentSpaceFileInputImage(input: {
   env: CoreBindings;
   file: SpaceMessageFileReference;
@@ -7051,7 +7567,6 @@ async function resolveRemoteAgentSpaceFileInputImage(input: {
     sizeBytes: input.file.sizeBytes,
   };
 }
-
 async function readRemoteAgentSpaceSourceSignal(input: {
   env: CoreBindings;
   sourceSignalId: string;
@@ -7069,7 +7584,15 @@ async function readRemoteAgentSpaceSourceSignal(input: {
       >;
       spaceId: string;
     }): Promise<
-      { ok: true; value: { signals: SignalEnvelope[] } } | { ok: false }
+      | {
+          ok: true;
+          value: {
+            signals: SignalEnvelope[];
+          };
+        }
+      | {
+          ok: false;
+        }
     >;
   } | null;
   if (!stub) {
@@ -7092,7 +7615,6 @@ async function readRemoteAgentSpaceSourceSignal(input: {
     ) ?? null
   );
 }
-
 async function readCurrentRemoteAgentSpaceGuide(input: {
   env: CoreBindings;
   spaceAccess: SpaceAccessContext;
@@ -7115,7 +7637,6 @@ async function readCurrentRemoteAgentSpaceGuide(input: {
   });
   return normalizeOptionalText(meta.guide);
 }
-
 function withRemoteAgentSpaceGuide(
   turnEnvelope: RemoteAgentTurnEnvelope,
   spaceGuide: string | null
@@ -7127,7 +7648,6 @@ function withRemoteAgentSpaceGuide(
       }
     : turnEnvelope;
 }
-
 function buildRemoteAgentSubmissionContext(input: {
   binding: NativeDeliveryBindingSnapshot;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -7148,7 +7668,6 @@ function buildRemoteAgentSubmissionContext(input: {
     },
   };
 }
-
 function buildRemoteAgentRoutineSubmissionContext(input: {
   run: Pick<CenterAgentRoutineRun, "id">;
   target: DelegatedNativeDeliveryTarget;
@@ -7171,7 +7690,6 @@ function buildRemoteAgentRoutineSubmissionContext(input: {
     },
   };
 }
-
 function logRemoteAgentAttachmentReferenceDegradation(input: {
   error?: string;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -7187,20 +7705,27 @@ function logRemoteAgentAttachmentReferenceDegradation(input: {
     ...(input.error ? { error: input.error } : {}),
   });
 }
-
 function readSignalId(signal: SignalEnvelope): string | null {
-  const id = (signal as unknown as { id?: unknown }).id;
+  const id = (
+    signal as unknown as {
+      id?: unknown;
+    }
+  ).id;
   return normalizeOptionalText(id);
 }
-
 function readSignalText(signal: SignalEnvelope): string | null {
-  const text = (signal as unknown as { data?: { text?: unknown } }).data?.text;
+  const text = (
+    signal as unknown as {
+      data?: {
+        text?: unknown;
+      };
+    }
+  ).data?.text;
   return normalizeOptionalText(text);
 }
-
 async function requeueRemoteAgentNativeDeliveryDeadlineProbe(input: {
   acceptedProbeProcessingLeaseDueAtMs?: number;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   preserveProcessingLeaseOnEnqueueFailure?: boolean;
@@ -7295,10 +7820,9 @@ async function requeueRemoteAgentNativeDeliveryDeadlineProbe(input: {
     );
   }
 }
-
 async function reconcileRetiredDeadlineFailureForCallback(input: {
   body: RemoteAgentCoreCallbackEvent;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
@@ -7331,7 +7855,6 @@ async function reconcileRetiredDeadlineFailureForCallback(input: {
   );
   return reopened;
 }
-
 function canonicalizeRemoteAgentCallbackBody(
   body: RemoteAgentCoreCallbackEvent
 ): RemoteAgentCoreCallbackEvent {
@@ -7350,7 +7873,6 @@ function canonicalizeRemoteAgentCallbackBody(
     text: resolveCenterAgentCompletedCallbackMessage(body),
   };
 }
-
 export async function completeRemoteAgentNativeDelivery(
   env: CoreBindings,
   input: RemoteAgentCoreCallbackEvent,
@@ -7369,7 +7891,7 @@ export async function completeRemoteAgentNativeDelivery(
     });
   }
   const body = canonicalizeRemoteAgentCallbackBody(parsed.data);
-  const db = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     return remoteAgentCoreCallbackResponseSchema.parse({
       status: "rejected",
@@ -7378,7 +7900,7 @@ export async function completeRemoteAgentNativeDelivery(
   }
   const nowMs = options.messageChannelNowMs?.() ?? Date.now();
   const archivedWorkLoopReplay = await resolveRemoteAgentWorkLoopCallbackReplay(
-    { body, db }
+    { body, db, env }
   );
   if (archivedWorkLoopReplay) {
     return archivedWorkLoopReplay;
@@ -7494,7 +8016,6 @@ export async function completeRemoteAgentNativeDelivery(
       reasonCode: "remote_agent.callback_submission_not_incomplete",
     });
   }
-
   const messageChannelResult =
     await tryCompleteRemoteAgentMessageChannelCallback({
       body,
@@ -7506,7 +8027,6 @@ export async function completeRemoteAgentNativeDelivery(
   if (messageChannelResult) {
     return messageChannelResult;
   }
-
   const workflowRoutingResult = await routeRoutineWorkflowCallback({
     body,
     bypass: options.bypassRoutineWorkflowRouting ?? false,
@@ -7518,7 +8038,6 @@ export async function completeRemoteAgentNativeDelivery(
   if (workflowRoutingResult) {
     return workflowRoutingResult;
   }
-
   const routineIntermediateResult =
     await tryCompleteRemoteAgentRoutineIntermediateCallback({
       body,
@@ -7530,7 +8049,6 @@ export async function completeRemoteAgentNativeDelivery(
   if (routineIntermediateResult) {
     return routineIntermediateResult;
   }
-
   if (
     await isCenterAgentMemberResearchDelivery({
       db,
@@ -7549,9 +8067,8 @@ export async function completeRemoteAgentNativeDelivery(
       options,
     });
   }
-
   if (
-    await isRemoteAgentSpaceWakeStoppedBeforeExecution({
+    await isRemoteAgentSpaceWakeStopRequested({
       delivery,
       env,
     })
@@ -7564,7 +8081,6 @@ export async function completeRemoteAgentNativeDelivery(
       nowMs,
     });
   }
-
   if (isRemoteAgentFailedCallback(body)) {
     return await completeRemoteAgentFailedCallback({
       body,
@@ -7574,7 +8090,6 @@ export async function completeRemoteAgentNativeDelivery(
       nowMs,
     });
   }
-
   return await completeRemoteAgentCompletedCallback({
     body,
     db,
@@ -7584,17 +8099,16 @@ export async function completeRemoteAgentNativeDelivery(
     options,
   });
 }
-
 const REMOTE_AGENT_WORK_LOOP_CONTINUATION_INSTRUCTION = [
   "Continue the same request after the tool-call checkpoint.",
   "Use the durable conversation context and the work already completed.",
   "Do not repeat completed work.",
   "Continue from the next unfinished step, verify the result, and finish the user's full request before replying.",
 ].join(" ");
-
 async function resolveRemoteAgentWorkLoopCallbackReplay(input: {
   body: RemoteAgentCoreCallbackEvent;
-  db: D1Database;
+  db: PostgresDatabase;
+  env: CoreBindings;
 }): Promise<RemoteAgentCoreCallbackResponse | null> {
   const attempt = await readRemoteAgentWorkLoopAttemptByCallbackIdentity({
     db: input.db,
@@ -7622,6 +8136,22 @@ async function resolveRemoteAgentWorkLoopCallbackReplay(input: {
       status: "rejected",
     });
   }
+  const current = await readRemoteAgentNativeDeliveryByDeliveryId({
+    db: input.db,
+    deliveryId: attempt.deliveryId,
+  });
+  if (
+    current?.status === "failed" &&
+    current.failureCode ===
+      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
+  ) {
+    await projectRemoteAgentNativeDeliveryTerminalEffects({
+      db: input.db,
+      delivery: current,
+      env: input.env,
+      nowMs: Date.now(),
+    });
+  }
   console.info("[core.remote_agent.native_delivery.work_loop_replayed]", {
     attempt: attempt.attempt,
     deliveryId: attempt.deliveryId,
@@ -7633,20 +8163,35 @@ async function resolveRemoteAgentWorkLoopCallbackReplay(input: {
     status: "accepted",
   });
 }
-
 async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
   body: RemoteAgentWorkLoopContinuationCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
   options: CenterAgentMemoryRuntimeOptions;
 }): Promise<RemoteAgentCoreCallbackResponse> {
+  if (
+    input.delivery.status === "failed" &&
+    input.delivery.failureCode ===
+      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
+  ) {
+    // A failed notice write must be repaired on callback redelivery without
+    // reopening the already stopped work loop or replaying completed tools.
+    await projectRemoteAgentNativeDeliveryTerminalEffects(input);
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      status: "accepted",
+      publishedSignalId: null,
+    });
+  }
   if (!isRemoteAgentNativeDeliveryIncomplete(input.delivery)) {
     return remoteAgentCoreCallbackResponseSchema.parse({
       reasonCode: "remote_agent.callback_submission_not_incomplete",
       status: "rejected",
     });
+  }
+  if (await isRemoteAgentSpaceWakeStopRequested(input)) {
+    return await settleRemoteAgentStoppedCallback(input);
   }
   const previousRequest =
     input.delivery.workerSubmitRequest ??
@@ -7708,7 +8253,6 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
       status: "retryable",
     });
   }
-
   try {
     await rearmRemoteAgentNativeDeliveryForWorkLoop({
       attempt,
@@ -7723,6 +8267,7 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
     const replay = await resolveRemoteAgentWorkLoopCallbackReplay({
       body: input.body,
       db: input.db,
+      env: input.env,
     });
     if (replay) {
       return replay;
@@ -7740,7 +8285,6 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
       status: "retryable",
     });
   }
-
   const admission = await submitRemoteAgentWorkerAdmission({
     db: input.db,
     env: input.env,
@@ -7780,7 +8324,7 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
     });
   }
   try {
-    await markRemoteAgentNativeDeliveryAckWithProbe({
+    const acceptedDelivery = await markRemoteAgentNativeDeliveryAckWithProbe({
       accepted: admission.ack.accepted,
       db: input.db,
       env: input.env,
@@ -7788,6 +8332,12 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
       nowMs: input.nowMs,
       submissionId: admission.ack.submissionId,
       workerRequestId: admission.ack.requestId ?? null,
+    });
+    await reconcileRemoteAgentAdmissionStop({
+      db: input.db,
+      delivery: acceptedDelivery,
+      env: input.env,
+      nowMs: input.nowMs,
     });
   } catch (error) {
     console.warn(
@@ -7817,7 +8367,6 @@ async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
     status: "accepted",
   });
 }
-
 function buildRemoteAgentWorkLoopContinuationRequest(input: {
   attempt: number;
   body: RemoteAgentWorkLoopContinuationCallbackBody;
@@ -7845,7 +8394,6 @@ function buildRemoteAgentWorkLoopContinuationRequest(input: {
     },
   });
 }
-
 function buildRemoteAgentWorkLoopTerminalFailure(input: {
   body: RemoteAgentWorkLoopContinuationCallbackBody;
 }): RemoteAgentFailedCallbackBody {
@@ -7865,11 +8413,10 @@ function buildRemoteAgentWorkLoopTerminalFailure(input: {
     triggerMessageId: input.body.triggerMessageId,
   }) as RemoteAgentFailedCallbackBody;
 }
-
 async function failRearmedRemoteAgentWorkLoopAdmission(input: {
   attempt: number;
   body: RemoteAgentWorkLoopContinuationCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryId: string;
   env: CoreBindings;
   nextIdempotencyKey: string;
@@ -7906,10 +8453,9 @@ async function failRearmedRemoteAgentWorkLoopAdmission(input: {
     input.options
   );
 }
-
 async function projectRemoteAgentCallbackRejectedTask(input: {
   body: Pick<RemoteAgentCoreCallbackEvent, "idempotencyKey" | "submissionId">;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<void> {
@@ -7927,10 +8473,9 @@ async function projectRemoteAgentCallbackRejectedTask(input: {
     nowMs: input.nowMs,
   });
 }
-
 async function resolveRemoteAgentSettledCallbackReplay(input: {
   body: RemoteAgentCoreCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -7956,6 +8501,13 @@ async function resolveRemoteAgentSettledCallbackReplay(input: {
     });
     const postResultGuidanceRetry =
       await retryRemoteAgentRequiredPostResultGuidance(input);
+    if (postResultGuidanceRetry?.status === "outcome_unknown") {
+      return remoteAgentCoreCallbackResponseSchema.parse({
+        status: "duplicate_rejected",
+        publishedSignalId: finalPublicationResultId,
+        reasonCode: postResultGuidanceRetry.reasonCode,
+      });
+    }
     if (postResultGuidanceRetry) {
       return remoteAgentCoreCallbackResponseSchema.parse({
         reasonCode: postResultGuidanceRetry.reasonCode,
@@ -8009,23 +8561,27 @@ async function resolveRemoteAgentSettledCallbackReplay(input: {
     status: "duplicate_rejected",
   });
 }
-
+// This outcome describes only private guidance, never the already-published
+// task result. Unknown provider delivery must not request a blind automatic resend.
+type RemoteAgentPostResultGuidance = {
+  status: "retryable" | "outcome_unknown";
+  reasonCode: string;
+  retryAfterMs?: number;
+};
 async function retryRemoteAgentRequiredPostResultGuidance(input: {
   body: RemoteAgentCoreCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
   options: CenterAgentMemoryRuntimeOptions;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   if (
     input.delivery.status !== "completed" ||
     input.body.status === "failed" ||
     (input.body.navigationTarget?.kind !== "slack_identity_link" &&
       input.body.navigationTarget?.kind !== "computer_setup" &&
+      input.body.navigationTarget?.kind !== "plugin_connection" &&
       !(
         input.body.navigationTarget?.kind === "message_channel_identity_link" &&
         input.body.navigationTarget.purpose === "continue_request"
@@ -8047,7 +8603,10 @@ async function retryRemoteAgentRequiredPostResultGuidance(input: {
       status: "retryable",
     };
   }
-  if (input.body.navigationTarget?.kind === "computer_setup") {
+  if (
+    input.body.navigationTarget?.kind === "computer_setup" ||
+    input.body.navigationTarget?.kind === "plugin_connection"
+  ) {
     return await publishRemoteAgentMessageChannelPrivateNavigationAfterResult({
       body: input.body,
       db: input.db,
@@ -8064,10 +8623,9 @@ async function retryRemoteAgentRequiredPostResultGuidance(input: {
     registry,
   });
 }
-
 async function completeRemoteAgentMemberResearchCallback(input: {
   body: RemoteAgentCoreCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord & {
     status: "accepted" | "retry_observed";
   };
@@ -8096,7 +8654,6 @@ async function completeRemoteAgentMemberResearchCallback(input: {
       `Member research callback did not reach ${expectedStatus} for ${input.delivery.dispatchId}`
     );
   }
-
   const reconciliation = input.options.reconcileMemberResearch?.();
   if (reconciliation) {
     if (input.options.waitUntil) {
@@ -8110,11 +8667,13 @@ async function completeRemoteAgentMemberResearchCallback(input: {
     status: "accepted",
   });
 }
-
 async function resolveRoutineDeliveryTargetMismatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
-}): Promise<{ runId: string; runTargetSpaceId: string | null } | null> {
+}): Promise<{
+  runId: string;
+  runTargetSpaceId: string | null;
+} | null> {
   const runId = input.delivery.routineRunId;
   if (!runId) {
     return null;
@@ -8132,10 +8691,9 @@ async function resolveRoutineDeliveryTargetMismatch(input: {
   }
   return { runId, runTargetSpaceId };
 }
-
 async function resolveRemoteAgentCallbackDelivery(input: {
   body: RemoteAgentCoreCallbackEvent;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
   const bySubmission = await readRemoteAgentNativeDeliveryBySubmissionId({
@@ -8197,18 +8755,16 @@ async function resolveRemoteAgentCallbackDelivery(input: {
   }
   return null;
 }
-
 function resolveTaskContinuationSettlementNowMs(input: {
   nowMs: number;
   settlementNowMs?: () => number;
 }): number {
   return Math.max(input.nowMs, input.settlementNowMs?.() ?? Date.now());
 }
-
 async function routeRoutineWorkflowCallback(input: {
   body: RemoteAgentCoreCallbackBody;
   bypass: boolean;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -8315,10 +8871,9 @@ async function routeRoutineWorkflowCallback(input: {
     });
   }
 }
-
 async function tryCompleteRemoteAgentRoutineIntermediateCallback(input: {
   body: RemoteAgentCoreCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -8381,10 +8936,9 @@ async function tryCompleteRemoteAgentRoutineIntermediateCallback(input: {
     status: "accepted",
   });
 }
-
 async function completeRemoteAgentCompletedCallback(input: {
   body: RemoteAgentCompletedCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord & {
     status: "accepted" | "retry_observed";
   };
@@ -8396,7 +8950,6 @@ async function completeRemoteAgentCompletedCallback(input: {
   if (delivery.conversationKind === "slack") {
     return await completeRemoteAgentSlackCompletedCallback(input);
   }
-
   const existingPublishedSignalId =
     await readRemoteAgentFinalReplyClaimSignalId({
       delivery,
@@ -8436,8 +8989,9 @@ async function completeRemoteAgentCompletedCallback(input: {
       publishedSignalId: finalSignalId,
     });
   }
-
-  let publishedSignal: { id?: string | null } | null = null;
+  let publishedSignal: {
+    id?: string | null;
+  } | null = null;
   try {
     publishedSignal = await publishRemoteAgentCallbackReply({
       body,
@@ -8516,9 +9070,8 @@ async function completeRemoteAgentCompletedCallback(input: {
     publishedSignalId: finalSignalId,
   });
 }
-
 async function projectNativeDeliveryTerminalToSpaceWakeDispatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
 }): Promise<void> {
@@ -8529,7 +9082,6 @@ async function projectNativeDeliveryTerminalToSpaceWakeDispatch(input: {
   ) {
     return;
   }
-
   if (input.delivery.status === "completed") {
     if (!input.delivery.publishedSignalId) {
       return;
@@ -8543,11 +9095,9 @@ async function projectNativeDeliveryTerminalToSpaceWakeDispatch(input: {
     });
     return;
   }
-
   if (input.delivery.status !== "failed") {
     return;
   }
-
   const stopped =
     input.delivery.failureCode ===
       RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE ||
@@ -8568,84 +9118,10 @@ async function projectNativeDeliveryTerminalToSpaceWakeDispatch(input: {
       : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
   });
 }
-
-async function isRemoteAgentSpaceWakeStoppedBeforeExecution(input: {
-  delivery: RemoteAgentNativeDeliveryRecord;
-  env: CoreBindings;
-  ownerUserId?: string | null;
-}): Promise<boolean> {
-  if (
-    input.delivery.conversationKind !== "space" ||
-    input.delivery.routineRunId
-  ) {
-    return false;
-  }
-  let ownerUserId = normalizeOptionalText(input.ownerUserId);
-  if (!ownerUserId) {
-    try {
-      ownerUserId = (
-        await resolveRemoteAgentTargetProfile({
-          env: input.env,
-          profileId: input.delivery.profileId,
-        })
-      ).ownerUserId;
-    } catch (error) {
-      console.warn(
-        "[core.remote_agent.native_delivery.pre_agent_stop_owner_read_failed]",
-        {
-          dispatchId: input.delivery.dispatchId,
-          error: toErrorMessage(error),
-          targetProfileId: input.delivery.profileId,
-        }
-      );
-      return false;
-    }
-  }
-  if (!ownerUserId) {
-    return false;
-  }
-
-  const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
-    clientMessageId: null,
-    dispatchId: input.delivery.dispatchId,
-    sourceSignalId: input.delivery.triggerMessageId,
-    spaceId: input.delivery.spaceId,
-    targetProfileId: input.delivery.profileId,
-  });
-  const trace = await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
-    env: input.env,
-    ownerUserId,
-    request: {
-      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
-      targetWakeLifecycleIdentity,
-    },
-  }).catch((error) => {
-    console.warn(
-      "[core.remote_agent.native_delivery.pre_agent_stop_guard_read_failed]",
-      {
-        dispatchId: input.delivery.dispatchId,
-        error: toErrorMessage(error),
-        targetProfileId: input.delivery.profileId,
-        targetWakeLifecycleId:
-          targetWakeLifecycleIdentity.targetWakeLifecycleId,
-      }
-    );
-    return null;
-  });
-
-  return (
-    trace?.ok === true &&
-    trace.readStatus === "found" &&
-    trace.lifecycle.status === "stopped_before_execution"
-  );
-}
-
 async function settleRemoteAgentStoppedCallback(input: {
   body: Pick<RemoteAgentCoreCallbackEvent, "idempotencyKey" | "submissionId">;
-  db: D1Database;
-  delivery: RemoteAgentNativeDeliveryRecord & {
-    status: "accepted" | "retry_observed";
-  };
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
 }): Promise<RemoteAgentCoreCallbackResponse> {
@@ -8669,9 +9145,8 @@ async function settleRemoteAgentStoppedCallback(input: {
     status: "accepted",
   });
 }
-
 export async function settleRemoteAgentNativeDeliveryStopped(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   idempotencyKey: string;
@@ -8698,7 +9173,6 @@ export async function settleRemoteAgentNativeDeliveryStopped(input: {
   ) {
     return null;
   }
-
   await closeRemoteAgentStreamProjection({
     delivery: terminal,
     env: input.env,
@@ -8721,36 +9195,6 @@ export async function settleRemoteAgentNativeDeliveryStopped(input: {
   });
   return terminal;
 }
-
-async function requestRemoteAgentWorkerCancellationAfterStop(input: {
-  delivery: RemoteAgentNativeDeliveryRecord;
-  env: CoreBindings;
-}): Promise<void> {
-  const submissionId = normalizeOptionalText(input.delivery.submissionId);
-  if (!submissionId) {
-    console.warn(
-      "[core.remote_agent.native_delivery.admission_stop_receiver_unavailable]",
-      {
-        dispatchId: input.delivery.dispatchId,
-        submissionId: input.delivery.submissionId,
-        targetProfileId: input.delivery.profileId,
-      }
-    );
-    return;
-  }
-  await requestRemoteAgentWorkerCancellation({
-    ...input,
-    failureLogEvent:
-      "[core.remote_agent.native_delivery.admission_stop_failed]",
-    forwardedLogEvent:
-      "[core.remote_agent.native_delivery.admission_stop_forwarded]",
-    reason: "User stopped this Wake.",
-    receiverUnavailableLogEvent:
-      "[core.remote_agent.native_delivery.admission_stop_receiver_unavailable]",
-    submissionId,
-  });
-}
-
 async function requestRemoteAgentWorkerCancellationAfterAdmissionTimeout(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -8767,7 +9211,6 @@ async function requestRemoteAgentWorkerCancellationAfterAdmissionTimeout(input: 
     submissionId: input.delivery.dispatchId,
   });
 }
-
 async function requestRemoteAgentWorkerCancellation(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -8815,22 +9258,37 @@ async function requestRemoteAgentWorkerCancellation(input: {
     });
   }
 }
-
 function resolveRemoteAgentPublicationErrorCode(error: unknown): string | null {
   const directCode =
     error && typeof error === "object"
-      ? normalizeOptionalText((error as { code?: unknown }).code)
+      ? normalizeOptionalText(
+          (
+            error as {
+              code?: unknown;
+            }
+          ).code
+        )
       : null;
   if (directCode) {
     return directCode;
   }
   const cause =
     error && typeof error === "object"
-      ? (error as { cause?: unknown }).cause
+      ? (
+          error as {
+            cause?: unknown;
+          }
+        ).cause
       : null;
   const causeCode =
     cause && typeof cause === "object"
-      ? normalizeOptionalText((cause as { code?: unknown }).code)
+      ? normalizeOptionalText(
+          (
+            cause as {
+              code?: unknown;
+            }
+          ).code
+        )
       : null;
   if (causeCode) {
     return causeCode;
@@ -8841,10 +9299,10 @@ function resolveRemoteAgentPublicationErrorCode(error: unknown): string | null {
     ? (parseRpcErrorPayload(message.slice(jsonStart))?.code ?? null)
     : null;
 }
-
 function buildRemoteAgentFinalPublicationPayload(input: {
   body: RemoteAgentCoreCallbackBody;
   resumeStatus: "accepted" | "retry_observed";
+  failureText?: string;
 }): RemoteAgentFinalPublicationPayload {
   return {
     attachments:
@@ -8861,14 +9319,14 @@ function buildRemoteAgentFinalPublicationPayload(input: {
     storageVersion: 3,
     text:
       input.body.status === "failed"
-        ? resolveCenterAgentCallbackFailureMessage(input.body)
+        ? (input.failureText ??
+          resolveCenterAgentCallbackFailureMessage(input.body))
         : resolveCenterAgentCompletedCallbackMessage(input.body),
   };
 }
-
 async function completeRemoteAgentSlackCompletedCallback(input: {
   body: RemoteAgentCompletedCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord & {
     status: "accepted" | "retry_observed";
   };
@@ -8899,7 +9357,6 @@ async function completeRemoteAgentSlackCompletedCallback(input: {
       nowMs,
     });
   }
-
   let publishedSignalId: string;
   try {
     const publishedSignal = await publishRemoteAgentCallbackReply({
@@ -8929,7 +9386,6 @@ async function completeRemoteAgentSlackCompletedCallback(input: {
       nowMs,
     });
   }
-
   let completed: RemoteAgentNativeDeliveryRecord | null;
   try {
     completed = await markRemoteAgentSlackFinalPublicationPublished({
@@ -8996,7 +9452,6 @@ async function completeRemoteAgentSlackCompletedCallback(input: {
     }
     return buildRemoteAgentPublicationOutcomeUnknownResponse();
   }
-
   await projectRemoteAgentNativeDeliveryTerminalEffects({
     db,
     delivery: completed,
@@ -9023,6 +9478,13 @@ async function completeRemoteAgentSlackCompletedCallback(input: {
       env,
       nowMs,
     });
+  if (postResultGuidanceRetry?.status === "outcome_unknown") {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      status: "accepted",
+      publishedSignalId,
+      reasonCode: postResultGuidanceRetry.reasonCode,
+    });
+  }
   if (postResultGuidanceRetry) {
     return remoteAgentCoreCallbackResponseSchema.parse({
       reasonCode: postResultGuidanceRetry.reasonCode,
@@ -9037,10 +9499,9 @@ async function completeRemoteAgentSlackCompletedCallback(input: {
     publishedSignalId,
   });
 }
-
 async function resolveRemoteAgentFinalPublicationClaimConflict(input: {
   body: Pick<RemoteAgentCoreCallbackBody, "idempotencyKey" | "submissionId">;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<RemoteAgentCoreCallbackResponse> {
@@ -9107,10 +9568,9 @@ async function resolveRemoteAgentFinalPublicationClaimConflict(input: {
     reasonCode: REMOTE_AGENT_CALLBACK_PUBLICATION_IN_PROGRESS_REASON_CODE,
   });
 }
-
 async function resolveRemoteAgentMessageChannelFinalPublicationClaimConflict(input: {
   body: Pick<RemoteAgentCoreCallbackBody, "idempotencyKey" | "submissionId">;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<RemoteAgentCoreCallbackResponse> {
@@ -9152,11 +9612,10 @@ async function resolveRemoteAgentMessageChannelFinalPublicationClaimConflict(inp
     status: "retryable",
   });
 }
-
 async function completeRemoteAgentMessageChannelCallback(input: {
   body: RemoteAgentCoreCallbackBody;
   clock: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord & {
     status: "accepted" | "retry_observed";
   };
@@ -9225,10 +9684,9 @@ async function completeRemoteAgentMessageChannelCallback(input: {
     status: "retryable",
   });
 }
-
 async function tryCompleteRemoteAgentMessageChannelCallback(input: {
   body: RemoteAgentCoreCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord & {
     status: "accepted" | "retry_observed";
   };
@@ -9256,11 +9714,12 @@ async function tryCompleteRemoteAgentMessageChannelCallback(input: {
     registry,
   });
 }
-
 function buildRemoteAgentMessageChannelDuplicateResponse(
   outcome: Extract<
     RemoteAgentMessageChannelPublicationOutcome,
-    { status: "duplicate" }
+    {
+      status: "duplicate";
+    }
   >
 ): RemoteAgentCoreCallbackResponse {
   return remoteAgentCoreCallbackResponseSchema.parse({
@@ -9272,7 +9731,6 @@ function buildRemoteAgentMessageChannelDuplicateResponse(
     status: "duplicate_rejected",
   });
 }
-
 function resolveRemoteAgentFinalPublicationResultId(
   delivery: Pick<
     RemoteAgentNativeDeliveryRecord,
@@ -9283,11 +9741,10 @@ function resolveRemoteAgentFinalPublicationResultId(
     ? delivery.providerPublicationResultId
     : delivery.publishedSignalId;
 }
-
 async function handleRemoteAgentSlackFinalPublicationError(input: {
   body: RemoteAgentCompletedCallbackBody;
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
   error: unknown;
@@ -9325,7 +9782,6 @@ async function handleRemoteAgentSlackFinalPublicationError(input: {
     );
     return buildRemoteAgentPublicationOutcomeUnknownResponse();
   }
-
   const failureCode = REMOTE_AGENT_CALLBACK_PUBLISH_FAILED_FAILURE_CODE;
   const released = await releaseRemoteAgentFinalPublicationClaim({
     db: input.db,
@@ -9350,14 +9806,12 @@ async function handleRemoteAgentSlackFinalPublicationError(input: {
     reasonCode: failureCode,
   });
 }
-
 function buildRemoteAgentPublicationOutcomeUnknownResponse(): RemoteAgentCoreCallbackResponse {
   return remoteAgentCoreCallbackResponseSchema.parse({
     status: "rejected",
     reasonCode: REMOTE_AGENT_CALLBACK_PUBLICATION_OUTCOME_UNKNOWN_REASON_CODE,
   });
 }
-
 function isConfirmedRemoteAgentSlackFinalPublication(
   delivery: RemoteAgentNativeDeliveryRecord | null,
   publishedSignalId: string
@@ -9372,9 +9826,8 @@ function isConfirmedRemoteAgentSlackFinalPublication(
     delivery.publishedSignalId === publishedSignalId
   );
 }
-
 export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   messageChannelNowMs?: () => number;
   messageChannelProviderRegistry?: MessageChannelProviderRegistry;
@@ -9384,33 +9837,22 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
   reasonCode?: string;
   status: "expired" | "skipped";
 }> {
-  const isAdmissionWatchdog = isRemoteAgentAdmissionWatchdogProbe(input.probe);
-  const delivery = isAdmissionWatchdog
-    ? await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: input.db,
-        idempotencyKey: input.probe.idempotencyKey,
-      })
-    : await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: input.db,
-        submissionId: input.probe.submissionId,
-      });
-  if (isAdmissionWatchdog && !delivery) {
-    throw new Error("remote_agent.admission_watchdog_delivery_missing");
+  const admissionProbe = resolveRemoteAgentAdmissionProbe(input.probe);
+  if (admissionProbe) {
+    return await processRemoteAgentAdmissionDeadlineProbe({
+      ...input,
+      admissionProbe,
+    });
   }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: input.db,
+    submissionId: input.probe.submissionId,
+  });
   if (!remoteAgentDeadlineProbeTargetsDelivery(input.probe, delivery)) {
-    if (isAdmissionWatchdog) {
-      throw new Error("remote_agent.admission_watchdog_delivery_mismatch");
-    }
     return {
       reasonCode: "remote_agent.delivery_deadline_probe_unknown_submission",
       status: "skipped",
     };
-  }
-  if (isAdmissionWatchdog) {
-    return await processRemoteAgentAdmissionWatchdog({
-      ...input,
-      delivery,
-    });
   }
   if (
     await blockRoutineDeliveryForTargetMismatch({
@@ -9429,6 +9871,12 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
       reasonCode: "remote_agent.delivery_deadline_probe_not_due",
       status: "skipped",
     };
+  }
+  if (
+    !isRemoteAgentNativeDeliveryTerminal(delivery) &&
+    (await isTaskContinuationParentStopped({ ...input, delivery }))
+  ) {
+    return await reconcileTaskContinuationParentStop({ ...input, delivery });
   }
   if (delivery.finalPublicationState === "outcome_unknown") {
     await projectRemoteAgentNativeDeliveryTerminalEffects({
@@ -9472,7 +9920,6 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
       status: "skipped",
     };
   }
-
   const existingPublishedSignalId =
     await readRemoteAgentFinalReplyClaimSignalId({
       allowRoutine: true,
@@ -9506,7 +9953,6 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
       status: "skipped",
     };
   }
-
   if (
     delivery.failureCode !== REMOTE_AGENT_CALLBACK_PUBLISH_FAILED_FAILURE_CODE
   ) {
@@ -9519,7 +9965,6 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
       probe: input.probe,
     });
   }
-
   const settled = await settleRemoteAgentNativeDeliveryVisibleFailure({
     db: input.db,
     delivery,
@@ -9546,9 +9991,72 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
   });
   return { status: "expired" };
 }
-
+async function processRemoteAgentAdmissionDeadlineProbe(input: {
+  admissionProbe: {
+    kind: "admission";
+  };
+  db: PostgresDatabase;
+  env: CoreBindings;
+  messageChannelNowMs?: () => number;
+  messageChannelProviderRegistry?: MessageChannelProviderRegistry;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{
+  reasonCode?: string;
+  status: "expired" | "skipped";
+}> {
+  const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.probe.idempotencyKey,
+  });
+  if (!delivery) {
+    throw new Error("remote_agent.admission_watchdog_delivery_missing");
+  }
+  if (!remoteAgentDeadlineProbeTargetsDelivery(input.probe, delivery)) {
+    throw new Error("remote_agent.admission_watchdog_delivery_mismatch");
+  }
+  if (
+    input.nowMs >= input.probe.deadlineAtMs &&
+    !isRemoteAgentNativeDeliveryTerminal(delivery) &&
+    (await isTaskContinuationParentStopped({ ...input, delivery }))
+  ) {
+    return await reconcileTaskContinuationParentStop({ ...input, delivery });
+  }
+  const settled = await resolveAlreadySettledRemoteAgentAdmissionWatchdog({
+    db: input.db,
+    delivery,
+    env: input.env,
+    nowMs: input.nowMs,
+  });
+  if (settled) {
+    return settled;
+  }
+  if (delivery.admissionRetryDueAtMs === input.probe.deadlineAtMs) {
+    return await processRemoteAgentTaskContinuationAdmissionRetry({
+      ...input,
+      attempt: delivery.admissionAttemptCount + 1,
+      delivery,
+    });
+  }
+  const expectedWatchdogDeadlineAtMs =
+    delivery.submittedAtMs === null
+      ? null
+      : delivery.submittedAtMs +
+        REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS * 1000;
+  if (expectedWatchdogDeadlineAtMs !== input.probe.deadlineAtMs) {
+    return {
+      reasonCode: "remote_agent.admission_watchdog_stale",
+      status: "skipped",
+    };
+  }
+  return await processRemoteAgentAdmissionWatchdog({
+    ...input,
+    admissionAttempt: delivery.admissionAttemptCount,
+    delivery,
+  });
+}
 async function resolveRemoteAgentDeadlineProbePublication(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   messageChannelProviderRegistry?: MessageChannelProviderRegistry;
@@ -9591,9 +10099,8 @@ async function resolveRemoteAgentDeadlineProbePublication(input: {
     probe: input.probe,
   });
 }
-
 async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   messageChannelProviderRegistry?: MessageChannelProviderRegistry;
@@ -9603,6 +10110,13 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
   reasonCode: string;
   status: "expired" | "skipped";
 }> {
+  // Stop is conveyed independently by the durable Space Stop outbox.
+  if (input.delivery.executionReconciliation?.retryState === "paused") {
+    return {
+      reasonCode: "remote_agent.execution_reconciliation_paused",
+      status: "skipped",
+    };
+  }
   const reconciliationDelayMs =
     resolveAcceptedDeliveryProbeDelaySeconds(input.delivery) * 1000;
   const processingLeaseDueAtMs =
@@ -9648,6 +10162,21 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     if (!worker) {
       throw new Error("Remote Agent worker binding is unavailable.");
     }
+    if (
+      await isRemoteAgentSpaceWakeStopRequested({
+        delivery: leasedDelivery,
+        env: input.env,
+      })
+    ) {
+      await withRemoteAgentExecutionReconciliationTimeout(
+        forwardRemoteAgentWorkerCancellation({
+          delivery: leasedDelivery,
+          env: input.env,
+          submissionId: input.probe.submissionId,
+          reason: "User stopped this Wake.",
+        })
+      );
+    }
     const response = await withRemoteAgentExecutionReconciliationTimeout(
       worker.reconcileExecution?.({
         v: 1,
@@ -9658,13 +10187,11 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
         ...(conversationId ? { conversationId } : {}),
       })
     );
-    if (response === undefined) {
-      throw new Error(
-        "Remote Agent worker does not expose execution reconciliation."
-      );
-    }
-    reconciliation =
-      remoteAgentWorkerExecutionQueryResponseSchema.parse(response);
+    reconciliation = parseExactExecutionReconciliation(
+      response,
+      leasedDelivery,
+      input.probe.submissionId
+    );
   } catch (error) {
     console.warn(
       "[core.remote_agent.native_delivery.execution_reconciliation_failed]",
@@ -9678,6 +10205,32 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     );
     const reconciliationTimedOut =
       error instanceof RemoteAgentExecutionReconciliationTimeoutError;
+    const failureKind =
+      error instanceof RemoteAgentExecutionReconciliationProtocolError
+        ? error.failureKind
+        : "transport";
+    const observation = unavailableReconciliationObservation(
+      leasedDelivery,
+      input.nowMs,
+      failureKind
+    );
+    await recordRemoteAgentExecutionReconciliation({
+      db: input.db,
+      delivery: leasedDelivery,
+      processingLeaseDueAtMs,
+      observation,
+      nowMs: input.nowMs,
+    });
+    if (observation.retryState === "paused") {
+      return {
+        reasonCode: "remote_agent.execution_reconciliation_paused",
+        status: "skipped",
+      };
+    }
+    const retryDelayMs = reconciliationBackoffMs(
+      reconciliationDelayMs,
+      observation.consecutiveFailures
+    );
     await requeueRemoteAgentNativeDeliveryDeadlineProbe({
       acceptedProbeProcessingLeaseDueAtMs: processingLeaseDueAtMs,
       db: input.db,
@@ -9686,20 +10239,32 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
       preserveProcessingLeaseOnEnqueueFailure: reconciliationTimedOut,
       probe: input.probe,
       runAtMs: reconciliationTimedOut
-        ? processingLeaseDueAtMs
-        : input.nowMs + reconciliationDelayMs,
+        ? Math.max(processingLeaseDueAtMs, input.nowMs + retryDelayMs)
+        : input.nowMs + retryDelayMs,
     });
     return {
       reasonCode: "remote_agent.execution_reconciliation_unavailable",
       status: "skipped",
     };
   }
-
+  await recordRemoteAgentExecutionReconciliation({
+    db: input.db,
+    delivery: leasedDelivery,
+    processingLeaseDueAtMs,
+    nowMs: input.nowMs,
+    observation:
+      reconciliation.status === "not_found"
+        ? unavailableReconciliationObservation(
+            leasedDelivery,
+            input.nowMs,
+            "not_found"
+          )
+        : null,
+  });
   const reconciledDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
     db: input.db,
     submissionId: input.probe.submissionId,
   });
-
   return await settleReconciledAcceptedRemoteAgentNativeDelivery({
     db: input.db,
     env: input.env,
@@ -9709,12 +10274,17 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     probe: input.probe,
     reconciledDelivery,
     reconciliation,
-    reconciliationDelayMs,
+    reconciliationDelayMs:
+      reconciliation.status === "not_found"
+        ? reconciliationBackoffMs(
+            reconciliationDelayMs,
+            reconciledDelivery?.executionReconciliation?.consecutiveFailures
+          )
+        : reconciliationDelayMs,
     processingLeaseDueAtMs,
   });
 }
-
-async function withRemoteAgentExecutionReconciliationTimeout<T>(
+export async function withRemoteAgentExecutionReconciliationTimeout<T>(
   promise: Promise<T> | undefined
 ): Promise<T | undefined> {
   if (!promise) {
@@ -9734,9 +10304,8 @@ async function withRemoteAgentExecutionReconciliationTimeout<T>(
     }
   }
 }
-
 async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   leasedDelivery: RemoteAgentNativeDeliveryRecord;
   messageChannelProviderRegistry?: MessageChannelProviderRegistry;
@@ -9768,7 +10337,6 @@ async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
       status: "skipped",
     };
   }
-
   if (input.reconciliation.status === "identity_mismatch") {
     return await publishExecutionIdentityMismatchFailure({
       acceptedProbeProcessingLeaseDueAtMs: input.processingLeaseDueAtMs,
@@ -9780,7 +10348,6 @@ async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
       probe: input.probe,
     });
   }
-
   await requeueRemoteAgentNativeDeliveryDeadlineProbe({
     acceptedProbeProcessingLeaseDueAtMs: input.processingLeaseDueAtMs,
     db: input.db,
@@ -9797,9 +10364,8 @@ async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
     status: "skipped",
   };
 }
-
 async function refreshRemoteAgentSlackThreadWorkingStatus(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
 }): Promise<void> {
@@ -9826,9 +10392,8 @@ async function refreshRemoteAgentSlackThreadWorkingStatus(input: {
     );
   }
 }
-
 async function synchronizeRemoteAgentSlackThreadWorkingStatusForDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
 }): Promise<void> {
@@ -9848,9 +10413,8 @@ async function synchronizeRemoteAgentSlackThreadWorkingStatusForDelivery(input: 
     });
   }
 }
-
 export async function synchronizeRemoteAgentSlackThreadWorkingStatus(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
 }): Promise<void> {
@@ -9869,9 +10433,8 @@ export async function synchronizeRemoteAgentSlackThreadWorkingStatus(input: {
     working = currentWorking;
   }
 }
-
 async function isRemoteAgentSlackThreadWorkingStatusDesired(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
 }): Promise<boolean> {
   const channelId = normalizeOptionalText(input.delivery.slackChannelId);
@@ -9888,7 +10451,6 @@ async function isRemoteAgentSlackThreadWorkingStatusDesired(input: {
     threadTs,
   });
 }
-
 async function applyRemoteAgentSlackThreadWorkingStatus(input: {
   botToken: string;
   channelId: string;
@@ -9901,7 +10463,6 @@ async function applyRemoteAgentSlackThreadWorkingStatus(input: {
   }
   await clearRemoteAgentSlackThreadWorkingStatus(input);
 }
-
 async function resolveRemoteAgentSlackThreadStatusTarget(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -9913,7 +10474,7 @@ async function resolveRemoteAgentSlackThreadStatusTarget(input: {
   const channelId = normalizeOptionalText(input.delivery.slackChannelId);
   const slackTeamId = normalizeOptionalText(input.delivery.slackTeamId);
   const threadTs = normalizeOptionalText(input.delivery.slackThreadTs);
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!(channelId && db && slackTeamId && threadTs)) {
     throw new Error("Slack thread status target is incomplete");
   }
@@ -9929,7 +10490,6 @@ async function resolveRemoteAgentSlackThreadStatusTarget(input: {
     threadTs,
   };
 }
-
 function isRemoteAgentAcceptedDeliveryAwaitingFinalPublication(
   delivery: RemoteAgentNativeDeliveryRecord | null
 ): delivery is RemoteAgentNativeDeliveryRecord {
@@ -9941,7 +10501,6 @@ function isRemoteAgentAcceptedDeliveryAwaitingFinalPublication(
       delivery.publishedSignalId === null
   );
 }
-
 function hasRetainedExecutionIdentityMismatchFailure(
   delivery: RemoteAgentNativeDeliveryRecord
 ): delivery is RemoteAgentNativeDeliveryRecord & {
@@ -9953,10 +10512,9 @@ function hasRetainedExecutionIdentityMismatchFailure(
       REMOTE_AGENT_EXECUTION_IDENTITY_MISMATCH_FAILURE_CODE
   );
 }
-
 async function publishExecutionIdentityMismatchFailure(input: {
   acceptedProbeProcessingLeaseDueAtMs?: number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   messageChannelProviderRegistry?: MessageChannelProviderRegistry;
@@ -10053,9 +10611,8 @@ async function publishExecutionIdentityMismatchFailure(input: {
     status: "skipped",
   };
 }
-
 async function settleClaimedRemoteAgentDeadlineProbe(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -10103,7 +10660,6 @@ async function settleClaimedRemoteAgentDeadlineProbe(input: {
     status: "expired",
   };
 }
-
 function remoteAgentDeadlineProbeTargetsDelivery(
   probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
   delivery: RemoteAgentNativeDeliveryRecord | null
@@ -10116,9 +10672,9 @@ function remoteAgentDeadlineProbeTargetsDelivery(
       delivery.spaceId === probe.spaceId
   );
 }
-
 async function processRemoteAgentAdmissionWatchdog(input: {
-  db: D1Database;
+  admissionAttempt: number;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   messageChannelNowMs?: () => number;
@@ -10170,7 +10726,453 @@ async function processRemoteAgentAdmissionWatchdog(input: {
       status: "skipped",
     };
   }
-
+  if (await isRemoteAgentSpaceWakeStopRequested(input)) {
+    return await reconcilePendingSpaceWakeStop(input);
+  }
+  await requireTaskContinuationSummaryPolicy({
+    env: input.env,
+    requests: [
+      input.delivery.workerSubmitRequest,
+      input.delivery.executionRecoverySubmitRequest,
+    ],
+  });
+  const recoveredAdmission = await recoverTaskContinuationAdmission(input);
+  if (recoveredAdmission) {
+    return recoveredAdmission;
+  }
+  const continuationRetry =
+    await scheduleTaskContinuationAdmissionRetryAfterTimeout(input);
+  if (continuationRetry) {
+    return continuationRetry;
+  }
+  return await finalizeRemoteAgentAdmissionTimeout(input);
+}
+async function recoverTaskContinuationAdmission(
+  input: Parameters<typeof processRemoteAgentAdmissionWatchdog>[0]
+): Promise<{
+  reasonCode: string;
+  status: "skipped";
+} | null> {
+  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+  const request = input.delivery.workerSubmitRequest;
+  if (
+    !(
+      isRetryableTaskContinuationAdmission(input.delivery) &&
+      worker?.readAdmission &&
+      request
+    )
+  ) {
+    return null;
+  }
+  let ack: RemoteAgentWorkerSubmitMessagesResult | null | undefined;
+  try {
+    ack = await withRemoteAgentExecutionReconciliationTimeout(
+      readRemoteAgentWorkerAdmission({
+        admissionDelivery: input.delivery,
+        request,
+        worker,
+      })
+    );
+  } catch (error) {
+    console.warn(
+      "[core.remote_agent.task_continuation.admission_receipt_read_failed]",
+      {
+        dispatchId: input.delivery.dispatchId,
+        error: toErrorMessage(error),
+        idempotencyKey: input.delivery.idempotencyKey,
+      }
+    );
+    return null;
+  }
+  if (!ack) {
+    return null;
+  }
+  // Once the owner has returned a validated receipt, persistence/probe or
+  // postprocessing failures must not masquerade as another admission timeout.
+  // Propagate them to the existing delivery retry/accepted-probe repair owners.
+  await markRemoteAgentNativeDeliveryAckWithProbe({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    accepted: ack.accepted,
+    idempotencyKey: input.delivery.idempotencyKey,
+    submissionId: ack.submissionId,
+    workerRequestId: ack.requestId ?? null,
+  });
+  // Preserve the recovered ACK in the existing ledger before any generation,
+  // Stop or pause await. A postprocessing stall cannot lose its identity.
+  await finishAcknowledgedAdmission({
+    admissionDelivery: input.delivery,
+    ack,
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    organizationId: input.delivery.organizationId,
+    request,
+    worker,
+  });
+  // The existing accepted probe now reconciles the real native submission.
+  // Never reconcile the watchdog's synthetic admission_watchdog:* ID.
+  return {
+    reasonCode: "remote_agent.admission_ack_recovered",
+    status: "skipped",
+  };
+}
+async function scheduleTaskContinuationAdmissionRetryAfterTimeout(
+  input: Parameters<typeof processRemoteAgentAdmissionWatchdog>[0]
+): Promise<{
+  reasonCode: string;
+  status: "skipped";
+} | null> {
+  if (!isRetryableTaskContinuationAdmission(input.delivery)) {
+    return null;
+  }
+  if (input.delivery.admissionAttemptCount !== input.admissionAttempt) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_watchdog_stale",
+      status: "skipped",
+    };
+  }
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: input.delivery,
+    observedAtMs: input.nowMs,
+    phase: "timed_out",
+  });
+  if (
+    input.admissionAttempt >=
+    REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS
+  ) {
+    return null;
+  }
+  const nextAttempt = input.admissionAttempt + 1;
+  const defaultDelaySeconds =
+    resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds(nextAttempt);
+  const scheduled = await scheduleRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: input.admissionAttempt,
+    db: input.db,
+    dueAtMs: input.nowMs + defaultDelaySeconds * 1000,
+    idempotencyKey: input.delivery.idempotencyKey,
+    nowMs: input.nowMs,
+  });
+  if (!scheduled?.admissionRetryDueAtMs) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_lost_race",
+      status: "skipped",
+    };
+  }
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: scheduled,
+    observedAtMs: input.nowMs,
+    phase: "retry_scheduled",
+  });
+  const delaySeconds = Math.max(
+    0,
+    Math.ceil((scheduled.admissionRetryDueAtMs - input.nowMs) / 1000)
+  );
+  const enqueued = await enqueueRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: nextAttempt,
+    delaySeconds,
+    env: input.env,
+    nowMs: input.nowMs,
+    target: {
+      dispatchId: scheduled.dispatchId,
+      idempotencyKey: scheduled.idempotencyKey,
+      organizationId: scheduled.organizationId,
+      profileId: scheduled.profileId,
+      spaceId: scheduled.spaceId,
+    },
+  });
+  if (!enqueued) {
+    throw new Error(
+      "remote_agent.task_continuation.admission_retry_queue_unavailable"
+    );
+  }
+  return {
+    reasonCode: "remote_agent.task_continuation.admission_retry_scheduled",
+    status: "skipped",
+  };
+}
+async function processRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{
+  reasonCode: string;
+  status: "skipped";
+}> {
+  if (input.nowMs < input.probe.deadlineAtMs) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_not_due",
+      status: "skipped",
+    };
+  }
+  if (
+    !isRetryableTaskContinuationAdmission(input.delivery) ||
+    input.attempt < 2 ||
+    input.attempt > REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS ||
+    input.delivery.admissionAttemptCount !== input.attempt - 1 ||
+    input.delivery.admissionRetryDueAtMs !== input.probe.deadlineAtMs
+  ) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_stale",
+      status: "skipped",
+    };
+  }
+  const watchdogEnqueued = await enqueueRemoteAgentAdmissionWatchdog({
+    ack: {
+      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+        input.delivery.idempotencyKey
+      ),
+    },
+    env: input.env,
+    nowMs: input.nowMs,
+    target: {
+      dispatchId: input.delivery.dispatchId,
+      idempotencyKey: input.delivery.idempotencyKey,
+      organizationId: input.delivery.organizationId,
+      profileId: input.delivery.profileId,
+      spaceId: input.delivery.spaceId,
+    },
+  });
+  if (!watchdogEnqueued) {
+    throw new Error(
+      "remote_agent.task_continuation.admission_retry_watchdog_unavailable"
+    );
+  }
+  const claimed = await claimRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: input.attempt,
+    db: input.db,
+    dueAtMs: input.probe.deadlineAtMs,
+    idempotencyKey: input.delivery.idempotencyKey,
+    nowMs: input.nowMs,
+  });
+  if (!claimed?.workerSubmitRequest) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_lost_race",
+      status: "skipped",
+    };
+  }
+  // Stop may have arrived while the retry was being claimed. Never turn that
+  // durable parent intent into a fresh submit or an admission-timeout failure.
+  if (await isTaskContinuationParentStopped({ ...input, delivery: claimed })) {
+    return await reconcileTaskContinuationParentStop({
+      ...input,
+      delivery: claimed,
+    });
+  }
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: claimed,
+    observedAtMs: input.nowMs,
+    phase: "retry_claimed",
+  });
+  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+  if (!worker) {
+    return {
+      reasonCode:
+        "remote_agent.task_continuation.admission_retry_receiver_unavailable",
+      status: "skipped",
+    };
+  }
+  const admission = await submitRemoteAgentWorkerAdmission({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    organizationId: claimed.organizationId,
+    request: claimed.workerSubmitRequest,
+    admissionDelivery: claimed,
+    worker,
+  });
+  if (admission.status === "acknowledged") {
+    await markRemoteAgentNativeDeliveryAckWithProbe({
+      accepted: admission.ack.accepted,
+      db: input.db,
+      env: input.env,
+      idempotencyKey: claimed.idempotencyKey,
+      nowMs: input.nowMs,
+      submissionId: admission.ack.submissionId,
+      workerRequestId: admission.ack.requestId ?? null,
+    });
+    if (
+      await isTaskContinuationParentStopped({ ...input, delivery: claimed })
+    ) {
+      return await reconcileTaskContinuationParentStop({
+        ...input,
+        delivery: claimed,
+      });
+    }
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_acknowledged",
+      status: "skipped",
+    };
+  }
+  if (await isTaskContinuationParentStopped({ ...input, delivery: claimed })) {
+    return await reconcileTaskContinuationParentStop({
+      ...input,
+      delivery: claimed,
+    });
+  }
+  if (admission.status === "rejected") {
+    await settleTaskContinuationPreExecutionFailure({
+      continuationDelivery: claimed,
+      db: input.db,
+      env: input.env,
+      failureCode: admission.response.reasonCode,
+      failureDetail: admission.response.message,
+      failureMessage: resolveRemoteAgentAdmissionPublicCopy({
+        conversationKind: claimed.conversationKind,
+        reasonCode: admission.response.reasonCode,
+      }),
+      nowMs: input.nowMs,
+      status: "failed",
+    });
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_rejected",
+      status: "skipped",
+    };
+  }
+  return {
+    reasonCode: `remote_agent.task_continuation.admission_retry_${admission.status}`,
+    status: "skipped",
+  };
+}
+function isRetryableTaskContinuationAdmission(delivery: {
+  conversationKind: RemoteAgentNativeDeliveryRecord["conversationKind"];
+  routineRunId?: string | null;
+  workerSubmitRequest?: RemoteAgentNativeDeliveryRecord["workerSubmitRequest"];
+}): boolean {
+  const trigger = delivery.workerSubmitRequest?.turnEnvelope.trigger;
+  return (
+    delivery.conversationKind === "space" &&
+    delivery.routineRunId === null &&
+    (trigger?.source === "task_continuation" ||
+      trigger?.source === "task_watch_continuation")
+  );
+}
+async function isTaskContinuationParentStopped(input: {
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+}): Promise<boolean> {
+  // ACK clears the pending request. Work-loop rearming advances the current
+  // identity, while the owner retains the exact chain back to the subscription.
+  const request =
+    input.delivery.workerSubmitRequest ??
+    input.delivery.executionRecoverySubmitRequest;
+  const trigger = request?.turnEnvelope.trigger;
+  if (
+    trigger?.source !== "task_continuation" &&
+    trigger?.source !== "task_watch_continuation"
+  ) {
+    return false;
+  }
+  const db = getPostgresDatabase(input.env);
+  if (!db) {
+    throw new Error("agent_task_continuation.owner_store_unavailable");
+  }
+  const subscription = await readAgentTaskCompletionSubscription({
+    db,
+    subscriptionId: trigger.subscriptionId,
+  });
+  if (!subscription) {
+    return false;
+  }
+  const origin =
+    subscription.continuationIdempotencyKey === input.delivery.idempotencyKey
+      ? request
+      : await readRemoteAgentWorkLoopOrigin({
+          db: input.db,
+          deliveryId: input.delivery.deliveryId,
+          idempotencyKey: input.delivery.idempotencyKey,
+        });
+  const originTrigger = origin?.turnEnvelope.trigger;
+  if (
+    !origin ||
+    origin.organizationId !== input.delivery.organizationId ||
+    origin.spaceId !== input.delivery.spaceId ||
+    origin.dispatchId !== input.delivery.dispatchId ||
+    origin.agentProfileId !== input.delivery.profileId ||
+    origin.bindingId !== input.delivery.bindingId ||
+    origin.idempotencyKey !== subscription.continuationIdempotencyKey ||
+    originTrigger?.source !== trigger.source ||
+    originTrigger.subscriptionId !== trigger.subscriptionId ||
+    subscription.organizationId !== input.delivery.organizationId ||
+    buildAgentTaskKey(originTrigger.watchedTask) !==
+      buildAgentTaskKey(subscription.watchedTask) ||
+    buildAgentTaskKey(subscription.watchedTask) !==
+      buildAgentTaskKey(trigger.watchedTask)
+  ) {
+    throw new Error("agent_task_continuation.stop_identity_mismatch");
+  }
+  const parent = await readAgentTaskTerminalOutcome({
+    db,
+    taskKey: buildAgentTaskKey(subscription.observerTask),
+  });
+  return parent?.outcome.status === "stopped";
+}
+async function reconcileTaskContinuationParentStop(input: {
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{
+  reasonCode: string;
+  status: "skipped";
+}> {
+  try {
+    const outcome = await withRemoteAgentExecutionReconciliationTimeout(
+      requestRemoteAgentNativeDeliveryStop(input)
+    );
+    const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+      db: input.db,
+      idempotencyKey: input.delivery.idempotencyKey,
+    });
+    if (delivery && isRemoteAgentNativeDeliveryTerminal(delivery)) {
+      await projectRemoteAgentNativeDeliveryTerminalEffects({
+        ...input,
+        delivery,
+      });
+      return {
+        status: "skipped",
+        reasonCode:
+          outcome === "stopped"
+            ? "remote_agent.execution_cancelled"
+            : "remote_agent.parent_stop_already_terminal",
+      };
+    }
+    throw new Error("remote_agent.parent_stop_cancellation_pending");
+  } catch (error) {
+    console.warn(
+      "[core.remote_agent.task_continuation.stop_reconciliation_deferred]",
+      {
+        dispatchId: input.delivery.dispatchId,
+        error: toErrorMessage(error),
+        idempotencyKey: input.delivery.idempotencyKey,
+      }
+    );
+    // Reuse the durable probe conveyor. A transport failure cannot authorize a
+    // retry, become a terminal failure, or lose the Stop forwarding request.
+    await requeueRemoteAgentNativeDeliveryDeadlineProbe({
+      ...input,
+      runAtMs:
+        input.nowMs +
+        resolveAcceptedDeliveryProbeDelaySeconds(input.delivery) * 1000,
+    });
+    return {
+      status: "skipped",
+      reasonCode: "remote_agent.cancellation_execution_unconfirmed",
+    };
+  }
+}
+async function finalizeRemoteAgentAdmissionTimeout(
+  input: Parameters<typeof processRemoteAgentAdmissionWatchdog>[0]
+): Promise<{
+  reasonCode?: string;
+  status: "expired" | "skipped";
+}> {
   const claimId = crypto.randomUUID();
   const claimed = await claimRemoteAgentNativeDeliveryAdmissionWatchdog({
     claimExpiresAtMs:
@@ -10199,7 +11201,6 @@ async function processRemoteAgentAdmissionWatchdog(input: {
       status: "skipped",
     };
   }
-
   const messageChannelOutcome =
     await tryPublishRemoteAgentMessageChannelAdmissionFailure({
       claimId,
@@ -10229,7 +11230,19 @@ async function processRemoteAgentAdmissionWatchdog(input: {
     }
     return messageChannelOutcome;
   }
-
+  const failureMessage = isRetryableTaskContinuationAdmission(claimed)
+    ? formatPublicAgentFailureFacts(
+        buildTaskContinuationAdmissionFailureFacts({
+          delivery: claimed,
+          maxAttempts: REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+          languageTag: await resolveNativeFailureLanguage({
+            coordinationDb: getPostgresDatabase(input.env),
+            db: getPostgresDatabase(input.env),
+            delivery: claimed,
+          }),
+        })
+      ).body
+    : REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT;
   let publishedSignalId: string | null;
   try {
     const publishedSignal = await publishRemoteAgentCallbackFailureText({
@@ -10238,7 +11251,7 @@ async function processRemoteAgentAdmissionWatchdog(input: {
         bindingId: claimed.bindingId,
         dispatchId: claimed.dispatchId,
         failureCode: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE,
-        failureMessage: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT,
+        failureMessage,
         idempotencyKey: claimed.idempotencyKey,
         organizationId: claimed.organizationId,
         spaceId: claimed.spaceId,
@@ -10260,7 +11273,6 @@ async function processRemoteAgentAdmissionWatchdog(input: {
     });
     throw error;
   }
-
   const published =
     await markRemoteAgentNativeDeliveryAdmissionWatchdogPublished({
       claimId,
@@ -10294,7 +11306,7 @@ async function processRemoteAgentAdmissionWatchdog(input: {
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
       db: input.db,
       errorCode: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE,
-      errorMessage: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT,
+      errorMessage: failureMessage,
       idempotencyKey: published.idempotencyKey,
       nowMs: input.nowMs,
       status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
@@ -10312,9 +11324,155 @@ async function processRemoteAgentAdmissionWatchdog(input: {
   });
   return { status: "expired" };
 }
-
+async function settlePendingNativeStopFromSpaceOutcome(input: {
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+}): Promise<boolean> {
+  if (input.delivery.status !== "submitted" || input.delivery.submissionId) {
+    return false;
+  }
+  const space = resolveSpaceStub(
+    input.env.OPENMELD_SPACES,
+    input.delivery.spaceId
+  ) as {
+    rpcReadFinalReplyClaimOutcome(input: {
+      spaceId: string;
+      dispatchId: string;
+      profileId: string;
+    }): Promise<{
+      outcome: string | null;
+      signalId: string | null;
+    }>;
+  } | null;
+  if (!space) {
+    return false;
+  }
+  const outcome = await space.rpcReadFinalReplyClaimOutcome({
+    spaceId: input.delivery.spaceId,
+    dispatchId: input.delivery.dispatchId,
+    profileId: input.delivery.profileId,
+  });
+  if (outcome.outcome !== "stopped" || !outcome.signalId?.trim()) {
+    return false;
+  }
+  const delivery = await projectUnadmittedNativeDeliveryStopped({
+    db: input.db,
+    idempotencyKey: input.delivery.idempotencyKey,
+    nowMs: input.nowMs,
+    publishedSignalId: outcome.signalId,
+  });
+  if (
+    !delivery ||
+    delivery.status !== "failed" ||
+    delivery.failureCode !==
+      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE ||
+    delivery.publishedSignalId !== outcome.signalId
+  ) {
+    return false;
+  }
+  await projectRemoteAgentNativeDeliveryTerminalEffects({ ...input, delivery });
+  return true;
+}
+async function reconcilePendingSpaceWakeStop(input: {
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{
+  reasonCode: string;
+  status: "skipped";
+}> {
+  const target = resolvePendingRemoteAgentCancellationTarget(input.delivery);
+  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+  try {
+    if (!(target && worker?.cancelExecution)) {
+      // Keep the older-receiver projection policy, without claiming a native fence.
+      if (await settlePendingNativeStopFromSpaceOutcome(input)) {
+        return {
+          status: "skipped",
+          reasonCode: "remote_agent.execution_cancelled",
+        };
+      }
+      throw new Error("remote_agent.cancellation_receiver_unavailable");
+    }
+    const response = remoteAgentWorkerCancellationResponseSchema.parse(
+      await withRemoteAgentExecutionReconciliationTimeout(
+        worker.cancelExecution({
+          ...target,
+          reason: "User stopped this Wake.",
+          v: 1,
+        })
+      )
+    );
+    if (response.status === "not_found") {
+      const request =
+        input.delivery.workerSubmitRequest ??
+        input.delivery.executionRecoverySubmitRequest;
+      if (!request) {
+        throw new Error("remote_agent.cancellation_execution_unconfirmed");
+      }
+      const fence = await withRemoteAgentExecutionReconciliationTimeout(
+        readRemoteAgentWorkerAdmissionStop({ request, worker })
+      );
+      if (fence?.status === "not_found") {
+        throw new Error("remote_agent.cancellation_fence_unconfirmed");
+      }
+      // A positive receipt fences late work, not an execution ACK. Older receivers
+      // retain the Space projection policy; no restart may rely on their null receipt.
+      if (await settlePendingNativeStopFromSpaceOutcome(input)) {
+        return {
+          status: "skipped",
+          reasonCode: "remote_agent.execution_cancelled",
+        };
+      }
+      throw new Error("remote_agent.cancellation_execution_unconfirmed");
+    }
+    if (response.status === "identity_mismatch") {
+      throw new Error("remote_agent.cancellation_execution_unconfirmed");
+    }
+    // The execution owner has now confirmed this exact submission exists.
+    // Retain its identity and use the normal accepted reconciliation path;
+    // an admission timeout must not manufacture a stopped/failed execution.
+    const delivery = await markRemoteAgentNativeDeliveryAckWithProbe({
+      db: input.db,
+      env: input.env,
+      accepted: true,
+      idempotencyKey: input.delivery.idempotencyKey,
+      submissionId: target.submissionId,
+      workerRequestId: null,
+      nowMs: input.nowMs,
+    });
+    await reconcileRemoteAgentAdmissionStop({ ...input, delivery });
+    return {
+      status: "skipped",
+      reasonCode: "remote_agent.cancellation_requested",
+    };
+  } catch (error) {
+    console.warn("[core.remote_agent.pending_stop_reconciliation_deferred]", {
+      dispatchId: input.delivery.dispatchId,
+      submissionId: target?.submissionId ?? null,
+      error: toErrorMessage(error),
+    });
+    await requeueRemoteAgentNativeDeliveryDeadlineProbe({
+      db: input.db,
+      env: input.env,
+      nowMs: input.nowMs,
+      probe: input.probe,
+      runAtMs:
+        input.nowMs +
+        resolveAcceptedDeliveryProbeDelaySeconds(input.delivery) * 1000,
+    });
+    return {
+      status: "skipped",
+      reasonCode: "remote_agent.cancellation_execution_unconfirmed",
+    };
+  }
+}
 async function projectSettledRemoteAgentAdmissionWatchdogTerminalEffects(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -10324,9 +11482,8 @@ async function projectSettledRemoteAgentAdmissionWatchdogTerminalEffects(input: 
   }
   await projectRemoteAgentNativeDeliveryTerminalEffects(input);
 }
-
 async function resolveAlreadySettledRemoteAgentAdmissionWatchdog(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -10384,7 +11541,6 @@ async function resolveAlreadySettledRemoteAgentAdmissionWatchdog(input: {
   }
   return null;
 }
-
 function isRemoteAgentNativeDeliveryTerminal(
   delivery: RemoteAgentNativeDeliveryRecord
 ): boolean {
@@ -10397,12 +11553,11 @@ function isRemoteAgentNativeDeliveryTerminal(
     delivery.status === "callback_rejected"
   );
 }
-
 async function tryPublishRemoteAgentMessageChannelAdmissionFailure(input: {
   claimId: string;
   claimed: RemoteAgentNativeDeliveryRecord;
   clock?: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   registry?: MessageChannelProviderRegistry;
 }): Promise<{
@@ -10461,15 +11616,15 @@ async function tryPublishRemoteAgentMessageChannelAdmissionFailure(input: {
     status: "expired",
   };
 }
-
 function isRemoteAgentFailedNativeDelivery(
   delivery: RemoteAgentNativeDeliveryRecord
-): delivery is RemoteAgentNativeDeliveryRecord & { status: "failed" } {
+): delivery is RemoteAgentNativeDeliveryRecord & {
+  status: "failed";
+} {
   return delivery.status === "failed";
 }
-
 async function blockRoutineDeliveryForTargetMismatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
 }): Promise<boolean> {
@@ -10496,9 +11651,8 @@ async function blockRoutineDeliveryForTargetMismatch(input: {
   });
   return true;
 }
-
 async function settleRemoteAgentNativeDeliveryVisibleFailure(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
   failureCode: string;
@@ -10559,7 +11713,6 @@ async function settleRemoteAgentNativeDeliveryVisibleFailure(input: {
     });
     return { publishedSignalId: record.publishedSignalId, record };
   }
-
   try {
     const publishedSignal = await publishRemoteAgentCallbackFailureText({
       body: {
@@ -10617,16 +11770,23 @@ async function settleRemoteAgentNativeDeliveryVisibleFailure(input: {
     return { publishedSignalId: null, record };
   }
 }
-
 async function completeRemoteAgentFailedCallback(input: {
   body: RemoteAgentFailedCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: NativeDeliveryPublishRecord & {
     status: "accepted" | "retry_observed";
   };
   env: CoreBindings;
   nowMs: number;
 }): Promise<RemoteAgentCoreCallbackResponse> {
+  const failureText = await resolveInterruptedCallbackFailureText(input);
+  const payload =
+    input.delivery.finalPublicationPayload ??
+    buildRemoteAgentFinalPublicationPayload({
+      body: input.body,
+      resumeStatus: input.delivery.status,
+      failureText,
+    });
   const claimId = crypto.randomUUID();
   const claim = await claimRemoteAgentFinalPublication({
     db: input.db,
@@ -10635,10 +11795,7 @@ async function completeRemoteAgentFailedCallback(input: {
     claimId,
     idempotencyKey: input.body.idempotencyKey,
     nowMs: input.nowMs,
-    payload: buildRemoteAgentFinalPublicationPayload({
-      body: input.body,
-      resumeStatus: input.delivery.status,
-    }),
+    payload,
     submissionId: input.body.submissionId,
     terminalFailureCode: input.body.failureCode,
     terminalFailureDetail: input.body.failureDetail,
@@ -10651,13 +11808,13 @@ async function completeRemoteAgentFailedCallback(input: {
       nowMs: input.nowMs,
     });
   }
-
   let publishedSignalId: string;
   try {
     const publishedSignal = await publishRemoteAgentCallbackFailureText({
       body: input.body,
       delivery: input.delivery,
       env: input.env,
+      failureText,
     });
     const normalizedPublishedSignalId = normalizeOptionalText(
       publishedSignal?.id
@@ -10699,7 +11856,6 @@ async function completeRemoteAgentFailedCallback(input: {
       );
       return buildRemoteAgentPublicationOutcomeUnknownResponse();
     }
-
     const failureCode =
       REMOTE_AGENT_CALLBACK_FAILURE_PUBLISH_FAILED_FAILURE_CODE;
     const released = await releaseRemoteAgentFinalPublicationClaim({
@@ -10729,7 +11885,6 @@ async function completeRemoteAgentFailedCallback(input: {
       reasonCode: failureCode,
     });
   }
-
   let completed: RemoteAgentNativeDeliveryRecord | null;
   try {
     completed = await markRemoteAgentFailedCallbackPublicationPublished({
@@ -10776,7 +11931,6 @@ async function completeRemoteAgentFailedCallback(input: {
     });
     return buildRemoteAgentPublicationOutcomeUnknownResponse();
   }
-
   await closeRemoteAgentFailedCallbackStream({
     body: input.body,
     delivery: completed ?? claim,
@@ -10793,11 +11947,10 @@ async function completeRemoteAgentFailedCallback(input: {
     publishedSignalId,
   });
 }
-
 async function markAndProjectRemoteAgentFailedCallbackOutcomeUnknown(input: {
   body: RemoteAgentFailedCallbackBody;
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<void> {
@@ -10823,11 +11976,10 @@ async function markAndProjectRemoteAgentFailedCallbackOutcomeUnknown(input: {
     });
   }
 }
-
 async function tryMarkAndProjectRemoteAgentFailedCallbackOutcomeUnknown(input: {
   body: RemoteAgentFailedCallbackBody;
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
   nowMs: number;
@@ -10847,7 +11999,6 @@ async function tryMarkAndProjectRemoteAgentFailedCallbackOutcomeUnknown(input: {
     );
   }
 }
-
 function isConfirmedRemoteAgentFailedCallbackPublication(
   delivery: RemoteAgentNativeDeliveryRecord | null,
   failureCode: string,
@@ -10860,25 +12011,32 @@ function isConfirmedRemoteAgentFailedCallbackPublication(
     delivery.publishedSignalId === publishedSignalId
   );
 }
-
 async function closeRemoteAgentFailedCallbackStream(input: {
   body: RemoteAgentFailedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
 }): Promise<void> {
+  const profileName =
+    input.delivery.conversationKind === "space" && !input.delivery.routineRunId
+      ? (await resolveRemoteAgentCallbackFailureProfile(input)).profileName
+      : undefined;
   await closeRemoteAgentStreamProjection({
     delivery: input.delivery,
     env: input.env,
     submissionId: input.body.submissionId,
     terminal: buildRemoteAgentFailureStreamTerminal({
       failureCode: input.body.failureCode,
-      noticeText: resolveCenterAgentCallbackFailureMessage(input.body),
+      noticeText:
+        input.delivery.finalPublicationPayload?.text ??
+        resolveCenterAgentCallbackFailureMessage({
+          ...input.body,
+          ...(profileName ? { agentLabel: profileName } : {}),
+        }),
     }),
   });
 }
-
 async function rejectNativeDeliveryWithSpaceFailure(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   executionAttemptId: string;
   failureCode: string;
@@ -10933,9 +12091,8 @@ async function rejectNativeDeliveryWithSpaceFailure(input: {
     });
   }
 }
-
 async function rejectNativeDeliveryWithSlackFailure(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   failureCode: string;
   failureDetail?: string;
@@ -10955,10 +12112,9 @@ async function rejectNativeDeliveryWithSlackFailure(input: {
     text: input.text,
   });
 }
-
 export async function publishRemoteAgentSlackAdmissionFailure(input: {
   clock?: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   failureCode: string;
   failureDetail?: string;
@@ -11040,10 +12196,9 @@ export async function publishRemoteAgentSlackAdmissionFailure(input: {
     throw error;
   }
 }
-
 async function resolveUnclaimedSlackAdmissionFailurePublication(input: {
   clock: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   idempotencyKey: string;
   nowMs: number;
 }): Promise<{
@@ -11081,11 +12236,10 @@ async function resolveUnclaimedSlackAdmissionFailurePublication(input: {
     }
   );
 }
-
 async function settleSlackAdmissionFailurePublicationOutcomeUnknown(input: {
   claimId: string;
   clock: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   idempotencyKey: string;
 }): Promise<{
   status: "in_progress" | "outcome_unknown" | "published";
@@ -11106,10 +12260,11 @@ async function settleSlackAdmissionFailurePublicationOutcomeUnknown(input: {
     }
   );
 }
-
 function projectSlackAdmissionFailurePublicationState(
   delivery: RemoteAgentNativeDeliveryRecord | null
-): { status: "outcome_unknown" | "published" } | null {
+): {
+  status: "outcome_unknown" | "published";
+} | null {
   if (delivery?.finalPublicationState === "published") {
     return { status: "published" };
   }
@@ -11118,7 +12273,6 @@ function projectSlackAdmissionFailurePublicationState(
   }
   return null;
 }
-
 export async function publishRemoteAgentFailureNotice(input: {
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -11129,6 +12283,15 @@ export async function publishRemoteAgentFailureNotice(input: {
     env: input.env,
     message: input.message,
   });
+  const failureText =
+    input.message.controllerSnapshot.agentControllerRef ===
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      ? resolveCenterAgentCallbackFailureMessage({
+          agentLabel: failureTarget.profileName ?? "Agent",
+          failureCode: input.errorCode,
+          failureMessage: input.text,
+        })
+      : input.text;
   const context = buildRemoteAgentFailureContext({
     message: input.message,
     profile: failureTarget.profile,
@@ -11143,7 +12306,10 @@ export async function publishRemoteAgentFailureNotice(input: {
     },
     finalOutcomeAuthority: "remote_agent_native_delivery",
     data: {
-      noticeType: "terminal_failure",
+      noticeType:
+        input.errorCode === REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE
+          ? "wake_stopped"
+          : "terminal_failure",
       actorProfileId: input.message.targetProfileId,
       ...(failureTarget.profileName
         ? { actorName: failureTarget.profileName }
@@ -11153,7 +12319,7 @@ export async function publishRemoteAgentFailureNotice(input: {
       reason: input.errorCode,
       reasonCode: input.errorCode,
       failureStage: "execution",
-      text: input.text,
+      text: failureText,
       coreReadinessFactsChanged: {
         agentProfileId: input.message.targetProfileId,
         kind: CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -11175,7 +12341,6 @@ export async function publishRemoteAgentFailureNotice(input: {
     context,
   });
 }
-
 async function publishRemoteAgentSlackCallbackText(input: {
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
@@ -11183,11 +12348,13 @@ async function publishRemoteAgentSlackCallbackText(input: {
   privateRecipientUserId?: string;
   signal?: AbortSignal;
   text: string;
-}): Promise<{ id?: string | null } | null> {
+}): Promise<{
+  id?: string | null;
+} | null> {
   const channelId = normalizeOptionalText(input.delivery.slackChannelId);
   const slackTeamId = normalizeOptionalText(input.delivery.slackTeamId);
   const threadTs = normalizeOptionalText(input.delivery.slackThreadTs);
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!(db && slackTeamId)) {
     throw new Error("Slack callback target is incomplete");
   }
@@ -11235,7 +12402,6 @@ async function publishRemoteAgentSlackCallbackText(input: {
     threadTs,
   });
 }
-
 function shouldBroadcastSlackDirectMessageReply(
   delivery: NativeDeliveryPublishRecord
 ): boolean {
@@ -11246,7 +12412,6 @@ function shouldBroadcastSlackDirectMessageReply(
     Boolean(threadTs && triggerMessageId && threadTs === triggerMessageId)
   );
 }
-
 function resolveSlackReplyPlacement(
   delivery: NativeDeliveryPublishRecord
 ): "conversation" | "thread" {
@@ -11259,12 +12424,114 @@ function resolveSlackReplyPlacement(
   }
   return "thread";
 }
-
+async function resolveInterruptedCallbackFailureText(input: {
+  body: RemoteAgentFailedCallbackBody;
+  delivery: NativeDeliveryPublishRecord;
+  env: CoreBindings;
+}): Promise<string | undefined> {
+  if (
+    input.delivery.conversationKind !== "space" ||
+    input.delivery.routineRunId ||
+    input.body.failureCode !== "remote_agent.turn_not_completed"
+  ) {
+    return undefined;
+  }
+  if (input.delivery.finalPublicationPayload) {
+    return input.delivery.finalPublicationPayload.text;
+  }
+  const { personalAgent, profileName } =
+    await resolveRemoteAgentCallbackFailureProfile(input);
+  const facts = buildRoutineExecutionFailureFacts({
+    ...input.body,
+    delivery: input.delivery,
+    languageTag: await resolveNativeFailureLanguage({
+      coordinationDb: getPostgresDatabase(input.env),
+      db: getPostgresDatabase(input.env),
+      delivery: input.delivery,
+    }),
+  });
+  const db = getPostgresDatabase(input.env);
+  if (db) {
+    try {
+      const results = await withRemoteAgentExecutionReconciliationTimeout(
+        readInterruptedTaskResults({
+          db,
+          env: input.env,
+          delivery: {
+            ...input.delivery,
+            workerSubmitRequest: input.delivery.workerSubmitRequest ?? null,
+          },
+        })
+      );
+      facts.completedResults = (results ?? []).map((result) => ({
+        resultRef: result.signalId,
+        url: buildPublicSpaceEntryUrl({
+          origin: input.env.WEB_APP_URL ?? null,
+          target: result,
+        }),
+      }));
+    } catch {
+      // Evidence unavailable: still publish an honest failure, never a guessed
+      // result locator or a retry of the interrupted execution.
+      facts.completedResults = [];
+      console.warn(
+        "[core.remote_agent.interrupted_result_evidence_unavailable]",
+        {
+          dispatchId: input.delivery.dispatchId,
+          reasonCode: "task_summary_recovery.result_evidence_unavailable",
+        }
+      );
+    }
+    const trigger = (
+      input.delivery.workerSubmitRequest ??
+      input.delivery.executionRecoverySubmitRequest
+    )?.turnEnvelope.trigger;
+    if (
+      facts.completedResults?.length &&
+      !personalAgent &&
+      trigger?.source === "task_continuation" &&
+      input.delivery.onBehalfOfUserId
+    ) {
+      try {
+        const availability =
+          await withRemoteAgentExecutionReconciliationTimeout(
+            continueTaskSummary({
+              actorProfileId: input.delivery.profileId,
+              db,
+              env: input.env,
+              inspectOnly: true,
+              nowMs: Date.now(),
+              operatorUserId: input.delivery.onBehalfOfUserId,
+              organizationId: input.delivery.organizationId,
+              sourceSubscriptionId: trigger.subscriptionId,
+            })
+          );
+        if (availability?.status === "available") {
+          facts.recoveryActions = ["continue_task_continuation"];
+        }
+      } catch {
+        console.warn(
+          "[core.remote_agent.interrupted_summary_evidence_unavailable]",
+          {
+            dispatchId: input.delivery.dispatchId,
+            reasonCode: "task_summary_recovery.execution_unconfirmed",
+          }
+        );
+      }
+    }
+  }
+  return formatPublicInterruptedTaskFailureFacts(facts, {
+    agentLabel: profileName,
+  }).body;
+}
 async function publishRemoteAgentCallbackFailureText(input: {
   body: RemoteAgentFailedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
-}): Promise<{ id?: string | null } | null> {
+  failureText?: string;
+}): Promise<{
+  id?: string | null;
+} | null> {
   const recovery = input.delivery.executionRecoverySubmitRequest?.replyRecovery;
   if (recovery?.resultRef && input.delivery.conversationKind === "space") {
     const original = await requireReplyRecoveryOriginalDelivery({
@@ -11284,23 +12551,24 @@ async function publishRemoteAgentCallbackFailureText(input: {
     );
   }
   if (input.delivery.conversationKind === "slack") {
+    const { profileName } =
+      await resolveRemoteAgentCallbackFailureProfile(input);
     return await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
       env: input.env,
-      text: resolveCenterAgentCallbackFailureMessage(input.body),
+      text: resolveCenterAgentCallbackFailureMessage({
+        ...input.body,
+        agentLabel: profileName,
+      }),
     });
   }
-
   if (input.delivery.routineRunId) {
-    const targetProfile = await resolveRemoteAgentTargetProfile({
-      env: input.env,
-      profileId: input.delivery.profileId,
-    });
-    const profileName =
-      normalizeOptionalText(targetProfile.profileName) ?? "Center Agent";
+    const runUrl = await resolveCallbackRoutineRunUrl(input);
+    const { personalAgent, profileName, targetProfile } =
+      await resolveRemoteAgentCallbackFailureProfile(input);
     return await publishRemoteAgentRoutineText({
       clientMessageId: input.delivery.routineRunId,
-      personalAgent: isPersonalRoutineDelivery(input.delivery),
+      personalAgent,
       delivery: {
         dispatchId: input.delivery.dispatchId,
         organizationId: input.delivery.organizationId,
@@ -11312,37 +12580,63 @@ async function publishRemoteAgentCallbackFailureText(input: {
       env: input.env,
       errorCode: input.body.failureCode,
       purpose: REMOTE_AGENT_FAILURE_PURPOSE,
-      text: buildRoutineFailureText({
-        failureCode: input.body.failureCode,
-        failureReason: resolveCenterAgentCallbackFailureMessage(input.body),
-        routineName:
-          normalizeOptionalText(input.delivery.routineNameSnapshot) ??
-          "Scheduled Routine",
-      }),
+      text: formatPublicRoutineFailureFacts(
+        buildRoutineExecutionFailureFacts({
+          delivery: input.delivery,
+          failureCode: input.body.failureCode,
+          failureDetail: input.body.failureDetail,
+          languageTag: await resolveNativeFailureLanguage({
+            coordinationDb: getPostgresDatabase(input.env),
+            db: getPostgresDatabase(input.env),
+            delivery: input.delivery,
+          }),
+        }),
+        {
+          agentLabel: profileName,
+          routineName:
+            normalizeOptionalText(input.delivery.routineNameSnapshot) ??
+            "Scheduled Routine",
+          runId: input.delivery.routineRunId,
+          runUrl,
+        }
+      ),
     });
   }
-
-  const targetProfile = await resolveRemoteAgentTargetProfile({
-    env: input.env,
-    profileId: input.delivery.profileId,
-  });
-  const profileName =
-    normalizeOptionalText(targetProfile.profileName) ?? "Center Agent";
+  const stopped = isRemoteAgentStopFailureCode(input.body.failureCode);
+  const { personalAgent, profileName, targetProfile } =
+    await resolveRemoteAgentCallbackFailureProfile(input);
   const profile = buildDispatchReplyTargetProfile({
     targetProfileId: input.delivery.profileId,
     profileHandle: targetProfile.profileHandle,
     targetProfileName: profileName,
     ownerUserId: targetProfile.ownerUserId,
-    agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    agentControllerRef: personalAgent
+      ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      : HOSTED_CENTER_AGENT_CONTROLLER_REF,
     agentControllerConversationId: input.body.submissionId,
   });
+  // Name the Agent that failed, not the Center Agent, in user-facing copy.
+  const failureText =
+    input.failureText ??
+    (input.body.failureCode === REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
+    input.delivery.admissionAttemptCount >=
+      REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
+    isRetryableTaskContinuationAdmission(input.delivery)
+      ? input.body.failureMessage
+      : resolveCenterAgentCallbackFailureMessage({
+          ...input.body,
+          agentLabel: profileName,
+        }));
   const context = buildRemoteAgentCallbackContext({
     delivery: input.delivery,
     profile,
     submissionId: input.body.submissionId,
   });
-  if (input.body.failureCode === "remote_agent.empty_assistant_response") {
-    const author = input.delivery.executionRecoverySubmitRequest?.author;
+  if (
+    input.body.failureCode === "remote_agent.empty_assistant_response" ||
+    input.body.failureCode === "remote_agent.turn.output_limit_exceeded" ||
+    stopped
+  ) {
     return await emitSpaceSystemNoticeSignal({
       env: input.env,
       spaceId: input.delivery.spaceId,
@@ -11352,29 +12646,11 @@ async function publishRemoteAgentCallbackFailureText(input: {
         profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
       },
       finalOutcomeAuthority: "remote_agent_native_delivery",
-      data: {
-        noticeType: "terminal_failure",
-        actorProfileId: input.delivery.profileId,
-        actorName: profileName,
-        dispatchId: input.delivery.dispatchId,
-        generatedBy: "openmeld",
-        reasonCode: input.body.failureCode,
-        failureStage: "execution",
-        text: resolveCenterAgentCallbackFailureMessage(input.body),
-        ...(author?.profileId &&
-        author.displayName &&
-        input.delivery.triggerText
-          ? {
-              replyTo: {
-                signalId: input.delivery.triggerMessageId,
-                profileId: author.profileId,
-                profileKind: author.profileKind,
-                profileName: author.displayName,
-                previewText: input.delivery.triggerText.slice(0, 120),
-              },
-            }
-          : {}),
-      },
+      data: buildRemoteAgentCallbackNoticeData({
+        ...input,
+        failureText,
+        profileName,
+      }),
       spaceAccess: createDispatchContinuationSpaceAccessContext({
         dispatchId: input.delivery.dispatchId,
         requestContext: context,
@@ -11390,14 +12666,14 @@ async function publishRemoteAgentCallbackFailureText(input: {
     env: input.env,
     spaceId: input.delivery.spaceId,
     profile,
-    text: resolveCenterAgentCallbackFailureMessage(input.body),
+    text: failureText,
     authoringPolicy: "system_emitted",
     finalOutcomeAuthority: "remote_agent_native_delivery",
     messageEnvelope: {
       activationTargets: [],
       referenceTargets: [],
       replyToSignalId: input.delivery.triggerMessageId,
-      text: resolveCenterAgentCallbackFailureMessage(input.body),
+      text: failureText,
     },
     meta: {
       clientMessageId: input.body.submissionId,
@@ -11425,11 +12701,109 @@ async function publishRemoteAgentCallbackFailureText(input: {
     context,
   });
 }
-
+function buildRemoteAgentCallbackNoticeData(
+  input: Parameters<typeof publishRemoteAgentCallbackFailureText>[0] & {
+    failureText: string;
+    profileName: string;
+  }
+): Parameters<typeof emitSpaceSystemNoticeSignal>[0]["data"] {
+  const stopped = isRemoteAgentStopFailureCode(input.body.failureCode);
+  const author = input.delivery.executionRecoverySubmitRequest?.author;
+  return {
+    noticeType: stopped ? "wake_stopped" : "terminal_failure",
+    actorProfileId: input.delivery.profileId,
+    actorName: input.profileName,
+    dispatchId: input.delivery.dispatchId,
+    generatedBy: "openmeld",
+    reasonCode: stopped
+      ? REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE
+      : input.body.failureCode,
+    failureStage: "execution",
+    text: stopped ? "This request was stopped." : input.failureText,
+    ...(author?.profileId && author.displayName && input.delivery.triggerText
+      ? {
+          replyTo: {
+            signalId: input.delivery.triggerMessageId,
+            profileId: author.profileId,
+            profileKind: author.profileKind,
+            profileName: author.displayName,
+            previewText: input.delivery.triggerText.slice(0, 120),
+          },
+        }
+      : {}),
+  };
+}
+function isRemoteAgentStopFailureCode(code: string): boolean {
+  return (
+    code === REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE ||
+    code === RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
+  );
+}
+async function resolveRemoteAgentCallbackFailureTarget(
+  input: Parameters<typeof publishRemoteAgentCallbackFailureText>[0]
+): ReturnType<typeof resolveRemoteAgentTargetProfile> {
+  if (!isRemoteAgentStopFailureCode(input.body.failureCode)) {
+    return await resolveRemoteAgentTargetProfile({
+      env: input.env,
+      profileId: input.delivery.profileId,
+    });
+  }
+  // Reuse the admitted execution's display snapshot. Space still authorizes
+  // this Agent's publication; no personal-owner lookup is needed for Stop.
+  const request = input.delivery.executionRecoverySubmitRequest;
+  return {
+    ownerUserId: request?.agentProfileOwnerUserId ?? null,
+    profileName: request?.turnEnvelope.centerAgent.profileName ?? "Agent",
+    profileHandle: request?.turnEnvelope.centerAgent.profileHandle ?? null,
+  };
+}
+async function resolveRemoteAgentCallbackFailureProfile(
+  input: Parameters<typeof publishRemoteAgentCallbackFailureText>[0]
+) {
+  const targetProfile = await resolveRemoteAgentCallbackFailureTarget(input);
+  const personalAgent = isPersonalHostedDelivery(input.delivery);
+  const profileName =
+    normalizeOptionalText(targetProfile.profileName) ??
+    (personalAgent ? "Agent" : "Center Agent");
+  return { personalAgent, profileName, targetProfile };
+}
+async function resolveCallbackRoutineRunUrl(input: {
+  delivery: NativeDeliveryPublishRecord;
+  env: CoreBindings;
+}): Promise<string | undefined> {
+  const db = getPostgresDatabase(input.env);
+  const runId = input.delivery.routineRunId;
+  if (!(db && runId) || isPersonalHostedDelivery(input.delivery)) {
+    return undefined;
+  }
+  let run: Awaited<ReturnType<typeof readRoutineRunRecord>>;
+  try {
+    run = await readRoutineRunRecord({ db, runId });
+  } catch (error) {
+    console.warn("[core.remote_agent.routine_run_navigation_unavailable]", {
+      error: toErrorMessage(error),
+      organizationId: input.delivery.organizationId,
+      runId,
+    });
+    return undefined;
+  }
+  if (!run) {
+    return undefined;
+  }
+  return await resolveRoutineRunUrl({
+    env: input.env,
+    organizationId: input.delivery.organizationId,
+    routineId: run.routineId,
+    runId: run.id,
+  });
+}
 async function resolveRemoteAgentFailureTarget(input: {
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
-}): Promise<{ profile: Profile; profileName: string | null }> {
+}): Promise<{
+  profile: Profile;
+  profileName: string | null;
+}> {
   let targetProfile: Awaited<
     ReturnType<typeof resolveRemoteAgentTargetProfile>
   >;
@@ -11461,12 +12835,15 @@ async function resolveRemoteAgentFailureTarget(input: {
       profileHandle: targetProfile.profileHandle,
       targetProfileName: profileName,
       ownerUserId: targetProfile.ownerUserId,
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        input.message.controllerSnapshot.agentControllerRef ===
+        HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
       agentControllerConversationId: null,
     }),
   };
 }
-
 async function publishRemoteAgentCallbackReply(input: {
   body: RemoteAgentCompletedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
@@ -11507,7 +12884,7 @@ async function publishRemoteAgentCallbackReply(input: {
     return await publishRemoteAgentRoutineText({
       agentStreamId: buildRemoteAgentStreamId(input.body.submissionId),
       mentionTargets: input.body.mentionTargets,
-      personalAgent: isPersonalRoutineDelivery(input.delivery),
+      personalAgent: isPersonalHostedDelivery(input.delivery),
       ...(input.body.attachments?.length
         ? { attachments: input.body.attachments }
         : {}),
@@ -11531,7 +12908,6 @@ async function publishRemoteAgentCallbackReply(input: {
       text: truncateSpaceTextToProtocolLimit(input.body.text),
     });
   }
-
   const targetProfile = await resolveRemoteAgentTargetProfile({
     env: input.env,
     profileId: input.delivery.profileId,
@@ -11596,13 +12972,12 @@ async function publishRemoteAgentCallbackReply(input: {
     context,
   });
 }
-
 async function requireReplyRecoveryOriginalDelivery(input: {
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
   recovery: NonNullable<RemoteAgentWorkerSubmitTurnRequest["replyRecovery"]>;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw new Error("execution_recovery.storage_unavailable");
   }
@@ -11621,13 +12996,14 @@ async function requireReplyRecoveryOriginalDelivery(input: {
   }
   return original;
 }
-
 async function publishRemoteAgentRecoveredSpaceReply(input: {
   body: RemoteAgentCompletedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
   recovery: NonNullable<RemoteAgentWorkerSubmitTurnRequest["replyRecovery"]>;
-}): Promise<{ id: string }> {
+}): Promise<{
+  id: string;
+}> {
   const original = await requireReplyRecoveryOriginalDelivery(input);
   const replyThreadContext = await resolveNativeDeliveryReplyThreadContext({
     env: input.env,
@@ -11698,7 +13074,6 @@ async function publishRemoteAgentRecoveredSpaceReply(input: {
   });
   return { id: published.publishedSignalId };
 }
-
 async function publishRemoteAgentSlackIdentityGuidanceAfterResult(input: {
   body: RemoteAgentCoreCallbackBody;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -11706,7 +13081,9 @@ async function publishRemoteAgentSlackIdentityGuidanceAfterResult(input: {
   nowMs: number;
 }): Promise<Extract<
   RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
+  {
+    status: "retryable";
+  }
 > | null> {
   const purpose = resolveRemoteAgentSlackIdentityGuidancePurpose(input.body);
   if (!purpose) {
@@ -11725,7 +13102,7 @@ async function publishRemoteAgentSlackIdentityGuidanceAfterResult(input: {
       status: "retryable",
     };
   }
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return handleRemoteAgentSlackIdentityGuidanceKnownFailure({
       purpose,
@@ -11737,7 +13114,9 @@ async function publishRemoteAgentSlackIdentityGuidanceAfterResult(input: {
         Awaited<
           ReturnType<typeof issueRemoteAgentSlackIdentityNavigationAction>
         >,
-        { status: "issued" }
+        {
+          status: "issued";
+        }
       >
     | undefined;
   let providerAttempted = false;
@@ -11804,16 +13183,12 @@ async function publishRemoteAgentSlackIdentityGuidanceAfterResult(input: {
     });
   }
 }
-
 async function publishRemoteAgentSlackPostResultGuidance(input: {
   body: RemoteAgentCoreCallbackBody;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   const identityGuidance =
     await publishRemoteAgentSlackIdentityGuidanceAfterResult(input);
   if (identityGuidance) {
@@ -11821,19 +13196,16 @@ async function publishRemoteAgentSlackPostResultGuidance(input: {
   }
   return await publishRemoteAgentSlackPrivateNavigationAfterResult(input);
 }
-
 async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
   body: RemoteAgentCoreCallbackBody;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   if (
     input.body.status === "failed" ||
-    input.body.navigationTarget?.kind !== "computer_setup"
+    (input.body.navigationTarget?.kind !== "computer_setup" &&
+      input.body.navigationTarget?.kind !== "plugin_connection")
   ) {
     return null;
   }
@@ -11866,51 +13238,93 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
       status: "retryable",
     };
   }
-  const action = await resolveRemoteAgentCallbackNavigationAction({
-    body: input.body,
-    delivery: input.delivery,
-    env: input.env,
-  });
-  if (!action) {
-    return {
-      reasonCode: "slack.private_navigation_action_unavailable",
-      status: "retryable",
-    };
-  }
   try {
+    const action = await resolveRemoteAgentCallbackNavigationAction({
+      body: input.body,
+      delivery: input.delivery,
+      env: input.env,
+    });
+    if (!action) {
+      return {
+        reasonCode: "slack.private_navigation_action_unavailable",
+        status: "retryable",
+      };
+    }
+    const db = getPostgresDatabase(input.env);
+    if (!db) {
+      throw new Error("plugin.channel.state_unavailable");
+    }
+    const navigationAction = await preparePluginChannelNavigation({
+      db,
+      delivery: input.delivery,
+      action,
+    });
     await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
       env: input.env,
-      navigationAction: action,
+      navigationAction,
       privateRecipientUserId: identity.providerUserId,
       signal: AbortSignal.timeout(
         REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS
       ),
-      text: buildComputerSetupGuidanceText(action),
+      text:
+        action.target.kind === "plugin_connection"
+          ? "Connect or review this Plugin in OpenMeld. Only you can explicitly continue the original task after setup; connecting does not grant Agent access or start work."
+          : buildComputerSetupGuidanceText(action),
     });
     return null;
   } catch (error) {
-    if (!(error instanceof SlackApiError)) {
-      console.warn(
-        "[core.remote_agent.slack_private_navigation_outcome_unknown]",
-        {
-          error: toErrorMessage(error),
-          event: CORE_LOG_EVENTS.coreInternalError,
-          submissionId: input.body.submissionId,
-        }
-      );
-      return null;
-    }
-    return {
-      reasonCode: `slack.private_navigation_${error.errorCode}`,
-      ...(error.retryAfterSeconds === null
-        ? { retryAfterMs: 1 }
-        : { retryAfterMs: Math.max(1, error.retryAfterSeconds * 1000) }),
-      status: "retryable",
-    };
+    return classifySlackPrivateNavigationFailure(
+      error,
+      input.body.submissionId
+    );
   }
 }
-
+function classifySlackPrivateNavigationFailure(
+  error: unknown,
+  submissionId: string
+): RemoteAgentPostResultGuidance {
+  // The actual HTTP client classifies all send/read-response failures. A
+  // generic error here (including token or presentation preparation) precedes
+  // that boundary; calling the high-level publisher is not a provider attempt.
+  if (
+    error instanceof SlackMessagePublicationError &&
+    error.publicationOutcome === "unknown"
+  ) {
+    console.warn(
+      "[core.remote_agent.slack_private_navigation_outcome_unknown]",
+      {
+        error: toErrorMessage(error),
+        event: CORE_LOG_EVENTS.coreInternalError,
+        submissionId,
+      }
+    );
+    return {
+      status: "outcome_unknown",
+      reasonCode: "slack.private_navigation_outcome_unknown",
+    };
+  }
+  const providerError =
+    error instanceof SlackMessagePublicationError ||
+    error instanceof SlackApiError
+      ? error
+      : null;
+  console.warn("[core.remote_agent.slack_private_navigation_not_published]", {
+    event: CORE_LOG_EVENTS.coreInternalError,
+    submissionId,
+    error: toErrorMessage(error),
+  });
+  return {
+    reasonCode: providerError?.errorCode
+      ? `slack.private_navigation_${providerError.errorCode}`
+      : "slack.private_navigation_preparation_failed",
+    retryAfterMs:
+      providerError?.retryAfterSeconds == null
+        ? 1000
+        : Math.max(1, providerError.retryAfterSeconds * 1000),
+    status: "retryable",
+  };
+}
 function buildSlackIdentityGuidanceText(input: {
   purpose: "continue_request" | "optional_setup";
   requestedAction?: string;
@@ -11928,14 +13342,15 @@ function buildSlackIdentityGuidanceText(input: {
   }
   return "This request needs your personal OpenMeld access. Connect this Slack account, and the Center Agent will continue automatically.";
 }
-
 function handleRemoteAgentSlackIdentityGuidanceKnownFailure(input: {
   purpose: "continue_request" | "optional_setup";
   reasonCode: string;
   retryAfterMs?: number;
 }): Extract<
   RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
+  {
+    status: "retryable";
+  }
 > | null {
   if (input.purpose === "optional_setup") {
     console.warn("[core.remote_agent.slack_optional_identity_link_failed]", {
@@ -11951,7 +13366,6 @@ function handleRemoteAgentSlackIdentityGuidanceKnownFailure(input: {
     status: "retryable",
   };
 }
-
 function resolveRemoteAgentSlackIdentityGuidancePurpose(
   body: RemoteAgentCoreCallbackBody
 ): "continue_request" | "optional_setup" | null {
@@ -11965,7 +13379,6 @@ function resolveRemoteAgentSlackIdentityGuidancePurpose(
     ? body.navigationTarget.purpose
     : null;
 }
-
 async function issueRemoteAgentSlackIdentityNavigationAction(input: {
   body: RemoteAgentCoreCallbackBody;
   delivery: NativeDeliveryPublishRecord;
@@ -12012,7 +13425,7 @@ async function issueRemoteAgentSlackIdentityNavigationAction(input: {
       "A Slack identity-link action requires the exact private Slack delivery."
     );
   }
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw new Error(
       "Core identity storage is required to issue a Slack identity-link action."
@@ -12075,7 +13488,6 @@ async function issueRemoteAgentSlackIdentityNavigationAction(input: {
     tokenHash,
   };
 }
-
 function requireRemoteAgentNavigationWebAppUrl(env: CoreBindings): string {
   const webAppUrl = normalizeOptionalText(env.WEB_APP_URL);
   if (!webAppUrl) {
@@ -12085,7 +13497,6 @@ function requireRemoteAgentNavigationWebAppUrl(env: CoreBindings): string {
   }
   return webAppUrl;
 }
-
 async function resolveRemoteAgentCallbackNavigationAction(input: {
   body: RemoteAgentCompletedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
@@ -12121,7 +13532,6 @@ async function resolveRemoteAgentCallbackNavigationAction(input: {
     target: input.body.navigationTarget,
   });
 }
-
 async function resolveRemoteAgentPublishedSignalId(input: {
   delivery: Pick<
     NativeDeliveryPublishRecord,
@@ -12136,7 +13546,6 @@ async function resolveRemoteAgentPublishedSignalId(input: {
   });
   return claimSignalId ?? input.fallbackSignalId;
 }
-
 async function readRemoteAgentFinalReplyClaimSignalId(input: {
   allowRoutine?: boolean;
   delivery: Pick<
@@ -12151,7 +13560,6 @@ async function readRemoteAgentFinalReplyClaimSignalId(input: {
   ) {
     return null;
   }
-
   const stub = resolveSpaceStub(
     input.env.OPENMELD_SPACES,
     input.delivery.spaceId
@@ -12160,7 +13568,13 @@ async function readRemoteAgentFinalReplyClaimSignalId(input: {
       dispatchId: string;
       profileId: string;
       spaceId: string;
-    }) => Promise<{ signalId?: string | null } | string | null>;
+    }) => Promise<
+      | {
+          signalId?: string | null;
+        }
+      | string
+      | null
+    >;
   } | null;
   if (!stub?.rpcReadFinalReplyClaimSignalId) {
     return null;
@@ -12174,7 +13588,6 @@ async function readRemoteAgentFinalReplyClaimSignalId(input: {
   const normalized = String(signalId ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function buildRemoteAgentAuthorContext(
   message: OpenMeldDaemonDispatchQueueMessage
 ): RemoteAgentWorkerAuthorContext {
@@ -12184,7 +13597,6 @@ function buildRemoteAgentAuthorContext(
     displayName: message.sourceProfileNameSnapshot ?? null,
   };
 }
-
 function buildRemoteAgentFailureContext(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   profile: Profile;
@@ -12198,7 +13610,11 @@ function buildRemoteAgentFailureContext(input: {
       profileKind: "agent",
       ...(profileName ? { profileName } : {}),
       ...(ownerUserId ? { ownerUserId } : {}),
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        input.profile.kind === "agent" &&
+        input.profile.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
       dispatchChainId: input.message.dispatchChainId,
       autoRelayDepth: input.message.autoRelayDepth,
       visitedProfileIds: input.message.visitedProfileIds,
@@ -12206,9 +13622,11 @@ function buildRemoteAgentFailureContext(input: {
     },
   };
 }
-
 function buildRemoteAgentCallbackContext(input: {
-  delivery: { dispatchId: string; organizationId: string };
+  delivery: {
+    dispatchId: string;
+    organizationId: string;
+  };
   profile: Profile;
   submissionId: string;
 }): OpenMeldRequestContext {
@@ -12227,12 +13645,15 @@ function buildRemoteAgentCallbackContext(input: {
             ownerUserId: input.profile.owner,
           }
         : {}),
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        input.profile.kind === "agent" &&
+        input.profile.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
     },
     agentControllerConversationId: input.submissionId,
   };
 }
-
 async function resolveRemoteAgentTargetProfile(input: {
   env: CoreBindings;
   profileId: string;
@@ -12257,7 +13678,6 @@ async function resolveRemoteAgentTargetProfile(input: {
     profileName: response.profile.profileName,
   };
 }
-
 function resolveCallbackMismatchReason(
   delivery: {
     bindingId: string;
@@ -12276,7 +13696,6 @@ function resolveCallbackMismatchReason(
   );
   return mismatch ? `remote_agent.callback_${mismatch}_mismatch` : null;
 }
-
 function buildRemoteAgentFailureStreamTerminal(input: {
   failureCode: string;
   noticeText: string;
@@ -12301,7 +13720,6 @@ function buildRemoteAgentFailureStreamTerminal(input: {
     noticeText: input.noticeText,
   };
 }
-
 async function closeRemoteAgentFinalStreamProjection(input: {
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
@@ -12321,12 +13739,13 @@ async function closeRemoteAgentFinalStreamProjection(input: {
     },
   });
 }
-
 async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
-  finalPublicationPayload?: { text: string };
+  finalPublicationPayload?: {
+    text: string;
+  };
   nowMs: number;
 }): Promise<void> {
   if (
@@ -12339,6 +13758,7 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
   ) {
     return;
   }
+  await publishConfirmedNativeStopIfNeeded(input);
   await synchronizeRemoteAgentSlackThreadWorkingStatusForDelivery({
     db: input.db,
     delivery: input.delivery,
@@ -12347,8 +13767,8 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
   if (input.delivery.status === "callback_rejected") {
     return;
   }
-  const coordinationDb = agentTaskCoordinationDb(input.env);
-  const routineOwnerDb = routineDb(input.env);
+  const coordinationDb = getPostgresDatabase(input.env);
+  const routineOwnerDb = getPostgresDatabase(input.env);
   if (!(coordinationDb && routineOwnerDb)) {
     throw new Error("remote_agent.terminal_owner_store_unavailable");
   }
@@ -12379,7 +13799,6 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
       nativeDeliveryId: input.delivery.deliveryId,
     });
   }
-
   const sourceClientMessageId =
     input.delivery.conversationKind === "space"
       ? input.delivery.sourceClientMessageId
@@ -12407,26 +13826,167 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
     tasks,
   });
   const outcome = buildNativeDeliveryTerminalOutcome(input.delivery);
-  await tryProjectLinkedSlackNativeDeliveryInboxItem({
-    delivery: input.delivery,
-    env: input.env,
-    outcome,
-  });
-
-  for (const task of watchedTasks) {
-    await recordAndEnqueueAgentTaskTerminalOutcome({
-      db: coordinationDb,
-      env: input.env,
-      nowMs: input.nowMs,
-      outcome: {
-        ...outcome,
-        eventId: `${outcome.eventId}:${task.kind}`,
-      },
-      task,
+  // Notification projection and task-watch delivery are independent terminal
+  // effects. Attempt both; preserve failures for the existing terminal retry.
+  const effects = await Promise.allSettled([
+    (async () => {
+      await tryProjectLinkedSlackNativeDeliveryInboxItem({
+        delivery: input.delivery,
+        env: input.env,
+        outcome,
+      });
+      if (
+        input.delivery.failureCode ===
+          REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
+        input.delivery.admissionAttemptCount >=
+          REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
+        isRetryableTaskContinuationAdmission(input.delivery)
+      ) {
+        const ownerInboxDb = getPostgresDatabase(input.env);
+        if (!ownerInboxDb) {
+          throw new Error(
+            "remote_agent.task_continuation.admission_alert_store_unavailable"
+          );
+        }
+        await projectTaskContinuationAdmissionExhaustedInboxItem({
+          attempts: input.delivery.admissionAttemptCount,
+          db: ownerInboxDb,
+          delivery: input.delivery,
+          occurredAtMs: outcome.occurredAtMs,
+          languageTag: await resolveNativeFailureLanguage({
+            coordinationDb: getPostgresDatabase(input.env),
+            db: getPostgresDatabase(input.env),
+            delivery: input.delivery,
+          }),
+        });
+      }
+    })(),
+    ...watchedTasks.map((task) =>
+      recordAndEnqueueAgentTaskTerminalOutcome({
+        db: coordinationDb,
+        env: input.env,
+        nowMs: input.nowMs,
+        outcome: {
+          ...outcome,
+          eventId: `${outcome.eventId}:${task.kind}`,
+        },
+        task,
+      })
+    ),
+  ]);
+  const failures = effects.filter((effect) => effect.status === "rejected");
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((effect) => effect.reason),
+      "remote_agent.terminal_effects_incomplete"
+    );
+  }
+}
+/** Reuse the native final-publication slot and failed-delivery repair path.
+ * A retained cancellation request alone must never call this terminal writer. */
+async function publishConfirmedNativeStopIfNeeded(input: {
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+}): Promise<void> {
+  const delivery = input.delivery;
+  if (
+    delivery.conversationKind !== "space" ||
+    delivery.routineRunId ||
+    delivery.status !== "failed" ||
+    delivery.publishedSignalId ||
+    delivery.failureCode !==
+      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
+  ) {
+    return;
+  }
+  const existingSignalId = await readRemoteAgentFinalReplyClaimSignalId(input);
+  const published = existingSignalId
+    ? { id: existingSignalId }
+    : await publishConfirmedNativeStopNotice({
+        ...input,
+        submissionId: delivery.submissionId,
+      });
+  if (!published?.id) {
+    throw new Error("remote_agent.stopped_publication_unconfirmed");
+  }
+  const publication = {
+    db: input.db,
+    nowMs: input.nowMs,
+    failureCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
+    publishedSignalId:
+      (await readRemoteAgentFinalReplyClaimSignalId(input)) ?? published.id,
+  };
+  if (delivery.submissionId) {
+    await markRemoteAgentNativeDeliveryFailurePublished({
+      ...publication,
+      submissionId: delivery.submissionId,
+    });
+  } else {
+    await markRemoteAgentPreAdmissionFailurePublished({
+      ...publication,
+      idempotencyKey: delivery.idempotencyKey,
     });
   }
 }
-
+async function publishConfirmedNativeStopNotice(input: {
+  delivery: NativeDeliveryPublishRecord;
+  env: CoreBindings;
+  submissionId: string | null;
+}): Promise<SignalEnvelope | null> {
+  const { delivery } = input;
+  const request =
+    delivery.workerSubmitRequest ?? delivery.executionRecoverySubmitRequest;
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
+  const profileName = request?.turnEnvelope.centerAgent.profileName ?? "Agent";
+  // A confirmed admission fence is not an ACK. Preserve the absent controller
+  // conversation instead of fabricating a submission identity for publication.
+  const context: OpenMeldRequestContext = {
+    activeOrganizationId: delivery.organizationId,
+    actorContext: {
+      requestId: `native-stop:${delivery.deliveryId}`,
+      openMeldProfileId: delivery.profileId,
+      profileKind: "agent",
+      profileName,
+      ...(request?.agentProfileOwnerUserId
+        ? { ownerUserId: request.agentProfileOwnerUserId }
+        : {}),
+    },
+    ...(input.submissionId
+      ? { agentControllerConversationId: input.submissionId }
+      : {}),
+  };
+  return await emitSpaceSystemNoticeSignal({
+    env: input.env,
+    spaceId: delivery.spaceId,
+    profile: {
+      kind: "system",
+      profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+      profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+    },
+    finalOutcomeAuthority: "remote_agent_native_delivery",
+    data: {
+      noticeType: "wake_stopped",
+      actorProfileId: delivery.profileId,
+      actorName: profileName,
+      dispatchId: delivery.dispatchId,
+      generatedBy: "openmeld",
+      reasonCode: REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE,
+      text: "This request was stopped.",
+    },
+    spaceAccess: createDispatchContinuationSpaceAccessContext({
+      dispatchId: delivery.dispatchId,
+      requestContext: context,
+      sourceSignalId: delivery.triggerMessageId,
+      spaceId: delivery.spaceId,
+      targetProfileId: delivery.profileId,
+    }),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
+    context,
+  });
+}
 async function tryProjectLinkedSlackNativeDeliveryInboxItem(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -12438,7 +13998,7 @@ async function tryProjectLinkedSlackNativeDeliveryInboxItem(input: {
   ) {
     return;
   }
-  const ownerInboxDb = inboxDb(input.env);
+  const ownerInboxDb = getPostgresDatabase(input.env);
   if (!ownerInboxDb) {
     throw new Error("remote_agent.inbox_projection_store_unavailable");
   }
@@ -12466,14 +14026,12 @@ async function tryProjectLinkedSlackNativeDeliveryInboxItem(input: {
     );
   }
 }
-
 type ResolveLinkedSlackInboxSourceTarget = (
   delivery: RemoteAgentNativeDeliveryRecord
 ) => Promise<SlackInboxSourceTarget>;
-
 export async function reconcileLinkedSlackNativeDeliveryInbox(
   input: {
-    db: D1Database;
+    db: PostgresDatabase;
     limit?: number;
     nowMs: number;
   } & (
@@ -12486,7 +14044,11 @@ export async function reconcileLinkedSlackNativeDeliveryInbox(
         resolveSourceTarget: ResolveLinkedSlackInboxSourceTarget;
       }
   )
-): Promise<{ attempted: number; errors: number; projected: number }> {
+): Promise<{
+  attempted: number;
+  errors: number;
+  projected: number;
+}> {
   const deliveries =
     await listLinkedSlackNativeDeliveriesNeedingInboxProjection({
       db: input.db,
@@ -12545,12 +14107,11 @@ export async function reconcileLinkedSlackNativeDeliveryInbox(
   }
   return { attempted: deliveries.length, errors, projected };
 }
-
 async function resolveLinkedSlackInboxSourceTarget(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
 }): Promise<SlackInboxSourceTarget> {
-  const tokenDb = localStateDb(input.env);
+  const tokenDb = getPostgresDatabase(input.env);
   const slackTeamId = input.delivery.slackTeamId?.trim() ?? "";
   if (!(tokenDb && slackTeamId)) {
     throw new Error("remote_agent.inbox_slack_source_unavailable");
@@ -12567,11 +14128,10 @@ async function resolveLinkedSlackInboxSourceTarget(input: {
     delivery: input.delivery,
   });
 }
-
 async function shouldProjectRoutineRunTerminal(input: {
-  coordinationDb: D1Database;
+  coordinationDb: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
-  routineDb: D1Database;
+  routineDb: PostgresDatabase;
 }): Promise<boolean> {
   const runId = input.delivery.routineRunId;
   if (
@@ -12603,36 +14163,35 @@ async function shouldProjectRoutineRunTerminal(input: {
     });
   return !hasResumeContinuation;
 }
-
 async function filterObservedAgentTasks(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   tasks: AgentTaskHandle[];
 }): Promise<AgentTaskHandle[]> {
   const taskKeys = input.tasks.map(buildAgentTaskKey);
-  const placeholders = taskKeys.map(() => "?").join(", ");
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<{
+    task_key: string;
+  }>({
+    text: `
         SELECT DISTINCT watched_task_key AS task_key
-        FROM agent_task_completion_subscriptions
-        WHERE watched_task_key IN (${placeholders})
+        FROM "openmeld"."agent_task_completion_subscriptions"
+        WHERE watched_task_key = ANY($1::text[])
         UNION
         SELECT DISTINCT observer_task_key AS task_key
-        FROM agent_task_completion_subscriptions
-        WHERE observer_task_key IN (${placeholders})
-      `
-    )
-    .bind(...taskKeys, ...taskKeys)
-    .all<{ task_key: string }>();
-  const observedKeys = new Set((rows.results ?? []).map((row) => row.task_key));
+        FROM "openmeld"."agent_task_completion_subscriptions"
+        WHERE observer_task_key = ANY($1::text[])
+      `,
+    values: [taskKeys],
+  });
+  const observedKeys = new Set((rows.rows ?? []).map((row) => row.task_key));
   return input.tasks.filter((task) =>
     observedKeys.has(buildAgentTaskKey(task))
   );
 }
-
 function buildNativeDeliveryTerminalOutcome(
   delivery: RemoteAgentNativeDeliveryRecord
-): Omit<AgentTaskTerminalOutcome, "eventId"> & { eventId: string } {
+): Omit<AgentTaskTerminalOutcome, "eventId"> & {
+  eventId: string;
+} {
   const occurredAtMs =
     delivery.completedAtMs ??
     delivery.callbackReceivedAtMs ??
@@ -12669,19 +14228,16 @@ function buildNativeDeliveryTerminalOutcome(
     status: stopped ? "stopped" : "failed",
   };
 }
-
 function isRemoteAgentFailedCallback(
   body: RemoteAgentCoreCallbackEvent
 ): body is RemoteAgentFailedCallbackBody {
   return body.status === "failed";
 }
-
 function isRemoteAgentWorkLoopContinuationCallback(
   body: RemoteAgentCoreCallbackEvent
 ): body is RemoteAgentWorkLoopContinuationCallbackBody {
   return body.status === "continuation_required";
 }
-
 function isRemoteAgentNativeDeliveryIncomplete(
   delivery: RemoteAgentNativeDeliveryRecord
 ): delivery is RemoteAgentNativeDeliveryRecord & {
@@ -12689,7 +14245,6 @@ function isRemoteAgentNativeDeliveryIncomplete(
 } {
   return delivery.status === "accepted" || delivery.status === "retry_observed";
 }
-
 function resolveActiveRemoteAgentSubmissionId(
   delivery: Pick<RemoteAgentNativeDeliveryRecord, "status" | "submissionId">
 ): string | null {
@@ -12701,12 +14256,10 @@ function resolveActiveRemoteAgentSubmissionId(
   }
   return null;
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

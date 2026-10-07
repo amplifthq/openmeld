@@ -18,6 +18,7 @@ import { listPendingRemoteAgentComputerCommands } from "./computer-command";
 export async function checkRemoteAgentExecutionFinish(input: {
   context: RemoteAgentCallbackContext;
   storage: RemoteAgentStorage;
+  env?: { AGENT_COMPUTER?: unknown };
   finish: Pick<AgentFinishContext, "append">;
 }): Promise<void> {
   await assertRemoteAgentExecutionCanContinue({

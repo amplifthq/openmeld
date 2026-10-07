@@ -1,3 +1,8 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import type {
+  PluginChannelSelection,
+  PluginChannelSourceProof,
+} from "@openmeld/schemas";
 import {
   buildMessageChannelConversationId,
   remoteAgentWorkerSubmitTurnRequestSchema,
@@ -12,8 +17,8 @@ import type { CenterAgentMemoryService } from "../../center-agent-memory/memory-
 import type { CoreBindings } from "../../lib/bindings";
 import { readEnabledOrganizationSkillReleaseSelection } from "../../organization-skills/organization-skill-service";
 import { readOrganizationAccountIdentityProjection } from "../../organizations/organization-context";
-import { readRemoteAgentLarkPlatformChannelConnection } from "../infrastructure/d1/lark-platform-channel-connection-repo";
-import { advanceRemoteAgentMessageChannelIdentityContinuationAttempt } from "../infrastructure/d1/message-channel-identity-link-token-repo";
+import { readRemoteAgentLarkPlatformChannelConnection } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
+import { advanceRemoteAgentMessageChannelIdentityContinuationAttempt } from "../infrastructure/postgresql/message-channel-identity-link-token-repo";
 import {
   markRemoteAgentNativeDeliveryFailure,
   persistRemoteAgentWorkerSubmitRequest,
@@ -21,7 +26,11 @@ import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
+import {
+  readPluginChannelMetadata,
+  recordPluginChannelAdmission,
+} from "../infrastructure/postgresql/plugin-channel-metadata-repo";
 import {
   discardFrozenContextScopeForNewTurn,
   parseCoreOwnedRemoteAgentTurnEnvelope,
@@ -49,10 +58,13 @@ import {
 
 type LarkPlatformConversationLocator = Extract<
   MessageChannelConversationLocator,
-  { provider: "feishu" | "lark" }
+  {
+    provider: "feishu" | "lark";
+  }
 >;
-
 export type RemoteAgentMessageChannelNativeDeliveryInput = {
+  pluginSourceProof?: PluginChannelSourceProof;
+  pluginSelection?: PluginChannelSelection;
   attachments?: readonly RemoteAgentWorkerInputAttachment[];
   inputFailure?: {
     failureCode: string;
@@ -64,20 +76,17 @@ export type RemoteAgentMessageChannelNativeDeliveryInput = {
   triggerMessageId: string;
   turnEnvelope: RemoteAgentTurnEnvelope;
 };
-
 type RemoteAgentMessageChannelDeliveryIdentity = {
   deliveryId: string;
   dispatchId: string;
   idempotencyKey: string;
   providerPublicationIdempotencyKey: string;
 };
-
 type RemoteAgentMessageChannelAuthor = {
   displayName: string;
   profileId: string | null;
   profileKind: "human" | null;
 };
-
 type RemoteAgentMessageChannelPreAdmissionResult = {
   author: RemoteAgentMessageChannelAuthor;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -88,7 +97,6 @@ type RemoteAgentMessageChannelAdmissionResult = Omit<
   RemoteAgentMessageChannelPreAdmissionResult,
   "workingCard"
 >;
-
 export type RemoteAgentMessageChannelNativeDeliveryResult =
   RemoteAgentMessageChannelDeliveryIdentity &
     (
@@ -103,12 +111,15 @@ export type RemoteAgentMessageChannelNativeDeliveryResult =
           text: string;
         }
     );
-
 export class RemoteAgentMessageChannelSubmissionOutcomeUnknownError extends Error {
   readonly reasonCode =
     "remote_agent.message_channel_worker_submit_outcome_unknown";
-
-  constructor(message: string, options: { cause?: unknown } = {}) {
+  constructor(
+    message: string,
+    options: {
+      cause?: unknown;
+    } = {}
+  ) {
     super(message);
     this.name = "RemoteAgentMessageChannelSubmissionOutcomeUnknownError";
     if (options.cause !== undefined) {
@@ -116,9 +127,8 @@ export class RemoteAgentMessageChannelSubmissionOutcomeUnknownError extends Erro
     }
   }
 }
-
 export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   memoryService?: CenterAgentMemoryService | null;
   nowMs: number;
@@ -153,6 +163,11 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
       nowMs: input.nowMs,
       request: input.request,
     });
+  await recordPluginChannelAdmission(
+    input.db,
+    admittedDelivery.delivery.deliveryId,
+    input.request
+  );
   const existingResult = await resolveExistingMessageChannelDeliveryResult({
     delivery: admittedDelivery.delivery,
     identity,
@@ -228,7 +243,6 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
       text: input.request.inputFailure.text,
     });
   }
-
   const availability = resolveRemoteAgentRuntimeAvailability({
     env: input.env,
     organizationId: connection.organizationId,
@@ -244,7 +258,6 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
       text: availability.message,
     });
   }
-
   const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
   if (!worker?.submitConversationTurn) {
     await cleanupPreparedInputAttachments();
@@ -257,7 +270,6 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
       text: "Center Agent could not start this request. Please try again.",
     });
   }
-
   let durableWorkerRequest: RemoteAgentWorkerSubmitTurnRequest | null = null;
   try {
     const turnEnvelope = await attachCenterAgentMemoryToTurnEnvelope({
@@ -320,7 +332,6 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
       "Message Channel native delivery lost its durable worker request"
     );
   }
-
   const admission = await submitRemoteAgentWorkerAdmission({
     db: input.db,
     env: input.env,
@@ -364,7 +375,6 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
       text: "Center Agent could not start this request. Please try again.",
     });
   }
-
   try {
     await markRemoteAgentNativeDeliveryAckWithProbe({
       accepted: admission.ack.accepted,
@@ -383,11 +393,10 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
   }
   return { ...identity, shouldAck: true, status: "submitted" };
 }
-
 export async function continueMessageChannelIdentityOnboardingRequest(input: {
   connectionId: string;
   continuationAttempt: number;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   organizationId: string;
@@ -465,6 +474,10 @@ export async function continueMessageChannelIdentityOnboardingRequest(input: {
       "Message Channel identity onboarding continuation requires the connected provider."
     );
   }
+  const pluginMetadata = await readPluginChannelMetadata(
+    input.db,
+    sourceDelivery.deliveryId
+  );
   const continuationTriggerMessageId =
     await buildMessageChannelIdentityContinuationTriggerId({
       attempt: input.continuationAttempt,
@@ -543,6 +556,7 @@ export async function continueMessageChannelIdentityOnboardingRequest(input: {
         },
       },
       triggerMessageId: continuationTriggerMessageId,
+      ...(pluginMetadata ? { pluginSourceProof: pluginMetadata.proof } : {}),
       turnEnvelope,
     },
   });
@@ -557,7 +571,6 @@ export async function continueMessageChannelIdentityOnboardingRequest(input: {
   });
   return "retryable_failure";
 }
-
 async function buildMessageChannelIdentityContinuationTriggerId(input: {
   attempt: number;
   sourceDeliveryId: string;
@@ -577,10 +590,9 @@ async function buildMessageChannelIdentityContinuationTriggerId(input: {
   const base = `message-channel-identity-continuation:${identity}`;
   return input.attempt === 0 ? base : `${base}:retry:${input.attempt}`;
 }
-
 async function admitRemoteAgentMessageChannelDeliveryPreservingReplayAttachments(input: {
   cleanupPreparedInputAttachments: () => Promise<void>;
-  db: D1Database;
+  db: PostgresDatabase;
   identity: RemoteAgentMessageChannelDeliveryIdentity;
   nowMs: number;
   request: RemoteAgentMessageChannelNativeDeliveryInput;
@@ -599,9 +611,8 @@ async function admitRemoteAgentMessageChannelDeliveryPreservingReplayAttachments
     throw error;
   }
 }
-
 async function admitRemoteAgentMessageChannelDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   identity: RemoteAgentMessageChannelDeliveryIdentity;
   nowMs: number;
   request: RemoteAgentMessageChannelNativeDeliveryInput;
@@ -648,7 +659,6 @@ async function admitRemoteAgentMessageChannelDelivery(input: {
     sourceText,
   };
 }
-
 function resolveExistingMessageChannelDeliveryResult(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   identity: RemoteAgentMessageChannelDeliveryIdentity;
@@ -679,7 +689,6 @@ function resolveExistingMessageChannelDeliveryResult(input: {
     text: "Center Agent could not start this request. Please try again.",
   };
 }
-
 function assertMessageChannelDeliveryAuthority(
   request: RemoteAgentMessageChannelNativeDeliveryInput
 ): void {
@@ -704,7 +713,6 @@ function assertMessageChannelDeliveryAuthority(
   ) {
     throw new Error("Message Channel locator does not match its turn envelope");
   }
-
   const { centerAgent, connection, participant } = request.target;
   const organization =
     participant.kind === "member"
@@ -750,7 +758,6 @@ function assertMessageChannelDeliveryAuthority(
     throw new Error("Message Channel target does not match its turn envelope");
   }
 }
-
 async function buildRemoteAgentMessageChannelDeliveryIdentity(
   request: RemoteAgentMessageChannelNativeDeliveryInput
 ): Promise<RemoteAgentMessageChannelDeliveryIdentity> {
@@ -779,9 +786,8 @@ async function buildRemoteAgentMessageChannelDeliveryIdentity(
       }),
   };
 }
-
 async function failMessageChannelDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failureCode: string;
   failureDetail?: string;
   identity: RemoteAgentMessageChannelDeliveryIdentity;
@@ -805,13 +811,11 @@ async function failMessageChannelDelivery(input: {
     text: input.text,
   };
 }
-
 function buildNamespacedIdentity(namespace: string, parts: string[]): string {
   return `${namespace}|${parts
     .map((part) => `${part.length}:${part}`)
     .join("|")}`;
 }
-
 function normalizeRequiredText(value: string, errorMessage: string): string {
   const normalized = value.trim();
   if (!normalized) {
@@ -819,7 +823,6 @@ function normalizeRequiredText(value: string, errorMessage: string): string {
   }
   return normalized;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

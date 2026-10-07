@@ -58,7 +58,11 @@ test("production signing rejects test targets, mixed modes, and credential overr
     { APPLE_ID: "test@example.invalid" },
     { CSC_LINK: "test.p12" },
   ]) {
-    assert.throws(() => readDesktopSignedPackageMode({ ...env, ...invalid }));
+    // Signing credential overrides are refused on the Mac signing lane, so the
+    // platform is stated rather than inherited from whichever machine runs this.
+    assert.throws(() =>
+      readDesktopSignedPackageMode({ ...env, ...invalid }, "darwin")
+    );
   }
 });
 

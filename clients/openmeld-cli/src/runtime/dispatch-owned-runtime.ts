@@ -6,7 +6,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
-import { daemonRuntimeRootPath } from "../config/daemon-state";
+import {
+  DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
+  DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
+  DAEMON_SERVICE_RUNTIME_DETACHED_ENV,
+  DAEMON_SERVICE_RUNTIME_MODE_ENV,
+  DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV,
+  daemonRuntimeRootPath,
+} from "../config/daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   openMeldManagedBinaryPath,
@@ -45,6 +52,7 @@ export function buildDispatchOwnedRuntimeEnv(input: {
   dispatchId: string;
   targetProfileId: string;
   distribution?: OpenMeldDistribution;
+  platform?: NodeJS.Platform;
   env?: Record<string, string | undefined>;
   cliEntryPath?: string;
   spaceActionContextPath?: string | null;
@@ -60,28 +68,51 @@ export function buildDispatchOwnedRuntimeEnv(input: {
   const currentPath = normalizeOptionalText(
     input.env?.PATH ?? process.env.PATH
   );
-  const shimDir = ensureDispatchOwnedRuntimeCliShims({
-    cliEntryPath: input.cliEntryPath,
-    dispatchId: input.dispatchId,
-    distribution: input.distribution,
-    env,
-    spaceActionContextPath: input.spaceActionContextPath,
-    targetProfileId: input.targetProfileId,
-  });
   const actionCommand = resolveDispatchOwnedRuntimeActionCliEntryCommand({
     env,
   });
+  const nativeWindowsBinary =
+    (input.platform ?? process.platform) === "win32" &&
+    (input.distribution ?? resolveOpenMeldDistribution()) === "binary";
+  // Windows cannot CreateProcess a POSIX shim. The managed launcher is already
+  // a native executable, and the dispatch identity remains in the child env.
+  const actionCommandPath = nativeWindowsBinary
+    ? resolveDispatchOwnedRuntimeBinaryCliEntryPath({
+        cliEntryPath: input.cliEntryPath,
+        env,
+      })
+    : join(
+        ensureDispatchOwnedRuntimeCliShims({
+          cliEntryPath: input.cliEntryPath,
+          dispatchId: input.dispatchId,
+          distribution: input.distribution,
+          env,
+          spaceActionContextPath: input.spaceActionContextPath,
+          targetProfileId: input.targetProfileId,
+        }),
+        actionCommand
+      );
   return {
     ...env,
+    // These markers describe the Service process itself. Agent Controller
+    // children must not inherit them: otherwise an `openmeld-dev service
+    // repair` launched by an Agent can mistake its own CLI process for the
+    // launchd-managed Service and run the daemon loop inside the repair
+    // command instead of starting the isolated system service.
+    [DAEMON_SERVICE_RUNTIME_MODE_ENV]: undefined,
+    [DAEMON_SERVICE_RUNTIME_DETACHED_ENV]: undefined,
+    [DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV]: undefined,
+    [DAEMON_SERVICE_RUNTIME_AUTO_START_ENV]: undefined,
+    [DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV]: undefined,
     PATH: prependPathEntry({
       currentPath,
-      nextEntry: shimDir,
+      nextEntry: dirname(actionCommandPath),
     }),
     [OPENMELD_DISPATCH_RUNTIME_MODE_ENV]: DISPATCH_OWNED_RUNTIME_MODE,
     [OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV]: input.dispatchId,
     [OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV]: input.targetProfileId,
     [OPENMELD_USER_FACING_CLI_COMMAND_ENV]: actionCommand,
-    [OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV]: join(shimDir, actionCommand),
+    [OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV]: actionCommandPath,
     [OPENMELD_ENV_PRESET_ENV]: resolveDispatchOwnedRuntimeEnvPreset({
       env,
     }),
@@ -215,6 +246,23 @@ export function assertDispatchOwnedRuntimePublicWriteAllowed(input: {
     : "";
   throw new Error(
     `${input.commandLabel} is blocked inside a dispatch-owned runtime${dispatchIdSuffix}. Public space writes must be returned through OpenMeld Space structured actions: post_message, post_status, or stay_silent.`
+  );
+}
+
+export function assertDispatchOwnedRuntimeServiceMutationAllowed(input: {
+  commandLabel: string;
+  env?: NodeJS.ProcessEnv;
+}): void {
+  const env = input.env ?? process.env;
+  const guard = readDispatchOwnedRuntimeGuard(env);
+  if (!guard.active || resolveOpenMeldEnvPreset({ env }) !== "prod") {
+    return;
+  }
+  const dispatchIdSuffix = guard.dispatchId
+    ? ` (dispatch ${guard.dispatchId})`
+    : "";
+  throw new Error(
+    `${input.commandLabel} is blocked inside a dispatch-owned runtime${dispatchIdSuffix} because it could stop or replace the production OpenMeld Service carrying this Agent. Use a confirmed dev lane for isolated service testing.`
   );
 }
 

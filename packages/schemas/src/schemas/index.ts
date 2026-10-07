@@ -1,6 +1,18 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
 export {
+  aiUsageObservationSchema,
+  aiUsageQueryResponseSchema,
+  aiUsageQuerySchema,
+  aiUsageRecordSchema,
+  aiUsageSummarySchema,
+  aiUsageTokensSchema,
+  centerAgentAiUsageRpcInputSchema,
+  organizationAiUsageRpcInputSchema,
+  remoteAiUsageWriteResponseSchema,
+  remoteAiUsageWriteSchema,
+} from "./ai-usage";
+export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
   serviceConnectionDiagnosticIdSchema,
 } from "./daemon/service-connection-correlation";
@@ -14,6 +26,25 @@ export {
   serviceConnectionIncidentsReadRpcInputSchema,
   serviceConnectionIncidentsResponseSchema,
 } from "./daemon/service-connection-evidence";
+export { agentActivityOverviewResponseSchema } from "./http/agent-activity-overview";
+export {
+  agentWorkloadSnapshotSchema,
+  spaceAgentWorkloadInputSchema,
+} from "./http/agent-workload";
+export {
+  centerAgentEvidenceSourceSpaceSchema,
+  centerAgentReadAuditJournalResponseSchema,
+  centerAgentReadAuditJournalRpcInputSchema,
+} from "./http/center-agent-evidence";
+export {
+  CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS,
+  CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES,
+  CENTER_AGENT_RETAINED_MEMORY_MAX_TEXT_CHARS,
+  CENTER_AGENT_RETAINED_MEMORY_QUERY_MAX_CHARS,
+  centerAgentMemorySourceReferenceSchema,
+  centerAgentSearchMemoryResponseSchema,
+  centerAgentSearchMemoryRpcInputSchema,
+} from "./http/center-agent-memory-search";
 export {
   LOCAL_AGENT_REASONING_MAX_CHARS,
   localAgentReasoningPreferencesRpcSchema,
@@ -21,7 +52,6 @@ export {
   localAgentReasoningStateSchema,
   OPENMELD_REASONING_STREAM_HEADER,
 } from "./http/local-agent-reasoning";
-
 export {
   HUMAN_PRESENCE_HEARTBEAT_MS,
   HUMAN_PRESENCE_IDLE_MS,
@@ -32,9 +62,22 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  pluginActionRequestCommandRpcSchema,
+  pluginActionRequestCommandSchema,
+  pluginActionRequestIntentSchema,
+  pluginActionRequestViewSchema,
+} from "./http/plugin-action-requests";
+export {
+  resolveSpaceFileStreamMetadata,
+  spaceFileStreamMetadataSchema,
+  spaceFileStreamOptionsSchema,
+} from "./http/space-file-stream";
+export {
+  SPACE_FILE_UPLOAD_MAX_PARTS,
   SPACE_FILE_UPLOAD_PART_BYTES,
   SPACE_FILE_UPLOAD_TTL_MS,
   spaceFileUploadCommandSchema,
+  spaceFileUploadIdForMutation,
   spaceFileUploadMetadataSchema,
   spaceFileUploadPartSchema,
   spaceFileUploadResponseSchema,
@@ -43,9 +86,22 @@ export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
+export { agentFailureFactsSchema } from "./runtime/agent-failure";
+export {
+  CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
+  CENTER_AGENT_SESSION_TITLE_MAX_LENGTH,
+  generateCenterAgentSessionTitleInputSchema,
+  generateCenterAgentSessionTitleResponseSchema,
+} from "./runtime/center-agent-session-title";
+export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-history";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
+export {
+  spaceEvidenceReferenceSchema,
+  spaceEvidenceReferencesSchema,
+  spaceThreadEvidenceRequestSchema,
+} from "../space-evidence";
 export { agentControllerCollaborationModeSchema } from "./agent-controller-collaboration-mode";
 export { agentControllerPermissionModeSchema } from "./agent-controller-permission-mode";
 export { agentProfileWorkRecoveryActionKindSchema } from "./agent-profile-work-recovery";
@@ -138,12 +194,17 @@ export {
   cliJsonRoutinesRunsEnvelopeSchema,
   cliJsonRoutinesShowEnvelopeSchema,
   cliJsonRoutinesUpdateEnvelopeSchema,
+  cliJsonSkillsAddAllEnvelopeSchema,
+  cliJsonSkillsAddEnvelopeSchema,
+  cliJsonSkillsAddPreviewEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
   cliJsonSkillsLoadEnvelopeSchema,
+  cliJsonSkillsScanEnvelopeSchema,
   cliJsonSkillsShowEnvelopeSchema,
   cliJsonSpaceListOrganizationEnvelopeSchema,
   cliJsonSpaceMembersEnvelopeSchema,
 } from "./cli/json-output";
+export { spaceSendRequestReceiptSchema } from "./cli/space-send";
 export {
   commonErrorSchema,
   errorResponseSchema,
@@ -156,12 +217,16 @@ export {
 export {
   getModelCatalogResponseSchema,
   hostedModelInputModalitySchema,
+  hostedModelReasoningLevelSchema,
   MODEL_CATALOG_SCHEMA_VERSION,
+  type ModelCatalogReadOptions,
   modelCatalogAgentControllerSchema,
   modelCatalogHostedRuntimePolicySchema,
   modelCatalogHostedRuntimeSchema,
   modelCatalogModelSchema,
+  modelCatalogReadOptionsSchema,
   modelCatalogSchema,
+  modelRetirementNoticeSchema,
 } from "./config/model-catalog";
 export {
   agentControllerConversationCapabilitySchema,
@@ -189,7 +254,14 @@ export {
   normalizeKnownBuiltinAgentControllerId,
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
+export { cliInstallSelfResultSchema } from "./daemon/cli-install-self";
 export {
+  computerCareObservationSchema,
+  executionHostObservationSchema,
+  OPENMELD_COMPUTER_CARE_HEADER,
+} from "./daemon/computer-care";
+export {
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   computerFileAccessAbsolutePathSchema,
   computerFileAccessDaemonFrameSchema,
@@ -208,6 +280,7 @@ export {
   computerFileAccessUpdateRequestSchema,
   computerFileAccessUpdateResultFrameSchema,
   computerFileAccessUpdateRpcInputSchema,
+  isComputerFileAccessOwnerCancellation,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
@@ -216,6 +289,8 @@ export {
   DAEMON_PROFILE_SKIP_REASON_VALUES,
   daemonProfileSkipReasonSchema,
   localAgentInstallationOptionSchema,
+  OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE,
+  OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
   OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -474,6 +549,7 @@ export {
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   runtimeCoordinatorCancellationStateSchema,
   runtimeCoordinatorCancellationStatusSchema,
+  runtimeCoordinatorDeliveryRouteEvidenceSchema,
   runtimeCoordinatorExecutionCreationDiagnosticSchema,
   runtimeCoordinatorExecutionCreationStatusSchema,
   runtimeCoordinatorExecutionEventSchema,
@@ -490,6 +566,8 @@ export {
   RUNTIME_COORDINATOR_TOKEN_AUTHORITY_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_SECRET_FIELD_NAMES,
+  runtimeCoordinatorExecutionAccessRequestSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
   runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeCoordinatorExecutionTokenEnvelopeSchema,
@@ -558,6 +636,8 @@ export {
   localWakeRouteWorkingFolderObservationSchema,
   localWakeRouteWorkingFolderReasonCodeSchema,
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
+  OPENMELD_ADMISSION_EVIDENCE_HEADER,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentControllerConversationOccupancySchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
@@ -574,6 +654,8 @@ export {
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
   runtimeTransportAgentProfileWorkHandoffRequestSchema,
   runtimeTransportAgentProfileWorkHandoffResponseSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryActionSchema,
@@ -594,11 +676,13 @@ export {
   runtimeTransportDispatchInteractionDeliveredRequestSchema,
   runtimeTransportDispatchInteractionRequestSchema,
   runtimeTransportDispatchInteractionResponseFramePayloadSchema,
+  runtimeTransportDispatchLifecycleAcknowledgementSchema,
   runtimeTransportDispatchLifecyclePhaseSchema,
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchLifecycleSnapshotSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidencePhaseSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
@@ -693,6 +777,7 @@ export {
   runtimeTransportWaitDispatchResultRequestSchema,
   runtimeTransportWaitDispatchResultResponseSchema,
 } from "./daemon/runtime-transport";
+export { runtimeTransportAdmissionEvidenceSchema } from "./daemon/runtime-transport-admission-evidence";
 export { runtimeTransportStopCauseSchema } from "./daemon/runtime-transport-stop-cause";
 export {
   DAEMON_SERVICE_CONTRACT_SCHEMA_VERSION,
@@ -713,6 +798,7 @@ export {
   OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
   storedDaemonServiceUpdateJobSchema,
 } from "./daemon/service-update-job";
+export * from "./daemon/session-history";
 export {
   isOriginalErrorSafeForMessageDetails,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
@@ -731,11 +817,14 @@ export {
   openMeldDaemonTaskResultStatusSchema,
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
+export { windowsNativeProcessRequestSchema } from "./daemon/windows-native-process";
 export {
+  type WindowsUserTaskAction,
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
   windowsUserTaskRequestSchema,
   windowsUserTaskStatusSchema,
+  windowsUserTaskStoredActionSchema,
 } from "./daemon/windows-user-task";
 export {
   DB_FACT_SCHEMA_VERSION,
@@ -1036,6 +1125,8 @@ export {
   centerAgentConnectorActionAuditOutcomeSchema,
   centerAgentConnectorActionExecutionConnectionSchema,
   centerAgentConnectorActionOperationStatusSchema,
+  centerAgentContinueTaskSummaryBodySchema,
+  centerAgentContinueTaskSummaryResponseSchema,
   centerAgentCreateAgentProfileBodySchema,
   centerAgentCreateAgentProfileResponseSchema,
   centerAgentCreateConfiguredAgentProfileBodySchema,
@@ -1115,9 +1206,14 @@ export {
   centerAgentUpdateSpaceSettingsResponseSchema,
   centerAgentWakeAgentProfilesInSpaceBodySchema,
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
+  centerAgentWakeAgentProfilesInSpacesBodySchema,
+  centerAgentWakeAgentProfilesInSpacesResponseSchema,
   centerAgentWakePublicationCommandSchema,
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
+  connectorActionTerminalReceiptSchema,
+  connectorActionVerificationEvidenceSchema,
+  connectorActionVerificationReferenceSchema,
   designateCenterAgentBodySchema,
   designateCenterAgentResponseSchema,
   ensureMessageChannelMemberOrganizationMembershipRpcInputSchema,
@@ -1134,6 +1230,8 @@ export {
   slackIdentityLinkPreviewBodySchema,
   slackIdentityLinkPreviewResponseSchema,
   slackIdentityLinkTokenSchema,
+  taskSummaryRecoveryAccessRequestSchema,
+  taskSummaryRecoveryAccessResponseSchema,
   updateCenterAgentModelBodySchema,
   updateCenterAgentModelResponseSchema,
   updateCenterAgentOperatingStateBodySchema,
@@ -1243,6 +1341,15 @@ export {
   centerAgentUpdateProjectToolRpcInputSchema,
 } from "./http/center-agent-projects";
 export {
+  CENTER_AGENT_ROUTINE_EVIDENCE_PAGE_LIMIT,
+  centerAgentListRoutineRunsToolResponseSchema,
+  centerAgentListRoutineRunsToolRpcInputSchema,
+  centerAgentReadRoutineRunDiagnosticsResponseSchema,
+  centerAgentReadRoutineRunDiagnosticsRpcInputSchema,
+  centerAgentRoutineRunEvidenceSchema,
+  centerAgentRoutineRuntimeEvidenceSchema,
+} from "./http/center-agent-routine-evidence";
+export {
   CENTER_AGENT_ROUTINE_AUTHORIZED_ACTIONS,
   CENTER_AGENT_ROUTINE_CRON_EXPRESSION_MAX_CHARS,
   CENTER_AGENT_ROUTINE_DESTINATION_KINDS,
@@ -1311,12 +1418,18 @@ export {
   listCenterAgentRoutineTargetSpacesQuerySchema,
   listCenterAgentRoutineTargetSpacesResponseSchema,
   listCenterAgentRoutineTargetSpacesRpcInputSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineBodySchema,
   pauseCenterAgentRoutineResponseSchema,
   pauseCenterAgentRoutineRpcInputSchema,
+  ROUTINE_MANAGEMENT_CONTRACT,
   resumeCenterAgentRoutineBodySchema,
   resumeCenterAgentRoutineResponseSchema,
   resumeCenterAgentRoutineRpcInputSchema,
+  routineExecutorKindSchema,
+  routineLocalSubmissionSchema,
+  routineManagementSchema,
+  routineScopeSchema,
   updateCenterAgentRoutineBodySchema,
   updateCenterAgentRoutineResponseSchema,
   updateCenterAgentRoutineRpcInputSchema,
@@ -1371,7 +1484,11 @@ export {
   cliBinaryManifestSchema,
   cliBinaryReleaseSchema,
   cliBinaryServiceReleaseSchema,
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+  OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+  resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
+export { connectorActionReplayPermissionSchema } from "./http/connector-action-replay";
 export {
   buildConnectorAppRequestProviderKey,
   CENTER_AGENT_APP_CONNECTOR_SERVICES,
@@ -1405,6 +1522,7 @@ export {
   connectorDisconnectResponseSchema,
   connectorOrganizationContextQuerySchema,
   connectorServiceSchema,
+  connectorServicesResponseSchema,
   createConnectorAppRequestBodySchema,
   githubAppInstallationIdSchema,
   githubAppInstallationSetupQuerySchema,
@@ -1478,6 +1596,27 @@ export {
   updateFeedbackReportingPolicyBodySchema,
 } from "./http/feedback";
 export {
+  copyFileRootRevisionBodySchema,
+  copyFileRootRevisionResponseSchema,
+  copyFileRootToSpaceBodySchema,
+  copyOwnMessageExcerptBodySchema,
+  fileRootEntryResponseSchema,
+  fileRootEntrySchema,
+  fileRootFileDescriptorSchema,
+  fileRootFileResponseSchema,
+  fileRootFolderDescriptorSchema,
+  fileRootFolderResponseSchema,
+  fileRootSchema,
+  fileRootUploadResponseSchema,
+  listFileRootResponseSchema,
+  listFileRootRevisionsResponseSchema,
+  remoteAgentListTeamFilesRpcInputSchema,
+  remoteAgentReadTeamFileResponseSchema,
+  remoteAgentReadTeamFileRpcInputSchema,
+  remoteAgentSaveTeamFileResponseSchema,
+  remoteAgentSaveTeamFileRpcInputSchema,
+} from "./http/file-root";
+export {
   gatewayErrorCodeSchema,
   gatewayErrorEnvelopeSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
@@ -1491,6 +1630,8 @@ export {
   identityImageMimeTypeSchema,
 } from "./http/identity-image";
 export * from "./http/inbox";
+export * from "./http/inbox-desktop-updates";
+export * from "./http/inbox-feed";
 export {
   listSignalsQuerySchema,
   normalizeListSignalsReadQuerySemantics,
@@ -1756,6 +1897,9 @@ export {
   organizationMemberOpenMeldServiceStatusSchema,
 } from "./http/organization-member-openmeld-service-status";
 export {
+  beginOrganizationSkillImportBatchBodySchema,
+  beginOrganizationSkillImportBatchResponseSchema,
+  beginOrganizationSkillImportBatchRpcInputSchema,
   centerAgentInstallOrganizationSkillResponseSchema,
   centerAgentInstallOrganizationSkillRpcInputSchema,
   centerAgentReadOrganizationSkillsResponseSchema,
@@ -1766,11 +1910,18 @@ export {
   deleteOrganizationSkillBodySchema,
   deleteOrganizationSkillResponseSchema,
   deleteOrganizationSkillRpcInputSchema,
+  getOrganizationSkillImportBatchResponseSchema,
+  getOrganizationSkillImportBatchRpcInputSchema,
   getOrganizationSkillResponseSchema,
   getOrganizationSkillRpcInputSchema,
+  importOrganizationSkillFromFilesBodySchema,
+  importOrganizationSkillFromFilesResponseSchema,
+  importOrganizationSkillFromFilesRpcInputSchema,
   importOrganizationSkillFromGitHubBodySchema,
   importOrganizationSkillFromGitHubResponseSchema,
   importOrganizationSkillFromGitHubRpcInputSchema,
+  listOrganizationSkillImportBatchesResponseSchema,
+  listOrganizationSkillImportBatchesRpcInputSchema,
   listOrganizationSkillsQuerySchema,
   listOrganizationSkillsResponseSchema,
   listOrganizationSkillsRpcInputSchema,
@@ -1782,25 +1933,41 @@ export {
   ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS,
   ORGANIZATION_SKILL_NAME_MAX_CHARS,
   ORGANIZATION_SKILL_OPERATION_ID_MAX_CHARS,
+  ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT,
   ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillBundleSchema,
   organizationSkillFileSchema,
+  organizationSkillFilesPreviewSchema,
   organizationSkillGitHubPreviewSchema,
+  organizationSkillGitHubRepositoryPreviewSchema,
   organizationSkillGitHubSourceSchema,
+  organizationSkillImportBatchResultSchema,
+  organizationSkillImportBatchSchema,
   organizationSkillPermissionsSchema,
   organizationSkillPortableMetadataSchema,
   organizationSkillReleaseSummarySchema,
+  organizationSkillResourceMetadataSchema,
   organizationSkillRouteParamsSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
   organizationSkillRuntimeReleaseSchema,
   organizationSkillRuntimeReleaseSelectionSchema,
   organizationSkillRuntimeSnapshotResponseSchema,
   organizationSkillSchema,
   organizationSkillSourceSchema,
   organizationSkillSummarySchema,
+  previewOrganizationSkillFromFilesBodySchema,
+  previewOrganizationSkillFromFilesResponseSchema,
+  previewOrganizationSkillFromFilesRpcInputSchema,
   previewOrganizationSkillFromGitHubBodySchema,
   previewOrganizationSkillFromGitHubResponseSchema,
   previewOrganizationSkillFromGitHubRpcInputSchema,
+  previewOrganizationSkillRepositoryBodySchema,
+  previewOrganizationSkillRepositoryResponseSchema,
+  previewOrganizationSkillRepositoryRpcInputSchema,
+  readOrganizationSkillRuntimeCatalogRpcInputSchema,
+  readOrganizationSkillRuntimeResourceResponseSchema,
+  readOrganizationSkillRuntimeResourceRpcInputSchema,
   readOrganizationSkillRuntimeSnapshotRpcInputSchema,
   recordOrganizationSkillActivationResponseSchema,
   recordOrganizationSkillActivationRpcInputSchema,
@@ -1868,6 +2035,11 @@ export {
   pluginActionRpcInputSchema,
 } from "./http/plugin-actions";
 export {
+  pluginDelegationAuthorizationSchema,
+  pluginDelegationRequestSchema,
+} from "./http/plugin-delegation";
+export {
+  connectorActionOutcomeUnknownSchema,
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,
   pluginRuntimeResponseSchema,
@@ -1903,10 +2075,12 @@ export {
   AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH,
   additionalHumanProfileCreationDisabledErrorResponseSchema,
   additionalHumanProfileCreationDisabledRpcErrorResponseSchema,
+  agentAvatarStyleSchema,
   authProfileKindSchema,
   authProfileManagedRoleSchema,
   authProfileStatusSchema,
   authProfileViewSchema,
+  CENTER_AGENT_BOT_AVATAR_TYPES,
   createAgentProfileBodySchema,
   createAgentProfileResponseSchema,
   createdAgentProfileActionResponseSchema,
@@ -2114,6 +2288,7 @@ export {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectSpaceDispatchTraceRootCause,
+  projectSpaceNativeDeliveryTraceFinalVisibleOutcome,
   resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
@@ -2172,6 +2347,7 @@ export {
   spaceEntryTargetSchema,
   spaceEntryViewSchema,
 } from "./http/space-entry";
+export { spaceThreadEvidenceResponseSchema } from "./http/space-evidence";
 export {
   spaceFileUpdateSettingsCommandSchema,
   spaceFileUpdateSettingsSchema,
@@ -2214,6 +2390,7 @@ export {
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceComposerUploadDescriptorSchema,
   spaceComposerUploadIdSchema,
@@ -2229,14 +2406,18 @@ export {
   spaceFileDescriptorSchema,
   spaceFileEntryIdSchema,
   spaceFileEntrySchema,
+  spaceFileImageDimensionsSchema,
+  spaceFileListOriginFilterSchema,
   spaceFileMimeTypeSchema,
   spaceFileMutationErrorCodeSchema,
   spaceFileMutationErrorResponseSchema,
   spaceFileNameSchema,
+  spaceFileOriginSchema,
   spaceFileRevisionIdSchema,
   spaceFileRevisionNumberSchema,
   spaceFileRevisionSchema,
   spaceFileSizeBytesSchema,
+  spaceFilesOriginCapabilitySchema,
   spaceFolderDescriptorSchema,
   spaceMessageFileReferenceSchema,
   spaceMessageFileReferencesSchema,
@@ -2249,6 +2430,10 @@ export {
   updateSpaceFileEntryResponseSchema,
   uploadSpaceFileResponseSchema,
 } from "./http/space-files";
+export {
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
+} from "./http/space-input-queue";
 export {
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
@@ -2322,6 +2507,7 @@ export {
   resolveInitialSpaceAccessMode,
   spaceCreatorSchema,
   spaceDirectMessageMetaSchema,
+  spaceEntryAccessResponseSchema,
   spaceMetaSchema,
   spaceOrganizationVisibilitySchema,
   spaceStorageUsageSchema,
@@ -2364,20 +2550,37 @@ export {
 } from "./http/space-status";
 export {
   createSpaceTaskBodySchema,
+  describeLinkedGitHubIssueClosePrompt,
+  formatSpaceTaskGitHubIssueLabel,
   listSpaceTasksQuerySchema,
   listSpaceTasksResponseSchema,
   mutateSpaceTaskBodySchema,
   SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS,
   SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS,
   SPACE_TASK_DESCRIPTION_MAX_CHARS,
+  SPACE_TASK_ERROR_CODES,
+  SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
+  SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS,
+  SPACE_TASK_EXTERNAL_WORK_ITEM_NOT_FOUND_ERROR_CODE,
   SPACE_TASK_LIST_MAX_ITEMS,
+  SPACE_TASK_OPERATION_CONFLICT_ERROR_CODE,
   SPACE_TASK_OPERATION_ID_MAX_CHARS,
+  SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE,
   SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
   SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
+  SPACE_TASK_REVISION_CONFLICT_ERROR_CODE,
   SPACE_TASK_TITLE_MAX_CHARS,
+  spaceTaskActionSchema,
   spaceTaskActorSchema,
+  spaceTaskDetailOptionsSchema,
+  spaceTaskErrorCodeSchema,
   spaceTaskEventSchema,
   spaceTaskEventTypeSchema,
+  spaceTaskExternalWorkItemIdentityKey,
+  spaceTaskExternalWorkItemObservedStateSchema,
+  spaceTaskExternalWorkItemProviderSchema,
+  spaceTaskExternalWorkItemSchema,
+  spaceTaskGitHubIssueOperationId,
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
   spaceTaskPhaseSchema,
@@ -2418,6 +2621,8 @@ export {
   postSpaceWakeStopBodySchema,
   postSpaceWakeStopInputSchema,
   postSpaceWakeStopResponseSchema,
+  spaceWakeStopIntentQuerySchema,
+  spaceWakeStopIntentResponseSchema,
   spaceWakeStopSelectorSchema,
 } from "./http/space-wake-stop";
 export {
@@ -2456,6 +2661,9 @@ export {
   localCliComponentUpdateProjectionSchema,
   localComponentProjectionSchema,
   localComponentStatusSchema,
+  localComponentsAvailabilityCatalogSchema,
+  localComponentsBinaryReleasePolicySchema,
+  localComponentsInstallationSourceSchema,
   localComponentsManifestSchema,
   localComponentsReleaseManifestSchema,
   localComponentsStatusSchema,
@@ -2633,6 +2841,7 @@ export {
 export {
   executionContextAssignmentSchema,
   executionContextCompletionSchema,
+  executionContextGitMetadataSchema,
   executionContextLegacyAssociationSchema,
   executionContextRequestSchema,
   executionContextScopeSchema,
@@ -2743,7 +2952,11 @@ export {
   wakeDeviceWaitSchema,
   wakeDeviceWaitTargetSchema,
 } from "./protocol/wake-device-wait";
-export { agentComputerBrowserRequestSchema } from "./runtime/agent-computer-browser";
+export {
+  agentComputerBrowserRequestSchema,
+  agentComputerPreviewRequestSchema,
+  agentComputerPreviewRoutePropsSchema,
+} from "./runtime/agent-computer-browser";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,
@@ -2761,6 +2974,10 @@ export {
   agentControllerUsageLimitStatusSchema,
   agentControllerUsageLimitsSchema,
 } from "./runtime/agent-controller-interface";
+export {
+  agentExecutionSteerRequestSchema,
+  agentExecutionSteerResponseSchema,
+} from "./runtime/agent-execution-steer";
 export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,
   agentDelegationBarrierSchema,
@@ -2781,6 +2998,7 @@ export {
   buildAgentTaskKey,
   buildMessageChannelConversationId,
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
@@ -2796,6 +3014,13 @@ export {
   channelContextSchema,
   channelContextSyncSchema,
   controllerAgentTaskHandleSchema,
+  GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES,
+  githubAppWebhookIssueActionSchema,
+  githubAppWebhookIssueObservationSchema,
+  githubAppWebhookIssueStateSchema,
+  githubAppWebhookQueueMessageSchema,
+  githubAppWebhookVerificationInputSchema,
+  githubAppWebhookVerificationResponseSchema,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
   HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
@@ -2854,10 +3079,13 @@ export {
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
+  readGitHubAppWebhookIssueObservation,
+  remoteAgentAdmissionAttemptEvidenceSchema,
   remoteAgentAdmissionStageOperationSchema,
   remoteAgentConversationContinuityContextSchema,
   remoteAgentConversationContinuityEntrySchema,
   remoteAgentConversationContinuityEntrySourceSchema,
+  remoteAgentCoreAdmissionCallbackSchema,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
@@ -2878,6 +3106,7 @@ export {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
   remoteAgentStreamPartCallbackBodySchema,
+  remoteAgentTaskContinuationEvidenceSchema,
   remoteAgentTurnEnvelopeMemoryItemSchema,
   remoteAgentTurnEnvelopeMemorySchema,
   remoteAgentTurnEnvelopeMemorySourceSchema,
@@ -2890,6 +3119,7 @@ export {
   remoteAgentTurnRuntimeEvidenceSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
+  remoteAgentWorkerAdmissionStopIntentSchema,
   remoteAgentWorkerAuthorContextSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerCancellationResponseSchema,
@@ -2901,10 +3131,14 @@ export {
   remoteAgentWorkerExecutionStatusSchema,
   remoteAgentWorkerInputAttachmentSchema,
   remoteAgentWorkerInputAttachmentsSchema,
+  remoteAgentWorkerReadAdmissionResponseSchema,
+  remoteAgentWorkerReadAdmissionStopResponseSchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   remoteAgentWorkerSubmissionStatusSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnRequestV1Schema,
@@ -2951,6 +3185,10 @@ export {
   spaceDispatchPolicySchema,
 } from "./space-mesh/dispatch-policy";
 export {
+  dispatchProjectShellInputSchema,
+  dispatchProjectShellResultSchema,
+} from "./space-mesh/dispatch-project-shell";
+export {
   dispatchResultKindSchema,
   dispatchResultPublicOutcomeSchema,
   dispatchResultSchema,
@@ -2964,6 +3202,11 @@ export {
   dispatchSpaceHistoryRequestSchema,
   dispatchSpaceHistoryResultSchema,
 } from "./space-mesh/dispatch-space-history";
+export {
+  dispatchSpaceReadResultPageSchema,
+  dispatchSpaceReadResultRequestSchema,
+  dispatchSpaceReadResultSchema,
+} from "./space-mesh/dispatch-space-read-result";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
   getSpaceMessageReactionsInputSchema,
@@ -3013,6 +3256,7 @@ export {
   spaceContractFieldsSchema,
   spaceContractSchema,
 } from "./space-mesh/space-contract";
+export { spaceMessageEvidenceRequestSchema } from "./space-mesh/space-message-evidence";
 export { spaceNoteSchema } from "./space-mesh/space-note";
 export {
   spaceThreadActionRefSchema,

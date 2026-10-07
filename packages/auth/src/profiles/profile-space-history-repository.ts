@@ -1,6 +1,14 @@
-import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
-import type { createD1Db } from "../db";
+import {
+  and,
+  desc,
+  eq,
+  type InferInsertModel,
+  type InferSelectModel,
+  inArray,
+  isNotNull,
+  isNull,
+} from "@openmeld/db/query";
+import type { createAuthDatabase } from "../db";
 import type {
   OpenMeldProfileSpaceCreatorKind,
   OpenMeldProfileSpaceHistoryStatus,
@@ -76,7 +84,7 @@ export type ProfileSpaceHistoryRepository = {
   ) => Promise<ProfileSpaceHistoryRecord | null>;
 };
 
-type OpenMeldProfileDatabase = ReturnType<typeof createD1Db>;
+type OpenMeldProfileDatabase = ReturnType<typeof createAuthDatabase>;
 
 export function createDrizzleProfileSpaceHistoryRepository(
   db: OpenMeldProfileDatabase

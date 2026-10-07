@@ -1,29 +1,26 @@
-import { createCenterAgentApi } from "@openmeld/api-client";
-import type {
-	AccountSidebarPreferences,
-	ListCenterAgentSessionsResponse,
-} from "@openmeld/schemas";
+import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { moveSidebarItemIds } from "#/components/app/sidebar-order";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
-import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { resolveConversationTitle } from "#/lib/conversations/presentation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationDirectMessagePath,
 } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
+import { centerAgentSessionsQueryOptions } from "#/query/organizations/center-agent-sessions";
 import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
-import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import { organizationProfileIdentityDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	resolveAccountSpaceViewerProfileId,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
 import { type Chat, mergeChatPreferences } from "./chat-sidebar-model";
-import { resolveDirectMessagePeer } from "./direct-message-peer";
+import { resolveDirectMessagePresentation } from "./direct-message-presentation";
 import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import {
 	resolveSidebarAttentionSpaceIds,
@@ -43,10 +40,10 @@ export function useChats(input: {
 	includes: (kind: string) => boolean;
 }) {
 	const { currentOrganization: org } = useAppOrganization();
-	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const { defaultHumanProfile, profilesQuery } = useDefaultHumanProfile();
 	const profileId =
 		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
-	const store = useSidebarPreferences(profileId, org.id);
+	const store = useSidebarPreferences(org.id);
 	const spaces = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: !!profileId,
@@ -55,7 +52,7 @@ export function useChats(input: {
 		})
 	);
 	const directory = useQuery(
-		organizationProfileDirectoryQueryOptions({
+		organizationProfileIdentityDirectoryQueryOptions({
 			enabled: !!profileId,
 			organizationId: org.id,
 		})
@@ -71,29 +68,16 @@ export function useChats(input: {
 			input.currentSpaceId ??
 			new URLSearchParams(state.location.searchStr).get("session"),
 	});
-	const sessions = useInfiniteQuery({
-		queryKey: ["center-agent", org.id, profileId, "sessions", "sidebar"],
-		enabled: !!profileId,
-		initialPageParam: undefined as string | undefined,
-		getNextPageParam: (page: ListCenterAgentSessionsResponse) =>
-			page.nextCursor ?? undefined,
-		queryFn: ({ signal, pageParam }) => {
-			const api = createCenterAgentApi(
-				createOrganizationScopedWebOpenMeldApiFoundation({
-					organizationId: org.id,
-				})
-			);
-			return api.listSessions({ limit: 100, cursor: pageParam, signal });
-		},
-		staleTime: 30_000,
-	});
+	const sessions = useInfiniteQuery(
+		centerAgentSessionsQueryOptions(org.id, profileId)
+	);
 	const chatsById = new Map<string, Chat>(
 		accountItems.map((item) => {
 			const viewerProfileId = resolveAccountSpaceViewerProfileId({
 				currentProfileId: profileId,
 				item,
 			});
-			const peer = resolveDirectMessagePeer({
+			const presentation = resolveDirectMessagePresentation({
 				item,
 				profileDirectory: directory.data,
 				viewerProfileId,
@@ -102,11 +86,14 @@ export function useChats(input: {
 				item.spaceId,
 				{
 					messagePreview: item.messagePreview,
+					recentMessagePreviews: item.recentMessagePreviews,
 					spaceId: item.spaceId,
-					name: peer?.profileName ?? item.spaceName,
+					name: presentation.name,
+					profileKind: presentation.profileKind,
 					createdAt: item.spaceCreatedAt ?? null,
 					viewerProfileId,
-					peer,
+					peer: presentation.peer,
+					participants: presentation.participants,
 				},
 			];
 		})
@@ -117,6 +104,10 @@ export function useChats(input: {
 			...chatsById.get(session.spaceId),
 			...session,
 			session: true,
+			centerAgentProfileId: session.centerAgentProfileId,
+			centerAgentAvatarStyle: directory.data?.agentProfiles.find(
+				(profile) => profile.profileId === session.centerAgentProfileId
+			)?.avatarStyle,
 			centerAgentProfileName: directory.data?.agentProfiles.find(
 				(profile) => profile.profileId === session.centerAgentProfileId
 			)?.profileName,
@@ -138,7 +129,7 @@ export function useChats(input: {
 			spaceMessagePreviewQueryOptions({
 				spaceId: chat.spaceId,
 				viewerProfileId: chat.viewerProfileId ?? profileId,
-				enabled: !!profileId && spaces.isSuccess,
+				enabled: !!profileId,
 			})
 		),
 	});
@@ -156,19 +147,22 @@ export function useChats(input: {
 	const activity = new Map(
 		chats.map((chat, index) => [
 			chat.spaceId,
-			previews[index]?.data?.timestamp ??
-				(Date.parse(chat.createdAt ?? "") || 0),
+			previews[index]?.data?.timestamp ?? 0,
 		])
 	);
-	const chatPath = (chat: Chat) =>
+	const chatPath = (chat: Chat, focusSignalId?: string) =>
 		chat.session
 			? buildOrganizationCenterAgentChatPath(org.slug, {
 					session: chat.spaceId,
+					focusSignalId,
 				})
 			: buildOrganizationDirectMessagePath({
 					orgSlug: org.slug,
 					spaceId: chat.spaceId,
-					search: { profileId: chat.viewerProfileId ?? profileId },
+					search: {
+						profileId: chat.viewerProfileId ?? profileId,
+						focusSignalId,
+					},
 				});
 	const inbox = useQuery(
 		spaceInboxSummaryQueryOptions({ organizationId: org.id })
@@ -206,7 +200,7 @@ export function useChats(input: {
 		{ id: "chats", name: "Direct messages", ...preferences.spaces },
 	];
 	const title = (chat: Chat) =>
-		preferences.titles[chat.spaceId] ?? chat.name ?? "New chat";
+		resolveConversationTitle(chat.spaceId, chat.name, preferences.titles);
 	const owner = (id: string) =>
 		preferences.pinned.spaceIds.includes(id)
 			? "pinned"
@@ -221,7 +215,7 @@ export function useChats(input: {
 			(chat) =>
 				owner(chat.spaceId) === section &&
 				input.includes(
-					chat.session ? "agent" : (chat.peer?.profileKind ?? "unknown")
+					chat.session ? "agent" : (chat.profileKind ?? "unknown")
 				) &&
 				preferences.archivedIds.includes(chat.spaceId) === input.archived &&
 				title(chat)
@@ -331,6 +325,8 @@ export function useChats(input: {
 		pin,
 		org,
 		profileId,
+		profilesQuery,
+		needsDefaultHumanProfile: input.currentProfileId === undefined,
 		store,
 		spaces,
 		directory,

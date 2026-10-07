@@ -1,4 +1,7 @@
-import type { AgentControllerProcessSignalTarget } from "@openmeld/adapter-core";
+import type {
+  AdapterLocalAttemptOutcome,
+  AgentControllerProcessSignalTarget,
+} from "@openmeld/adapter-core";
 import type {
   AgentControllerPermissionMode,
   OpenMeldDaemonControlTargetSelector,
@@ -12,6 +15,8 @@ type RegisterInflightTaskInput = {
   adapterId: string;
   agentControllerPermissionMode?: AgentControllerPermissionMode | null;
   dispatchId: string;
+  attemptId?: string | null;
+  runtimeCoordinatorRunId?: string | null;
   runtimeCoordinatorExecutionId?: string | null;
   targetProfileId?: string | null;
   taskId: string;
@@ -28,14 +33,70 @@ type UpdateInflightTaskProcessInput = {
   taskId: string;
 };
 
+type SettleWithdrawnTaskInput = {
+  localAttemptOutcome: AdapterLocalAttemptOutcome;
+  record: InflightTaskControlRecord;
+};
+
+/**
+ * How many withdrawn attempts keep an answerable receipt.
+ *
+ * Accepting a withdrawal removes the inflight record, so without this a repeat
+ * request could only answer "no such task" — which is not the same statement
+ * and cannot be turned back into proof. The bound keeps that recovery window
+ * from growing without limit on a long-lived Service.
+ */
+const MAX_WITHDRAWN_TASK_RECEIPTS = 64;
+
 export function createInflightTaskControlRegistry() {
   const recordByTaskId = new Map<string, InflightTaskControlRecord>();
   const taskIdByDispatchId = new Map<string, string>();
+  const withdrawnReceiptByTaskId = new Map<
+    string,
+    {
+      localAttemptOutcome: AdapterLocalAttemptOutcome;
+      record: InflightTaskControlRecord;
+    }
+  >();
 
   const readRecord = (taskId: string): InflightTaskControlRecord | null =>
     recordByTaskId.get(taskId) ?? null;
 
   return {
+    /**
+     * Remembers what a withdrawal established, so losing its response does not
+     * lose the fact. The caller owns removing the inflight record.
+     */
+    settleWithdrawnTask(input: SettleWithdrawnTaskInput): void {
+      withdrawnReceiptByTaskId.delete(input.record.taskId);
+      withdrawnReceiptByTaskId.set(input.record.taskId, {
+        localAttemptOutcome: input.localAttemptOutcome,
+        record: input.record,
+      });
+      while (withdrawnReceiptByTaskId.size > MAX_WITHDRAWN_TASK_RECEIPTS) {
+        const oldest = withdrawnReceiptByTaskId.keys().next();
+        if (oldest.done) {
+          break;
+        }
+        withdrawnReceiptByTaskId.delete(oldest.value);
+      }
+    },
+
+    readWithdrawnTaskReceipt(target: OpenMeldDaemonControlTargetSelector): {
+      localAttemptOutcome: AdapterLocalAttemptOutcome;
+      record: InflightTaskControlRecord;
+    } | null {
+      if (target.by === "task") {
+        return withdrawnReceiptByTaskId.get(target.taskId) ?? null;
+      }
+      for (const receipt of withdrawnReceiptByTaskId.values()) {
+        if (receipt.record.dispatchId === target.dispatchId) {
+          return receipt;
+        }
+      }
+      return null;
+    },
+
     registerTask(input: RegisterInflightTaskInput): InflightTaskControlRecord {
       const existing = readRecord(input.taskId);
       if (
@@ -53,6 +114,8 @@ export function createInflightTaskControlRegistry() {
           existing?.agentControllerPermissionMode ??
           null,
         dispatchId: input.dispatchId,
+        attemptId: input.attemptId ?? null,
+        runtimeCoordinatorRunId: input.runtimeCoordinatorRunId ?? null,
         processId: existing?.processId ?? null,
         runtimeCoordinatorExecutionId:
           input.runtimeCoordinatorExecutionId ?? null,

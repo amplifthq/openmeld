@@ -17,12 +17,24 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { desktopProductionSourceSchema } from "../../packages/schemas/dist/desktop-client.js";
 import {
-  DESKTOP_PROMOTED_RELEASE_KEY,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
+  desktopCandidateUpdateArtifact,
+  desktopPromotedReleaseKey,
   desktopPromotedReleaseSchema,
+  desktopReleasePlatformSchema,
 } from "../../packages/schemas/dist/desktop-release.js";
+import {
+  readInstalledDesktopPlatform,
+  readWindowsDesktopSigning,
+} from "../desktop/installed-platform.ts";
+import { desktopProductionSource } from "../desktop/signed-package.ts";
+import {
+  checkDesktopPublisher,
+  DEFAULT_R2_BUCKET_NAME,
+  desktopPublisherCredentials,
+} from "./desktop-publisher.mjs";
 import { DEFAULT_APPLE_TEAM_ID } from "./macos-cli-signing.mjs";
 import {
   acquireProductionScopeLease,
@@ -31,6 +43,61 @@ import {
 
 const DMG_SUFFIX = /\.dmg$/;
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
+const NODE_ENTRY = /\.[cm]?js$/iu;
+
+export function resolveDesktopReleaseCommand(command, args, input = {}) {
+  const platform = input.platform ?? process.platform;
+  if (platform !== "win32" || command !== "pnpm") {
+    return { command, args };
+  }
+  const entry = (input.env ?? process.env).npm_execpath;
+  if (!(entry && path.win32.isAbsolute(entry) && NODE_ENTRY.test(entry))) {
+    throw new Error(
+      "Run Windows Desktop release commands through the root pnpm scripts so the exact pnpm JavaScript entry is available."
+    );
+  }
+  return {
+    command: input.execPath ?? process.execPath,
+    args: [entry, ...args],
+  };
+}
+
+async function inspectPlatformCandidate(
+  repoRoot,
+  artifactPath,
+  version,
+  platform
+) {
+  if (platform === "macos-arm64") {
+    return {
+      releaseSha: inspectSignedCandidate(
+        repoRoot,
+        artifactPath,
+        version,
+        artifactPath.replace(DMG_SUFFIX, ".zip")
+      ),
+      windows: null,
+    };
+  }
+  // Reuse the approved, clean, merged source guard before inspecting Windows
+  // bytes. A sidecar receipt is never proof of a signed installer payload.
+  const { releaseSha: approvedSha } = desktopProductionSource(process.env);
+  const windows = readWindowsDesktopSigning(process.env, platform);
+  const { inspectWindowsDesktopCandidate } = await import(
+    "../desktop/windows-artifact.mjs"
+  );
+  return {
+    releaseSha: await inspectWindowsDesktopCandidate({
+      repoRoot,
+      artifactPath,
+      version,
+      approvedSha,
+      windows,
+    }),
+    windows,
+  };
+}
 
 export function buildDesktopCandidateMetadata(input) {
   const manifest = desktopCandidateManifestSchema.parse({
@@ -165,34 +232,49 @@ function inspectSignedCandidate(repoRoot, artifactPath, version, zipPath) {
 }
 
 export async function uploadDesktopCandidate(input = {}) {
+  const publisherEnv = await checkDesktopPublisher(input);
   const repoRoot = input.repoRoot ?? process.cwd();
   const { version } = JSON.parse(
     readFileSync(path.join(repoRoot, DESKTOP_PACKAGE_JSON_PATH), "utf8")
   );
+  const { platform } = readInstalledDesktopPlatform(process.env);
+  const mac = platform === "macos-arm64";
   const artifactPath = path.join(
     repoRoot,
     "clients/desktop/dist/production-preview",
-    `OpenMeld-Desktop-${version}-macos-arm64.dmg`
+    `OpenMeld-Desktop-${version}-${platform}.${mac ? "dmg" : "exe"}`
   );
-  const zipPath = artifactPath.replace(DMG_SUFFIX, ".zip");
-  const releaseSha = inspectSignedCandidate(
+  const zipPath = mac ? artifactPath.replace(DMG_SUFFIX, ".zip") : null;
+  const { releaseSha, windows } = await inspectPlatformCandidate(
     repoRoot,
     artifactPath,
     version,
-    zipPath
+    platform
   );
   const candidate = buildDesktopCandidateMetadata({
+    platform,
     version,
     releaseSha,
     sha256: hashFileSha256(artifactPath),
     sizeBytes: statSync(artifactPath).size,
-    zip: {
-      sha256: hashFileSha256(zipPath),
-      sha512: createHash("sha512")
-        .update(readFileSync(zipPath))
-        .digest("base64"),
-      sizeBytes: statSync(zipPath).size,
-    },
+    ...(zipPath
+      ? {
+          zip: {
+            sha256: hashFileSha256(zipPath),
+            sha512: createHash("sha512")
+              .update(readFileSync(zipPath))
+              .digest("base64"),
+            sizeBytes: statSync(zipPath).size,
+          },
+        }
+      : {
+          windows: {
+            publisherName: windows.publisherName,
+            sha512: createHash("sha512")
+              .update(readFileSync(artifactPath))
+              .digest("base64"),
+          },
+        }),
   });
   const manifestPath = path.join(
     repoRoot,
@@ -211,42 +293,55 @@ export async function uploadDesktopCandidate(input = {}) {
     manifestPath,
     `${JSON.stringify(candidate.manifest, null, 2)}\n`
   );
+  const uploadedKeys = [];
   for (const item of [
     {
       objectKey: candidate.objectKey,
       filePath: artifactPath,
-      contentType: "application/x-apple-diskimage",
+      contentType: mac
+        ? "application/x-apple-diskimage"
+        : "application/vnd.microsoft.portable-executable",
       contentDisposition: `attachment; filename="${candidate.artifactName}"`,
     },
-    {
-      objectKey: candidate.zipObjectKey,
-      filePath: zipPath,
-      contentType: "application/zip",
-    },
+    ...(zipPath
+      ? [
+          {
+            objectKey: candidate.zipObjectKey,
+            filePath: zipPath,
+            contentType: "application/zip",
+          },
+        ]
+      : []),
     {
       objectKey: candidate.manifestKey,
       filePath: manifestPath,
       contentType: "application/json; charset=utf-8",
     },
   ]) {
-    runStep({
-      command: "pnpm",
-      cwd: repoRoot,
-      label: `Upload immutable Desktop candidate ${item.objectKey}`,
-      args: buildWranglerObjectPutArgs({
-        ...item,
-        bucketName: DEFAULT_R2_BUCKET_NAME,
-        cacheControl: "public, max-age=31536000, immutable",
-      }),
-    });
+    try {
+      runStep({
+        command: "pnpm",
+        cwd: repoRoot,
+        env: publisherEnv,
+        label: `Upload immutable Desktop candidate ${item.objectKey}`,
+        args: buildWranglerObjectPutArgs({
+          ...item,
+          bucketName: DEFAULT_R2_BUCKET_NAME,
+          cacheControl: "public, max-age=31536000, immutable",
+        }),
+      });
+      uploadedKeys.push(item.objectKey);
+    } catch (error) {
+      throw new Error(
+        `Desktop candidate upload stopped at ${item.objectKey}. Completed in this attempt: ${uploadedKeys.join(", ") || "none"}. The attempted object may have been written; inspect these exact R2 keys before retrying. Promotion was not attempted. Cause: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
   process.stdout.write(
     `${JSON.stringify({ ...candidate, url: new URL(candidate.downloadPath, "https://openmeld.ai").href }, null, 2)}\n`
   );
   return candidate;
 }
-
-export const DEFAULT_R2_BUCKET_NAME = "openmeld-desktop-downloads-prod";
 
 export function assertDesktopPromotionVersion(next, current) {
   // The promoted channel ships stable, monotonically increasing app versions.
@@ -269,6 +364,7 @@ export function assertDesktopPromotionVersion(next, current) {
 }
 
 export async function promoteDesktopCandidate(id, expectedVersion) {
+  const publisherEnv = await checkDesktopPublisher();
   const repoRoot = process.cwd();
   const manifestPath = path.join(
     repoRoot,
@@ -277,7 +373,8 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
   const manifest = desktopCandidateManifestSchema.parse(
     JSON.parse(readFileSync(manifestPath, "utf8"))
   );
-  if (id !== manifest.sha256 || !manifest.zip || !expectedVersion) {
+  const updateArtifact = desktopCandidateUpdateArtifact(manifest);
+  if (id !== manifest.sha256 || !updateArtifact || !expectedVersion) {
     throw new Error(
       "Specify the reviewed candidate hash and expected current version (or none)."
     );
@@ -290,6 +387,7 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
   runStep({
     command: "pnpm",
     cwd: repoRoot,
+    env: publisherEnv,
     label: "Verify immutable candidate metadata",
     args: [
       "exec",
@@ -316,98 +414,193 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
     "clients/desktop/dist/production-preview",
     location.artifactName
   );
-  inspectSignedCandidate(
+  const inspected = await inspectPlatformCandidate(
     repoRoot,
     artifactPath,
     manifest.version,
-    artifactPath.replace(DMG_SUFFIX, ".zip")
+    manifest.platform
   );
+  if (
+    inspected.releaseSha !== manifest.releaseSha ||
+    (manifest.windows &&
+      inspected.windows?.publisherName !== manifest.windows.publisherName)
+  ) {
+    throw new Error(
+      "Candidate source or signing identity differs from the reviewed manifest."
+    );
+  }
   if (hashFileSha256(artifactPath) !== id) {
-    throw new Error("Candidate DMG changed.");
+    throw new Error("Candidate installer changed.");
   }
   // Complete public reads prove the deployed routes and both immutable artifacts
   // before the sole mutable pointer becomes visible to clients.
   for (const [pathname, sha256, size] of [
     [location.downloadPath, manifest.sha256, manifest.sizeBytes],
-    [location.zipDownloadPath, manifest.zip.sha256, manifest.zip.sizeBytes],
+    [updateArtifact.path, updateArtifact.sha256, updateArtifact.sizeBytes],
   ]) {
-    const response = await fetch(new URL(pathname, "https://openmeld.ai"), {
+    await verifyDesktopPublicArtifact({ pathname, sha256, size });
+  }
+  process.stdout.write(
+    "[release:desktop-preview] Public artifacts verified; checking the authoritative pointer under the release lease.\n"
+  );
+  try {
+    await commitDesktopPromotion({
+      repoRoot,
+      manifest,
+      expectedVersion,
+      env: publisherEnv,
+    });
+  } catch (error) {
+    throw new Error(
+      `Desktop pointer phase failed: ${error instanceof Error ? error.message : String(error)}. The pointer may have changed; inspect its authoritative R2 object before retrying. Do not infer the published version from this command's exit status.`
+    );
+  }
+  process.stdout.write(`Promoted Desktop ${manifest.version}: ${id}\n`);
+}
+
+export async function verifyDesktopPublicArtifact(input) {
+  const url = new URL(input.pathname, "https://openmeld.ai");
+  (input.write ?? ((line) => process.stdout.write(line)))(
+    `[release:desktop-preview] Verify full public download ${url.href}; pointer write has not started.\n`
+  );
+  try {
+    const response = await (input.fetchArtifact ?? fetch)(url, {
       redirect: "error",
       cache: "no-store",
     });
     if (!response.ok) {
-      throw new Error(`Desktop artifact unavailable: ${response.status}`);
+      throw new Error(`HTTP ${response.status}`);
     }
     const bytes = Buffer.from(await response.arrayBuffer());
     if (
-      bytes.length !== size ||
-      createHash("sha256").update(bytes).digest("hex") !== sha256
+      bytes.length !== input.size ||
+      createHash("sha256").update(bytes).digest("hex") !== input.sha256
     ) {
       throw new Error(
-        "Published Desktop artifact does not match the reviewed candidate."
+        `size/hash mismatch (received ${bytes.length} bytes; expected ${input.size})`
       );
     }
+  } catch (error) {
+    throw new Error(
+      `Desktop public download verification failed for ${url.href}: ${error instanceof Error ? error.message : String(error)}. No pointer write was attempted by this invocation. Inspect the public artifact, then rerun the guarded promotion with the same reviewed candidate.`
+    );
   }
-  await commitDesktopPromotion({ repoRoot, manifest, expectedVersion });
-  process.stdout.write(`Promoted Desktop ${manifest.version}: ${id}\n`);
 }
 
 // Wrangler talks directly to R2: public CDN/browser projections never authorize
 // a promotion. Only its explicit missing-object response means an empty channel.
-export function readDesktopReleaseObject(repoRoot, key) {
-  const result = spawnSync(
-    "pnpm",
-    [
-      "exec",
-      "wrangler",
-      "r2",
-      "object",
-      "get",
-      `${DEFAULT_R2_BUCKET_NAME}/${key}`,
-      "--remote",
-      "--pipe",
-    ],
-    { cwd: repoRoot, encoding: "utf8", timeout: 60_000 }
-  );
+export function readDesktopReleaseObject(repoRoot, key, env = process.env) {
+  const invocation = resolveDesktopReleaseCommand("pnpm", [
+    "exec",
+    "wrangler",
+    "r2",
+    "object",
+    "get",
+    `${DEFAULT_R2_BUCKET_NAME}/${key}`,
+    "--remote",
+    "--pipe",
+  ]);
+  const result = spawnSync(invocation.command, invocation.args, {
+    cwd: repoRoot,
+    env,
+    encoding: "utf8",
+    timeout: 60_000,
+    windowsHide: true,
+  });
   if (result.status === 0) {
     return JSON.parse(result.stdout);
   }
   if (
     result.status === 1 &&
-    result.stderr.includes("The specified key does not exist.")
+    result.stderr?.includes("The specified key does not exist.")
   ) {
     return null;
   }
   throw new Error(
-    `Could not read authoritative Desktop release object: ${key}: ${result.stderr.trim() || result.error?.message || `exit ${result.status}`}`
+    `Could not read authoritative Desktop release object: ${key}: ${result.stderr?.trim() || result.error?.message || `exit ${result.status}`}`
   );
+}
+
+async function readPromotedDesktopCandidate(platform, readObject) {
+  const rawPointer = await readObject(desktopPromotedReleaseKey(platform));
+  if (rawPointer === null) {
+    return null;
+  }
+  const pointer = desktopPromotedReleaseSchema.parse(rawPointer);
+  const candidate = desktopCandidateManifestSchema.parse(
+    await readObject(desktopCandidateManifestKey(pointer.candidate))
+  );
+  if (
+    candidate.sha256 !== pointer.candidate ||
+    candidate.platform !== platform ||
+    !desktopCandidateUpdateArtifact(candidate)
+  ) {
+    throw new Error("Invalid promoted Desktop candidate.");
+  }
+  return candidate;
+}
+
+export async function readDesktopReleaseStatus({
+  repoRoot = process.cwd(),
+  env = process.env,
+  readObject = (key) => readDesktopReleaseObject(repoRoot, key, env),
+} = {}) {
+  const results = [];
+  for (const platform of desktopReleasePlatformSchema.options) {
+    try {
+      const candidate = await readPromotedDesktopCandidate(
+        platform,
+        readObject
+      );
+      if (candidate === null) {
+        results.push({ platform, state: "unpublished" });
+        continue;
+      }
+      results.push({
+        platform,
+        state: "promoted",
+        version: candidate.version,
+        sourceSha: candidate.releaseSha,
+        candidate: candidate.sha256,
+      });
+    } catch (error) {
+      results.push({
+        platform,
+        state: "unknown",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
 }
 
 export async function commitDesktopPromotion({
   repoRoot,
   manifest,
   expectedVersion,
-  readObject = (key) => readDesktopReleaseObject(repoRoot, key),
-  writePointer = (pointer) => writeDesktopPromotionPointer(repoRoot, pointer),
+  env = process.env,
+  readObject = (key) => readDesktopReleaseObject(repoRoot, key, env),
+  writePointer = (pointer, key) =>
+    writeDesktopPromotionPointer(repoRoot, pointer, key, env),
 }) {
+  manifest = desktopCandidateManifestSchema.parse(manifest);
+  if (!desktopCandidateUpdateArtifact(manifest)) {
+    throw new Error(
+      "Desktop promotion requires a complete platform update artifact."
+    );
+  }
+  const pointerKey = desktopPromotedReleaseKey(manifest.platform);
   const lease = acquireProductionScopeLease({
     cwd: repoRoot,
     scope: "web",
     sourceSha: manifest.releaseSha,
   });
   try {
-    const current = await readObject(DESKTOP_PROMOTED_RELEASE_KEY);
-    let currentVersion = null;
-    if (current !== null) {
-      const pointer = desktopPromotedReleaseSchema.parse(current);
-      const candidate = desktopCandidateManifestSchema.parse(
-        await readObject(desktopCandidateManifestKey(pointer.candidate))
-      );
-      if (candidate.sha256 !== pointer.candidate || !candidate.zip) {
-        throw new Error("Invalid promoted Desktop candidate.");
-      }
-      currentVersion = candidate.version;
-    }
+    const current = await readPromotedDesktopCandidate(
+      manifest.platform,
+      readObject
+    );
+    const currentVersion = current?.version ?? null;
     if ((currentVersion ?? "none") !== expectedVersion) {
       throw new Error(
         "Promoted Desktop version changed or could not be verified."
@@ -419,7 +612,8 @@ export async function commitDesktopPromotion({
         schemaVersion: 1,
         candidate: manifest.sha256,
         promotedAt: new Date().toISOString(),
-      })
+      }),
+      pointerKey
     );
   } finally {
     releaseProductionScopeLease({
@@ -430,7 +624,7 @@ export async function commitDesktopPromotion({
   }
 }
 
-function writeDesktopPromotionPointer(repoRoot, value) {
+function writeDesktopPromotionPointer(repoRoot, value, pointerKey, env) {
   const pointerPath = path.join(
     repoRoot,
     "clients/desktop/dist/production-preview/promoted.json"
@@ -439,10 +633,11 @@ function writeDesktopPromotionPointer(repoRoot, value) {
   runStep({
     command: "pnpm",
     cwd: repoRoot,
+    env,
     label: "Promote the reviewed Desktop release",
     args: buildWranglerObjectPutArgs({
       bucketName: DEFAULT_R2_BUCKET_NAME,
-      objectKey: DESKTOP_PROMOTED_RELEASE_KEY,
+      objectKey: pointerKey,
       filePath: pointerPath,
       contentType: "application/json",
       cacheControl: "no-store",
@@ -617,9 +812,10 @@ export function buildDesktopPreview(input = {}) {
 
 function runStep(input) {
   process.stdout.write(`\n[release:desktop-preview] ${input.label}\n`);
-  const result = spawnSync(resolveCommandBinary(input.command), input.args, {
+  const invocation = resolveDesktopReleaseCommand(input.command, input.args);
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: input.cwd,
-    env: process.env,
+    env: input.env ?? process.env,
     stdio: "inherit",
   });
   if (result.error) {
@@ -627,16 +823,9 @@ function runStep(input) {
   }
   if (result.status !== 0) {
     throw new Error(
-      `${input.command} ${input.args.join(" ")} failed with exit code ${result.status}`
+      `${input.command} ${input.args.join(" ")} failed ${result.signal ? `on signal ${result.signal}` : `with exit code ${result.status}`}`
     );
   }
-}
-
-function resolveCommandBinary(command) {
-  if (process.platform !== "win32") {
-    return command;
-  }
-  return command === "pnpm" ? "pnpm.cmd" : command;
 }
 
 function printUsage() {
@@ -645,6 +834,7 @@ function printUsage() {
       "Usage:",
       "  pnpm run release:desktop-preview:build",
       "  OPENMELD_DESKTOP_RELEASE_SHA=<approved-merged-release-sha> pnpm run release:desktop-preview:upload-candidate",
+      "  node scripts/release/desktop-preview.mjs status (after building @openmeld/schemas)",
       "",
     ].join("\n")
   );
@@ -663,6 +853,15 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       await uploadDesktopCandidate();
     } else if (command === "promote") {
       await promoteDesktopCandidate(process.argv[3], process.argv[4]);
+    } else if (command === "status") {
+      const { env } = desktopPublisherCredentials();
+      const results = await readDesktopReleaseStatus({ env });
+      for (const result of results) {
+        process.stdout.write(`${JSON.stringify(result)}\n`);
+      }
+      if (results.some((result) => result.state === "unknown")) {
+        process.exitCode = 1;
+      }
     } else {
       printUsage();
       process.exitCode = 1;

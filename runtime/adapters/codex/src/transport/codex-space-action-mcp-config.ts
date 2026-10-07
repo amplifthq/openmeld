@@ -20,15 +20,7 @@ export function buildCodexSpaceActionMcpGlobalArgs(
     "-c",
     `${server}.env_vars=${toTomlStringArray(Object.keys(config.env))}`,
     "-c",
-    `${server}.enabled=true`,
-    "-c",
     `${server}.required=true`,
-    "-c",
-    `${server}.enabled_tools=${toTomlStringArray(config.toolNames)}`,
-    "-c",
-    `${server}.disabled_tools=[]`,
-    "-c",
-    `${server}.default_tools_approval_mode="approve"`,
   ];
 }
 

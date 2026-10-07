@@ -1,4 +1,47 @@
 import { spawn } from "node:child_process";
+import {
+  connect,
+  grantRuntime,
+  migrate,
+} from "../../../tooling/postgresql/database.mjs";
+
+if (process.env.OPENMELD_PG_ISOLATED !== "1") {
+  throw new Error(
+    "Auth runtime smoke requires a fresh isolated pg:local cluster"
+  );
+}
+const runtimeUrl = process.env.POSTGRESQL_OPENMELD_RUNTIME_URL;
+const ownerUrl = process.env.POSTGRESQL_OPENMELD_MIGRATION_URL;
+if (!(runtimeUrl && ownerUrl)) {
+  throw new Error(
+    "Auth runtime smoke requires the isolated runtime and migration roles"
+  );
+}
+const runtime = new URL(runtimeUrl);
+const ownerTarget = new URL(ownerUrl);
+if (
+  runtime.hostname !== "127.0.0.1" ||
+  runtime.pathname !== "/openmeld_pg_local" ||
+  runtime.search ||
+  runtime.hash
+) {
+  throw new Error(
+    "Auth runtime smoke accepts only its fresh loopback PostgreSQL database"
+  );
+}
+if (
+  ownerTarget.protocol !== runtime.protocol ||
+  ownerTarget.host !== runtime.host ||
+  ownerTarget.pathname !== runtime.pathname ||
+  ownerTarget.username !== "openmeld_pg_owner" ||
+  runtime.username !== "openmeld_pg_runtime" ||
+  ownerTarget.search ||
+  ownerTarget.hash
+) {
+  throw new Error(
+    "Auth runtime smoke requires aligned isolated database roles"
+  );
+}
 
 const BASE_URL = "http://127.0.0.1:8799";
 const HEALTH_URL = `${BASE_URL}/health`;
@@ -83,11 +126,20 @@ async function shutdown() {
 }
 
 async function main() {
+  const owner = await connect(ownerUrl, true);
+  try {
+    await migrate(owner);
+    await grantRuntime(owner, "openmeld_pg_runtime");
+  } finally {
+    await owner.end();
+  }
   child = spawn("pnpm", WRANGLER_ARGS, {
     cwd: new URL("..", import.meta.url),
     env: {
       ...process.env,
       NO_COLOR: "1",
+      CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_OPENMELD_POSTGRESQL:
+        runtimeUrl,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

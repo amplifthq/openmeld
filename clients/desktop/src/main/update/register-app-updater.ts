@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   type DesktopUpdaterState,
   desktopUpdaterActionSchema,
@@ -10,17 +12,45 @@ import {
   dialog,
   type IpcMainInvokeEvent,
   ipcMain,
+  shell,
 } from "electron";
-import { MacUpdater } from "electron-updater";
 import { PILOT_IPC } from "../../shared/pilot-bridge";
 import { desktopUpdaterPresentation } from "../../shared/updater-presentation";
 import type { DesktopUpdateView } from "../../shared/view-types";
 import { createAppUpdater } from "./app-updater";
+import { readMacAppBundlePath } from "./mac-bundle-path";
+import {
+  confirmMacUpdateInstallReceipt,
+  recordMacUpdateInstallRequested,
+} from "./mac-update-receipt";
+import { createNativeDesktopUpdater } from "./native-updater";
+import { recordUpdateFailure } from "./update-failure-diagnostic";
+
+const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
+function readNativeUpdater(enabled: boolean) {
+  if (!enabled) {
+    return null;
+  }
+  try {
+    return createNativeDesktopUpdater({ resourcesPath: process.resourcesPath });
+  } catch (error) {
+    console.warn("[desktop.update_configuration_unavailable]", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return null;
+  }
+}
 
 export function registerAppUpdater(input: {
   enabled: boolean;
+  inboxSource?: {
+    identity: Pick<DesktopUpdaterState, "installationId" | "lane">;
+    observe: (state: DesktopUpdaterState) => Promise<void>;
+  };
   authorize: (event: IpcMainInvokeEvent) => void;
   getWindow: () => BrowserWindow | null;
+  onStateChanged: (state: DesktopUpdaterState) => void;
   setInstalling: (value: boolean) => void;
 }) {
   const unavailable: DesktopUpdaterState = {
@@ -34,13 +64,77 @@ export function registerAppUpdater(input: {
     requestId: string;
     complete: (saved: boolean) => void;
   } | null = null;
-  const controller = input.enabled
-    ? createAppUpdater({
-        updater: new MacUpdater(),
+  const withIdentity = (state: DesktopUpdaterState): DesktopUpdaterState => ({
+    ...state,
+    ...input.inboxSource?.identity,
+  });
+  const observe = (state: DesktopUpdaterState) => {
+    try {
+      input.inboxSource
+        ?.observe(state)
+        .catch((error: unknown) =>
+          console.warn("[openmeld.desktop.inbox_observer_failed]", { error })
+        );
+    } catch (error) {
+      console.warn("[openmeld.desktop.inbox_observer_failed]", { error });
+    }
+  };
+  const currentAppBundle =
+    process.platform === "darwin"
+      ? readMacAppBundlePath(app.getPath("exe"))
+      : null;
+  const installReceiptPath = join(
+    app.getPath("userData"),
+    "desktop-update-install-receipt.txt"
+  );
+  if (process.platform === "darwin") {
+    try {
+      const receipt = confirmMacUpdateInstallReceipt({
+        receiptPath: installReceiptPath,
         currentVersion: app.getVersion(),
+        currentBundle: currentAppBundle,
+      });
+      if (receipt) {
+        console.info("[openmeld.desktop.update_install_receipt]", receipt);
+      }
+    } catch (error) {
+      console.warn("[openmeld.desktop.update_install_receipt_invalid]", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+  const failurePath = join(
+    app.getPath("userData"),
+    "diagnostics",
+    "desktop-update-failure.json"
+  );
+  const native = readNativeUpdater(input.enabled);
+  const controller = native
+    ? createAppUpdater({
+        ...native,
+        currentVersion: app.getVersion(),
+        currentAppBundle,
+        recordFailure: (record) => recordUpdateFailure(failurePath, record),
+        recordMacInstallRequested: (targetVersion) => {
+          if (!currentAppBundle) {
+            throw new Error(
+              "Desktop cannot determine the current macOS application folder."
+            );
+          }
+          recordMacUpdateInstallRequested({
+            receiptPath: installReceiptPath,
+            currentVersion: app.getVersion(),
+            targetVersion,
+            currentBundle: currentAppBundle,
+          });
+        },
         setInstalling: input.setInstalling,
-        publish: (state) =>
-          input.getWindow()?.webContents.send(PILOT_IPC.updaterChanged, state),
+        publish: (state) => {
+          const next = withIdentity(state);
+          input.getWindow()?.webContents.send(PILOT_IPC.updaterChanged, next);
+          input.onStateChanged(next);
+          observe(state);
+        },
         prepareRestart: () =>
           new Promise<boolean>((resolve) => {
             const window = input.getWindow();
@@ -66,7 +160,7 @@ export function registerAppUpdater(input: {
     : null;
   ipcMain.handle(PILOT_IPC.updaterState, (event) => {
     input.authorize(event);
-    return controller?.snapshot() ?? unavailable;
+    return withIdentity(controller?.snapshot() ?? unavailable);
   });
   ipcMain.handle(PILOT_IPC.updaterAction, (event, value: unknown) => {
     input.authorize(event);
@@ -82,13 +176,12 @@ export function registerAppUpdater(input: {
   });
   let menuOpen = false;
   if (controller) {
-    setInterval(
-      () => {
-        controller.act("check").catch(console.error);
-      },
-      6 * 60 * 60 * 1000
-    ).unref();
+    observe(controller.snapshot());
+    setInterval(() => {
+      controller.act("check").catch(console.error);
+    }, AUTOMATIC_UPDATE_CHECK_INTERVAL_MS).unref();
   }
+  input.onStateChanged(withIdentity(controller?.snapshot() ?? unavailable));
   return {
     async legacyStatus(): Promise<DesktopUpdateView> {
       await controller?.act("check");
@@ -122,14 +215,22 @@ export function registerAppUpdater(input: {
         const state = controller?.snapshot() ?? unavailable;
         const { message, action, label } = desktopUpdaterPresentation(state);
         const actionable = action && action !== "check";
+        const buttons = actionable ? [label ?? "Update"] : [];
+        const detailsIndex = existsSync(failurePath) ? buttons.length : -1;
+        if (detailsIndex >= 0) {
+          buttons.push("Show update details");
+        }
+        buttons.push(actionable ? "Later" : "OK");
         const result = await dialog.showMessageBox({
           type: "info",
           message,
-          buttons: actionable ? [label ?? "Update", "Later"] : ["OK"],
-          cancelId: actionable ? 1 : 0,
+          buttons,
+          cancelId: buttons.length - 1,
           defaultId: 0,
         });
-        if (result.response === 0 && actionable) {
+        if (result.response === detailsIndex) {
+          shell.showItemInFolder(failurePath);
+        } else if (result.response === 0 && actionable) {
           await controller?.act(action);
         }
       } finally {

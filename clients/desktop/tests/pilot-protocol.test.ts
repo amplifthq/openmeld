@@ -15,6 +15,64 @@ import {
 import { expect, it, vi } from "vitest";
 import { createPilotProtocol } from "../src/main/pilot-protocol";
 
+it("preserves authenticated media ranges without exposing native credentials", async () => {
+  const cloudRequest = vi.fn(
+    (path: string, request: { method: string; headers: Headers }) => {
+      expect(path).toBe(
+        "/v1/spaces/space-1/files/file-1/content?revision=2&__openmeld_organization_slug=acme"
+      );
+      expect(request.headers.get("range")).toBe("bytes=4-7");
+      expect(request.headers.get("if-range")).toBe('"revision-2"');
+      expect(request.headers.get("cookie")).toBe("session=native");
+      expect(request.headers.has("authorization")).toBe(false);
+      return Promise.resolve(
+        new Response("part", {
+          status: 206,
+          headers: {
+            "content-type": "video/mp4",
+            "content-range": "bytes 4-7/10",
+            "content-length": "4",
+            "accept-ranges": "bytes",
+            etag: '"revision-2"',
+            "cache-control": "private, no-store",
+            "set-cookie": "session=renewed",
+            authorization: "secret",
+          },
+        })
+      );
+    }
+  );
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    cookie: () => "session=native",
+    fetch,
+    cloudRequest,
+  });
+  const response = await handle(
+    new Request(
+      `${DESKTOP_APP_ORIGIN}/v1/spaces/space-1/files/file-1/content?revision=2&__openmeld_organization_slug=acme`,
+      {
+        headers: {
+          range: "bytes=4-7",
+          "if-range": '"revision-2"',
+          cookie: "untrusted",
+          authorization: "untrusted",
+        },
+      }
+    )
+  );
+  expect(response.status).toBe(206);
+  expect(response.headers.get("content-range")).toBe("bytes 4-7/10");
+  expect(response.headers.get("content-length")).toBe("4");
+  expect(response.headers.get("accept-ranges")).toBe("bytes");
+  expect(response.headers.get("etag")).toBe('"revision-2"');
+  expect(response.headers.has("set-cookie")).toBe(false);
+  expect(response.headers.has("authorization")).toBe(false);
+  expect(await response.text()).toBe("part");
+});
+
 it.each([
   ["POST", "folders/select"],
   ["POST", "projects/discover"],
@@ -205,9 +263,70 @@ it("admits installed API requests before credentials and preserves SDK errors wi
   expect(call[1].method).toBe("POST");
   expect(new TextDecoder().decode(call[1].body)).toBe('{"name":"Agent"}');
   expect(call[1].headers.get(DESKTOP_CONTRACT_HEADER)).toBe("1");
+  expect(call[1].headers.get("origin")).toBe(DESKTOP_APP_ORIGIN);
   expect(call[1].headers.get(SPACE_ACCESS_VERSION_HEADER)).toBe("1");
   expect(call[1].headers.get("cookie")).toBe("session=native-only");
   expect(call[1].headers.has("authorization")).toBe(false);
+});
+
+it.each([
+  false,
+  true,
+])("refuses renderer update observations before credentials in installed=%s", async (installed) => {
+  const cookie = vi.fn(() => "session=main-only");
+  const ensureCompatible = vi.fn(async () => undefined);
+  const cloudRequest = vi.fn(async () => Response.json({ accepted: true }));
+  const fetchCloud = vi.fn<typeof fetch>(async () =>
+    Response.json({ accepted: true })
+  );
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://in-memory.invalid",
+    webBuild: "a".repeat(64),
+    installed,
+    ensureCompatible,
+    cookie,
+    fetch: fetchCloud,
+    ...(installed ? { cloudRequest } : {}),
+  });
+  for (const path of [
+    "/v1/account/desktop-update-observations",
+    "/v1/account/desktop-update-observations?retry=1",
+    "/v1/account/desktop-update-observations/",
+    "/v1/%61ccount/desktop-update-observations",
+    "/v1/account/%64esktop-update-observations",
+  ]) {
+    const response = await handle(
+      new Request(`${DESKTOP_APP_ORIGIN}${path}`, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          origin: DESKTOP_APP_ORIGIN,
+        },
+        body: JSON.stringify({
+          schemaVersion: 1,
+          expectedUserId: "owner",
+          installationId: "11111111-2222-4333-8444-555555555555",
+          sequence: 1,
+          lane: "prod",
+          platform: "darwin",
+          deviceName: "Forged device",
+          installedVersion: "99.0.0",
+          availableVersion: null,
+        }),
+      })
+    );
+    expect(response.status).toBe(403);
+  }
+  expect(cookie).not.toHaveBeenCalled();
+  expect(ensureCompatible).not.toHaveBeenCalled();
+  expect(cloudRequest).not.toHaveBeenCalled();
+  expect(fetchCloud).not.toHaveBeenCalled();
+  expect(
+    (await handle(new Request(`${DESKTOP_APP_ORIGIN}/v1/inbox/summary`))).status
+  ).toBe(200);
+  expect(cookie).toHaveBeenCalledTimes(1);
+  expect(installed ? cloudRequest : fetchCloud).toHaveBeenCalledTimes(1);
 });
 
 it("serves local page files and confines credentials to the configured cloud origin", async () => {

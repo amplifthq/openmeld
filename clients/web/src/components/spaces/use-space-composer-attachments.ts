@@ -6,8 +6,11 @@ import {
 } from "@openmeld/schemas";
 import type {
 	SpaceComposerUploadDescriptor,
+	SpaceFileImageDimensions,
 	SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
+import { readDisplayImageDimensions } from "@openmeld/utils";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
@@ -31,6 +34,12 @@ import {
 } from "#/lib/spaces/composer-file-drafts";
 import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors";
 import { SPACE_COMPOSER_FILE_PUBLISH_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
+import { spaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
+import {
+	cacheSpaceComposerMedia,
+	seedPublishedSpaceFileMedia,
+	spaceFileQueryKeys,
+} from "#/query/spaces/space-files";
 import { formatSpaceFileSizeLimitError } from "./space-file-utils";
 
 type ComposerFileScope = {
@@ -105,6 +114,7 @@ export type SpaceComposerFilesController = ReturnType<
 >;
 
 export function useSpaceComposerFiles(input: ComposerFileScope) {
+	const queryClient = useQueryClient();
 	const [, refresh] = useReducer((version: number) => version + 1, 0);
 	const sessions = useRef(
 		new Map<string, ReturnType<typeof createFileSession>>()
@@ -166,7 +176,15 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 		});
 		for (const [localId, url] of session.previewUrlsByLocalId) {
 			if (!session.submittingIds.has(localId)) {
-				URL.revokeObjectURL(url);
+				queryClient.removeQueries({
+					queryKey: spaceFileQueryKeys.content(
+						session.scope.spaceId,
+						localId,
+						1
+					),
+					exact: true,
+				});
+				spaceFileMediaResources(queryClient).find(url)?.release();
 				session.previewUrlsByLocalId.delete(localId);
 			}
 		}
@@ -183,7 +201,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 		updateFiles((current) =>
 			current.filter((file) => session.submittingIds.has(file.localId))
 		);
-	}, [updateFiles, session]);
+	}, [queryClient, updateFiles, session]);
 
 	const consumePublishedFiles = useCallback(
 		(publishedLocalIds: readonly string[]) => {
@@ -192,13 +210,21 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			}
 			const publishedLocalIdSet = new Set(publishedLocalIds);
 			for (const localId of publishedLocalIdSet) {
+				queryClient.removeQueries({
+					queryKey: spaceFileQueryKeys.content(
+						session.scope.spaceId,
+						localId,
+						1
+					),
+					exact: true,
+				});
 				session.retiredFileIds.add(localId);
 				removeFileDraft(localId, session, "sent");
 				session.activeFileIds.delete(localId);
 				session.sourceFiles.delete(localId);
 				const previewUrl = session.previewUrlsByLocalId.get(localId);
 				if (previewUrl) {
-					URL.revokeObjectURL(previewUrl);
+					spaceFileMediaResources(queryClient).find(previewUrl)?.release();
 					session.previewUrlsByLocalId.delete(localId);
 				}
 			}
@@ -206,22 +232,35 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				current.filter((file) => !publishedLocalIdSet.has(file.localId))
 			);
 		},
-		[updateFiles, session]
+		[queryClient, updateFiles, session]
 	);
 
-	useEffect(
-		() => () => {
-			for (const session of sessions.current.values()) {
-				for (const url of session.previewUrlsByLocalId.values()) {
-					URL.revokeObjectURL(url);
+	const mounted = useRef(false);
+	useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+			// StrictMode replays setup immediately. This is an effect-replay fence,
+			// not a handoff timeout; cache/viewer leases own delivered previews.
+			queueMicrotask(() => {
+				if (mounted.current) {
+					return;
 				}
-			}
-		},
-		[]
-	);
+				for (const session of sessions.current.values()) {
+					for (const url of session.previewUrlsByLocalId.values()) {
+						spaceFileMediaResources(queryClient).find(url)?.release();
+					}
+				}
+			});
+		};
+	}, [queryClient]);
 
 	const removeFile = useCallback(
 		(localId: string) => {
+			queryClient.removeQueries({
+				queryKey: spaceFileQueryKeys.content(session.scope.spaceId, localId, 1),
+				exact: true,
+			});
 			session.retiredFileIds.add(localId);
 			session.uploadControllers.get(localId)?.abort();
 			session.uploadControllers.delete(localId);
@@ -237,14 +276,14 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			session.sourceFiles.delete(localId);
 			const previewUrl = session.previewUrlsByLocalId.get(localId);
 			if (previewUrl) {
-				URL.revokeObjectURL(previewUrl);
+				spaceFileMediaResources(queryClient).find(previewUrl)?.release();
 				session.previewUrlsByLocalId.delete(localId);
 			}
 			updateFiles((current) =>
 				current.filter((currentFile) => currentFile.localId !== localId)
 			);
 		},
-		[updateFiles, session]
+		[queryClient, updateFiles, session]
 	);
 
 	const startOrJoinFilePreparation = useCallback(
@@ -340,9 +379,13 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 					declaredMimeType: file.type,
 					fileName: file.name,
 				});
-				const previewUrl = mimeType.startsWith("image/")
-					? URL.createObjectURL(file)
-					: null;
+				const previewUrl = cacheSpaceComposerMedia({
+					queryClient,
+					bytes: file,
+					mimeType,
+					localId,
+					spaceId: session.scope.spaceId,
+				});
 				session.activeFileIds.add(localId);
 				session.sourceFiles.set(localId, file);
 				if (previewUrl) {
@@ -384,7 +427,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				})
 			);
 		},
-		[updateFiles, session, startOrJoinFilePreparation]
+		[queryClient, updateFiles, session, startOrJoinFilePreparation]
 	);
 
 	const migrationScopesKey = JSON.stringify(input.restoreFromScopes ?? []);
@@ -539,6 +582,17 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				if (!result) {
 					continue;
 				}
+				const bytes = session.sourceFiles.get(result.localId);
+				if (bytes) {
+					seedPublishedSpaceFileMedia({
+						...result.file,
+						bytes,
+						localId: result.localId,
+						previewUrl: result.previewUrl,
+						queryClient,
+						spaceId: session.scope.spaceId,
+					});
+				}
 				messageFiles.push(result.file);
 				publishedLocalIds.push(result.localId);
 				if (result.previewUrl) {
@@ -551,6 +605,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			input.organizationSlug,
 			input.profileId,
 			input.spaceId,
+			queryClient,
 			session,
 			startOrJoinFilePreparation,
 			updateFiles,
@@ -751,6 +806,26 @@ async function preparePendingFile(input: {
 		if (input.file.size > SPACE_FILE_MAX_SIZE_BYTES) {
 			throw new Error(formatSpaceFileSizeLimitError(input.item.fileName));
 		}
+		if (
+			input.item.mimeType.startsWith("image/") &&
+			!input.item.imageDimensions
+		) {
+			const imageDimensions = await readDisplayImageDimensions({
+				size: input.file.size,
+				read: async (offset, length) => {
+					controller.signal.throwIfAborted();
+					return new Uint8Array(
+						await input.file.slice(offset, offset + length).arrayBuffer()
+					);
+				},
+			});
+			if (imageDimensions) {
+				updateFile(input.setFiles, input.item.localId, (current) => ({
+					...current,
+					imageDimensions,
+				}));
+			}
+		}
 		const currentBeforePersistence = input.item;
 		if (currentBeforePersistence.failurePhase !== "persist-upload") {
 			phase = "persist-draft";
@@ -910,7 +985,12 @@ function removeFileDraft(
 
 function toMessageFileReference(descriptor: {
 	id: string;
-	latestRevision: { mimeType: string; revision: number; sizeBytes: number };
+	latestRevision: {
+		mimeType: string;
+		revision: number;
+		sizeBytes: number;
+		imageDimensions?: SpaceFileImageDimensions;
+	};
 	name: string;
 }): SpaceMessageFileReference {
 	return {
@@ -919,6 +999,9 @@ function toMessageFileReference(descriptor: {
 		name: descriptor.name,
 		revision: descriptor.latestRevision.revision,
 		sizeBytes: descriptor.latestRevision.sizeBytes,
+		...(descriptor.latestRevision.imageDimensions
+			? { imageDimensions: descriptor.latestRevision.imageDimensions }
+			: {}),
 	};
 }
 
@@ -1065,6 +1148,15 @@ function resolveUploadFailure(error: unknown): {
 	if (failure.code === "space_file.too_large") {
 		return {
 			message: formatSpaceFileSizeLimitError(),
+			requestId: failure.requestId,
+		};
+	}
+	if (
+		failure.code === "network.request_failed" ||
+		failure.code === "network.timeout"
+	) {
+		return {
+			message: "Couldn't connect. Check your connection and try again.",
 			requestId: failure.requestId,
 		};
 	}

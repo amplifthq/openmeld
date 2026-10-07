@@ -1,9 +1,9 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { remoteAgentWorkerCancellationResponseSchema } from "@openmeld/schemas";
 import type { CoreBindings } from "../lib/bindings";
-import { listActiveCenterAgentNativeDeliveryCancellationTargets } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-
+import { listActiveCenterAgentNativeDeliveryCancellationTargets } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 export async function pauseActiveCenterAgentNativeDeliveries(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   organizationId: string;
   profileId: string;

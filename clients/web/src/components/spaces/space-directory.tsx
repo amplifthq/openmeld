@@ -1,3 +1,4 @@
+import { normalizeMessagePreview } from "@openmeld/protocol";
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
@@ -23,8 +24,11 @@ import {
 	TableRow,
 } from "@openmeld/ui/components/table";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
+import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
@@ -32,7 +36,13 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useDeferredValue, useLayoutEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useDeferredValue,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { buildProfilePath } from "#/lib/profile-routes";
@@ -43,6 +53,10 @@ import { DirectoryRowActions } from "../app/directory-row-actions";
 import { DirectorySearch } from "../app/directory-search";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
+import {
+	DirectoryCardGrid,
+	DirectoryCardItem,
+} from "../directory/directory-card-grid";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -56,11 +70,14 @@ import { SpaceAgentOrb } from "./space-agent-orb";
 import { spaceDirectoryGroups } from "./space-directory-groups";
 import { SpaceDirectoryPreview } from "./space-directory-preview";
 import { SpaceDirectorySummary } from "./space-directory-summary";
+import { SpaceLayoutSwitch, useSpaceLayout } from "./space-layout-switch";
 import {
 	resolveSpaceMemberAppearances,
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
+import { SpaceUnreadLink } from "./space-unread-link";
+import { useMessagePreviews } from "./use-message-previews";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 import { WelcomeSpaceLabel } from "./welcome-space-guide";
@@ -82,7 +99,12 @@ export function SpaceDirectory(input: {
 	savedViewWarning: { isRetrying: boolean; onRetry: () => void } | null;
 }) {
 	const { currentOrganization } = useAppOrganization();
-	const sidebar = useSidebarPreferences(
+	const { layout, setLayout } = useSpaceLayout(
+		input.profileId,
+		currentOrganization.id
+	);
+	const sidebar = useSidebarPreferences(currentOrganization.id);
+	const { showMessagePreviews } = useMessagePreviews(
 		input.profileId,
 		currentOrganization.id
 	);
@@ -231,8 +253,11 @@ export function SpaceDirectory(input: {
 			id={`spaces-directory-panel-${input.tab === 1 ? 2 : 0}`}
 			role="tabpanel"
 		>
-			<div className="flex h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)]">
-				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
+			<div className="flex min-h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)] py-3">
+				<div className="flex min-h-10 min-w-0 flex-wrap items-center justify-end gap-1">
+					{!discovering && (
+						<SpaceLayoutSwitch layout={layout} setLayout={setLayout} />
+					)}
 					<DirectorySearch
 						label="Search Spaces"
 						onChange={(next) =>
@@ -379,23 +404,25 @@ export function SpaceDirectory(input: {
 											: undefined
 									}
 								>
-									<Table className="w-full table-fixed">
-										<TableHeader>
-											<TableRow>
-												<TableHead className="w-auto">Space</TableHead>
-												<TableHead className="hidden w-48 lg:table-cell">
-													Status
-												</TableHead>
-												<TableHead className="hidden w-28 md:table-cell">
-													Members
-												</TableHead>
-												<TableHead className="w-28">Activity</TableHead>
-												<TableHead className="w-20">
-													<span className="sr-only">Actions</span>
-												</TableHead>
-											</TableRow>
-										</TableHeader>
-										<TableBody>
+									<DirectoryGroupLayout label={group.label} layout={layout}>
+										{layout === "table" && (
+											<TableHeader>
+												<TableRow>
+													<TableHead className="w-auto">Space</TableHead>
+													<TableHead className="hidden w-48 lg:table-cell">
+														Status
+													</TableHead>
+													<TableHead className="hidden w-28 md:table-cell">
+														Members
+													</TableHead>
+													<TableHead className="w-28">Activity</TableHead>
+													<TableHead className="w-20">
+														<span className="sr-only">Actions</span>
+													</TableHead>
+												</TableRow>
+											</TableHeader>
+										)}
+										<DirectoryGroupItems layout={layout}>
 											{group.items.map((item, index) => (
 												<JoinedRow
 													appearances={appearances}
@@ -404,9 +431,11 @@ export function SpaceDirectory(input: {
 													input={input}
 													item={item}
 													key={item.spaceId}
+													layout={layout}
 													preferences={preferences}
 													preview={previews.get(item.spaceId)}
 													save={sidebar.save}
+													showMessagePreviews={showMessagePreviews}
 													summary={indicators.activeWakeSummaryBySpaceId.get(
 														item.spaceId
 													)}
@@ -420,13 +449,14 @@ export function SpaceDirectory(input: {
 												<UnindexedJoinedRow
 													index={group.items.length + index}
 													key={space.spaceId}
+													layout={layout}
 													orgSlug={input.orgSlug}
 													profileId={input.profileId}
 													space={space}
 												/>
 											))}
-										</TableBody>
-									</Table>
+										</DirectoryGroupItems>
+									</DirectoryGroupLayout>
 									{group.items.length + group.unindexed.length === 0 && (
 										<p className="px-3 py-6 text-muted-foreground text-sm">
 											{searchTerm ||
@@ -514,22 +544,82 @@ function DirectoryGroupActions({
 	);
 }
 
+type DirectoryLayout = "cards" | "table";
+
+function DirectoryGroupLayout(input: {
+	layout: DirectoryLayout;
+	label: string;
+	children: ReactNode;
+}) {
+	return input.layout === "table" ? (
+		<Table className="w-full table-fixed">{input.children}</Table>
+	) : (
+		<DirectoryCardGrid
+			aria-label={input.label === "Spaces" ? "Spaces" : `${input.label} Spaces`}
+			className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] px-2 lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
+		>
+			{input.children}
+		</DirectoryCardGrid>
+	);
+}
+
+function DirectoryGroupItems(input: {
+	layout: DirectoryLayout;
+	children: ReactNode;
+}) {
+	return input.layout === "table" ? (
+		<TableBody>{input.children}</TableBody>
+	) : (
+		input.children
+	);
+}
+
 function UnindexedJoinedRow(input: {
+	layout: DirectoryLayout;
 	space: DirectorySpace;
 	index: number;
 	orgSlug: string;
 	profileId: string;
 }) {
+	if (input.layout === "cards") {
+		return (
+			<DirectoryCardItem
+				className="border border-border"
+				itemId={input.space.spaceId}
+			>
+				<Link
+					aria-label={`Open ${input.space.name}`}
+					className="flex min-h-52 flex-col justify-end gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					search={{ profileId: input.profileId }}
+					to={buildOrganizationSpacePath({
+						orgSlug: input.orgSlug,
+						spaceId: input.space.spaceId,
+					})}
+				>
+					<UsersThreeIcon className="mb-auto size-10 text-muted-foreground" />
+					<span className="line-clamp-2 font-medium text-sm">
+						{input.space.name}{" "}
+						<WelcomeSpaceLabel spaceId={input.space.spaceId} />
+					</span>
+					<span className="text-muted-foreground text-xs">
+						{input.space.activeMemberCount === null
+							? "Member count unavailable"
+							: `${input.space.activeMemberCount} members`}
+					</span>
+				</Link>
+			</DirectoryCardItem>
+		);
+	}
 	return (
 		<TableRow className="border-0" index={input.index}>
 			<TableCell className="py-4">
 				<Link
 					aria-label={`Open ${input.space.name}`}
 					className="flex items-center gap-2 font-medium text-sm"
+					search={{ profileId: input.profileId }}
 					to={buildOrganizationSpacePath({
 						orgSlug: input.orgSlug,
 						spaceId: input.space.spaceId,
-						search: { profileId: input.profileId },
 					})}
 				>
 					<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -549,6 +639,8 @@ function UnindexedJoinedRow(input: {
 
 type DirectoryInput = React.ComponentProps<typeof SpaceDirectory>;
 function JoinedRow(input: {
+	showMessagePreviews: boolean;
+	layout: DirectoryLayout;
 	item: AccountSpaceItem;
 	index: number;
 	preview: { text: string; timestamp: number } | null | undefined;
@@ -561,11 +653,13 @@ function JoinedRow(input: {
 	disabled: boolean;
 }) {
 	const item = input.item;
-	const href = buildOrganizationSpacePath({
-		orgSlug: input.input.orgSlug,
-		spaceId: item.spaceId,
+	const route = {
+		to: buildOrganizationSpacePath({
+			orgSlug: input.input.orgSlug,
+			spaceId: item.spaceId,
+		}),
 		search: { profileId: item.openProfileId },
-	});
+	};
 	const status = input.summary
 		? resolveSpaceActiveWakePresentation(input.summary)
 		: null;
@@ -573,9 +667,100 @@ function JoinedRow(input: {
 		input.preview?.timestamp,
 		item.spaceCreatedAt
 	);
+	const actions = <JoinedSpaceActions {...input} />;
+	const messagePreviews =
+		item.recentMessagePreviews ??
+		(item.messagePreview
+			? [
+					{
+						...item.messagePreview,
+						text: normalizeMessagePreview(item.messagePreview.text),
+					},
+				]
+			: []);
+	if (input.layout === "cards") {
+		return (
+			<DirectoryCardItem className="border border-border" itemId={item.spaceId}>
+				<FluidContextMenuScope
+					target={
+						<div
+							className="@container/space-card group/directory-row relative flex h-full min-w-0 flex-col gap-3 rounded-md p-4"
+							data-space-id={item.spaceId}
+						>
+							<div className="pointer-events-none absolute top-2 right-2 z-20 [&_button]:pointer-events-auto">
+								{actions}
+							</div>
+							<div className="pointer-events-none relative z-10 w-fit">
+								<MemberPreview
+									appearances={input.appearances}
+									item={item}
+									layout="card"
+									orgSlug={input.input.orgSlug}
+								/>
+							</div>
+							<div className="flex min-w-0 items-center gap-2">
+								<Link
+									aria-label={`Open ${item.spaceName}`}
+									className="block min-w-0 flex-1 outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring"
+									{...route}
+								>
+									<SpaceDirectorySummary
+										item={item}
+										layout="card"
+										preview={input.preview}
+										unread={input.unread > 0}
+									/>
+								</Link>
+								{input.unread > 0 && (
+									<span className="relative z-10 flex shrink-0 items-center">
+										<SpaceUnreadLink
+											count={input.unread}
+											showCount
+											spaceId={item.spaceId}
+											url={`${route.to}?${new URLSearchParams(route.search)}`}
+										/>
+									</span>
+								)}
+							</div>
+							{status && (
+								<div className="relative z-10">
+									<RowStatus
+										route={route}
+										spaceId={item.spaceId}
+										status={status}
+										unread={0}
+									/>
+								</div>
+							)}
+							{input.showMessagePreviews && messagePreviews.length > 0 && (
+								<div className="relative z-10 flex min-w-0 flex-col gap-1">
+									{messagePreviews.slice(0, 1).map((message) => (
+										<TooltipHint content={message.text} key={message.signalId}>
+											<Link
+												aria-label={`Preview message in ${item.spaceName}: ${message.text}`}
+												className="block truncate rounded-sm text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+												search={{
+													...route.search,
+													focusSignalId: message.signalId,
+												}}
+												to={route.to}
+											>
+												{message.text}
+											</Link>
+										</TooltipHint>
+									))}
+								</div>
+							)}
+						</div>
+					}
+				/>
+			</DirectoryCardItem>
+		);
+	}
 	return (
 		<TableRow
 			className="group/directory-row border-0"
+			contextMenu
 			data-space-id={item.spaceId}
 			index={input.index}
 		>
@@ -583,7 +768,7 @@ function JoinedRow(input: {
 				<Link
 					aria-label={`Open ${item.spaceName}`}
 					className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					to={href}
+					{...route}
 				>
 					<SpaceDirectorySummary
 						item={item}
@@ -592,11 +777,21 @@ function JoinedRow(input: {
 					/>
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
-					<RowStatus href={href} status={status} unread={input.unread} />
+					<RowStatus
+						route={route}
+						spaceId={item.spaceId}
+						status={status}
+						unread={input.unread}
+					/>
 				</div>
 			</TableCell>
 			<TableCell className="hidden lg:table-cell">
-				<RowStatus href={href} status={status} unread={input.unread} />
+				<RowStatus
+					route={route}
+					spaceId={item.spaceId}
+					status={status}
+					unread={input.unread}
+				/>
 			</TableCell>
 			<TableCell className="hidden md:table-cell">
 				<MemberPreview
@@ -610,58 +805,69 @@ function JoinedRow(input: {
 					<SidebarConversationTime timestamp={timestamp} />
 				)}
 			</TableCell>
-			<TableCell>
-				<DirectoryRowActions
-					disabled={input.disabled || input.input.pinActionsPending}
-					groupId={
-						input.preferences?.groups.find((group) =>
-							group.spaceIds.includes(item.spaceId)
-						)?.id ?? "spaces"
-					}
-					groups={[
-						{ id: "spaces", name: "Spaces" },
-						...(input.preferences?.groups ?? []),
-					]}
-					moveDisabledReason={
-						item.pinnedAt !== null
-							? "Unpin this Space to move it to a group."
-							: undefined
-					}
-					name={item.spaceName}
-					onMove={(groupId) => {
-						const preferences = input.preferences;
-						if (!preferences) {
-							return;
-						}
-						input.save({
-							...preferences,
-							groups: preferences.groups.map((entry) => ({
-								...entry,
-								spaceIds: [
-									...entry.spaceIds.filter((id) => id !== item.spaceId),
-									...(entry.id === groupId ? [item.spaceId] : []),
-								],
-							})),
-						});
-					}}
-					onTogglePinned={() => input.input.onTogglePinned(item)}
-					pinned={item.pinnedAt !== null}
-				/>
-			</TableCell>
+			<TableCell>{actions}</TableCell>
 		</TableRow>
 	);
 }
 
+function JoinedSpaceActions(input: React.ComponentProps<typeof JoinedRow>) {
+	const item = input.item;
+	const url = buildOrganizationSpacePath({
+		orgSlug: input.input.orgSlug,
+		spaceId: item.spaceId,
+	});
+	return (
+		<DirectoryRowActions
+			disabled={input.disabled || input.input.pinActionsPending}
+			groupId={
+				input.preferences?.groups.find((group) =>
+					group.spaceIds.includes(item.spaceId)
+				)?.id ?? "spaces"
+			}
+			groups={[
+				{ id: "spaces", name: "Spaces" },
+				...(input.preferences?.groups ?? []),
+			]}
+			href={`${url}?profileId=${encodeURIComponent(item.openProfileId)}`}
+			moveDisabledReason={
+				item.pinnedAt !== null
+					? "Unpin this Space to move it to a group."
+					: undefined
+			}
+			name={item.spaceName}
+			onMove={(groupId) => {
+				const preferences = input.preferences;
+				if (!preferences) {
+					return;
+				}
+				input.save({
+					...preferences,
+					groups: preferences.groups.map((entry) => ({
+						...entry,
+						spaceIds: [
+							...entry.spaceIds.filter((id) => id !== item.spaceId),
+							...(entry.id === groupId ? [item.spaceId] : []),
+						],
+					})),
+				});
+			}}
+			onTogglePinned={() => input.input.onTogglePinned(item)}
+			pinned={item.pinnedAt !== null}
+		/>
+	);
+}
+
 function RowStatus(input: {
+	spaceId: string;
 	status: ReturnType<typeof resolveSpaceActiveWakePresentation> | null;
 	unread: number;
-	href: string;
+	route: { to: string; search: { profileId: string } };
 }) {
 	return (
 		<div className="flex flex-col gap-1 text-xs">
 			{input.status && (
 				<TooltipHint content={input.status.label}>
-					<Link className="flex items-center gap-2" to={input.href}>
+					<Link className="flex items-center gap-2" {...input.route}>
 						{input.status.orbState && (
 							<SpaceAgentOrb state={input.status.orbState} />
 						)}
@@ -671,7 +877,11 @@ function RowStatus(input: {
 			)}
 			{input.unread > 0 && (
 				<span className="flex items-center gap-2 text-muted-foreground">
-					<span className="status-dot bg-unread" />
+					<SpaceUnreadLink
+						count={input.unread}
+						spaceId={input.spaceId}
+						url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
+					/>
 					{input.unread} unread
 				</span>
 			)}
@@ -680,63 +890,118 @@ function RowStatus(input: {
 }
 
 function MemberPreview(input: {
+	layout?: "card";
 	item: AccountSpaceItem;
 	appearances: ReadonlyMap<string, SpaceMemberAppearance>;
 	orgSlug: string;
 }) {
+	const triggerProps = {
+		"aria-label": `Preview members of ${input.item.spaceName}`,
+		"aria-description":
+			input.item.activeMemberCount === null
+				? undefined
+				: `${input.item.activeMemberCount} members`,
+	};
 	return (
 		<Popover>
 			<PopoverTrigger
 				delay={250}
 				openOnHover
 				render={
-					<Button
-						aria-label={`Preview members of ${input.item.spaceName}`}
-						className="max-w-full gap-1 px-0"
-						size="sm"
-						variant="ghost"
-					/>
+					input.layout === "card" ? (
+						<button
+							{...triggerProps}
+							className="pointer-events-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring [&_[data-slot=space-member-avatar]]:pointer-events-auto"
+							type="button"
+						/>
+					) : (
+						<Button
+							{...triggerProps}
+							className="max-w-full gap-1 px-0"
+							size="sm"
+							variant="ghost"
+						/>
+					)
 				}
 			>
 				{input.item.memberPreviews?.length ? (
 					<SpaceMemberAvatars
 						appearances={input.appearances}
-						layout="horizontal"
+						layout={input.layout === "card" ? "grid" : "horizontal"}
+						memberCount={input.item.activeMemberCount}
 						members={input.item.memberPreviews}
 					/>
 				) : (
-					<UsersThreeIcon />
+					<span
+						className={
+							input.layout === "card"
+								? "grid size-24 place-items-center text-muted-foreground"
+								: undefined
+						}
+					>
+						<UsersThreeIcon
+							className={input.layout === "card" ? "size-10" : undefined}
+						/>
+					</span>
 				)}
 			</PopoverTrigger>
-			<PopoverContent className="w-64 rounded-lg" side="top">
-				<p className="px-2 font-medium">
-					Members {input.item.activeMemberCount ?? ""}
-				</p>
-				{input.item.memberPreviews?.map((member) => (
-					<Link
-						className="flex items-center gap-3 rounded-md p-2 hover:bg-accent"
-						key={member.profileId}
-						to={buildProfilePath({
-							orgSlug: input.orgSlug,
-							profileId: member.profileId,
-							profileKind: member.profileKind,
-						})}
+			<PopoverContent align="start" className="w-64 rounded-lg" side="top">
+				<div className="flex items-center justify-between gap-2 px-2">
+					<p className="font-medium">
+						Members {input.item.activeMemberCount ?? ""}
+					</p>
+					<Button
+						render={
+							<Link
+								search={{ profileId: input.item.openProfileId }}
+								to={buildOrganizationSpacePath({
+									orgSlug: input.orgSlug,
+									spaceId: input.item.spaceId,
+								})}
+							/>
+						}
+						size="xs"
+						variant="default"
 					>
-						<SpaceMemberAvatars
-							appearances={input.appearances}
-							members={[member]}
-						/>
-						<span className="min-w-0 truncate">{member.profileName}</span>
-					</Link>
-				))}
+						Open Space
+					</Button>
+				</div>
+				<FluidNavMenu activeValue={null} aria-label="Space members">
+					{input.item.memberPreviews?.map((member, index) => (
+						<FluidNavMenuItem
+							index={index}
+							key={member.profileId}
+							value={member.profileId}
+						>
+							<SidebarMenuButton
+								className="h-auto gap-3 p-2 text-xs"
+								render={
+									<Link
+										to={buildProfilePath({
+											orgSlug: input.orgSlug,
+											profileId: member.profileId,
+											profileKind: member.profileKind,
+										})}
+									/>
+								}
+							>
+								<SpaceMemberAvatars
+									appearances={input.appearances}
+									members={[member]}
+								/>
+								<span className="min-w-0 truncate">{member.profileName}</span>
+							</SidebarMenuButton>
+						</FluidNavMenuItem>
+					))}
+				</FluidNavMenu>
 				{(input.item.activeMemberCount ?? 0) >
 					(input.item.memberPreviews?.length ?? 0) && (
 					<Link
 						className="p-2 text-muted-foreground"
+						search={{ profileId: input.item.openProfileId }}
 						to={buildOrganizationSpacePath({
 							orgSlug: input.orgSlug,
 							spaceId: input.item.spaceId,
-							search: { profileId: input.item.openProfileId },
 						})}
 					>
 						Open Space to see all {input.item.activeMemberCount} members

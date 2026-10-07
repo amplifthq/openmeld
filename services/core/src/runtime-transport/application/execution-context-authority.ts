@@ -187,6 +187,7 @@ type AssignmentPlan = {
 type AssignmentInput = {
   legacyAssociation?: LegacyContextAssociation;
   contextModeActive?: boolean;
+  startIndependentClaudeContext?: boolean;
   record: RuntimeCoordinatorHeadLifecycleRecord;
   storage: Storage;
   authorizedContinuationSourceWakeId?: string;
@@ -359,7 +360,8 @@ export async function prepareExecutionContextAssignment(
     !source &&
     implicitRequest &&
     request.scope.threadId === null &&
-    !input.contextModeActive
+    !input.contextModeActive &&
+    !input.startIndependentClaudeContext
   ) {
     return { record: input.record, writes: {} };
   }
@@ -640,15 +642,35 @@ function createContext(
   source: ContextSource | null
 ): ContextRecord {
   const selection = request.selection;
+  const inheritsAgentSettings =
+    (snapshot.controllerSnapshot.agentControllerRef === "builtin:codex" ||
+      snapshot.controllerSnapshot.agentControllerRef ===
+        "builtin:claude-code") &&
+    selection.mode !== "resume" &&
+    !selection.access &&
+    (selection.mode === "new" ||
+      !source ||
+      source.context.assignment.permissionSource === "agent_settings");
+  const implicitPreferences =
+    inheritsAgentSettings ||
+    (selection.mode === "auto" &&
+      !source &&
+      snapshot.controllerSnapshot.agentControllerRef === "builtin:codex")
+      ? ({ access: "workspace", workspace: "current" } as const)
+      : {};
   const preferences: Partial<
     Pick<ExecutionContextAssignment, "access" | "workspace">
-  > = selection.mode === "resume" ? {} : selection;
+  > =
+    selection.mode === "resume" ? {} : { ...implicitPreferences, ...selection };
   const forkSource = forkCheckpoint(request, source);
   return {
     assignment: {
       version: 1,
       id: crypto.randomUUID(),
       scope: request.scope,
+      ...(inheritsAgentSettings
+        ? { permissionSource: "agent_settings" as const }
+        : {}),
       access:
         preferences.access ??
         source?.context.assignment.access ??
@@ -671,7 +693,8 @@ function supportsContextAccess(
 ): boolean {
   return (
     agentControllerRef === "builtin:codex" ||
-    (agentControllerRef === "builtin:claude-code" && access === "space_context")
+    (agentControllerRef === "builtin:claude-code" &&
+      (access === "space_context" || access === "workspace"))
   );
 }
 
@@ -692,6 +715,16 @@ function assertContextPreferences(
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.space_context_requires_isolated_workspace"
+    );
+  }
+  if (
+    context.agentControllerRef === "builtin:claude-code" &&
+    assignment.permissionSource !== "agent_settings" &&
+    assignment.access === "workspace" &&
+    assignment.workspace !== "isolated"
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.claude_project_requires_isolated_workspace"
     );
   }
   const selection = request.selection;

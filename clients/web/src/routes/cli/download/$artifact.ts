@@ -7,9 +7,13 @@ import {
 
 async function downloadCliBinaryArtifact(input: {
 	artifactName: string;
+	channel: "stable" | "windows-preview";
 	includeBody: boolean;
 }): Promise<Response> {
-	const objectKey = resolveCliBinaryArtifactObjectKey(input.artifactName);
+	const objectKey = resolveCliBinaryArtifactObjectKey(
+		input.artifactName,
+		input.channel
+	);
 	if (!objectKey) {
 		return new Response("OpenMeld CLI binary artifact name is invalid.", {
 			headers: {
@@ -56,14 +60,24 @@ async function downloadCliBinaryArtifact(input: {
 export const Route = createFileRoute("/cli/download/$artifact")({
 	server: {
 		handlers: {
-			GET: ({ params }) =>
+			GET: ({ params, request }) =>
 				downloadCliBinaryArtifact({
 					artifactName: params.artifact,
+					channel:
+						new URL(request.url).searchParams.get("channel") ===
+						"windows-preview"
+							? "windows-preview"
+							: "stable",
 					includeBody: true,
 				}),
-			HEAD: ({ params }) =>
+			HEAD: ({ params, request }) =>
 				downloadCliBinaryArtifact({
 					artifactName: params.artifact,
+					channel:
+						new URL(request.url).searchParams.get("channel") ===
+						"windows-preview"
+							? "windows-preview"
+							: "stable",
 					includeBody: false,
 				}),
 		},

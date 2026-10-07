@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   INBOX_CONTEXT_LABEL_MAX_CHARS,
   INBOX_PREVIEW_MAX_CHARS,
@@ -15,7 +16,6 @@ import {
 
 const RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND =
   "runtime_coordinator_interaction" as const;
-
 type RuntimeCoordinatorInteractionInboxSource = {
   interaction: Pick<
     AgentInteractionRequest,
@@ -32,12 +32,11 @@ type RuntimeCoordinatorInteractionInboxSource = {
    */
   threadRootSignalId?: string | null;
 };
-
 export async function projectRuntimeCoordinatorInteractionInboxItem(
   input: RuntimeCoordinatorInteractionInboxSource & {
-    inboxDb: D1Database;
+    inboxDb: PostgresDatabase;
     nowMs: number;
-    spaceIndexDb: D1Database;
+    spaceIndexDb: PostgresDatabase;
   }
 ): Promise<void> {
   const target = await readSpaceIndexOrganizationJoinTarget({
@@ -66,13 +65,14 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     targetProfileName: input.targetProfileName,
   });
   await ensureInboxItem({
+    allowLegacySourceClassificationRepair: true,
     candidate: {
       attention: "action_required",
       contextLabel: truncateInboxText(
         input.targetProfileName,
         INBOX_CONTEXT_LABEL_MAX_CHARS
       ),
-      importance: "urgent",
+      importance: "normal",
       kind: "agent_interaction",
       occurredAtMs: input.interaction.requestedAtMs,
       organizationId: target.organizationId,
@@ -80,6 +80,12 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
       recipientUserId: input.ownerUserId,
       sourceKey: await buildRuntimeCoordinatorInteractionInboxSourceKey(input),
       sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
+      sourceFacts: {
+        version: 1,
+        recipientReasons: ["requester"],
+        requestCategory:
+          input.interaction.kind === "question" ? "action" : "review",
+      },
       sourceTarget: {
         interactionId: input.interaction.interactionId,
         kind: "agent_interaction",
@@ -96,15 +102,14 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     nowMs: input.nowMs,
   });
 }
-
 export async function resolveRuntimeCoordinatorInteractionInboxItem(
   input: Pick<
     RuntimeCoordinatorInteractionInboxSource,
     "interaction" | "runtimeCoordinatorExecutionId" | "spaceId"
   > & {
-    inboxDb: D1Database;
+    inboxDb: PostgresDatabase;
     resolvedAtMs: number;
-    spaceIndexDb: D1Database;
+    spaceIndexDb: PostgresDatabase;
   }
 ): Promise<void> {
   const target = await readSpaceIndexOrganizationJoinTarget({
@@ -122,11 +127,13 @@ export async function resolveRuntimeCoordinatorInteractionInboxItem(
     sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
   });
 }
-
 function resolveInteractionPresentation(input: {
   kind: AgentInteractionRequest["kind"];
   targetProfileName: string;
-}): { preview: string; title: string } {
+}): {
+  preview: string;
+  title: string;
+} {
   switch (input.kind) {
     case "permission":
       return {
@@ -147,7 +154,6 @@ function resolveInteractionPresentation(input: {
       return assertNeverInteractionKind(input.kind);
   }
 }
-
 async function buildRuntimeCoordinatorInteractionInboxSourceKey(
   input: Pick<
     RuntimeCoordinatorInteractionInboxSource,
@@ -166,7 +172,6 @@ async function buildRuntimeCoordinatorInteractionInboxSourceKey(
   ).join("");
   return `runtime_interaction_${hex}`;
 }
-
 function assertNeverInteractionKind(value: never): never {
   throw new TypeError(`Unsupported Agent Interaction kind: ${String(value)}`);
 }

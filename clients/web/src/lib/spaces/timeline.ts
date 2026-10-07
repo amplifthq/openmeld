@@ -112,9 +112,11 @@ export type SpaceTimelineItem = {
 		toolParts?: readonly AgentStreamToolPart[];
 		thinking?: string;
 		thinkingActive?: boolean;
+		progress?: string;
 		reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
 	};
 	agentActivity?: SpaceAgentActivity;
+	agentPublicProgress?: string;
 };
 
 export type SpaceTimelineAttachment = SpaceMessageAttachment & {
@@ -305,6 +307,11 @@ export function buildSpaceTimelineItems(input: {
 								thinkingActive: stream.thinkingActive,
 							}
 						: {}),
+					...(stream.status === "streaming" && stream.progress
+						? {
+								progress: stream.progress,
+							}
+						: {}),
 				},
 				isAgentFinalReply: true,
 				text: stream.text,
@@ -377,9 +384,27 @@ function buildSpaceTimelineItem(input: {
 		membersSnapshot: input.membersSnapshot,
 		signalIndex: input.signalIndex,
 	});
+	const stoppedProfileId =
+		input.signal.type === "signal.system_notice" &&
+		input.signal.data.noticeType === "wake_stopped"
+			? input.signal.data.actorProfileId
+			: undefined;
+	const actorSignal = stoppedProfileId
+		? {
+				...input.signal,
+				profile: {
+					kind: "agent" as const,
+					profileId: stoppedProfileId,
+					profileName:
+						input.signal.type === "signal.system_notice"
+							? input.signal.data.actorName
+							: undefined,
+				},
+			}
+		: input.signal;
 	const actor = resolveActorPresentation({
 		membersSnapshot: input.membersSnapshot,
-		signal: input.signal,
+		signal: actorSignal,
 		targetCatalog: input.targetCatalog,
 	});
 	const agentReplyDetails = readAgentFinalReplyDetails(input.signal);
@@ -420,13 +445,18 @@ function buildSpaceTimelineItem(input: {
 		actorOwnerDisplay: actor.ownerDisplay,
 		actorOwnerName: actor.ownerName,
 		actorOwnerUserId: actor.ownerUserId,
-		actorProfileId: input.signal.profile.profileId,
-		actorProfileKind: input.signal.profile.kind,
+		actorProfileId: actorSignal.profile.profileId,
+		actorProfileKind: actorSignal.profile.kind,
 		actorProfileName: actor.profileName,
 		actorRuntimeDeviceDisplayName: actor.runtimeDeviceDisplayName,
 		agentControllerConversationId:
 			agentReplyDetails.agentControllerConversationId,
 		agentActivity: readAgentActivity(input.signal),
+		agentPublicProgress:
+			input.signal.type === "signal.text" &&
+			isAgentFinalReplySignal(input.signal)
+				? input.signal.data.meta?.agentPublicProgress
+				: undefined,
 		agentWorkspace: agentReplyDetails.agentWorkspace,
 		clientMessageId: readClientMessageId(input.signal),
 		centerAgentInteractionSource:
@@ -451,7 +481,12 @@ function buildSpaceTimelineItem(input: {
 		systemNoticeType: readSystemNoticeType(input.signal),
 		systemNoticeTargetProfileId: readSystemNoticeTargetProfileId(input.signal),
 		transientActivityPurpose: readTransientActivityPurpose(input.signal),
-		text: projection.text,
+		text:
+			input.signal.type === "signal.system_notice" &&
+			input.signal.data.noticeType === "wake_stopped" &&
+			actorSignal.profile.kind === "agent"
+				? (input.signal.stoppedReplyText ?? "")
+				: projection.text,
 		...readSourceMessageAddressingDetails(input.signal),
 		...readLegacyEmptyReplyFailure(input.signal),
 	};
@@ -548,13 +583,13 @@ function readTimelineFiles(input: {
 	if (input.signal.type !== "signal.text") {
 		return [];
 	}
-	const isPending = input.signal.id.startsWith("pending:");
+	const isLocalSubmission =
+		input.signal.id.startsWith("pending:") ||
+		input.signal.id.startsWith("failed:");
 	return (input.signal.data.files ?? []).map((file) => ({
 		...file,
-		isLocal:
-			file.fileId.startsWith("composer-file:") &&
-			(isPending || input.signal.id.startsWith("failed:")),
-		localPreviewUrl: isPending
+		isLocal: file.fileId.startsWith("composer-file:") && isLocalSubmission,
+		localPreviewUrl: isLocalSubmission
 			? (input.pendingFilePreviewUrlsById?.get(file.fileId) ?? null)
 			: null,
 	}));
@@ -635,6 +670,17 @@ export function isSpaceTimelineCatchUpAnchorSignal(
 // a request-level outcome the outcome row / anchoring model covers -- they
 // keep the plain system-event marker treatment.
 const OUTCOME_NOTICE_TYPES = new Set(["terminal_failure", "wake_stopped"]);
+
+export function isStoppedSpaceReply(
+	item: Partial<
+		Pick<SpaceTimelineItem, "systemNoticeType" | "agentStreamState">
+	>
+): boolean {
+	return (
+		item.systemNoticeType === "wake_stopped" ||
+		item.agentStreamState?.status === "stopped"
+	);
+}
 
 export function isSpaceOutcomeNoticeItem(item: SpaceTimelineItem): boolean {
 	return (
@@ -855,7 +901,19 @@ function isAgentFinalReplySignal(
 export function resolveSpaceConversationItemKey(
 	item: SpaceTimelineItem
 ): string {
-	return item.wakeDispatchId ? `wake-answer:${item.wakeDispatchId}` : item.id;
+	if (item.wakeDispatchId) {
+		return `wake-answer:${item.wakeDispatchId}`;
+	}
+	// Presentation identity survives pending, failed, retried, and accepted
+	// deliveries. The canonical signal id still owns every message action.
+	return item.clientMessageId
+		? JSON.stringify([
+				"message",
+				item.spaceId,
+				item.actorProfileId,
+				item.clientMessageId,
+			])
+		: item.id;
 }
 
 function readFinalizedAgentDispatchId(signal: SignalEnvelope): string | null {
@@ -901,6 +959,10 @@ function compareSignalEnvelopeOrder(
 	left: SignalEnvelope,
 	right: SignalEnvelope
 ): number {
+	const localOrder = compareLocalSubmissionOrder(left.id, right.id);
+	if (localOrder !== 0) {
+		return localOrder;
+	}
 	if (left.ts !== right.ts) {
 		return left.ts - right.ts;
 	}
@@ -911,10 +973,22 @@ function compareSpaceTimelineItemOrder(
 	left: SpaceTimelineItem,
 	right: SpaceTimelineItem
 ): number {
+	const localOrder = compareLocalSubmissionOrder(left.id, right.id);
+	if (localOrder !== 0) {
+		return localOrder;
+	}
 	if (left.createdAtMs !== right.createdAtMs) {
 		return left.createdAtMs - right.createdAtMs;
 	}
 	return left.id.localeCompare(right.id);
+}
+
+function compareLocalSubmissionOrder(leftId: string, rightId: string): number {
+	const leftLocal =
+		leftId.startsWith("pending:") || leftId.startsWith("failed:");
+	const rightLocal =
+		rightId.startsWith("pending:") || rightId.startsWith("failed:");
+	return Number(leftLocal) - Number(rightLocal);
 }
 
 function resolveActorName(

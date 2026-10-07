@@ -9,22 +9,51 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import { SpaceInvitationForm } from "./space-invitations-section";
 
-export function SpaceGuestAccessSection({
-	spaceId,
-	openMeldProfileId,
-	submitButtonTarget,
-}: {
+type SpaceGuestAccessSectionProps = {
 	spaceId: string;
 	openMeldProfileId?: string;
 	submitButtonTarget?: HTMLElement | null;
-}) {
+	disabled?: boolean;
+};
+
+export function SpaceGuestAccessSection(props: SpaceGuestAccessSectionProps) {
+	const scope = useOptionalAppOrganization();
+	return (
+		<ScopedSpaceGuestAccessSection
+			{...props}
+			key={JSON.stringify([
+				scope?.currentUserId,
+				scope?.currentOrganization.id,
+				props.spaceId,
+				props.openMeldProfileId,
+			])}
+		/>
+	);
+}
+
+function ScopedSpaceGuestAccessSection({
+	spaceId,
+	openMeldProfileId,
+	submitButtonTarget,
+	disabled = false,
+}: SpaceGuestAccessSectionProps) {
 	const [confirm, setConfirm] = useState(false);
 	const pendingInvitationRef = useRef<(() => void) | null>(null);
+	useEffect(() => {
+		if (disabled) {
+			pendingInvitationRef.current = null;
+			setConfirm(false);
+		}
+		return () => {
+			pendingInvitationRef.current = null;
+		};
+	}, [disabled]);
 	const client = useQueryClient();
 	const status = useQuery(
 		spaceStatusQueryOptions({ spaceId, openMeldProfileId, enabled: true })
@@ -46,8 +75,10 @@ export function SpaceGuestAccessSection({
 	return (
 		<section className="grid gap-2">
 			<GuestInvitationEntry
+				disabled={disabled}
 				enabled={status.data?.allowGuests === true}
 				failed={status.isError}
+				hasData={Boolean(status.data)}
 				onEnable={(continueInvitation) => {
 					pendingInvitationRef.current = continueInvitation;
 					setConfirm(true);
@@ -79,16 +110,25 @@ export function SpaceGuestAccessSection({
 						</p>
 					) : null}
 					<DialogFooter>
-						<Button onClick={() => setConfirm(false)} variant="secondary">
+						<Button
+							onClick={() => {
+								pendingInvitationRef.current = null;
+								setConfirm(false);
+							}}
+							variant="secondary"
+						>
 							Cancel
 						</Button>
 						<Button
-							disabled={save.isPending}
+							disabled={disabled || save.isPending}
 							onClick={async () => {
 								const continueInvitation = pendingInvitationRef.current;
 								try {
 									await save.mutateAsync(true);
 								} catch {
+									return;
+								}
+								if (pendingInvitationRef.current !== continueInvitation) {
 									return;
 								}
 								pendingInvitationRef.current = null;
@@ -121,6 +161,8 @@ function describeGuestEnableImpact(status?: GetSpaceStatusResponse): string {
 }
 
 function GuestInvitationEntry(input: {
+	disabled: boolean;
+	hasData: boolean;
 	pending: boolean;
 	failed: boolean;
 	enabled: boolean;
@@ -129,28 +171,33 @@ function GuestInvitationEntry(input: {
 	spaceId: string;
 	submitButtonTarget?: HTMLElement | null;
 }) {
-	if (input.pending) {
+	if (input.pending && !input.hasData) {
 		return (
 			<p className="text-muted-foreground text-xs">Checking guest access…</p>
 		);
 	}
-	if (input.failed) {
-		return (
-			<p className="text-destructive text-xs" role="alert">
-				Couldn't check guest access.{" "}
-				<Button onClick={input.onRetry} size="sm" variant="secondary">
-					Try again
-				</Button>
-			</p>
-		);
+	const error = input.failed ? (
+		<p className="text-destructive text-xs" role="alert">
+			Couldn't check guest access.{" "}
+			<Button onClick={input.onRetry} size="sm" variant="secondary">
+				Try again
+			</Button>
+		</p>
+	) : null;
+	if (error && !input.hasData) {
+		return error;
 	}
 	return (
-		<SpaceInvitationForm
-			actionVariant="secondary"
-			audience="guest"
-			onBeforeCreate={input.enabled ? undefined : input.onEnable}
-			spaceId={input.spaceId}
-			submitButtonTarget={input.submitButtonTarget}
-		/>
+		<>
+			{error}
+			<SpaceInvitationForm
+				actionVariant="secondary"
+				audience="guest"
+				disabled={input.disabled || input.failed}
+				onBeforeCreate={input.enabled ? undefined : input.onEnable}
+				spaceId={input.spaceId}
+				submitButtonTarget={input.submitButtonTarget}
+			/>
+		</>
 	);
 }

@@ -22,8 +22,8 @@ import {
   type WakeRouteLane,
   type WakeRouteStatus,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
-  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isHostedAgentControllerRef,
 } from "@openmeld/schemas";
@@ -41,44 +41,32 @@ import type {
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { resolveCurrentWorkingFolderObservation } from "../../agent-profile-binding/application/current-working-folder-observation";
-import {
-  readPrimaryAgentProfileBindingRecord,
-  readPrimaryAgentProfileBindingRecordByControllerConversation,
-} from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
-import {
-  isAgentProfileEligibleForOrganization,
-  readAgentProfileOrganizationContext,
-} from "../../center-agent/center-agent-organization-scope";
+import { isAgentProfileEligibleForOrganization } from "../../center-agent/center-agent-organization-scope";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
 } from "../../center-agent/center-agent-repository";
+import { resolveCurrentAgentModelAvailability } from "../../config/agent-model-availability";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import {
-  type CoreBindings,
-  identityDb,
-  localStateDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
+import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { resolveRemoteAgentRuntimeAvailability } from "../../remote-agent/application/remote-agent-runtime-policy";
 import {
   listOwnedDeviceExecutionTargetRecords,
   type RuntimeRegistryRecord,
-} from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
+} from "../../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
   resolveConnectedLocalRuntimeDisplayNamesUseCase,
   resolveConnectedLocalRuntimeDisplayNameUseCase,
 } from "../../start/application/current-device-target-service";
-import { resolveCurrentDeviceFromBindings } from "../../start/infrastructure/d1/current-device-derivation-repo";
-import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/d1/owned-device-registry-repo";
+import { resolveCurrentDeviceFromBindings } from "../../start/infrastructure/postgresql/current-device-derivation-repo";
+import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/postgresql/owned-device-registry-repo";
 import { RUNTIME_TRANSPORT_LEASE_TTL_MS } from "../../strategy-constants";
-import { readFreshAgentExecutionReadinessImpactForBinding } from "../infrastructure/d1/agent-execution-readiness-impact-repo";
-import { readFreshProviderAccessEvidenceForBinding } from "../infrastructure/d1/provider-access-evidence-repo";
-import { readFreshProviderConversationProofForBinding } from "../infrastructure/d1/provider-conversation-proof-repo";
 import {
   type AgentExecutionReadinessReads,
   createAgentExecutionReadinessReads,
@@ -310,11 +298,7 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     agentProfileId: input.agent.profileId,
     binding: bindingSnapshot.agentExecutionBinding,
     claimDiagnostics: bindingSnapshot.claimDiagnostics,
-    executionFamily: isHostedAgentControllerRef(
-      bindingSnapshot.agentControllerRef
-    )
-      ? "native"
-      : "workstation",
+    executionFamily: resolveReadinessExecutionFamily(bindingSnapshot),
     route:
       bindingSnapshot.routeEvidence ??
       createAgentExecutionRouteEvidence({
@@ -367,6 +351,17 @@ export async function resolveCoreAgentExecutionReadiness(input: {
       agentExecutionReadiness
     ),
   };
+}
+
+function resolveReadinessExecutionFamily(
+  snapshot: AgentBindingSnapshot
+): "native" | "workstation" | "unknown" {
+  if (!snapshot.agentControllerRef) {
+    return "unknown";
+  }
+  return isHostedAgentControllerRef(snapshot.agentControllerRef)
+    ? "native"
+    : "workstation";
 }
 
 async function resolveAgentBindingSnapshot(
@@ -681,6 +676,33 @@ async function enrichAgentBindingSnapshot(input: {
     bindingProjection?.bindingState === "enabled_primary"
       ? ("bound" as const)
       : ("missing" as const);
+  if (!parsedAgentControllerRef) {
+    // Retain identity/binding failures, without guessing that this Agent uses
+    // the member's local Computer or probing that unrelated Service.
+    return {
+      ...createProfileIdentityOnlyBindingSnapshot({
+        agent: input.agent,
+        generatedAt: input.generatedAt,
+        ownerUserId: input.snapshot.ownerUserId,
+        profileEvidence: input.snapshot.profileEvidence,
+        profileName: input.snapshot.profileName,
+      }),
+      agentExecutionBinding,
+      primaryBinding: bindingProjection,
+      claimDiagnostics: await resolveAgentProfileOrganizationClaimDiagnostics({
+        reads: input.reads,
+        activeOrganizationId: input.activeOrganizationId,
+        binding: agentExecutionBinding,
+        env: input.env,
+        resolveRuntimeClaimDiagnostics: async () => ({ status: "not_checked" }),
+      }),
+      routeEvidence: {
+        status: "unavailable",
+        source: "not_checked",
+        reasonCodes: [],
+      },
+    };
+  }
   if (
     bindingProjection &&
     isHostedAgentControllerRef(parsedAgentControllerRef?.ref)
@@ -811,6 +833,7 @@ async function enrichAgentBindingSnapshot(input: {
     }),
     measureReadinessStep(input.timing, "provider_account_evidence_read", () =>
       resolveAgentProviderAccountEvidence({
+        reads: input.reads,
         agentProfileId: input.agent.profileId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -822,6 +845,7 @@ async function enrichAgentBindingSnapshot(input: {
       "provider_conversation_evidence_read",
       () =>
         resolveAgentProviderConversationEvidence({
+          reads: input.reads,
           agentProfileId: input.agent.profileId,
           binding: agentExecutionBinding,
           env: input.env,
@@ -830,6 +854,7 @@ async function enrichAgentBindingSnapshot(input: {
     ),
     measureReadinessStep(input.timing, "readiness_impact_evidence_read", () =>
       resolveAgentReadinessImpactEvidence({
+        reads: input.reads,
         agentProfileId: input.agent.profileId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -1005,7 +1030,7 @@ async function resolveHostedCenterAgentReadiness(input: {
       reasonCodes: ["remote_agent.organization_context_missing"],
     };
   }
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return {
       available: false,
@@ -1101,7 +1126,7 @@ async function resolveAgentExecutionBindingEvidence(input: {
   configurationRevision: number | null;
   evidence: AgentExecutionBindingEvidence;
 }> {
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       configurationRevision: null,
@@ -1115,10 +1140,9 @@ async function resolveAgentExecutionBindingEvidence(input: {
   try {
     const organizationProfile = input.ownerUserId
       ? null
-      : await readAgentProfileOrganizationContext({
+      : await input.reads.readAgentProfileOrganizationContext({
           agentProfileId: input.agentProfileId,
           db: domainDb,
-          readBatch: input.reads.readBatch,
         });
     let owner: { id: string; kind: "owner_account" | "organization" } | null =
       null;
@@ -1140,26 +1164,27 @@ async function resolveAgentExecutionBindingEvidence(input: {
         },
       };
     }
-    const bindingRecord = await readPrimaryAgentProfileBindingRecord({
-      agentProfileId: input.agentProfileId,
-      db: domainDb,
-      owner,
-      readBatch: input.reads.readBatch,
-    });
+    const bindingRecord =
+      await input.reads.readPrimaryAgentProfileBindingRecord({
+        agentProfileId: input.agentProfileId,
+        db: domainDb,
+        owner,
+      });
     if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
-        await readPrimaryAgentProfileBindingRecordByControllerConversation({
-          readBatch: input.reads.readBatch,
-          agentControllerConversationId:
-            bindingRecord.agentControllerConversationId,
-          agentControllerRef: bindingRecord.agentControllerRef,
-          db: domainDb,
-          excludeAgentProfileId: input.agentProfileId,
-          owner: {
-            id: input.ownerUserId,
-            kind: "owner_account",
-          },
-        });
+        await input.reads.readPrimaryAgentProfileBindingRecordByControllerConversation(
+          {
+            agentControllerConversationId:
+              bindingRecord.agentControllerConversationId,
+            agentControllerRef: bindingRecord.agentControllerRef,
+            db: domainDb,
+            excludeAgentProfileId: input.agentProfileId,
+            owner: {
+              id: input.ownerUserId,
+              kind: "owner_account",
+            },
+          }
+        );
       if (conflictingBinding) {
         const conflictingProfileIsCurrent =
           await isCurrentConflictingAgentProfile({
@@ -1269,7 +1294,7 @@ async function resolveAgentRuntimeReadiness(input: {
   if (!executionTarget) {
     return null;
   }
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       displayState: "unavailable",
@@ -1303,6 +1328,23 @@ async function resolveAgentRuntimeReadiness(input: {
       (report) =>
         report.agentControllerRef === executionTarget.agentControllerRef
     );
+    const modelAvailability = resolveCurrentAgentModelAvailability({
+      agentControllerRef: executionTarget.agentControllerRef,
+      modelId: input.binding.modelSelection?.modelId,
+      openMeldServiceRuntimeId: createAuthorityOpenMeldServiceRuntimeId({
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+        source: "runtime_registry_authority",
+      }).value,
+      currentReport,
+      nowMs: parseGeneratedAtMs(input.generatedAt),
+    });
+    if (!modelAvailability.available) {
+      return {
+        displayState: "unavailable",
+        ready: false,
+        reasonCodes: [modelAvailability.reasonCode, ...readiness.reasonCodes],
+      };
+    }
     const usageWakeability = resolveAgentProfileUsageWakeability({
       agentControllerRef: executionTarget.agentControllerRef,
       nowMs: parseGeneratedAtMs(input.generatedAt),
@@ -1445,6 +1487,7 @@ function mergeCurrentWorkingFolderReadiness(input: {
 }
 
 async function resolveAgentProviderAccountEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1456,20 +1499,21 @@ async function resolveAgentProviderAccountEvidence(input: {
   const executionTarget = input.binding.executionTarget;
   const bindingId =
     input.binding.bindingId ?? input.binding.dispatchReadableFacts?.bindingId;
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!(bindingId && executionTarget && domainDb)) {
     return null;
   }
 
   try {
-    const evidence = await readFreshProviderAccessEvidenceForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      db: domainDb,
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const evidence =
+      await input.reads.readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        db: domainDb,
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!evidence) {
       return null;
     }
@@ -1513,6 +1557,7 @@ async function resolveAgentProviderAccountEvidence(input: {
 }
 
 async function resolveAgentProviderConversationEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1545,7 +1590,7 @@ async function resolveAgentProviderConversationEvidence(input: {
     required: true,
   };
 
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       ...requiredBase,
@@ -1562,17 +1607,18 @@ async function resolveAgentProviderConversationEvidence(input: {
   }
 
   try {
-    const proof = await readFreshProviderConversationProofForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      agentControllerConversationId,
-      db: domainDb,
-      method: "codex_app_server_thread_resume",
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      provider: "codex",
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const proof =
+      await input.reads.readFreshProviderConversationProofForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        agentControllerConversationId,
+        db: domainDb,
+        method: "codex_app_server_thread_resume",
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        provider: "codex",
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!proof) {
       return {
         ...requiredBase,
@@ -1642,6 +1688,7 @@ async function resolveAgentProviderConversationEvidence(input: {
 }
 
 async function resolveAgentReadinessImpactEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1653,20 +1700,21 @@ async function resolveAgentReadinessImpactEvidence(input: {
   const executionTarget = input.binding.executionTarget;
   const bindingId =
     input.binding.bindingId ?? input.binding.dispatchReadableFacts?.bindingId;
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!(bindingId && executionTarget && domainDb)) {
     return null;
   }
 
   try {
-    const impact = await readFreshAgentExecutionReadinessImpactForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      db: domainDb,
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const impact =
+      await input.reads.readFreshAgentExecutionReadinessImpactForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        db: domainDb,
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!impact) {
       return null;
     }
@@ -1714,7 +1762,7 @@ async function resolveAgentClaimDiagnostics(input: {
   ) {
     return null;
   }
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return claimDiagnosticsUnavailable("claim_eligibility.runtime_unavailable");
   }
@@ -1816,7 +1864,7 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
     return runtimeClaimDiagnostics;
   }
 
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return mergeAgentProfileOrganizationClaimFailure({
       reasonCode: "agent_profile.organization_lookup_failed",
@@ -1826,10 +1874,11 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
   }
 
   try {
-    const profileContext = await readAgentProfileOrganizationContext({
+    const profileContext = await (
+      input.reads ?? createAgentExecutionReadinessReads()
+    ).readAgentProfileOrganizationContext({
       agentProfileId: input.binding.agentProfileId,
       db,
-      readBatch: input.reads?.readBatch,
     });
     if (!profileContext) {
       return mergeAgentProfileOrganizationClaimFailure({
@@ -1925,7 +1974,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
     };
   }
 
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       localService: {
@@ -2199,7 +2248,7 @@ function createServiceEvidenceFromCompatibility(
   if (compatibility.status === "compatible") {
     return {
       executionCompatible: true,
-      expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+      expectedEpoch: compatibility.expectedEpoch,
       observedEpoch: compatibility.observedEpoch,
       reasonCodes: [],
       source: "runtime_transport",
@@ -2208,7 +2257,7 @@ function createServiceEvidenceFromCompatibility(
 
   return {
     executionCompatible: false,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: compatibility.expectedEpoch,
     observedEpoch: compatibility.observedEpoch,
     reasonCodes: ["service.update_required", compatibility.reasonCode],
     source: "runtime_transport",
@@ -2275,7 +2324,7 @@ function doesBindingRuntimeMatchTargetRuntime(input: {
 function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "not_checked",
@@ -2285,7 +2334,7 @@ function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
 function createUnavailableServiceEvidence(): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "unavailable",
@@ -2409,7 +2458,7 @@ function toSpaceMemberAgentExecutionReadiness(
       },
       service: {
         executionCompatible: readiness.facts.service.executionCompatible,
-        expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+        expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
         observedEpoch: readiness.facts.service.observedEpoch,
         reasonCodes: [...readiness.facts.service.reasonCodes],
         source: readiness.facts.service.source,
@@ -2641,15 +2690,7 @@ async function resolveRuntimeRouteSnapshot(input: {
           status: "online",
         }),
         agentWakeRouteRegistration,
-        wakeRouteStatus: {
-          connectionGeneration: result.connectionGeneration,
-          daemonSessionId: result.daemonSessionId,
-          deviceId: result.deviceId,
-          lane: toWakeRouteLane(result.lane),
-          lastHeartbeatMs: result.lastHeartbeatMs,
-          leaseEpoch: result.leaseEpoch,
-          status: "ready",
-        },
+        ...resolveWakeRouteAdmissionSnapshot(result, input.generatedAt),
         hasFreshRouteLease: false,
         localWakeRouteReport: toNullableLocalWakeRouteReport(
           result.localWakeRouteReport
@@ -2769,6 +2810,37 @@ function toNullableLocalWakeRouteReport(
   return report ?? null;
 }
 
+function resolveWakeRouteAdmissionSnapshot(
+  result: Extract<RuntimeTransportLookupRouteResponse, { online: true }>,
+  generatedAt: string
+): Pick<RuntimeRouteSnapshot, "wakeRouteStatus" | "routeEvidence"> {
+  // A live socket can keep reporting accepted work while the Service drains
+  // or waits for its host. It is not a route for a new Wake.
+  if (result.acceptingDispatches === false) {
+    return {
+      routeEvidence: {
+        deviceId: result.deviceId,
+        lane: result.lane,
+        observedAt: generatedAt,
+        reasonCodes: ["local_service.not_accepting_wakes"],
+        status: "unavailable",
+      },
+      wakeRouteStatus: { status: "unavailable" },
+    };
+  }
+  return {
+    wakeRouteStatus: {
+      connectionGeneration: result.connectionGeneration,
+      daemonSessionId: result.daemonSessionId,
+      deviceId: result.deviceId,
+      lane: toWakeRouteLane(result.lane),
+      lastHeartbeatMs: result.lastHeartbeatMs,
+      leaseEpoch: result.leaseEpoch,
+      status: "ready",
+    },
+  };
+}
+
 function createSkippedRuntimeRouteSnapshot(input: {
   agentControllerRef: string | null;
   bindingEnabled: boolean;
@@ -2857,7 +2929,7 @@ async function readRuntimeDeviceDisplayName(input: {
   profileId: string;
   runtimeLane: DaemonServiceLane;
 }): Promise<string | null> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }
@@ -2905,7 +2977,7 @@ export async function preloadRuntimeDeviceDisplayNamesForOwner(input: {
     runtimeLane: DaemonServiceLane;
   }[];
 }): Promise<ReadonlyMap<string, string | null> | null> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }
@@ -2917,6 +2989,9 @@ export async function preloadRuntimeDeviceDisplayNamesForOwner(input: {
       ])
     ).values(),
   ];
+  if (targets.length === 0) {
+    return new Map();
+  }
   try {
     const resolved = await resolveConnectedLocalRuntimeDisplayNamesUseCase({
       store: {

@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
@@ -7,15 +11,14 @@ import type {
   CenterAgentVerifiedMemberToolSpeaker,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { CoreBindings } from "../../lib/bindings";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
   type CurrentDesignatedCenterAgentAuthorization,
   requireCurrentDesignatedCenterAgentCaller,
 } from "../current-designated-center-agent";
 import { resolveNativeDeliverySourceSpaceId } from "./native-delivery-source-space";
-
 export type VerifiedCenterAgentRepresentedMember = {
   displayName: string;
   memberId: string;
@@ -23,12 +26,14 @@ export type VerifiedCenterAgentRepresentedMember = {
   role: "admin" | "member" | "owner";
   userId: string;
 };
-
 export async function prepareCenterAgentRepresentedMemberRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext,
   speakerMember: CenterAgentToolSpeaker,
-  memberActorError?: { code: string; reason: string }
+  memberActorError?: {
+    code: string;
+    reason: string;
+  }
 ) {
   const centerAgent = await prepareHostedCenterAgentRequest(env, context);
   const representedHuman = await requireActiveHumanMember({
@@ -50,15 +55,17 @@ export async function prepareCenterAgentRepresentedMemberRequest(
     sourceSpaceId: sourceDelivery?.sourceSpaceId ?? null,
   };
 }
-
 async function resolveSourceNativeDelivery(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
   context: OpenMeldRequestContext;
   env: CoreBindings;
   representedHuman: VerifiedCenterAgentRepresentedMember;
-}): Promise<{ deliveryId: string; sourceSpaceId: string | null } | null> {
+}): Promise<{
+  deliveryId: string;
+  sourceSpaceId: string | null;
+} | null> {
   const submissionId = input.context.agentControllerConversationId?.trim();
-  const db = wakeEvidenceDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!(submissionId && db)) {
     return null;
   }
@@ -98,7 +105,6 @@ async function resolveSourceNativeDelivery(input: {
     sourceSpaceId: resolveNativeDeliverySourceSpaceId(delivery),
   };
 }
-
 export async function prepareHostedCenterAgentRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext
@@ -110,7 +116,6 @@ export async function prepareHostedCenterAgentRequest(
   requireHostedCenterAgentActor(centerAgent);
   return centerAgent;
 }
-
 function requireHostedCenterAgentActor(
   authorization: CurrentDesignatedCenterAgentAuthorization
 ): void {
@@ -130,10 +135,12 @@ function requireHostedCenterAgentActor(
     throw centerAgentNotDesignatedError();
   }
 }
-
 export async function requireActiveHumanMember(input: {
-  db: D1Database;
-  memberActorError?: { code: string; reason: string };
+  db: PostgresDatabase;
+  memberActorError?: {
+    code: string;
+    reason: string;
+  };
   organizationId: string;
   speakerMember: CenterAgentToolSpeaker;
 }): Promise<VerifiedCenterAgentRepresentedMember> {
@@ -141,34 +148,38 @@ export async function requireActiveHumanMember(input: {
     input.speakerMember
   );
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      member_id: string;
+      profile_id: string;
+      profile_name: string;
+      role: string;
+      user_id: string;
+    }>({
+      text: `
         SELECT
           members.id AS member_id,
           members.user_id,
           members.role,
           profiles.profile_id,
           profiles.profile_name
-        FROM members
-        INNER JOIN openmeld_profiles AS profiles
+        FROM "openmeld"."members"
+        INNER JOIN "openmeld"."openmeld_profiles" AS profiles
           ON profiles.owner_user_id = members.user_id
           AND profiles.profile_kind = 'human'
           AND profiles.is_default = 1
           AND profiles.status = 'active'
-        WHERE members.organization_id = ?
-          AND members.id = ?
-          AND members.user_id = ?
+        WHERE members.organization_id = $1
+          AND members.id = $2
+          AND members.user_id = $3
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, speakerMember.memberId, speakerMember.userId)
-    .first<{
-      member_id: string;
-      profile_id: string;
-      profile_name: string;
-      role: string;
-      user_id: string;
-    }>();
+      `,
+      values: [
+        input.organizationId,
+        speakerMember.memberId,
+        speakerMember.userId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (
     !row ||
     (row.role !== "owner" && row.role !== "admin" && row.role !== "member")
@@ -183,7 +194,6 @@ export async function requireActiveHumanMember(input: {
     userId: row.user_id,
   };
 }
-
 export function requireVerifiedCenterAgentToolSpeaker(
   speakerMember: CenterAgentToolSpeaker
 ): CenterAgentVerifiedMemberToolSpeaker {
@@ -192,7 +202,6 @@ export function requireVerifiedCenterAgentToolSpeaker(
   }
   throw openMeldIdentityRequiredError();
 }
-
 export function openMeldIdentityRequiredError(): Error {
   return createCoreRpcHttpError({
     code: CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
@@ -201,7 +210,6 @@ export function openMeldIdentityRequiredError(): Error {
     status: 403,
   });
 }
-
 function centerAgentNotDesignatedError(): Error {
   return createCoreRpcHttpError({
     code: "center_agent.not_designated",
@@ -209,7 +217,6 @@ function centerAgentNotDesignatedError(): Error {
     status: 403,
   });
 }
-
 function memberActorRequiredError(override?: {
   code: string;
   reason: string;

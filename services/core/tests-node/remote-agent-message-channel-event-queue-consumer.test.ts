@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const processRemoteAgentMessageChannelEvent = vi.hoisted(() => vi.fn());
@@ -58,13 +59,15 @@ describe("Remote Agent Message Channel event Queue consumer", () => {
       status: "submitted",
     });
     const message = createQueueMessage({ attempts: 1 });
-    const db = {} as D1Database;
+    const binding = {
+      connectionString:
+        "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+    };
 
     await expect(
       handleRemoteAgentMessageChannelEventQueueMessage({
         env: {
-          OPENMELD_DB: db,
-          OPENMELD_LOCAL_STATE_DB: db,
+          OPENMELD_POSTGRESQL: binding,
         } as never,
         message: message.value,
         queueName: REMOTE_AGENT_MESSAGE_CHANNEL_EVENT_QUEUE_NAME,
@@ -72,21 +75,22 @@ describe("Remote Agent Message Channel event Queue consumer", () => {
     ).resolves.toBe(true);
 
     expect(processRemoteAgentMessageChannelEvent).toHaveBeenCalledWith({
-      db,
+      db: expect.any(PostgresDatabase),
       env: expect.objectContaining({
-        OPENMELD_DB: db,
-        OPENMELD_LOCAL_STATE_DB: db,
+        OPENMELD_POSTGRESQL: binding,
       }),
       envelope: expect.objectContaining({
         kind: "remote_agent_message_channel_event",
         provider: "lark",
         providerEventId: "event_lark_1",
       }),
-      identityDb: db,
+      identityDb: expect.any(PostgresDatabase),
       queueAttempts: 1,
       queueMessageId: "queue_message_1",
       registry: providerRegistry,
     });
+    const call = processRemoteAgentMessageChannelEvent.mock.calls[0]?.[0];
+    expect(call.identityDb).toBe(call.db);
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();
   });
@@ -150,10 +154,11 @@ describe("Remote Agent Message Channel event Queue consumer", () => {
 });
 
 function createEnv(input: { redriveSend?: ReturnType<typeof vi.fn> } = {}) {
-  const db = {} as D1Database;
   return {
-    OPENMELD_DB: db,
-    OPENMELD_LOCAL_STATE_DB: db,
+    OPENMELD_POSTGRESQL: {
+      connectionString:
+        "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+    },
     OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE: input.redriveSend
       ? { send: input.redriveSend }
       : undefined,

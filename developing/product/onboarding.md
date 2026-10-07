@@ -200,8 +200,8 @@ changes membership or deletes messages. Legacy paused progress resumes.
    Documents remain their ongoing management homes. The old Organization-entry
    onboarding dialog is retired; two onboarding surfaces must not compete.
 10. **Concrete language and visual demonstration.** User copy says Slack,
-    Lark, GitHub, Codex, or Claude Code instead of internal categories such as
-    "coding agents." Each recommendation has a concise visual demonstration.
+    Lark, GitHub, Codex, Claude Code, or Antigravity instead of internal
+    categories such as "coding agents." Each recommendation has a concise visual demonstration.
     Copy stays short enough to scan; the UI must not rely on paragraphs to
     explain the product.
 11. **Membership is never gated by machine setup.** Joining an Organization or
@@ -930,7 +930,7 @@ never recompute, own, write, or re-derive any runtime/readiness state-machine fa
 system (cross-cloud + cross-local, heartbeat-driven, multi-layer) is hard
 won and stable, and is owned entirely by Core and the daemon:
 
-- Profile identity is owned by Auth; Binding by Core (D1 bindings);
+- Profile identity is owned by Auth; Binding by Core (relational Binding records);
   ServiceRuntime / lease / heartbeat (200s TTL) and route registration by the
   Core RuntimeTransportHub DO; in-flight Wake execution by RuntimeCoordinator;
   per-Agent-Profile readiness by Core's `AgentExecutionReadiness` (computed

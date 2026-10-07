@@ -74,6 +74,46 @@ const LARGE_STDOUT_LINE = "large-stdout-line";
 const LARGE_STDERR_LINE = "large-stderr-line";
 const FULL_COMMAND_LOGS_PATTERN = /Full command logs:/u;
 
+test("dependency scope uses the real candidate diff and includes staged executable changes", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const readScope = (base = fixture.baseSha) =>
+      spawnSync(
+        process.execPath,
+        [
+          FINAL_CANDIDATE_SCRIPT,
+          "dependency-scope",
+          "--candidate-root",
+          fixture.repositoryPath,
+          "--base",
+          base,
+          "--head",
+          fixture.headSha,
+          "--mode",
+          "remote",
+        ],
+        { encoding: "utf8", env: isolatedGitEnvironment(process.env) }
+      );
+    const documentation = readScope();
+    assert.equal(documentation.status, 0, documentation.stderr);
+    assert.equal(documentation.stdout, "root\n");
+    writeFileSync(
+      path.join(fixture.repositoryPath, "script.mjs"),
+      "throw new Error('must not execute');\n"
+    );
+    execFileSync("git", ["add", "script.mjs"], {
+      cwd: fixture.repositoryPath,
+      env: isolatedGitEnvironment(process.env),
+    });
+    const executable = readScope();
+    assert.equal(executable.status, 0, executable.stderr);
+    assert.equal(executable.stdout, "workspace\n");
+    assert.notEqual(readScope("0".repeat(40)).status, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("selected commands use the certified base instead of an inherited affected base", () => {
   const fixture = createCandidateFixture();
   try {
@@ -118,8 +158,19 @@ test(
         recursive: true,
       });
       cpSync(
+        path.join(SCRIPT_DIR, "..", "dev"),
+        path.join(trustedRoot, "scripts", "dev"),
+        {
+          recursive: true,
+        }
+      );
+      cpSync(
         path.join(SCRIPT_DIR, "..", "release", "release-ready-paths.mjs"),
         path.join(trustedRoot, "scripts", "release", "release-ready-paths.mjs")
+      );
+      cpSync(
+        path.join(SCRIPT_DIR, "..", "release", "cli-skill-check.mjs"),
+        path.join(trustedRoot, "scripts", "release", "cli-skill-check.mjs")
       );
       cpSync(
         path.join(

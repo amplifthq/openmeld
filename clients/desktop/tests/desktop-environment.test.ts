@@ -11,21 +11,26 @@ describe("Desktop browser destinations", () => {
     expect(isDesktopAppHref("/o/team/agents?profileId=agent-1#activity")).toBe(
       true
     );
-    expect(isDesktopAppHref("/spaces/space-1?signalId=signal-1")).toBe(true);
+    expect(isDesktopAppHref("/spaces/space-1?signalId=signal-1")).toBe(false);
     expect(isDesktopAppHref("/file-preview?spaceId=space-1")).toBe(true);
     expect(isDesktopAppHref("/api/oauth/start")).toBe(false);
     expect(isDesktopAppHref("//evil.example/o/team")).toBe(false);
   });
 
-  it("preserves path, query, hash, and existing encoding", () => {
+  it.each([
+    [{}, "https://app.openmeld.ai"],
+    [{ WEB_APP_URL: "https://openmeld.ai" }, "https://openmeld.ai"],
+    [
+      { WEB_APP_URL: "http://lane.localhost:31952" },
+      "http://lane.localhost:31952",
+    ],
+  ])("preserves App browser destinations for %j", (env, origin) => {
     expect(
       resolveDesktopWebUrl({
-        env: { WEB_APP_URL: "http://lane.localhost:31952" },
+        env,
         path: "/o/test/agents?profileId=agent-%E4%B8%AD#activity",
       })
-    ).toBe(
-      "http://lane.localhost:31952/o/test/agents?profileId=agent-%E4%B8%AD#activity"
-    );
+    ).toBe(`${origin}/o/test/agents?profileId=agent-%E4%B8%AD#activity`);
   });
 
   it.each([

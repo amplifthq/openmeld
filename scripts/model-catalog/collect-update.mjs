@@ -3,9 +3,36 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { digest, runUpdate } from "./catalog-update.mjs";
-import { renderBatchReview } from "./review.mjs";
+import {
+  modelReviewFacts,
+  renderBatchReview,
+  reviewFactsDelta,
+} from "./review.mjs";
 
-export function combineUpdates(current, results) {
+export function batchReviewFingerprint(
+  evidence,
+  current,
+  config,
+  previousEvidence
+) {
+  return digest(
+    evidence.map((item) => {
+      const since = config[item.controller]?.discoverySince;
+      const previous = previousEvidence.find(
+        (before) => before?.controller === item.controller
+      );
+      return {
+        controller: item.controller,
+        facts: reviewFactsDelta(
+          modelReviewFacts(item, current, since),
+          previous ? modelReviewFacts(previous, current, since) : undefined
+        ),
+      };
+    })
+  );
+}
+
+export function combineUpdates(current, results, config = {}) {
   const catalog = structuredClone(current);
   for (const result of results) {
     if (result.evidence.changes.length) {
@@ -16,14 +43,16 @@ export function combineUpdates(current, results) {
     }
   }
   const evidence = results.map((result) => result.evidence);
+  const previousEvidence = results.map((result) => result.previous);
   return {
     catalog,
     evidence,
-    fingerprint: digest(
-      evidence.map(({ controller, fingerprint }) => ({
-        controller,
-        fingerprint,
-      }))
+    previousEvidence,
+    fingerprint: batchReviewFingerprint(
+      evidence,
+      current,
+      config,
+      previousEvidence
     ),
     changed: results.some((result) => result.changed),
   };
@@ -60,7 +89,8 @@ export async function collectUpdate(output, root = process.cwd()) {
   }
   const result = combineUpdates(
     current,
-    settled.map((item) => item.value)
+    settled.map((item) => item.value),
+    config
   );
   const formatted = execFileSync(
     resolve(root, "node_modules/.bin/biome"),
@@ -78,7 +108,7 @@ export async function collectUpdate(output, root = process.cwd()) {
   );
   await writeFile(
     resolve(output, "review.md"),
-    renderBatchReview(result.evidence, config, current)
+    renderBatchReview(result.evidence, config, current, result.previousEvidence)
   );
   return result;
 }

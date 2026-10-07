@@ -6,6 +6,7 @@ import {
 	agentProfileCreationRequestQueryKeys,
 	createPresentedAgentProfileCreationRequest,
 } from "#/query/profiles/agent-profile-creation-requests";
+import { readAgentCreationIntent } from "./agent-creation-intent";
 
 const api = vi.hoisted(() => ({
 	cancelAgentProfileCreationRequest: vi.fn(),
@@ -57,6 +58,7 @@ const command = {
 describe("accepted Agent creation in Web", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
+		window.sessionStorage.clear();
 		api.createAgentProfileCreationRequest
 			.mockReset()
 			.mockResolvedValue({ replayed: false, request: accepted });
@@ -226,6 +228,15 @@ describe("accepted Agent creation in Web", () => {
 		expect(api.createAgentProfileCreationRequest).toHaveBeenCalledOnce();
 	});
 
+	it("returns an accepted creation immediately when the page owns status reads", async () => {
+		const result = await createAgentProfileCreationRequest({
+			...command,
+			waitForCompletion: false,
+		});
+		expect(result.request).toEqual(accepted);
+		expect(api.listAgentProfileCreationRequests).not.toHaveBeenCalled();
+	});
+
 	it("publishes the accepted request before waiting for Agent setup to finish", async () => {
 		const onAccepted = vi.fn();
 		const onStarted = vi.fn();
@@ -337,6 +348,50 @@ describe("accepted Agent creation in Web", () => {
 			)
 		).toEqual([]);
 		queryClient.clear();
+	});
+
+	it("reuses a submitted intent after a reload loses the in-memory cache", async () => {
+		api.createAgentProfileCreationRequest.mockRejectedValueOnce(
+			new Error("Response lost")
+		);
+		await expect(
+			createPresentedAgentProfileCreationRequest({
+				...command,
+				intentStorageScope: "account-1",
+				onStarted: vi.fn(),
+				queryClient: new QueryClient(),
+				waitForCompletion: false,
+			})
+		).rejects.toBeTruthy();
+		await createPresentedAgentProfileCreationRequest({
+			...command,
+			idempotencyKey: "new-form-key",
+			intentStorageScope: "account-1",
+			onStarted: vi.fn(),
+			queryClient: new QueryClient(),
+			waitForCompletion: false,
+		});
+		expect(
+			api.createAgentProfileCreationRequest.mock.calls.map(
+				([body]) => body.idempotencyKey
+			)
+		).toEqual(["one-intent", "one-intent"]);
+		expect(window.sessionStorage.length).toBe(0);
+	});
+
+	it("keeps an accepted Local intent until its working-folder follow-up is saved", async () => {
+		await createPresentedAgentProfileCreationRequest({
+			...command,
+			clearIntentOnAcceptance: false,
+			intentStorageScope: "account-1",
+			onStarted: vi.fn(),
+			queryClient: new QueryClient(),
+			waitForCompletion: false,
+		});
+		expect(readAgentCreationIntent("account-1", "org-1")).toMatchObject({
+			idempotencyKey: "one-intent",
+			profileName: "Reviewer",
+		});
 	});
 
 	it("preserves acceptance when the status read fails, without submitting another creation", async () => {

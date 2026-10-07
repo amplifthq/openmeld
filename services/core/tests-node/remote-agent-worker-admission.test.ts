@@ -1,23 +1,175 @@
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import { submitRemoteAgentWorkerAdmission } from "../src/remote-agent/application/remote-agent-worker-admission";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  readRemoteAgentWorkerAdmission,
+  readRemoteAgentWorkerAdmissionStop,
+  resolveRemoteAgentWorkerTaskAttribution,
+  submitRemoteAgentWorkerAdmission,
+} from "../src/remote-agent/application/remote-agent-worker-admission";
+import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import {
+  createPostgresHarness,
+  observeNativePostgresQueries,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
+const CENTER_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 describe("Remote Agent worker admission", () => {
-  it("rolls a current conversation into one new runtime generation without surfacing the history limit", async () => {
-    const harness = createSqliteD1Harness();
+  it.each([
+    "transport",
+    "malformed",
+  ])("does not downgrade task attribution on %s", async (failure) => {
+    const worker = {
+      readSubmitTurnCapabilities: () => {
+        if (failure === "transport") {
+          throw new Error("network unavailable");
+        }
+        return Promise.resolve({ v: 2, taskId: true });
+      },
+    };
+    await expect(
+      resolveRemoteAgentWorkerTaskAttribution(
+        worker as unknown as NonNullable<
+          CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+        >,
+        "task-1"
+      )
+    ).rejects.toThrow();
+  });
+  it("does not infer a Stop fence from an absent or legacy receiver", async () => {
+    const request = createRolloverRequest();
+    await expect(
+      readRemoteAgentWorkerAdmissionStop({ request, worker: {} })
+    ).resolves.toBeNull();
+    await expect(
+      readRemoteAgentWorkerAdmissionStop({
+        request,
+        worker: {
+          readAdmissionStop: vi.fn(() =>
+            Promise.reject(
+              new Error(
+                'The RPC receiver does not implement the method "readAdmissionStop".'
+              )
+            )
+          ),
+        },
+      })
+    ).resolves.toBeNull();
+    await expect(
+      readRemoteAgentWorkerAdmissionStop({
+        request,
+        worker: {
+          readAdmissionStop: vi.fn(async () => ({
+            v: 1 as const,
+            status: "not_found" as const,
+          })),
+        },
+      })
+    ).resolves.toEqual({ v: 1, status: "not_found" });
+  });
+  it.each([
+    "organizationId",
+    "spaceId",
+    "idempotencyKey",
+  ] as const)("rejects a Stop fence from another %s", async (field) => {
+    const request = createRolloverRequest();
+    const stopIntent = {
+      v: 1 as const,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      idempotencyKey: request.idempotencyKey,
+      requestedAtMs: 100,
+      reason: null,
+    };
+    await expect(
+      readRemoteAgentWorkerAdmissionStop({
+        request,
+        worker: {
+          readAdmissionStop: vi.fn(async () => ({
+            v: 1 as const,
+            status: "found" as const,
+            stopIntent: { ...stopIntent, [field]: "other-identity" },
+          })),
+        },
+      })
+    ).rejects.toThrow("remote_agent.admission_stop_receipt_identity_mismatch");
+  });
+  it("keeps a matching fence separate from execution and preserves real lookup failures", async () => {
+    const request = createRolloverRequest();
+    const stopIntent = {
+      v: 1 as const,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      idempotencyKey: request.idempotencyKey,
+      requestedAtMs: 100,
+      reason: null,
+    };
+    await expect(
+      readRemoteAgentWorkerAdmissionStop({
+        request,
+        worker: {
+          readAdmissionStop: vi.fn(async () => ({
+            v: 1 as const,
+            status: "found" as const,
+            stopIntent,
+          })),
+        },
+      })
+    ).resolves.toEqual({ v: 1, status: "found", stopIntent });
+    const error = new Error("Stop owner storage unavailable");
+    await expect(
+      readRemoteAgentWorkerAdmissionStop({
+        request,
+        worker: {
+          readAdmissionStop: vi.fn(() => Promise.reject(error)),
+        },
+      })
+    ).rejects.toBe(error);
+  });
+  it("rejects another operation's admission receipt without publishing ACK evidence or submitting work", async () => {
+    const request = createRolloverRequest();
+    const worker = {
+      readAdmission: vi.fn(async () => ({
+        v: 1 as const,
+        status: "found" as const,
+        ack: {
+          accepted: false as const,
+          createdAt: 1000,
+          idempotencyKey: "another-operation",
+          status: "pending" as const,
+          submissionId: "another-submission",
+        },
+      })),
+      submitConversationTurn: vi.fn(),
+    };
+    const evidence = vi.spyOn(console, "info");
     try {
-      createRolloverAdmissionTables(harness);
+      await expect(
+        readRemoteAgentWorkerAdmission({
+          request,
+          worker,
+        })
+      ).rejects.toThrow("remote_agent.admission_receipt_identity_mismatch");
+      expect(worker.submitConversationTurn).not.toHaveBeenCalled();
+      expect(evidence).not.toHaveBeenCalled();
+    } finally {
+      evidence.mockRestore();
+    }
+  });
+  it("rolls a current conversation into one new runtime generation without surfacing the history limit", async () => {
+    const harness = await createPostgresHarness();
+    try {
       const request = createRolloverRequest();
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           request.organizationId,
           request.idempotencyKey,
           JSON.stringify(request),
         ],
-        sql: `
-          INSERT INTO openMeldRemoteAgent_native_delivery_ledger (
+        text: `
+          INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
+            delivery_id, space_id, profile_id, binding_id, trigger_message_id, dispatch_id, created_at_ms,
             organization_id,
             idempotency_key,
             daily_admission_day_utc,
@@ -26,7 +178,7 @@ describe("Remote Agent worker admission", () => {
             execution_recovery_submit_request_json,
             status,
             submission_id
-          ) VALUES (?, ?, NULL, 900, ?, NULL, 'submitted', NULL)
+          ) VALUES ('delivery-1', 'slack:team:channel:thread', 'agt_11111111-1111-4111-8111-111111111111', 'binding-1', 'slack-message-current', 'delivery-1', 900, $1, $2, NULL, 900, $3, NULL, 'submitted', NULL)
         `,
       });
       const workerSubmit = vi
@@ -47,11 +199,10 @@ describe("Remote Agent worker admission", () => {
           submissionId: request.dispatchId,
         });
       const worker = { submitConversationTurn: workerSubmit };
-
       await expect(
         submitRemoteAgentWorkerAdmission({
           db: harness.db,
-          env: {} as CoreBindings,
+          env: { OPENMELD_POSTGRESQL: harness.binding } as CoreBindings,
           nowMs: 1000,
           organizationId: request.organizationId,
           request,
@@ -61,7 +212,6 @@ describe("Remote Agent worker admission", () => {
         ack: { accepted: true, submissionId: request.dispatchId },
         status: "acknowledged",
       });
-
       expect(workerSubmit).toHaveBeenCalledTimes(2);
       expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
         conversationId: request.spaceId,
@@ -87,27 +237,27 @@ describe("Remote Agent worker admission", () => {
         v: 4,
       });
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           active_generation: number;
           started_at_ms: number | null;
         }>({
-          sql: `
+          text: `
             SELECT active_generation, started_at_ms
-            FROM openMeldRemoteAgent_conversation_generations
+            FROM "openmeld"."openMeldRemoteAgent_conversation_generations"
             WHERE organization_id = 'org-1'
               AND logical_conversation_id = 'slack:team:channel:thread'
           `,
         })
       ).toEqual({ active_generation: 1, started_at_ms: 1000 });
-      const stored = harness.queryFirst<{ worker_submit_request_json: string }>(
-        {
-          sql: `
+      const stored = await harness.queryFirst<{
+        worker_submit_request_json: string;
+      }>({
+        text: `
           SELECT worker_submit_request_json
-          FROM openMeldRemoteAgent_native_delivery_ledger
+          FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
           WHERE idempotency_key = 'turn-1'
         `,
-        }
-      );
+      });
       expect(
         JSON.parse(stored?.worker_submit_request_json ?? "null")
       ).toMatchObject({
@@ -118,24 +268,23 @@ describe("Remote Agent worker admission", () => {
         storageVersion: 1,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects a paused Center Agent immediately without consuming quota or calling the worker", async () => {
     const workerSubmit = vi.fn();
-    const db = pausedCenterAgentDb();
+    const { db } = await createCenterAdmissionFixture(true);
+    const reads = observeNativePostgresQueries(() => Promise.resolve());
     const request = {
-      agentProfileId: "agt-center",
+      agentProfileId: CENTER_PROFILE_ID,
       idempotencyKey: "turn-1",
       v: 1,
     } as RemoteAgentWorkerSubmitTurnRequest;
-
     await expect(
       submitRemoteAgentWorkerAdmission({
         db,
         env: {
-          OPENMELD_DB: db,
+          OPENMELD_POSTGRESQL: postgresTestBinding(db),
           OPENMELD_REMOTE_AGENT_WORKER: {
             submitConversationTurn: workerSubmit,
           },
@@ -155,14 +304,38 @@ describe("Remote Agent worker admission", () => {
       },
       status: "rejected",
     });
-
     expect(workerSubmit).not.toHaveBeenCalled();
-    expect(db.prepare).toHaveBeenCalledTimes(1);
+    expect(
+      reads.mock.calls.filter(([query]) =>
+        (typeof query === "string" ? query : query.text).includes(
+          'FROM "openmeld"."center_agent_designations"'
+        )
+      )
+    ).toHaveLength(1);
+    reads.mockRestore();
   });
-
-  it("cancels a Center Agent turn that is paused while worker admission is awaiting its acknowledgement", async () => {
-    const cancelExecution = vi.fn(() =>
-      Promise.resolve({
+  it.each([
+    "acknowledged",
+    "outcome_unknown",
+  ] as const)("preserves the validated ACK before pause cancellation finishes with %s", async (outcome) => {
+    let releaseCancellation: () => void = () => undefined;
+    let signalCancellation: () => void = () => undefined;
+    const cancellationStarted = new Promise<void>((resolve) => {
+      signalCancellation = resolve;
+    });
+    const cancellationGate = new Promise<void>((resolve) => {
+      releaseCancellation = resolve;
+    });
+    const evidence = vi.spyOn(console, "info").mockImplementation(() => {
+      // Inspect receipt evidence while the postprocessing gate is still closed.
+    });
+    const cancelExecution = vi.fn(async () => {
+      signalCancellation();
+      await cancellationGate;
+      if (outcome === "outcome_unknown") {
+        throw new Error("Cancellation response unavailable");
+      }
+      return {
         execution: {
           acceptedAtMs: 1_700_000_000_000,
           cancellationReason:
@@ -178,106 +351,95 @@ describe("Remote Agent worker admission", () => {
           v: 1,
         },
         status: "cancellation_requested",
-      } as const)
-    );
-    const workerSubmit = vi.fn(() =>
-      Promise.resolve({
+      } as const;
+    });
+    const { db, pause } = await createCenterAdmissionFixture(false);
+    const workerSubmit = vi.fn(async () => {
+      await pause();
+      return {
         accepted: true,
         createdAt: 1_700_000_000_000,
         idempotencyKey: "turn-1",
         status: "running",
         submissionId: "submission-1",
-      } as const)
-    );
-    const db = centerAgentPauseRaceDb();
-    const request = {
-      agentProfileId: "agt-center",
+      } as const;
+    });
+    const request: RemoteAgentWorkerSubmitTurnRequest = {
+      ...createRolloverRequest(),
+      v: 1,
+      agentProfileId: CENTER_PROFILE_ID,
       idempotencyKey: "turn-1",
       spaceId: "space-1",
-      v: 1,
-    } as RemoteAgentWorkerSubmitTurnRequest;
+    };
     const worker = {
       cancelExecution,
       submitConversationTurn: workerSubmit,
     };
-
-    await expect(
-      submitRemoteAgentWorkerAdmission({
-        db,
-        env: {
-          OPENMELD_DB: db,
-          OPENMELD_REMOTE_AGENT_WORKER: worker,
-        } as unknown as CoreBindings,
-        nowMs: 1_700_000_000_000,
-        organizationId: "org-1",
-        request,
-        worker,
-      })
-    ).resolves.toMatchObject({
-      ack: {
-        accepted: true,
-        submissionId: "submission-1",
-      },
-      status: "acknowledged",
-    });
-
-    expect(workerSubmit).toHaveBeenCalledOnce();
-    expect(cancelExecution).toHaveBeenCalledWith({
-      idempotencyKey: "turn-1",
+    const admission = submitRemoteAgentWorkerAdmission({
+      admissionDelivery: {
+        deliveryId: "delivery-1",
+        dispatchId: "turn-1",
+        idempotencyKey: "turn-1",
+        admissionAttemptCount: 1,
+        createdAtMs: 1_700_000_000_000,
+        submittedAtMs: 1_700_000_000_000,
+        admissionRetryDueAtMs: null,
+      } as RemoteAgentNativeDeliveryRecord,
+      db,
+      env: {
+        OPENMELD_POSTGRESQL: postgresTestBinding(db),
+        OPENMELD_REMOTE_AGENT_WORKER: worker,
+      } as unknown as CoreBindings,
+      nowMs: 1_700_000_000_000,
       organizationId: "org-1",
-      reason: "Center Agent was paused by the Organization owner or admin.",
-      spaceId: "space-1",
-      submissionId: "submission-1",
-      v: 1,
+      request,
+      worker,
     });
+    try {
+      await cancellationStarted;
+      const events = () =>
+        evidence.mock.calls
+          .filter(
+            ([label]) => label === "[core.remote_agent.admission_attempt]"
+          )
+          .map(([, event]) => event);
+      expect(events()).toContainEqual(
+        expect.objectContaining({
+          phase: "acknowledged",
+          submissionId: "submission-1",
+          accepted: true,
+          elapsedMs: expect.any(Number),
+        })
+      );
+      expect(
+        events().some((event) => event.phase === "postprocessing_finished")
+      ).toBe(false);
+      releaseCancellation();
+      await expect(admission).resolves.toMatchObject({ status: outcome });
+      expect(events()).toContainEqual(
+        expect.objectContaining({
+          phase: "postprocessing_finished",
+          submissionId: "submission-1",
+          outcome,
+          elapsedMs: expect.any(Number),
+        })
+      );
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(cancelExecution).toHaveBeenCalledWith({
+        idempotencyKey: "turn-1",
+        organizationId: "org-1",
+        reason: "Center Agent was paused by the Organization owner or admin.",
+        spaceId: "space-1",
+        submissionId: "submission-1",
+        v: 1,
+      });
+    } finally {
+      releaseCancellation();
+      await admission;
+      evidence.mockRestore();
+    }
   });
 });
-
-function createRolloverAdmissionTables(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: `
-      CREATE TABLE openMeldRemoteAgent_native_delivery_ledger (
-        organization_id TEXT NOT NULL,
-        idempotency_key TEXT PRIMARY KEY,
-        daily_admission_day_utc TEXT,
-        updated_at_ms INTEGER NOT NULL,
-        worker_submit_request_json TEXT,
-        execution_recovery_submit_request_json TEXT,
-        status TEXT NOT NULL,
-        submission_id TEXT
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE openMeldRemoteAgent_daily_admissions (
-        organization_id TEXT NOT NULL,
-        day_utc TEXT NOT NULL,
-        admitted_count INTEGER NOT NULL,
-        last_admission_idempotency_key TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (organization_id, day_utc)
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE openMeldRemoteAgent_conversation_generations (
-        organization_id TEXT NOT NULL,
-        logical_conversation_id TEXT NOT NULL,
-        active_generation INTEGER NOT NULL,
-        started_at_ms INTEGER,
-        rollover_delivery_id TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (organization_id, logical_conversation_id)
-      )
-    `,
-  });
-}
 
 function createRolloverRequest(): RemoteAgentWorkerSubmitTurnRequest {
   return {
@@ -376,64 +538,32 @@ function createRolloverRequest(): RemoteAgentWorkerSubmitTurnRequest {
     },
   };
 }
-
-function pausedCenterAgentDb(): D1Database {
-  return {
-    prepare: vi.fn(() => ({
-      bind: vi.fn(() => ({
-        first: vi.fn(async () => ({
-          agent_profile_id: "agt-center",
-          created_at: 1_700_000_000_000,
-          designated_by: "creator",
-          duty: null,
-          operating_state: "paused",
-          organization_id: "org-1",
-          paused_at: 1_700_000_000_000,
-          paused_by_user_id: "creator",
-        })),
-      })),
-    })),
-  } as unknown as D1Database;
-}
-
-function centerAgentPauseRaceDb(): D1Database {
-  let designationReadCount = 0;
-  return {
-    prepare: vi.fn((sql: string) => {
-      const normalizedSql = sql.replace(/\s+/gu, " ").trim().toLowerCase();
-      if (normalizedSql.includes("from center_agent_designations")) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn(() => {
-              const operatingState =
-                designationReadCount === 0 ? "active" : "paused";
-              designationReadCount += 1;
-              return {
-                agent_profile_id: "agt-center",
-                created_at: 1_700_000_000_000,
-                designated_by: "creator",
-                duty: null,
-                operating_state: operatingState,
-                organization_id: "org-1",
-                paused_at:
-                  operatingState === "paused" ? 1_700_000_000_001 : null,
-                paused_by_user_id:
-                  operatingState === "paused" ? "creator" : null,
-              };
-            }),
-          })),
-        };
-      }
-      if (normalizedSql.includes("select daily_admission_day_utc")) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn(() => ({
-              daily_admission_day_utc: "2026-07-29",
-            })),
-          })),
-        };
-      }
-      throw new Error(`Unexpected SQL in admission race test: ${sql}`);
-    }),
-  } as unknown as D1Database;
+async function createCenterAdmissionFixture(paused: boolean) {
+  const harness = await createPostgresHarness();
+  onTestFinished(() => harness.close());
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $1, $2)',
+    values: ["creator", "creator@example.com"],
+  });
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $1, $1, $2)',
+    values: ["org-1", 1_700_000_000_000],
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, organization_id, managed_role, source) VALUES ($1, 'Center Agent', 'center-agent', 'agent', 'org-1', 'center_agent', 'migration')`,
+    values: [CENTER_PROFILE_ID],
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, designated_by, created_at) VALUES ('org-1', $1, 'creator', 1700000000000)`,
+    values: [CENTER_PROFILE_ID],
+  });
+  const pause = async () => {
+    await harness.query({
+      text: `UPDATE "openmeld"."center_agent_designations" SET operating_state = 'paused', paused_at = 1700000000001, paused_by_user_id = 'creator' WHERE organization_id = 'org-1'`,
+    });
+  };
+  if (paused) {
+    await pause();
+  }
+  return { db: harness.db, pause };
 }

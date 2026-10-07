@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { electronClient, handleDeepLink } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
 import {
-  DESKTOP_AUTH_SCHEME,
   type DesktopInstalledTarget,
+  desktopAuthIdentity,
   desktopSessionSchema,
 } from "@openmeld/schemas";
 import {
@@ -12,6 +12,9 @@ import {
   createAuthClient,
 } from "better-auth/client";
 import { app, type BrowserWindow } from "electron";
+import { assertPilotAuthCallback } from "./pilot-auth-callback";
+
+const SPACE_FILE_CONTENT_PATH = /^\/v1\/spaces\/[^/]+\/files\/[^/]+\/content$/u;
 
 export function createPilotAuth(
   webOrigin: string,
@@ -20,7 +23,9 @@ export function createPilotAuth(
   installedTarget?: DesktopInstalledTarget
 ) {
   let signInError: string | null = null;
-  const authScheme = installedTarget?.authScheme ?? DESKTOP_AUTH_SCHEME;
+  const authScheme =
+    installedTarget?.authScheme ??
+    desktopAuthIdentity(false, undefined, webOrigin).authScheme;
   const sessionNotifications: BetterAuthClientPlugin = {
     id: "desktop-session-notifications",
     fetchPlugins: [
@@ -62,12 +67,16 @@ export function createPilotAuth(
   // Electron permits one privileged-scheme registration. The application
   // registers page and auth schemes together; SDK setup would overwrite it.
   client.setupMain({ bridges: false, csp: false, scheme: false, getWindow });
-  const registered =
-    process.defaultApp && process.argv[1]
-      ? app.setAsDefaultProtocolClient(authScheme, process.execPath, [
-          resolve(process.argv[1]),
-        ])
-      : app.setAsDefaultProtocolClient(authScheme);
+  // Never register the shared generic Electron bundle on macOS.
+  let registered = true;
+  if (process.platform !== "darwin" || app.isPackaged) {
+    registered =
+      process.platform === "win32" && process.defaultApp && process.argv[1]
+        ? app.setAsDefaultProtocolClient(authScheme, process.execPath, [
+            resolve(process.argv[1]),
+          ])
+        : app.setAsDefaultProtocolClient(authScheme);
+  }
   if (!registered) {
     throw new Error("Desktop sign-in callback registration failed");
   }
@@ -119,8 +128,11 @@ export function createPilotAuth(
     app.quit();
   }
   return {
-    signIn: () => {
+    signIn: async () => {
       signInError = null;
+      if (!installedTarget) {
+        await assertPilotAuthCallback(app, authScheme);
+      }
       return client.requestAuth();
     },
     async cloudRequest(
@@ -140,6 +152,21 @@ export function createPilotAuth(
         headers: Object.fromEntries(request.headers),
         body: request.body,
         onResponse({ response }) {
+          if (
+            response.ok &&
+            (request.method === "GET" || request.method === "HEAD") &&
+            SPACE_FILE_CONTENT_PATH.test(new URL(path, webOrigin).pathname)
+          ) {
+            // Better Fetch parses bodies after its response hooks. Give that
+            // parser an empty body, retaining the real stream without a tee.
+            // The following Electron hook still receives the original headers
+            // and remains the sole owner of response-cookie persistence.
+            raw = response;
+            return new Response(null, {
+              status: response.status,
+              headers: response.headers,
+            });
+          }
           raw = response.clone();
         },
       });

@@ -1,6 +1,14 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
-import { projectCodexUsageLimits } from "@openmeld/adapter-codex";
+import {
+  isAntigravityAcpLaunchContract,
+  probeAntigravityAcp,
+} from "@openmeld/adapter-antigravity";
+import { probeClaudeCodeUsageLimits } from "@openmeld/adapter-claude-code";
+import {
+  probeCodexAppServerAccount,
+  projectCodexUsageLimits,
+} from "@openmeld/adapter-codex";
 import {
   buildCliLaunchInvocation,
   createUnavailableProviderUsageLimits,
@@ -12,7 +20,11 @@ import {
   GrokBuildAcpTransportError,
   probeGrokBuildAcpInterface,
 } from "@openmeld/adapter-grok-build";
-import { areAgentControllerInterfaceAccountsSame } from "@openmeld/agent-runtime";
+import {
+  areAgentControllerInterfaceAccountsSame,
+  compareAgentControllerVersions,
+  isAgentControllerUsageRefreshUnavailable,
+} from "@openmeld/agent-runtime";
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceAuthSnapshot,
@@ -46,6 +58,7 @@ import {
   recordAgentControllerInterfaceProbeSuccess,
   resolveAgentControllerCommandFingerprint,
 } from "./agent-controller-interface-keeper";
+import { probeCursorUsageLimits } from "./cursor-usage-probe";
 import { probeOpenCodeReadiness } from "./opencode-readiness-probe";
 import { withProbeWorkingDirectory } from "./probe-working-directory";
 import { resolveLaunchContractCommandPath } from "./runtime-provider-usage-limits";
@@ -54,15 +67,16 @@ const PROBE_TIMEOUT_MS = 8000;
 const CODEX_AUX_INVENTORY_GRACE_MS = 2500;
 const PROBE_OUTPUT_LIMIT = 32_000;
 const CODEX_USER_AGENT_VERSION_RE = /\/([^\s]+)/u;
-const CLI_SEMVER_RE = /\b(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
-const SEMVER_CORE_RE = /^v?(\d+)\.(\d+)\.(\d+)/u;
+const CLI_SEMVER_RE = /\bv?(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
+const CURSOR_BUILD_DATE_RE = /^(\d{4})\.(\d{2})\.(\d{2})-[\da-f]+$/u;
 const WHITESPACE_RE = /\s+/u;
 
 // "fresh" always runs the controller probe and reports its real outcome; it is
 // the default for user-driven paths (setup, prepare, explicit checks).
 // "background" is the periodic report-sync policy on machines we do not want
-// to burden: it reuses a completed, reusable snapshot within a TTL. A failed
-// or unauthenticated probe invalidates that reuse so the next pass probes again.
+// to burden: it reuses completed checks, including signed-out results, within
+// a TTL. A failed probe invalidates reuse so the next pass probes again.
+// Neither policy authorizes interactive authentication.
 export type AgentControllerInterfaceProbePolicy = "background" | "fresh";
 
 type AgentControllerInterfaceProbeOutcome = {
@@ -84,6 +98,7 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   string,
   AgentControllerInterfaceSnapshotResolver
 > = {
+  antigravity: resolveAntigravityInterfaceSnapshot,
   "claude-code": resolveClaudeCodeInterfaceSnapshot,
   codex: resolveCodexInterfaceSnapshot,
   cursor: resolveCursorInterfaceSnapshot,
@@ -92,10 +107,93 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   opencode: resolveOpenCodeInterfaceSnapshot,
 };
 
+async function resolveAntigravityInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
+  if (isAntigravityAcpLaunchContract(input.launchContract)) {
+    try {
+      const initialized = await probeAntigravityAcp({
+        cwd: input.workingDirectory,
+        launchContract: input.launchContract,
+        timeoutMs: PROBE_TIMEOUT_MS,
+      });
+      return {
+        probeCompleted: true,
+        snapshot: {
+          ...input.baseSnapshot,
+          nativeInterface: "acp",
+          version: initialized.agentInfo?.version ?? null,
+          capabilities: {
+            ...input.baseSnapshot.capabilities,
+            approvals: true,
+            structuredUserInput: true,
+          },
+          auth: { status: "unknown" },
+          status: "warning",
+          message:
+            "Antigravity ACP is installed. Sign-in status and usage limits must be checked in Antigravity.",
+          usageLimits: createUnsupportedProviderUsageLimits(
+            input.baseSnapshot.checkedAt
+          ),
+        },
+      };
+    } catch (error) {
+      return {
+        probeCompleted: false,
+        snapshot: {
+          ...input.baseSnapshot,
+          nativeInterface: "acp",
+          status: "unknown",
+          message: `OpenMeld could not start Antigravity ACP: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      };
+    }
+  }
+  // /usage may enter interactive authentication even in print mode. A status
+  // read (including an explicit refresh) must never initiate browser login or
+  // Keychain authorization. Keep only the credential-free version probe until
+  // the provider offers a verified no-interaction account/usage contract.
+  const versionProbe = await runLaunchContractCommand({
+    workingDirectory: input.workingDirectory,
+    args: ["--version"],
+    launchContract: input.launchContract,
+  });
+  const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  return {
+    probeCompleted: versionProbe.ok,
+    snapshot: {
+      ...input.baseSnapshot,
+      auth: { status: "unknown" },
+      message: versionProbe.ok
+        ? "Antigravity is installed. OpenMeld cannot safely check its sign-in status or usage limits. Check them directly in Antigravity."
+        : "OpenMeld could not read the Antigravity CLI version.",
+      status: "warning",
+      usageLimits: createUnsupportedProviderUsageLimits(
+        input.baseSnapshot.checkedAt
+      ),
+      version,
+    },
+  };
+}
+
 export async function probeAgentControllerUsageObservationAuth(input: {
   agentId: string;
   launchContract: RuntimeAgentControllerLaunchContract;
 }): Promise<AgentControllerInterfaceAuthSnapshot> {
+  if (input.agentId === "codex") {
+    try {
+      const account = await probeCodexAppServerAccount({
+        launchContract: input.launchContract,
+        timeoutMs: PROBE_TIMEOUT_MS,
+      });
+      return {
+        status: account.authStatus,
+        ...(account.email ? { email: account.email } : {}),
+      };
+    } catch {
+      return { status: "unknown" };
+    }
+  }
   if (input.agentId !== "claude-code") {
     return { status: "unknown" };
   }
@@ -106,7 +204,7 @@ export async function probeAgentControllerUsageObservationAuth(input: {
     runLaunchContractCommand({
       workingDirectory,
       allowNonZeroExit: true,
-      args: ["auth", "status"],
+      args: ["auth", "status", "--json"],
       launchContract: input.launchContract,
     })
   );
@@ -225,7 +323,6 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       current: outcome.snapshot.usageLimits,
       previous: lastKnownUsageLimits,
       previousAuth: lastKnownAuth,
-      support: controllerDefinition?.usageLimitSupport ?? "not_evaluated",
     });
     const completedSnapshot = withUsageLimits(
       {
@@ -304,7 +401,6 @@ export function resolveUsageLimitsAfterCompletedProbe(input: {
   current: AgentControllerUsageLimits | undefined;
   previous: AgentControllerUsageLimits | null;
   previousAuth: AgentControllerInterfaceAuthSnapshot | null;
-  support: BuiltinAgentControllerUsageLimitSupport;
 }): AgentControllerUsageLimits | undefined {
   if (
     !areAgentControllerInterfaceAccountsSame(
@@ -314,8 +410,8 @@ export function resolveUsageLimitsAfterCompletedProbe(input: {
   ) {
     return input.current;
   }
-  if (input.support === "passive") {
-    return input.previous ?? input.current;
+  if (!input.current) {
+    return input.previous ?? undefined;
   }
   return preserveLastKnownUsageLimitsAfterFailure(input);
 }
@@ -324,8 +420,9 @@ function preserveLastKnownUsageLimitsAfterFailure(input: {
   current: AgentControllerUsageLimits | undefined;
   previous: AgentControllerUsageLimits | null;
 }): AgentControllerUsageLimits | undefined {
-  const currentIsUnavailable =
-    input.current?.length === 1 && input.current[0]?.status === "unavailable";
+  const currentIsUnavailable = isAgentControllerUsageRefreshUnavailable(
+    input.current
+  );
   const previousHasKnownCapacity = input.previous?.some(
     (limit) =>
       limit.status === "available" ||
@@ -365,7 +462,7 @@ function resolveInitialProviderUsageLimits(input: {
   checkedAt: string;
   support: BuiltinAgentControllerUsageLimitSupport;
 }): AgentControllerInterfaceSnapshot["usageLimits"] {
-  if (input.support === "native") {
+  if (input.support === "native" || input.support === "observational") {
     return createUnavailableProviderUsageLimits(input.checkedAt);
   }
   if (input.support === "unsupported") {
@@ -386,6 +483,9 @@ function resolveLaunchSnapshot(
       ? resolveLaunchContractCommandPath(state.launchContract)
       : null,
     installChoiceCount: state.installChoices.length,
+    ...(state.launchFailureReason
+      ? { failureReason: state.launchFailureReason }
+      : {}),
     status: state.launchStatus,
   };
 }
@@ -475,7 +575,11 @@ async function resolveControllerVersionAdvisory(input: {
     };
   }
 
-  const versionComparison = compareSemverCore(
+  const compareVersions =
+    input.controllerId === "cursor"
+      ? compareCursorBuildDates
+      : compareAgentControllerVersions;
+  const versionComparison = compareVersions(
     input.currentVersion,
     latestVersion
   );
@@ -530,9 +634,18 @@ function recordLatestVersionFailureDiagnostics(
   }
 }
 
-function compareSemverCore(left: string, right: string): number | null {
-  const leftParts = parseSemverCore(left);
-  const rightParts = parseSemverCore(right);
+// Cursor's YYYY.MM.DD-commit builds are not SemVer; compare their release dates.
+function compareCursorBuildDates(left: string, right: string): number | null {
+  const leftParts = left
+    .trim()
+    .match(CURSOR_BUILD_DATE_RE)
+    ?.slice(1)
+    .map(Number);
+  const rightParts = right
+    .trim()
+    .match(CURSOR_BUILD_DATE_RE)
+    ?.slice(1)
+    .map(Number);
   if (!(leftParts && rightParts)) {
     return null;
   }
@@ -544,18 +657,6 @@ function compareSemverCore(left: string, right: string): number | null {
     }
   }
   return 0;
-}
-
-function parseSemverCore(value: string): [number, number, number] | null {
-  const match = value.trim().match(SEMVER_CORE_RE);
-  if (!match) {
-    return null;
-  }
-  const [, major, minor, patch] = match;
-  if (!(major && minor && patch)) {
-    return null;
-  }
-  return [Number(major), Number(minor), Number(patch)];
 }
 
 async function resolveCodexInterfaceSnapshot(
@@ -635,6 +736,34 @@ async function resolveClaudeCodeInterfaceSnapshot(
 
   const auth = resolveClaudeAuthSnapshot(authProbe);
   const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  let usageLimits = createUnavailableProviderUsageLimits(
+    input.baseSnapshot.checkedAt,
+    undefined,
+    { reason: "not_reported" }
+  );
+  if (auth.status !== "authenticated") {
+    usageLimits = createUnavailableProviderUsageLimits(
+      input.baseSnapshot.checkedAt,
+      undefined,
+      {
+        reason:
+          auth.status === "unauthenticated"
+            ? "not_authenticated"
+            : "refresh_failed",
+      }
+    );
+  } else if (
+    auth.email &&
+    version &&
+    (compareAgentControllerVersions(version, "2.1.285") ?? -1) >= 0
+  ) {
+    usageLimits = await probeClaudeCodeUsageLimits({
+      expectedEmail: auth.email,
+      launchContract: input.launchContract,
+      workingDirectory: input.workingDirectory,
+      observedAt: input.baseSnapshot.checkedAt,
+    });
+  }
   let message = input.baseSnapshot.message;
   let status = input.baseSnapshot.status;
   if (auth.status === "unauthenticated") {
@@ -650,6 +779,7 @@ async function resolveClaudeCodeInterfaceSnapshot(
     snapshot: {
       ...input.baseSnapshot,
       auth,
+      usageLimits,
       message,
       status,
       version,
@@ -681,6 +811,21 @@ async function resolveCursorInterfaceSnapshot(
   ]);
   const auth = resolveCursorAuthSnapshot(authProbe);
   const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  const usageLimits =
+    auth.status === "authenticated"
+      ? await probeCursorUsageLimits({
+          observedAt: input.baseSnapshot.checkedAt,
+        })
+      : createUnavailableProviderUsageLimits(
+          input.baseSnapshot.checkedAt,
+          undefined,
+          {
+            reason:
+              auth.status === "unauthenticated"
+                ? "not_authenticated"
+                : "refresh_failed",
+          }
+        );
   let message = input.baseSnapshot.message;
   let status = input.baseSnapshot.status;
   if (auth.status === "unauthenticated") {
@@ -695,6 +840,7 @@ async function resolveCursorInterfaceSnapshot(
     snapshot: {
       ...input.baseSnapshot,
       auth,
+      usageLimits,
       message,
       status,
       version,
@@ -854,12 +1000,16 @@ async function resolveOpenCodeInterfaceSnapshot(
         ? { usageLimits: readinessProbe.usageLimits }
         : {}),
       version,
-      versionAdvisory: await resolveControllerVersionAdvisory({
-        checkedAt: input.baseSnapshot.checkedAt,
-        controllerId: input.baseSnapshot.controllerId,
-        currentVersion: version,
-        launchContract: input.launchContract,
-      }),
+      // The v1 maintenance channel installs opencode-ai. It must not replace
+      // an explicitly selected v2 installation with the older major.
+      versionAdvisory: version?.startsWith("2.")
+        ? undefined
+        : await resolveControllerVersionAdvisory({
+            checkedAt: input.baseSnapshot.checkedAt,
+            controllerId: input.baseSnapshot.controllerId,
+            currentVersion: version,
+            launchContract: input.launchContract,
+          }),
     },
   };
 }
@@ -914,6 +1064,7 @@ function runCommand(input: {
       env: process.env,
       shell: input.shell ?? false,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     let stdout = "";
     let stderr = "";
@@ -1021,6 +1172,7 @@ function probeCodexAppServer(
       env: process.env,
       shell: invocation.shell ?? false,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
     const pending = new Map<
       number,
@@ -1418,8 +1570,10 @@ function resolveCursorAuthSnapshot(
     return { status: "unauthenticated" };
   }
   if (payload?.status === "authenticated") {
+    const email = normalizeOptionalText(payload.email);
     return {
-      label: "Signed in",
+      ...(email ? { email } : {}),
+      label: email ?? "Signed in",
       status: "authenticated",
       type: "cursor_login",
     };

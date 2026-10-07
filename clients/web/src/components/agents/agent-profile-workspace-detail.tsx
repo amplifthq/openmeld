@@ -2,7 +2,10 @@
 
 import { Popover } from "@base-ui/react/popover";
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
-import { resolveAgentWakeAvailabilityDisplayCategory } from "@openmeld/agent-runtime";
+import {
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+	resolveAgentWakeAvailabilityDisplayCategory,
+} from "@openmeld/agent-runtime";
 import type {
 	AgentWakeAvailability,
 	AuthProfileView,
@@ -13,8 +16,11 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { CardFooter } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import {
 	resolveStatusToneBadgeClassName,
 	resolveStatusToneIconClassName,
@@ -31,8 +37,11 @@ import {
 	ProhibitIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
 import type {
 	AgentProfileActivityDestination,
 	AgentProfileActivityNavigation,
@@ -40,8 +49,11 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
-import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { updateAgentAvatar } from "#/lib/profiles/update-agent-avatar";
+import { useAgentAvatarInvalidationScope } from "#/query/profiles/agent-avatar-context";
 import {
 	AgentTaskActivityTime,
 	useAgentTaskActivity,
@@ -53,6 +65,8 @@ export function AgentProfileWorkspaceDetail(input: {
 	agentControllerRef: string | null;
 	canEdit: boolean;
 	controllerModelSummary: string;
+	modelId?: string | null;
+	modelIsLoading?: boolean;
 	configurationContent?: ReactNode;
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending: boolean;
@@ -60,6 +74,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	operationalContext: AgentProfileOperationalContextInput | null;
 	onOpenDirectMessage: () => void;
 	onRenameProfile: (profileName: string) => Promise<void>;
+	onAvatarUpdated?: (profile: AuthProfileView) => void;
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
@@ -73,7 +88,13 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
 }) {
-	const taskActivity = useAgentTaskActivity(input.profile.openMeldProfileId);
+	const [savingAvatar, setSavingAvatar] = useState(false);
+	const queryClient = useQueryClient();
+	const avatarInvalidationScope = useAgentAvatarInvalidationScope();
+	const taskActivity = useAgentTaskActivity(
+		input.profile.openMeldProfileId,
+		true
+	);
 	const displayedWakeAvailability = input.wakeAvailability;
 	const showOwnerOperationalContext =
 		input.details.viewerScope === "owner_self";
@@ -111,75 +132,143 @@ export function AgentProfileWorkspaceDetail(input: {
 			className="@container/agent-detail mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
 			data-testid="agent-profile-workspace-detail"
 		>
-			<div className="flex min-w-0 @[42rem]/agent-detail:flex-row flex-col @[42rem]/agent-detail:items-end gap-4">
-				<div className="flex min-w-0 flex-1 items-start gap-4">
-					<AgentProfileControllerAvatar
-						agentControllerRef={input.agentControllerRef}
-						className={cn(
-							"shrink-0",
-							hasReducedProminence ? "opacity-55 grayscale" : null
-						)}
-						profileId={input.profile.openMeldProfileId}
-						profileName={input.profile.profileName}
-						size={96}
-						working={input.operationalContext?.status === "working"}
-					/>
-					<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
-						<div className="flex min-w-0 items-center gap-2">
-							<AgentProfileNameEditor
-								adornment={
-									<RemoteAgentIndicator
-										agentControllerRef={input.agentControllerRef}
+			<FluidContextMenuScope
+				target={
+					<div className="flex min-w-0 @[42rem]/agent-detail:flex-row flex-col @[42rem]/agent-detail:items-end gap-4">
+						<div className="flex min-w-0 flex-1 items-start gap-4">
+							{input.agentControllerRef ===
+							HOSTED_REMOTE_AGENT_CONTROLLER_REF ? (
+								<AgentAvatarEditor
+									avatarStyle={input.profile.avatarStyle}
+									canEdit={input.canEdit}
+									centerAgent={false}
+									modelId={input.modelId}
+									onSave={async (avatarStyle) => {
+										if (
+											avatarStyle !== "automatic" &&
+											avatarStyle !== "fluid"
+										) {
+											return;
+										}
+										setSavingAvatar(true);
+										try {
+											const updated = await updateAgentAvatar(
+												{
+													profileId: input.profile.openMeldProfileId,
+													avatarStyle,
+												},
+												queryClient,
+												avatarInvalidationScope
+											);
+											input.onAvatarUpdated?.(updated);
+											toast.success("Avatar updated.");
+										} catch (error) {
+											toast.error("Unable to save avatar. Try again.");
+											throw error;
+										} finally {
+											setSavingAvatar(false);
+										}
+									}}
+									profileId={input.profile.openMeldProfileId}
+									profileName={input.profile.profileName}
+									saving={savingAvatar}
+									size={96}
+								/>
+							) : (
+								<AgentProfileControllerAvatar
+									agentControllerRef={input.agentControllerRef}
+									avatarStyle={input.profile.avatarStyle}
+									className={cn(
+										"shrink-0",
+										hasReducedProminence ? "opacity-55 grayscale" : null
+									)}
+									profileId={input.profile.openMeldProfileId}
+									profileName={input.profile.profileName}
+									size={96}
+									working={input.operationalContext?.status === "working"}
+								/>
+							)}
+							<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
+								<div className="flex min-w-0 items-center gap-2">
+									<AgentProfileNameEditor
+										adornment={
+											<RemoteAgentIndicator
+												agentControllerRef={input.agentControllerRef}
+											/>
+										}
+										canEdit={input.canEdit}
+										hasReducedProminence={hasReducedProminence}
+										onRenameProfile={input.onRenameProfile}
+										profileName={input.profile.profileName}
 									/>
-								}
-								canEdit={input.canEdit}
-								hasReducedProminence={hasReducedProminence}
-								onRenameProfile={input.onRenameProfile}
-								profileName={input.profile.profileName}
-							/>
+								</div>
+								{input.modelIsLoading ? (
+									<Skeleton
+										aria-label="Loading model"
+										className="mt-2 h-4 w-40 rounded-sm"
+									/>
+								) : (
+									<p className="mt-1 break-words text-muted-foreground text-sm">
+										{input.controllerModelSummary}
+									</p>
+								)}
+								<AgentProfilePresence
+									headerRecoveryActions={
+										showOwnerOperationalContext
+											? input.headerRecoveryActions
+											: null
+									}
+									wakeAvailability={displayedWakeAvailability}
+									wakeAvailabilityCheckedAt={input.wakeAvailabilityCheckedAt}
+									wakeAvailabilityErrorMessage={
+										input.wakeAvailabilityErrorMessage
+									}
+									wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
+									wakeAvailabilityIsRefreshing={
+										input.wakeAvailabilityIsRefreshing
+									}
+									wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
+								/>
+							</div>
 						</div>
-						<p className="mt-1 break-words text-muted-foreground text-sm">
-							{input.controllerModelSummary}
-						</p>
-						<AgentProfilePresence
-							headerRecoveryActions={
-								showOwnerOperationalContext ? input.headerRecoveryActions : null
-							}
-							wakeAvailability={displayedWakeAvailability}
-							wakeAvailabilityCheckedAt={input.wakeAvailabilityCheckedAt}
-							wakeAvailabilityErrorMessage={input.wakeAvailabilityErrorMessage}
-							wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
-							wakeAvailabilityIsRefreshing={input.wakeAvailabilityIsRefreshing}
-							wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
-						/>
+						<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
+							<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
+								<Button
+									disabled={input.isDirectMessagePending}
+									onClick={input.onOpenDirectMessage}
+									size="sm"
+									type="button"
+									variant="default"
+								>
+									<ChatCircleTextIcon
+										aria-hidden="true"
+										data-icon="inline-start"
+									/>
+									Chat with {input.profile.profileName}
+								</Button>
+								{input.overflowActions}
+							</div>
+						</div>
 					</div>
-				</div>
-				<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
-					<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
-						<Button
-							disabled={input.isDirectMessagePending}
-							onClick={input.onOpenDirectMessage}
-							size="sm"
-							type="button"
-							variant="default"
-						>
-							<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-							Chat with {input.profile.profileName}
-						</Button>
-						{input.overflowActions}
-					</div>
-				</div>
-			</div>
-			<AgentProfileUsage
-				profileId={input.profile.openMeldProfileId}
-				variant="details"
+				}
 			/>
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
+				isLoading={
+					taskActivity.enabled &&
+					taskActivity.isPending &&
+					!input.operationalContext
+				}
+				isUnavailable={
+					taskActivity.enabled &&
+					taskActivity.isError &&
+					!input.operationalContext
+				}
 				lastTaskActivityAt={taskActivity.activity?.lastTaskActivityAt}
 				operationalContext={input.operationalContext}
 				recoveryAction={operationalRecoveryAction}
 				recoveryActionKind={projectedRecoveryAction?.kind ?? null}
+				workload={taskActivity.activity?.workload}
 			/>
 			{input.configurationContent}
 			{input.supportingContent ? (
@@ -216,6 +305,13 @@ function AgentProfilePresence(input: {
 	wakeAvailabilityIsRefreshing: boolean;
 	wakeAvailabilityNowMs: number;
 }) {
+	if (input.wakeAvailabilityIsPending && !input.wakeAvailability) {
+		return (
+			<SkeletonRegion className="mt-3" label="Loading Agent availability">
+				<Skeleton className="h-5 w-36" />
+			</SkeletonRegion>
+		);
+	}
 	const presentation = resolveAgentProfilePresence(input);
 	const checkedAt = input.wakeAvailability
 		? formatAgentWakeAvailabilityCheckedAt(
@@ -390,12 +486,43 @@ function AgentProfilePresenceIcon(input: {
 }
 
 function AgentProfileCurrentActivity(input: {
+	workload?: import("@openmeld/schemas/types").AgentWorkloadSnapshot;
+	isLoading?: boolean;
+	isUnavailable?: boolean;
 	activityNavigation: AgentProfileActivityNavigation | null;
 	lastTaskActivityAt?: string | null;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
 }) {
+	if (input.workload) {
+		return (
+			<AgentProfileWorkload
+				activityNavigation={input.activityNavigation}
+				lastTaskActivityAt={input.lastTaskActivityAt}
+				operationalContext={input.operationalContext}
+				recoveryAction={input.recoveryAction}
+				recoveryActionKind={input.recoveryActionKind}
+				workload={input.workload}
+			/>
+		);
+	}
+	if (input.isLoading || input.isUnavailable) {
+		return (
+			<section className="space-y-3">
+				<h2 className="font-medium text-sm">Current activity</h2>
+				{input.isLoading ? (
+					<SkeletonRegion label="Loading Agent activity">
+						<Skeleton className="h-4 w-48" />
+					</SkeletonRegion>
+				) : (
+					<p className="text-muted-foreground text-sm">
+						Current activity unavailable.
+					</p>
+				)}
+			</section>
+		);
+	}
 	const currentDestination = input.activityNavigation?.current ?? null;
 	const queuedDestinations = input.activityNavigation?.queued ?? [];
 	const { footerRecoveryAction, interruptedRecoveryAction } =
@@ -454,6 +581,112 @@ function AgentProfileCurrentActivity(input: {
 					</CardFooter>
 				) : null}
 			</div>
+		</section>
+	);
+}
+
+function AgentProfileWorkload(input: {
+	workload: import("@openmeld/schemas/types").AgentWorkloadSnapshot;
+	recoveryAction: ReactNode;
+	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
+	activityNavigation: AgentProfileActivityNavigation | null;
+	operationalContext: AgentProfileOperationalContextInput | null;
+	lastTaskActivityAt?: string | null;
+}) {
+	const organization = useOptionalAppOrganization();
+	const workload = input.workload;
+	const { footerRecoveryAction, interruptedRecoveryAction } =
+		resolveActivityRecoveryActions(input);
+	const recoveryContext = interruptedRecoveryAction ? (
+		<ActivityDestinationsPanel
+			currentDestination={input.activityNavigation?.current ?? null}
+			currentWorkLocation={
+				input.operationalContext?.currentWorkLocation ?? null
+			}
+			interruptedRecoveryAction={interruptedRecoveryAction}
+			isWorking={false}
+			queuedDestinations={[]}
+		/>
+	) : null;
+	if (workload.status !== "ready") {
+		return (
+			<section className="grid gap-2">
+				<h2 className="font-medium text-sm">Current activity</h2>
+				<p className="text-muted-foreground text-sm">
+					Current activity unavailable. Try refreshing.
+				</p>
+				{recoveryContext}
+				{footerRecoveryAction}
+			</section>
+		);
+	}
+	const queued = workload.waitingCount + workload.queuedMessageCount;
+	const hiddenCount =
+		workload.activeCount +
+		queued +
+		workload.pausedMessageCount -
+		workload.items.length;
+	const summary =
+		[
+			...(workload.activeCount ? [`${workload.activeCount} active`] : []),
+			...(queued ? [`${queued} queued`] : []),
+			...(workload.pausedMessageCount
+				? [`${workload.pausedMessageCount} paused`]
+				: []),
+		].join(" · ") ||
+		resolveNeutralActivitySummary(input.operationalContext) ||
+		"No current work";
+	return (
+		<section aria-label="Current activity" className="grid min-w-0 gap-3">
+			<div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+				<h2 className="font-medium text-sm">Current activity</h2>
+				<span className="text-muted-foreground text-sm">{summary}</span>
+			</div>
+			{recoveryContext}
+			{organization && workload.items.length > 0 ? (
+				<FluidCardGroup className="grid min-w-0 gap-2" role="list">
+					{workload.items.map((item) => (
+						<FluidCardItem
+							className="border border-border/70"
+							itemId={item.id}
+							key={item.id}
+							role="listitem"
+						>
+							<ActivityDestinationLink
+								destination={{
+									href: buildOrganizationSpacePath({
+										orgSlug: organization.currentOrganization.slug,
+										spaceId: item.location.spaceId,
+									}),
+									source: "space",
+									title: item.text || item.location.spaceName,
+								}}
+								sourceLabel={item.location.spaceName}
+								state={
+									(
+										{
+											active: "working",
+											waiting: "queued",
+											queued_message: "queued",
+											paused_message: "paused",
+										} as const
+									)[item.kind]
+								}
+								trailingAction={null}
+							/>
+						</FluidCardItem>
+					))}
+				</FluidCardGroup>
+			) : null}
+			{hiddenCount > 0 ? (
+				<p className="text-muted-foreground text-xs">
+					{hiddenCount === 1
+						? "1 item is in a conversation you can't access."
+						: `${hiddenCount} items are in conversations you can't access.`}
+				</p>
+			) : null}
+			{footerRecoveryAction}
+			<AgentTaskActivityTime timestamp={input.lastTaskActivityAt} />
 		</section>
 	);
 }
@@ -599,6 +832,8 @@ function ActivityDestinationsPanel(input: {
 }
 
 type ActivityDestinationState =
+	| "queued"
+	| "paused"
 	| "current"
 	| "interrupted"
 	| "up_next"
@@ -618,11 +853,13 @@ type ActivityDestinationEntry =
 	  };
 
 function ActivityDestinationLink(input: {
+	sourceLabel?: string;
 	destination: AgentProfileActivityDestination;
 	state: ActivityDestinationState;
 	trailingAction: ReactNode;
 }) {
 	const sourceLabel =
+		input.sourceLabel ??
 		input.destination.computerName ??
 		resolveActivitySourceLabel(input.destination.source);
 	const isInterrupted = input.state === "interrupted";
@@ -676,6 +913,12 @@ function ActivityDestinationLink(input: {
 function resolveActivityDestinationStateLabel(
 	state: ActivityDestinationState
 ): string {
+	if (state === "queued") {
+		return "Queued";
+	}
+	if (state === "paused") {
+		return "Paused";
+	}
 	if (state === "working") {
 		return "Active task";
 	}

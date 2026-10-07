@@ -6,71 +6,58 @@ import {
   readOrganizationRouteSlug,
   resolveOrganizationOwnerOrAdminMembership,
 } from "../src/organizations/organization-context";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("organization context owner contracts", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    harness.run({
-      sql: `
-        CREATE TABLE organizations (
-          id TEXT PRIMARY KEY,
-          slug TEXT NOT NULL,
-          created_by_user_id TEXT,
-          metadata TEXT
-        )
-      `,
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
+    await harness.query({
+      text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ('user-creator','Creator','creator@example.com'), ('user-1','Member','member@example.com')`,
     });
-    harness.run({
-      sql: `
-        CREATE TABLE members (
-          id TEXT PRIMARY KEY,
-          organization_id TEXT NOT NULL,
-          user_id TEXT NOT NULL,
-          role TEXT NOT NULL
-        )
-      `,
-    });
-    harness.run({
-      sql: "INSERT INTO organizations (id, slug, created_by_user_id) VALUES ('org-1', 'acme', 'user-creator')",
+
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"organizations\" (id, slug, created_by_user_id, \"name\", \"created_at\") VALUES ('org-1', 'acme', 'user-creator', 'Test Organization', 1700000000000)",
     });
   });
 
-  afterEach(() => harness.close());
+  afterEach(async () => await harness.close());
 
   it("resolves the organization route slug through the identity owner", async () => {
     await expect(
       readOrganizationRouteSlug({
-        env: { OPENMELD_DB: harness.db },
+        env: { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) },
         organizationId: "org-1",
       })
     ).resolves.toBe("acme");
   });
 
   it("classifies a Personal Workspace from Auth-owned organization metadata", async () => {
-    harness.run({
-      params: [JSON.stringify({ personal: true })],
-      sql: "UPDATE organizations SET metadata = ? WHERE id = 'org-1'",
+    await harness.query({
+      values: [JSON.stringify({ personal: true })],
+      text: 'UPDATE "openmeld"."organizations" SET metadata = $1 WHERE id = \'org-1\'',
     });
 
     await expect(
       readOrganizationPersonalClassification({
-        env: { OPENMELD_DB: harness.db },
+        env: { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) },
         organizationId: "org-1",
       })
     ).resolves.toEqual({ ok: true, personal: true });
   });
 
   it("fails closed when Personal Workspace classification is malformed", async () => {
-    harness.run({
-      sql: "UPDATE organizations SET metadata = '{not-json' WHERE id = 'org-1'",
+    await harness.query({
+      text: "UPDATE \"openmeld\".\"organizations\" SET metadata = '{not-json' WHERE id = 'org-1'",
     });
 
     await expect(
       readOrganizationPersonalClassification({
-        env: { OPENMELD_DB: harness.db },
+        env: { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) },
         organizationId: "org-1",
       })
     ).resolves.toEqual({ ok: false });
@@ -79,20 +66,20 @@ describe("organization context owner contracts", () => {
   it("resolves the immutable organization creator through the identity owner", async () => {
     await expect(
       readOrganizationCreatorUserId({
-        env: { OPENMELD_DB: harness.db },
+        env: { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) },
         organizationId: "org-1",
       })
     ).resolves.toBe("user-creator");
   });
 
   it("allows a current organization admin to finish OAuth", async () => {
-    harness.run({
-      sql: "INSERT INTO members (id, organization_id, user_id, role) VALUES ('member-1', 'org-1', 'user-1', 'admin')",
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"members\" (id, organization_id, user_id, role, \"created_at\") VALUES ('member-1', 'org-1', 'user-1', 'admin', 1700000000000)",
     });
 
     await expect(
       resolveOrganizationOwnerOrAdminMembership({
-        env: { OPENMELD_DB: harness.db },
+        env: { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) },
         organizationId: "org-1",
         userId: "user-1",
       })
@@ -100,13 +87,13 @@ describe("organization context owner contracts", () => {
   });
 
   it("fails closed after the installer loses the owner or admin role", async () => {
-    harness.run({
-      sql: "INSERT INTO members (id, organization_id, user_id, role) VALUES ('member-1', 'org-1', 'user-1', 'member')",
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"members\" (id, organization_id, user_id, role, \"created_at\") VALUES ('member-1', 'org-1', 'user-1', 'member', 1700000000000)",
     });
 
     await expect(
       resolveOrganizationOwnerOrAdminMembership({
-        env: { OPENMELD_DB: harness.db },
+        env: { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) },
         organizationId: "org-1",
         userId: "user-1",
       })

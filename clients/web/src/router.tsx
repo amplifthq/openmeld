@@ -7,8 +7,12 @@ import {
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 	APP_ROUTE_PRELOAD_DELAY_MS,
 } from "./lib/app-route-loading";
-import { getAppScrollRestorationKey } from "./lib/app-scroll-restoration";
 import {
+	getAppScrollRestorationKey,
+	shouldRestoreAppScroll,
+} from "./lib/app-scroll-restoration";
+import {
+	recordApplicationErrorNavigation,
 	reportClientApplicationError,
 	setApplicationErrorRouteReader,
 } from "./lib/observability/application-error-client";
@@ -26,10 +30,9 @@ export function getRouter(options?: { isServer?: boolean }) {
 
 		context: { queryClient, queryPersistence },
 
-		scrollRestoration: true,
-		// A history-entry key treats every visit as a new scroll surface. The
-		// pathname is the stable browser identity for a Space, while search params
-		// remain free to focus a message without replacing its remembered position.
+		scrollRestoration: shouldRestoreAppScroll,
+		// Ordinary pages share their scroll position across visits. Conversations
+		// restore their own account-scoped message anchor or live bottom instead.
 		getScrollRestorationKey: getAppScrollRestorationKey,
 		defaultPreload: "intent",
 		defaultPreloadDelay: APP_ROUTE_PRELOAD_DELAY_MS,
@@ -46,6 +49,17 @@ export function getRouter(options?: { isServer?: boolean }) {
 		// Back and ordinary links remain exits from a failed recovery surface.
 		// Keep the same-tab attempt marker; navigating is not permission to loop.
 		router.subscribe("onBeforeNavigate", resetClientVersionRecovery);
+		router.subscribe("onBeforeNavigate", (event) => {
+			if (!(event.pathChanged && event.fromLocation)) {
+				return;
+			}
+			const fromRouteId = router
+				.matchRoutes(event.fromLocation.pathname)
+				.at(-1)?.routeId;
+			if (fromRouteId) {
+				recordApplicationErrorNavigation(fromRouteId);
+			}
+		});
 		installPerformanceReporting(router);
 		setApplicationErrorRouteReader(
 			() => router.state.matches.at(-1)?.routeId ?? null

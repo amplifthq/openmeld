@@ -1,16 +1,16 @@
 import {
   accountSidebarPreferences,
-  type createD1Db,
+  type createAuthDatabase,
   members,
 } from "@openmeld/db/auth";
+import { and, eq, exists, sql } from "@openmeld/db/query";
 import {
   type AccountSidebarSnapshot,
   accountSidebarPreferencesSchema,
 } from "@openmeld/schemas";
-import { and, eq, exists, sql } from "drizzle-orm";
 
 export function createAccountSidebarRepository(
-  db: ReturnType<typeof createD1Db>
+  db: ReturnType<typeof createAuthDatabase>
 ) {
   const membership = (userId: string, organizationId: string) =>
     db
@@ -101,13 +101,13 @@ export function createAccountSidebarRepository(
       };
       if (snapshot.revision === 0) {
         // First write is insert-only: two devices cannot both create revision 1.
-        const inserted = await db.all<{ revision: number }>(sql`
-          INSERT INTO account_sidebar_preferences (user_id, organization_id, revision, preferences)
+        const inserted = await db.execute<{ revision: number }>(sql`
+          INSERT INTO ${accountSidebarPreferences} (user_id, organization_id, revision, preferences)
           SELECT ${userId}, ${organizationId}, ${values.revision}, ${values.preferences}
           WHERE ${exists(membership(userId, organizationId))}
           ON CONFLICT DO NOTHING RETURNING revision
         `);
-        return inserted.length === 1;
+        return inserted.rows.length === 1;
       }
       const updated = await db
         .update(accountSidebarPreferences)

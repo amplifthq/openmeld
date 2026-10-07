@@ -16,9 +16,11 @@ export type {
   AgentControllerUsageLimitStatus,
   AgentControllerUsageLimits,
 } from "./agent-controller-interface";
+export type * from "./agent-execution-steer";
 export type * from "./agent-task-coordination";
 export type * from "./center-agent-model";
 export type * from "./channel-context";
+export type * from "./github-app-webhook";
 export type * from "./hosted-runtime";
 export type {
   LocalAgentCatalog,

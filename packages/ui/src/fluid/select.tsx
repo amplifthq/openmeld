@@ -20,6 +20,8 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { Input } from "#components/input";
+import { ScrollArea } from "#fluid/scroll-area";
 import { useProximityHover } from "#hooks/use-proximity-hover";
 import { springs } from "#lib/springs";
 import { cn } from "#lib/utils";
@@ -71,6 +73,11 @@ type SelectTriggerProps = Omit<
 };
 
 type SelectContentProps = {
+  search?: {
+    value: string;
+    onValueChange: (value: string) => void;
+    placeholder: string;
+  };
   align?: SelectContentAlign;
   children: ReactNode;
   className?: string;
@@ -331,12 +338,21 @@ SelectTrigger.displayName = "SelectTrigger";
 
 const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
   (
-    { align = "start", children, className, matchTriggerWidth = false, side },
+    {
+      align = "start",
+      children,
+      className,
+      matchTriggerWidth = false,
+      side,
+      search,
+    },
     ref
   ) => {
     const { listboxId, open, setOpen, triggerRef, value, restoreFocus } =
       useSelectContext();
     const containerRef = useRef<HTMLDivElement>(null);
+    const popupRef = useRef<HTMLDivElement>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
     const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
     const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
     const [checkedIndex, setCheckedIndex] = useState<number | undefined>();
@@ -381,7 +397,8 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
           setCheckedIndex(
             nextCheckedIndex === -1 ? undefined : nextCheckedIndex
           );
-          container.focus({ preventScroll: true });
+          items[nextCheckedIndex]?.scrollIntoView({ block: "nearest" });
+          (searchRef.current ?? container).focus({ preventScroll: true });
         });
       });
 
@@ -390,6 +407,24 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
         cancelAnimationFrame(innerFrame);
       };
     }, [measureItems, open, triggerRect, value]);
+
+    const searchValue = search?.value;
+    useEffect(() => {
+      if (!open || searchValue === undefined) {
+        return;
+      }
+      const frame = requestAnimationFrame(() => {
+        measureItems();
+        const items = Array.from(
+          containerRef.current?.querySelectorAll("[data-proximity-index]") ?? []
+        );
+        const index = items.findIndex(
+          (item) => item.getAttribute("data-value") === value
+        );
+        setCheckedIndex(index < 0 ? undefined : index);
+      });
+      return () => cancelAnimationFrame(frame);
+    }, [measureItems, open, searchValue, value]);
 
     useEffect(() => {
       if (!open) {
@@ -423,7 +458,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
 
       const handlePointerDown = (event: MouseEvent) => {
         if (
-          containerRef.current?.contains(event.target as Node) ||
+          popupRef.current?.contains(event.target as Node) ||
           triggerRef.current?.contains(event.target as Node)
         ) {
           return;
@@ -525,56 +560,94 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
       <SelectContentContext.Provider
         value={{ activeIndex, checkedIndex, registerItem }}
       >
-        <div style={contentPlacement.positionStyle}>
+        <div ref={popupRef} style={contentPlacement.positionStyle}>
           <motion.div
             animate={{ opacity: 1, scaleY: 1, y: 0 }}
             initial={contentInitial}
             style={{ transformOrigin }}
             transition={springs.fast}
           >
-            <div
-              aria-activedescendant={activeDescendantId}
-              aria-labelledby={triggerElementId}
+            {search ? (
+              <div className="rounded-t-md border border-border border-b-0 bg-card p-2">
+                <Input
+                  aria-label={search.placeholder}
+                  onChange={(event) => {
+                    setActiveIndex(null);
+                    setFocusedIndex(null);
+                    search.onValueChange(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                      handleContentKeyDown(event);
+                    }
+                  }}
+                  placeholder={search.placeholder}
+                  ref={searchRef}
+                  value={search.value}
+                />
+              </div>
+            ) : null}
+            <ScrollArea
               className={cn(
-                "relative flex max-h-[300px] select-none flex-col gap-0.5 overflow-y-auto rounded-md border border-border bg-card p-1 text-card-foreground shadow-[0_8px_32px_rgba(0,0,0,0.08)] outline-none dark:shadow-[0_8px_32px_rgba(0,0,0,0.18)]",
+                "relative max-h-[300px] select-none rounded-md border border-border bg-card text-card-foreground shadow-[0_8px_32px_rgba(0,0,0,0.08)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.18)]",
+                search && "rounded-t-none",
                 className
               )}
-              id={listboxId}
-              onBlur={(event) => {
-                if (
-                  containerRef.current?.contains(event.relatedTarget as Node)
-                ) {
-                  return;
-                }
+              contentClassName="relative flex flex-col gap-0.5 p-1"
+              style={
+                contentPlacement.maxHeight === undefined
+                  ? undefined
+                  : {
+                      maxHeight: Math.max(
+                        80,
+                        contentPlacement.maxHeight -
+                          Number(Boolean(search)) * 50
+                      ),
+                    }
+              }
+              viewportClassName="outline-none"
+              viewportProps={{
+                "aria-activedescendant": activeDescendantId,
+                "aria-labelledby": triggerElementId,
+                id: listboxId,
+                onBlur: (event) => {
+                  if (
+                    containerRef.current?.contains(event.relatedTarget as Node)
+                  ) {
+                    return;
+                  }
 
-                setFocusedIndex(null);
-                setActiveIndex(null);
-              }}
-              onFocus={(event) => {
-                const indexAttribute = (event.target as HTMLElement)
-                  .closest("[data-proximity-index]")
-                  ?.getAttribute("data-proximity-index");
+                  setFocusedIndex(null);
+                  setActiveIndex(null);
+                },
+                onFocus: (event) => {
+                  const indexAttribute = (event.target as HTMLElement)
+                    .closest("[data-proximity-index]")
+                    ?.getAttribute("data-proximity-index");
 
-                if (indexAttribute === undefined || indexAttribute === null) {
-                  return;
-                }
+                  if (indexAttribute === undefined || indexAttribute === null) {
+                    return;
+                  }
 
-                const index = Number(indexAttribute);
-                setActiveIndex(index);
-                setFocusedIndex(
-                  (event.target as HTMLElement).matches(":focus-visible")
-                    ? index
-                    : null
-                );
+                  const index = Number(indexAttribute);
+                  setActiveIndex(index);
+                  setFocusedIndex(
+                    (event.target as HTMLElement).matches(":focus-visible")
+                      ? index
+                      : null
+                  );
+                },
+                onKeyDown: handleContentKeyDown,
+                onMouseEnter: () => {
+                  handlers.onMouseEnter();
+                  setFocusedIndex(null);
+                },
+                onMouseLeave: handlers.onMouseLeave,
+                onMouseMove: handlers.onMouseMove,
+                role: "listbox",
+                tabIndex: -1,
               }}
-              onKeyDown={handleContentKeyDown}
-              onMouseEnter={() => {
-                handlers.onMouseEnter();
-                setFocusedIndex(null);
-              }}
-              onMouseLeave={handlers.onMouseLeave}
-              onMouseMove={handlers.onMouseMove}
-              ref={(node) => {
+              viewportRef={(node) => {
                 containerRef.current = node;
 
                 if (typeof ref === "function") {
@@ -586,13 +659,6 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
                   ref.current = node;
                 }
               }}
-              role="listbox"
-              style={
-                contentPlacement.maxHeight === undefined
-                  ? undefined
-                  : { maxHeight: contentPlacement.maxHeight }
-              }
-              tabIndex={-1}
             >
               <AnimatePresence>
                 {checkedRect ? (
@@ -664,7 +730,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
               </AnimatePresence>
 
               {children}
-            </div>
+            </ScrollArea>
           </motion.div>
         </div>
       </SelectContentContext.Provider>,

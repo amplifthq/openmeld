@@ -1,4 +1,7 @@
-import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
+import {
+	isHostedAgentControllerRef,
+	resolvePublicAgentAvailabilityCopy,
+} from "@openmeld/schemas";
 import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
@@ -41,6 +44,7 @@ import {
 	type SpaceComposerEditorChange,
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { SpaceComposerEditorBoundary } from "./space-composer-editor-boundary";
 import {
 	type SpaceComposerTaskChoice,
 	SpaceComposerTaskMenu,
@@ -94,6 +98,7 @@ export type SpaceComposerProps = {
 	context: {
 		conversationKind: SpaceComposerConversationKind;
 		placement: SpaceComposerPlacement;
+		readOnly?: boolean;
 		readOnlyPlaceholder?: string;
 		targetName?: string | null;
 	};
@@ -104,6 +109,7 @@ export type SpaceComposerProps = {
 	};
 	slots?: {
 		pendingActionSurface?: ReactNode;
+		queuedMessages?: ReactNode;
 		beforeInput?: ReactNode;
 		beforePrimaryAction?: ReactNode;
 		error?: ReactNode;
@@ -200,8 +206,11 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 					input.availability.isSendingMessage
 				}
 				onChange={setChoice}
+				requiresProjectContainer={
+					target.agentControllerRef === "builtin:claude-code"
+				}
 				sources={input.taskSources ?? []}
-				supportsLocalFiles={target.agentControllerRef === "builtin:codex"}
+				supportsCurrentFolder={target.agentControllerRef === "builtin:codex"}
 				targetProfileId={target.profileId}
 			/>
 		) : null,
@@ -222,6 +231,7 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 }
 
 export function SpaceComposer(input: SpaceComposerProps) {
+	const [editorFailed, setEditorFailed] = useState(false);
 	const taskContext = useComposerTaskChoice(input);
 	const membersPending = hasPendingComposerMembers(input);
 	const { recommendations, recommended, acceptRecommendation } =
@@ -319,6 +329,20 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		override: input.slots?.primaryAction,
 		policy,
 	});
+	if (input.context.readOnly) {
+		return (
+			<div
+				className={input.presentation?.className}
+				data-slot={input.presentation?.dataSlot}
+			>
+				<div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
+					<p className="text-muted-foreground text-sm">{policy.placeholder}</p>
+					{input.slots?.primaryAction}
+				</div>
+				{input.slots?.error}
+			</div>
+		);
+	}
 
 	return (
 		<div
@@ -326,6 +350,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			data-slot={input.presentation?.dataSlot}
 		>
 			{input.slots?.pendingActionSurface}
+			{input.slots?.queuedMessages}
 			<div className="relative">
 				<SpaceComposerFileDropOverlay visible={isDraggingFiles} />
 				<PromptInput
@@ -336,36 +361,48 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				>
 					{input.slots?.beforeInput}
 					<SpaceComposerAttachmentState input={input} />
-					<SpaceComposerEditor
-						addressingTargets={input.content.addressingTargets}
+					<SpaceComposerEditorBoundary
 						ariaLabel={policy.accessibleName}
-						authoredMentions={input.content.authoredMentions}
-						centerAgentProfileId={input.centerAgentProfileId}
-						composerRef={input.composerRef}
 						maxHeight={input.presentation?.maxHeight}
-						mentionEmptyMessage={input.content.mentionEmptyMessage}
-						mentionPickerItems={input.content.mentionPickerItems}
 						onBlur={input.actions.onBlur}
 						onChange={input.actions.onEditorChange}
-						onDragEnter={handleDragOver}
-						onDragLeave={handleDragLeave}
-						onDragOver={handleDragOver}
-						onDrop={handleDrop}
+						onFailure={() => setEditorFailed(true)}
 						onFocus={input.actions.onFocus}
-						onPaste={handlePaste}
 						onSend={submit}
 						placeholder={policy.placeholder}
 						text={input.content.text}
-						wakeRecommendation={
-							recommended
-								? {
-										profileId: recommended.suggestion.profileId,
-										onAccept: acceptRecommendation,
-										onDismiss: () => recommendations?.dismiss(),
-									}
-								: undefined
-						}
-					/>
+					>
+						<SpaceComposerEditor
+							addressingTargets={input.content.addressingTargets}
+							ariaLabel={policy.accessibleName}
+							authoredMentions={input.content.authoredMentions}
+							centerAgentProfileId={input.centerAgentProfileId}
+							composerRef={input.composerRef}
+							maxHeight={input.presentation?.maxHeight}
+							mentionEmptyMessage={input.content.mentionEmptyMessage}
+							mentionPickerItems={input.content.mentionPickerItems}
+							onBlur={input.actions.onBlur}
+							onChange={input.actions.onEditorChange}
+							onDragEnter={handleDragOver}
+							onDragLeave={handleDragLeave}
+							onDragOver={handleDragOver}
+							onDrop={handleDrop}
+							onFocus={input.actions.onFocus}
+							onPaste={handlePaste}
+							onSend={submit}
+							placeholder={policy.placeholder}
+							text={input.content.text}
+							wakeRecommendation={
+								recommended
+									? {
+											profileId: recommended.suggestion.profileId,
+											onAccept: acceptRecommendation,
+											onDismiss: () => recommendations?.dismiss(),
+										}
+									: undefined
+							}
+						/>
+					</SpaceComposerEditorBoundary>
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
 							{taskContext.menu}
@@ -382,11 +419,12 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									onAddPeopleOrAgents={input.actions.onAddPeopleOrAgents}
 								/>
 							) : null}
-							{policy.showMentionButton &&
+							{!editorFailed &&
+							policy.showMentionButton &&
 							input.capabilities?.mentions !== false ? (
 								<Button
 									aria-label="Mention a member"
-									className="size-8 text-base"
+									className="text-base"
 									onClick={input.actions.onMentionButtonClick}
 									size="icon-sm"
 									type="button"
@@ -465,25 +503,19 @@ function ComposerFeedback(input: {
 	membersPending: boolean;
 	error: ReactNode;
 }) {
-	if (!input.membersPending) {
+	if (!input.membersPending || input.members?.state !== "error") {
 		return input.error;
 	}
 	return (
 		<output className="text-muted-foreground text-sm">
-			{input.members?.state === "error" ? (
-				<>
-					Couldn't load members.{" "}
-					<button
-						className="underline underline-offset-2"
-						onClick={input.members.onRetry}
-						type="button"
-					>
-						Retry
-					</button>
-				</>
-			) : (
-				"Loading members… You can keep typing."
-			)}
+			Couldn't load members.{" "}
+			<button
+				className="underline underline-offset-2"
+				onClick={input.members.onRetry}
+				type="button"
+			>
+				Retry
+			</button>
 		</output>
 	);
 }
@@ -493,8 +525,8 @@ function ComposerRecovery(input: {
 	recovery: SpaceComposerProps["recovery"];
 	target: SpaceComposerAddressingTarget | undefined;
 }) {
-	const profileId =
-		input.recovery?.blockedWakeProfileId ?? input.target?.profileId;
+	// A retained failed-send target is not authority for the current draft.
+	const profileId = input.target?.profileId;
 	if (!(profileId && input.recovery)) {
 		return input.target && input.hint ? (
 			<span className="ml-2 text-muted-foreground text-xs">{input.hint}</span>
@@ -553,8 +585,9 @@ function resolvePerAgentComposerHint(
 function SpaceComposerMentionOnlyAction(input: SpaceComposerProps) {
 	const targets = input.content.addressingTargets.filter(
 		(target) =>
-			target.relation === "wake" &&
-			target.wakeAvailability.status !== "ready" &&
+			isBlockedWakeTarget(target) &&
+			Boolean(target.agentControllerRef) &&
+			!isHostedAgentControllerRef(target.agentControllerRef) &&
 			target.allowedRelations.reference
 	);
 	if (!targets.length) {

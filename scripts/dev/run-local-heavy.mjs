@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { isResourceManagedDesktopCommand } from "./desktop-commands.mjs";
 import { acquireLocalResources, RESOURCE_TOKEN } from "./local-resources.mjs";
 import { runOwnedCommand } from "./owned-command.mjs";
 
@@ -18,7 +19,7 @@ process.once("SIGTERM", cancel);
 let reservation;
 try {
   // Hosted jobs have their own runner and the trusted control-plane's limits.
-  if (!process.env.GITHUB_ACTIONS) {
+  if (!(process.env.GITHUB_ACTIONS || isResourceManagedDesktopCommand(args))) {
     reservation = await acquireLocalResources({
       kind: "heavy",
       signal: controller.signal,

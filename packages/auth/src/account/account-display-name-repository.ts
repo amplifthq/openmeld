@@ -1,12 +1,13 @@
-import { type createD1Db, openMeldProfiles, users } from "@openmeld/db/auth";
-import type { InferSelectModel } from "drizzle-orm";
-import { and, eq, exists } from "drizzle-orm";
+import {
+  type createAuthDatabase,
+  openMeldProfiles,
+  users,
+} from "@openmeld/db/auth";
+import { and, eq, exists, type InferSelectModel } from "@openmeld/db/query";
 import { AccountDisplayNameInvariantError } from "./account-display-name-errors";
-
 export type DefaultHumanProfileRecord = InferSelectModel<
   typeof openMeldProfiles
 >;
-
 export type AccountDisplayNameRepository = {
   findDefaultHumanProfile: (
     ownerUserId: string
@@ -22,9 +23,7 @@ export type AccountDisplayNameRepository = {
     profileId: string;
   }) => Promise<DefaultHumanProfileRecord>;
 };
-
-type AccountDisplayNameDatabase = ReturnType<typeof createD1Db>;
-
+type AccountDisplayNameDatabase = ReturnType<typeof createAuthDatabase>;
 export function createDrizzleAccountDisplayNameRepository(
   db: AccountDisplayNameDatabase
 ): AccountDisplayNameRepository {
@@ -63,17 +62,21 @@ export function createDrizzleAccountDisplayNameRepository(
         .select({ id: users.id })
         .from(users)
         .where(eq(users.id, input.ownerUserId));
-
-      const [updatedUsers, updatedProfiles] = await db.batch([
-        db
+      return await db.transaction(async (tx) => {
+        const updatedUsers = await tx
           .update(users)
           .set({
             name: input.displayName,
             updatedAt: now,
           })
           .where(and(eq(users.id, input.ownerUserId), exists(expectedProfile)))
-          .returning({ id: users.id }),
-        db
+          .returning({ id: users.id });
+        if (updatedUsers.length !== 1) {
+          throw new AccountDisplayNameInvariantError(
+            "authenticated account or default profile was not found"
+          );
+        }
+        const updatedProfiles = await tx
           .update(openMeldProfiles)
           .set({
             profileHandle: input.profileHandle,
@@ -81,26 +84,18 @@ export function createDrizzleAccountDisplayNameRepository(
             updatedAt: now,
           })
           .where(and(expectedProfilePredicate, exists(expectedAccount)))
-          .returning(),
-      ]);
-
-      if (updatedUsers.length !== 1) {
-        throw new AccountDisplayNameInvariantError(
-          "authenticated account or default profile was not found"
-        );
-      }
-
-      const updatedProfile = updatedProfiles[0];
-      if (!updatedProfile || updatedProfiles.length !== 1) {
-        throw new AccountDisplayNameInvariantError(
-          "default profile or authenticated account was not found"
-        );
-      }
-      return updatedProfile;
+          .returning();
+        const updatedProfile = updatedProfiles[0];
+        if (!updatedProfile || updatedProfiles.length !== 1) {
+          throw new AccountDisplayNameInvariantError(
+            "default profile or authenticated account was not found"
+          );
+        }
+        return updatedProfile;
+      });
     },
   };
 }
-
 function defaultHumanProfilePredicate(ownerUserId: string) {
   return and(
     eq(openMeldProfiles.ownerUserId, ownerUserId),

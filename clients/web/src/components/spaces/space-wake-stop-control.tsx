@@ -17,7 +17,7 @@ import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { StopIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 import {
 	resolveWakeStopTargetForProgressItem,
 	type SpaceWakeStopRequestStatus,
@@ -35,8 +35,21 @@ type StopSelection = {
 const StopDialogContext = createContext<
 	((selection: StopSelection) => void) | null
 >(null);
+const EMPTY_STOP_REQUEST_STATUSES: ReadonlyMap<
+	string,
+	SpaceWakeStopRequestStatus
+> = new Map();
+const StopRequestStatusContext = createContext<
+	ReadonlyMap<string, SpaceWakeStopRequestStatus>
+>(EMPTY_STOP_REQUEST_STATUSES);
 
-/** The confirmation belongs to the conversation, not to a row that can move. */
+export function useSpaceWakeStopRequestStatuses() {
+	return useContext(StopRequestStatusContext);
+}
+const WAKE_STOP_RETRY_COPY =
+	"Stop is not confirmed. Check your connection and try again.";
+
+/** Keep the target picker attached to the conversation when reply rows move. */
 export function SpaceWakeStopScope(input: {
 	children: ReactNode;
 	progressItems?: readonly WakeProgressItem[];
@@ -47,19 +60,29 @@ export function SpaceWakeStopScope(input: {
 }) {
 	const [selection, setSelection] = useState<StopSelection | null>(null);
 	return (
-		<StopDialogContext.Provider value={setSelection}>
-			{input.children}
-			{selection ? (
-				<SpaceWakeStopDialog
-					onClose={() =>
-						setSelection((current) => (current === selection ? null : current))
-					}
-					progressItems={input.progressItems ?? []}
-					selection={selection}
-					stopRequestStatusBySelectorKey={input.stopRequestStatusBySelectorKey}
-				/>
-			) : null}
-		</StopDialogContext.Provider>
+		<StopRequestStatusContext.Provider
+			value={
+				input.stopRequestStatusBySelectorKey ?? EMPTY_STOP_REQUEST_STATUSES
+			}
+		>
+			<StopDialogContext.Provider value={setSelection}>
+				{input.children}
+				{selection ? (
+					<SpaceWakeStopDialog
+						onClose={() =>
+							setSelection((current) =>
+								current === selection ? null : current
+							)
+						}
+						progressItems={input.progressItems ?? []}
+						selection={selection}
+						stopRequestStatusBySelectorKey={
+							input.stopRequestStatusBySelectorKey
+						}
+					/>
+				) : null}
+			</StopDialogContext.Provider>
+		</StopRequestStatusContext.Provider>
 	);
 }
 
@@ -71,6 +94,9 @@ export function SpaceWakeStopControl(input: {
 	variant?: "timeline" | "details";
 }) {
 	const openDialog = useContext(StopDialogContext);
+	const requestPending = useRef(false);
+	const [isPending, setIsPending] = useState(false);
+	const [requestError, setRequestError] = useState<string | null>(null);
 	if (!openDialog) {
 		return (
 			<SpaceWakeStopScope>
@@ -103,16 +129,17 @@ export function SpaceWakeStopControl(input: {
 		fallback: "this agent",
 	});
 	const controlLabel = resolveWakeStopControlLabel({
-		isPending: false,
+		isPending,
 		targetCount: renderableTargets.length,
 		targets: renderableTargets,
 		status: primaryTarget.status,
 		targetLabel,
 	});
-	const disabled = !renderableTargets.some((target) => target.canStop === true);
+	const disabled =
+		isPending || !renderableTargets.some((target) => target.canStop === true);
 	const statusCopy = resolveWakeStopStatusCopy(primaryTarget.status);
 	const buttonText = resolveWakeStopButtonText({
-		isPending: false,
+		isPending,
 		targets: renderableTargets,
 	});
 
@@ -135,6 +162,23 @@ export function SpaceWakeStopControl(input: {
 				)}
 				disabled={disabled}
 				onClick={() => {
+					if (renderableTargets.length === 1) {
+						if (requestPending.current) {
+							return;
+						}
+						requestPending.current = true;
+						setIsPending(true);
+						setRequestError(null);
+						Promise.resolve(input.onStopWake(primaryTarget))
+							.catch((error) => {
+								setRequestError(resolveWakeStopRequestErrorMessage(error));
+							})
+							.finally(() => {
+								requestPending.current = false;
+								setIsPending(false);
+							});
+						return;
+					}
 					openDialog({
 						targets: renderableTargets,
 						onStopWake: input.onStopWake,
@@ -145,8 +189,21 @@ export function SpaceWakeStopControl(input: {
 				variant={variant === "details" ? "outline" : "ghost"}
 			>
 				<StopIcon aria-hidden="true" weight="fill" />
-				<span>{buttonText}</span>
+				<span
+					className={
+						variant === "timeline" && buttonText === "Stopping…"
+							? "sr-only"
+							: undefined
+					}
+				>
+					{buttonText}
+				</span>
 			</Button>
+			{requestError ? (
+				<span className="text-destructive text-xs" role="alert">
+					{requestError}
+				</span>
+			) : null}
 			{variant === "details" && statusCopy ? (
 				<p className="text-muted-foreground text-xs leading-5">{statusCopy}</p>
 			) : null}
@@ -181,7 +238,6 @@ function SpaceWakeStopDialog(input: {
 		renderableTargets: input.selection.targets,
 		targets,
 	});
-	const dialogPrimaryTarget = dialogTargets[0];
 	const setOpen = (open: boolean) => {
 		if (!open) {
 			input.onClose();
@@ -190,7 +246,7 @@ function SpaceWakeStopDialog(input: {
 	return (
 		<Dialog onOpenChange={setOpen} open={true}>
 			<DialogContent>
-				{dialogTargets.length > 1 ? (
+				{dialogTargets.length > 0 ? (
 					<MultiTargetWakeStopDialog
 						onStopWake={input.selection.onStopWake}
 						pendingSelectorKeys={pendingSelectorKeys}
@@ -201,22 +257,10 @@ function SpaceWakeStopDialog(input: {
 						targets={dialogTargets}
 					/>
 				) : null}
-				{dialogTargets.length === 1 && dialogPrimaryTarget ? (
-					<SingleTargetWakeStopDialog
-						onStopWake={input.selection.onStopWake}
-						pendingSelectorKeys={pendingSelectorKeys}
-						setOpen={setOpen}
-						setPendingSelectorKeys={setPendingSelectorKeys}
-						setStatusMessage={setStatusMessage}
-						setStoppedTargetSnapshot={setDialogTargetSnapshots}
-						statusMessage={statusMessage}
-						target={dialogPrimaryTarget}
-					/>
-				) : null}
 				{dialogTargets.length === 0 ? (
 					<>
 						<DialogHeader>
-							<DialogTitle>This Wake is no longer stoppable</DialogTitle>
+							<DialogTitle>This request has ended</DialogTitle>
 							<DialogDescription>
 								Its status has changed. Close this dialog to see the latest
 								update.
@@ -293,7 +337,7 @@ function renderSingleWakeStopTargetState(input: {
 					input.className
 				)}
 			>
-				Wake was stopped.
+				Stopped.
 			</p>
 		);
 	}
@@ -397,116 +441,47 @@ async function handleConfirmStopAll(input: {
 }): Promise<void> {
 	const stoppableTargets = input.targets.filter((target) => target.canStop);
 	if (stoppableTargets.length === 0) {
-		input.setStatusMessage("This Wake is no longer stoppable.");
+		input.setStatusMessage("This request has ended.");
 		return;
 	}
 
 	input.setStatusMessage(null);
 	let requestedCount = 0;
-	for (const target of stoppableTargets) {
-		setWakeStopTargetPending({
-			pending: true,
-			setPendingSelectorKeys: input.setPendingSelectorKeys,
-			target,
-		});
-		try {
-			const response = await input.onStopWake(target);
-			input.setStoppedTargetSnapshot((current) =>
-				updateWakeStopDialogTargetSnapshots({ current, response, target })
-			);
-			requestedCount += 1;
-		} catch (error) {
-			input.setStatusMessage(resolveWakeStopRequestErrorMessage(error));
-			return;
-		} finally {
+	let failureCount = 0;
+	await Promise.all(
+		stoppableTargets.map(async (target) => {
 			setWakeStopTargetPending({
-				pending: false,
+				pending: true,
 				setPendingSelectorKeys: input.setPendingSelectorKeys,
 				target,
 			});
-		}
-	}
+			try {
+				const response = await input.onStopWake(target);
+				input.setStoppedTargetSnapshot((current) =>
+					updateWakeStopDialogTargetSnapshots({ current, response, target })
+				);
+				if (response.ok) {
+					requestedCount += 1;
+				} else {
+					failureCount += 1;
+				}
+			} catch (error) {
+				input.setStatusMessage(resolveWakeStopRequestErrorMessage(error));
+				failureCount += 1;
+			} finally {
+				setWakeStopTargetPending({
+					pending: false,
+					setPendingSelectorKeys: input.setPendingSelectorKeys,
+					target,
+				});
+			}
+		})
+	);
 
 	input.setStatusMessage(
-		`Stop requested for ${requestedCount} ${requestedCount === 1 ? "agent" : "agents"}.`
-	);
-}
-
-function SingleTargetWakeStopDialog(input: {
-	onStopWake: SpaceWakeStopRequestHandler;
-	pendingSelectorKeys: ReadonlySet<string>;
-	setOpen: (open: boolean) => void;
-	setPendingSelectorKeys: (
-		updater: (current: ReadonlySet<string>) => ReadonlySet<string>
-	) => void;
-	setStatusMessage: (message: string | null) => void;
-	setStoppedTargetSnapshot: (
-		updater: (
-			current: readonly SpaceWakeStopTargetResolution[] | null
-		) => readonly SpaceWakeStopTargetResolution[] | null
-	) => void;
-	statusMessage: string | null;
-	target: SpaceWakeStopTargetResolution;
-}) {
-	const targetLabel = resolveWakeStopTargetLabel(input.target, {
-		fallback: "this agent",
-	});
-	const isPending = isWakeStopTargetPending({
-		pendingSelectorKeys: input.pendingSelectorKeys,
-		target: input.target,
-	});
-	const description = input.target.isWaitingToStart
-		? `Cancel this waiting task for ${targetLabel}. If it has just started, OpenMeld will request a stop instead.`
-		: `OpenMeld will stop this Wake for ${targetLabel}. If the agent has already started, confirmation may take a moment.`;
-	const actionLabel = input.target.isWaitingToStart
-		? "Cancel waiting"
-		: "Stop Wake";
-	const dismissLabel = input.target.isWaitingToStart
-		? "Keep waiting"
-		: "Keep Running";
-
-	return (
-		<>
-			<DialogHeader>
-				<DialogTitle>
-					{input.target.isWaitingToStart
-						? "Cancel waiting?"
-						: "Stop this Wake?"}
-				</DialogTitle>
-				<DialogDescription>{description}</DialogDescription>
-			</DialogHeader>
-			{input.statusMessage ? (
-				<p className="text-muted-foreground text-xs leading-5">
-					{input.statusMessage}
-				</p>
-			) : null}
-			<DialogFooter>
-				<DialogClose render={<Button type="button" variant="outline" />}>
-					{isPending || input.target.status === "stopping"
-						? "Close"
-						: dismissLabel}
-				</DialogClose>
-				<Button
-					disabled={isPending || !input.target.canStop}
-					onClick={() => {
-						handleConfirmStop({
-							onStopWake: input.onStopWake,
-							setOpen: input.setOpen,
-							setPendingSelectorKeys: input.setPendingSelectorKeys,
-							setStatusMessage: input.setStatusMessage,
-							setStoppedTargetSnapshot: input.setStoppedTargetSnapshot,
-							target: input.target,
-						}).catch((error) => {
-							console.error("Failed to stop a Space Wake.", error);
-						});
-					}}
-					type="button"
-					variant="destructive"
-				>
-					{isPending ? "Requesting Stop..." : actionLabel}
-				</Button>
-			</DialogFooter>
-		</>
+		failureCount > 0
+			? WAKE_STOP_RETRY_COPY
+			: `Stop requested for ${requestedCount} ${requestedCount === 1 ? "agent" : "agents"}.`
 	);
 }
 
@@ -531,7 +506,7 @@ function MultiTargetWakeStopDialog(input: {
 	return (
 		<>
 			<DialogHeader>
-				<DialogTitle>Stop agents in this Wake</DialogTitle>
+				<DialogTitle>Stop agents</DialogTitle>
 				<DialogDescription>
 					Choose which agent to stop. OpenMeld will keep the others running.
 				</DialogDescription>
@@ -566,7 +541,7 @@ function MultiTargetWakeStopDialog(input: {
 									target,
 									targetLabel,
 								})}
-								disabled={hasPendingRequest || !target.canStop}
+								disabled={isPending || !target.canStop}
 								onClick={() => {
 									handleConfirmStop({
 										onStopWake: input.onStopWake,
@@ -581,7 +556,7 @@ function MultiTargetWakeStopDialog(input: {
 								}}
 								size="sm"
 								type="button"
-								variant={target.canStop ? "destructive" : "outline"}
+								variant="outline"
 							>
 								{resolveWakeStopTargetActionText({ isPending, target })}
 							</Button>
@@ -613,9 +588,9 @@ function MultiTargetWakeStopDialog(input: {
 							});
 						}}
 						type="button"
-						variant="destructive"
+						variant="outline"
 					>
-						Stop All
+						Stop all
 					</Button>
 				) : null}
 			</DialogFooter>
@@ -707,7 +682,7 @@ function resolveWakeStopControlLabel(input: {
 	}
 	if (input.isPending) {
 		return input.targetCount > 1
-			? "Stop request pending for this Wake"
+			? "Stopping agents"
 			: `Stop request pending for ${input.targetLabel}`;
 	}
 	if (input.targetCount > 1) {
@@ -715,21 +690,21 @@ function resolveWakeStopControlLabel(input: {
 			(target) => target.canStop
 		).length;
 		if (stoppableCount === 0) {
-			return "Stop request pending for this Wake";
+			return "Stopping agents";
 		}
-		return `Stop Wake for ${input.targetCount} agents`;
+		return `Stop ${input.targetCount} agents`;
 	}
 	switch (input.status) {
 		case "stopping":
 			return `Stop request pending for ${input.targetLabel}`;
 		case "retry_later":
-			return `Retry Stop for ${input.targetLabel}`;
+			return `Retry stop for ${input.targetLabel}`;
 		case "unsupported":
-			return `Wake Stop unavailable for ${input.targetLabel}`;
+			return `Stop unavailable for ${input.targetLabel}`;
 		case "unavailable":
-			return `Wake Stop unavailable for ${input.targetLabel}`;
+			return `Stop unavailable for ${input.targetLabel}`;
 		default:
-			return `Stop Wake for ${input.targetLabel}`;
+			return `Stop ${input.targetLabel}`;
 	}
 }
 
@@ -742,10 +717,10 @@ function resolveWakeStopButtonText(input: {
 		(target) => target.status === "stopping"
 	);
 	if (input.isPending || (!hasStoppableTarget && hasStoppingTarget)) {
-		return "Stopping...";
+		return "Stopping…";
 	}
 	if (input.targets.some((target) => target.status === "retry_later")) {
-		return "Retry Stop";
+		return "Retry stop";
 	}
 	if (input.targets.length === 1 && input.targets[0]?.isWaitingToStart) {
 		return "Cancel waiting";
@@ -758,13 +733,13 @@ function resolveWakeStopStatusCopy(
 ): string | null {
 	switch (status) {
 		case "stopping":
-			return "Stop requested. Waiting for OpenMeld to confirm this Wake was stopped.";
+			return "Stopping… Waiting for confirmation.";
 		case "unsupported":
 			return "Stop is not supported for this local agent.";
 		case "unavailable":
 			return null;
 		case "retry_later":
-			return "OpenMeld could not reach the local service. Try again in a moment.";
+			return WAKE_STOP_RETRY_COPY;
 		default:
 			return null;
 	}
@@ -775,19 +750,19 @@ function resolveWakeStopResponseMessage(
 ): string {
 	switch (response.status) {
 		case "cancellation_requested":
-			return "Stop requested. Waiting for OpenMeld to confirm this Wake was stopped.";
+			return "Stopping… Waiting for confirmation.";
 		case "cancelled":
 		case "already_cancelled":
-			return "Stop confirmed. Refreshing Wake status.";
+			return "Stopped.";
 		case "unsupported":
 			return "Stop is not supported for this local agent.";
 		case "retry_later":
-			return "OpenMeld could not reach the local service. Try again in a moment.";
+			return WAKE_STOP_RETRY_COPY;
 		case "not_found":
 		case "not_stoppable":
-			return "This Wake is no longer stoppable.";
+			return "This request has ended.";
 		default:
-			return "OpenMeld received the Stop response. Refreshing Wake status.";
+			return "Updating status…";
 	}
 }
 
@@ -859,7 +834,7 @@ function resolveWakeStopTargetRowStatus(input: {
 	target: SpaceWakeStopTargetResolution;
 }): string {
 	if (input.isPending || input.target.status === "stopping") {
-		return "Stopping...";
+		return "Stopping…";
 	}
 	switch (input.target.status) {
 		case "retry_later":
@@ -878,7 +853,7 @@ function resolveWakeStopTargetActionText(input: {
 	target: SpaceWakeStopTargetResolution;
 }): string {
 	if (input.isPending || input.target.status === "stopping") {
-		return "Stopping...";
+		return "Stopping…";
 	}
 	if (input.target.status === "stopped") {
 		return "Stopped";
@@ -900,11 +875,11 @@ function resolveWakeStopTargetActionLabel(input: {
 		case "stopped":
 			return `${input.targetLabel} stopped`;
 		case "retry_later":
-			return `Retry Stop for ${input.targetLabel}`;
+			return `Retry stop for ${input.targetLabel}`;
 		case "unsupported":
 		case "unavailable":
 		case "not_stoppable":
-			return `Wake Stop unavailable for ${input.targetLabel}`;
+			return `Stop unavailable for ${input.targetLabel}`;
 		default:
 			return `Stop ${input.targetLabel}`;
 	}

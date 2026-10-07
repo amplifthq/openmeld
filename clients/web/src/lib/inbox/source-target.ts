@@ -8,6 +8,7 @@ import {
 	buildOrganizationAgentCreationRequestsPath,
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationChannelsPath,
+	buildOrganizationComputerPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDirectMessagePath,
 	buildOrganizationDocumentPath,
@@ -17,11 +18,27 @@ import {
 import { buildAgentProfilePath } from "#/lib/profile-routes";
 
 export function buildInboxItemSourceNavigation(input: {
-	item: Pick<InboxItem, "sourceTarget">;
+	item: Pick<InboxItem, "sourceTarget"> & Partial<Pick<InboxItem, "id">>;
 	orgSlug: string;
 }): { href: string; openInNewTab: boolean } {
 	const target = input.item.sourceTarget;
 	switch (target.kind) {
+		case "computer_connection":
+			return {
+				href: `${buildOrganizationComputerPath({ deviceId: target.deviceId, orgSlug: input.orgSlug })}?focus=service`,
+				openInNewTab: false,
+			};
+		case "desktop_update":
+		case "plugin_action_request":
+			if (!input.item.id) {
+				throw new Error(
+					"Inbox detail navigation requires its canonical Inbox item."
+				);
+			}
+			return {
+				href: `${buildOrganizationInboxPath(input.orgSlug)}?item=${encodeURIComponent(input.item.id)}`,
+				openInNewTab: false,
+			};
 		case "organization_join_request":
 			return {
 				href: `/o/${encodeURIComponent(input.orgSlug)}/inbox?requestId=${encodeURIComponent(target.requestId)}`,

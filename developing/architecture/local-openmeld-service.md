@@ -19,6 +19,24 @@
 
 ## Product Role
 
+Selected Space work reuses this carrier and RuntimeCoordinator. Before local
+execution, the Service materializes the exact admitted file/Skill selection
+into a fresh child of the isolated task workspace. It advertises the optional
+`spaceWorkHandoff` capability on macOS only; unsupported routes fail with an
+update-required outcome instead of running a prompt without its selected inputs.
+Codex App Server and the existing Space-only containment verifier remain
+required. A working directory or separate metadata directory is not itself an
+OS security boundary.
+
+Managed working-copy metadata lives under the effective lane root, outside the
+Agent-editable task content. Its scope binds deployment URL, account,
+Organization, Space, Profile, and copy identity on the current device. Per-copy
+locks, frozen pending bytes, and acknowledged revision/hash records support
+crash recovery without owning cloud file authority. Every network operation
+rechecks the current account/Organization and uses ordinary authorized file
+APIs. Unsent edits are retained across failures; account changes never migrate
+pending uploads into another account. No automatic cleanup discards them.
+
 OpenMeld Service is the local execution carrier and trust boundary between OpenMeld cloud
 collaboration and work performed on the user's computer.
 
@@ -49,17 +67,102 @@ the bound `agentControllerConversationId` when present, otherwise the target
 Agent Profile for an unbound first run. Controller counts may still be logged as
 diagnostics, but they are not the scheduling authority.
 
-The service runner owns one local-execution-slot registry for its process
-lifetime and injects that same registry into every replacement Runtime
-Transport socket session. A WebSocket reconnect must not create a second empty
-registry while an earlier socket's provider turn is still running; otherwise a
-new Wake can bypass the local execution lane and collide with the same Agent
-Controller conversation. Process restart may create a new registry because
-RuntimeCoordinator separately reconciles the lost process owner.
+The Service's separately supervised Execution Host owns one local-execution-slot
+registry across replacement Runtime Transport sockets. Reconnecting the
+connector never creates a new Host, empty slots, approval registry, or result
+store. A Host process loss is different from socket loss: unconfirmed local work
+must remain fenced before a replacement Host can admit anything, while
+RuntimeCoordinator independently reconciles execution and final outcomes.
 
 It does not own the product outcome by itself. A running service is useful
 evidence, but the product question is whether the intended Agent Profile can
 reply in the intended Space through the intended local execution path.
+
+## Connector and Execution Host
+
+One installation and updater deliver two processes. The Service runner owns the
+cloud socket, heartbeat, reconnect, and existing lifecycle/control endpoint. Its
+Execution Host assembles the existing adapters, execution slots, pending human
+interactions, route discovery, controller reporting, and durable result outbox.
+The Host never owns Core readiness, authorization, scheduling, or Space history.
+
+Connector registration, heartbeat responses, and transport errors are handled
+only by `carrier/daemon-frame-transport.ts`. The inherited IPC contract excludes
+those frames from `execution-host/frame-router.ts`; the Host has no connector
+response waiters. Startup result replay and Agent enable/installation controls
+stay with the Host. The connector derives
+adapter capabilities from the Host's reported adapter IDs, not an in-process
+adapter container. Mixed-version cloud negotiation remains a separate contract
+and is not retired by deleting unused local implementation.
+
+The runner starts its control endpoint and registers without waiting for Agent
+inventory. Host initialization, reporting, and execution cross bounded inherited
+IPC; they cannot block the connector's event loop. Host admission is closed until
+its current-generation response confirms it is ready, and closes when that
+observation fails. A shared Host failure may affect all its Agents, not the
+independent connector. Last-known Host observations are not fresh health.
+The negotiated Computer-care observation carries a bounded, path-free Host
+failure code, safe explanation, and recovery action when initialization or a
+health check fails. Core uses that same observation for owner Computer
+readiness and Center Agent Computer reads; `responsive = false` without its
+known cause is not an adequate operator diagnosis.
+
+The runner records only changes to dispatch admission, with a bounded reason
+from its current Host/connection observation. It includes the connection
+generation and revision in the next heartbeat only when Core advertised
+admission-evidence support in the register response. Old Core receives the old
+heartbeat shape. This evidence explains a closed route in Trace; it does not
+grant admission or replace the current Host health check.
+
+Before local preparation and again immediately before each native provider turn,
+the Host waits for a correlated acknowledgment of its existing lifecycle report
+from RuntimeCoordinator. Core validates the execution token and records lifecycle
+progress before acknowledging. A terminal refusal prevents provider invocation;
+missing acknowledgment does not authorize execution or imply an execution failure.
+Reconnect resends only the outstanding confirmation, never a provider invocation,
+and acknowledgments from a retired connection cannot release the waiter.
+The Service negotiates this capability before enabling Host admission. Older
+servers leave new execution unavailable while connection and local control remain
+usable; older clients do not receive unsolicited acknowledgment frames.
+
+Only one Host may own an installation's execution resources. Before provider
+work starts, a private process-incarnation receipt records non-quiescence. A clean
+local drain clears that fence. After an unconfirmed owner loss, PID disappearance
+alone does not prove that its children or side effects ended. The current receipt
+records the Host process identity and each provider-owned process tree before
+execution continues. A same-boot replacement is allowed only when that evidence
+is complete, the exact Host incarnation is gone, and every recorded provider
+process group or Windows job-backed root is gone. Missing process evidence,
+legacy receipts, and corrupt records remain blocked; trustworthy operating-system
+restart evidence is the fallback. This receipt contains no task results or
+approvals and does not authorize replay. It is not a second execution ledger.
+There is no automatic hot adoption or restart of unknown work.
+
+Cloud-result acknowledgment is separate from local quiescence. Stop and update
+readiness query the Host; they do not inspect another socket's private execution
+maps. Long accepted work retains its existing no-total-timeout drain. The current
+account-checked Stop coordinator still owns admission, confirmation, desired
+state, and credential cleanup. This extraction does not authorize offline
+Disconnect or change old-account result delivery during an account switch.
+
+A normal Host stop is complete only after actual child-process exit. Connector
+loss withdraws the transport sink and closes new admission; the Host retains safe
+local drain and stored results. A subsequent socket reuses the same Host and
+result identities rather than sending prompts again. Existing provider-specific
+permission, launch, model, and cancellation contracts stay in their adapters.
+
+The private Host entry is part of the same verified CLI/Service artifact. It
+accepts only inherited IPC with the current parent, account/session, installation,
+device, lane, and contract generation. It is not a public local server. Ordinary
+Web/Desktop controls retain their existing interfaces. AHP, arbitrary preview
+routing, new notification policy, and independent Host release channels are not
+part of this replacement.
+
+Cutover and rollback must quiesce both processes through the existing lifecycle
+owner. An older binary does not understand the Host-incarnation receipt: never
+roll back over uncertain new-Host work. Packaged/signed installation, platform
+file-access behavior, and an actual old-to-new migration require separate
+artifact acceptance; source or IPC fixture success is not that evidence.
 
 ## Ownership Boundary
 
@@ -92,6 +195,10 @@ A fresh running lease identifying a directly started process takes precedence
 over that same PID's managed executable path when classifying lifecycle owners.
 Using an installed binary does not itself mean the OS service manager started
 it. Other PIDs and an actually running manager remain independent evidence.
+A fresh running lease identifying a system-managed PID likewise takes precedence
+over that same PID's path-based direct/unknown classification. Do not count one
+verified system-managed process as both lifecycle owners; a different direct
+process must still be reported independently.
 
 Isolated Service smoke must use the development or Canary entry point, not
 borrow the installed Production binary with a different `OPENMELD_HOME` or
@@ -139,6 +246,13 @@ or target Agent Profile is known, the service contract should carry that
 evidence so setup, repair, reconnect, and current-device checks can reject stale
 or cross-account service reuse. Existing device or connected-computer evidence
 must not be reused unless the owner account and profile evidence are trusted.
+
+First enrollment may attach the Core-owned connected Computer ID to an already
+owned runtime without advancing its Service generation, only when every other
+contract field is unchanged. This records the existing account/device/lane
+association rather than replacing the carrier. Replacing an existing enrollment
+or changing any other contract field still advances the generation. Stop continues
+to require the running lease and current contract generations to match.
 
 Agent Controller availability reporting depends on a valid service contract. If
 required owner account, Agent Profile, device, or lane evidence is missing or
@@ -266,6 +380,22 @@ Missing inventory is unknown evidence, not proof that every catalog model works
 or that none do. Version advisory remains a separate maintenance check; an
 advisory lookup failure must not erase an otherwise proven incompatibility.
 
+Codex discovery supports both the legacy `Contents/Resources/codex` and the
+`Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` layout in
+Codex.app and ChatGPT.app, independently of the Service PATH. When a saved
+bundled executable disappears, registration reconciliation may follow a verified
+replacement inside that same host app. It preserves launch arguments and never
+switches between host apps or from an app to a standalone CLI automatically.
+An unsuccessful replacement probe retains the original selection and failure.
+Other providers retain stable command entrypoints; Cursor additionally repairs
+its historical version-directory selections. A sole alternative installation is
+not evidence of the same identity and requires explicit owner selection.
+
+ACI launch evidence may include the bounded `installation_missing` or
+`installation_access_denied` reason. Cloud reporting preserves these reason
+codes while stripping raw diagnostic text and local paths. Owner-facing clients
+render actionable copy from the reason, independently of computer connectivity.
+
 The selected launch contract remains the install and update identity. When an
 Agent Controller is bundled inside a host application, ACI must treat that host
 application as the update owner. It must not compare the bundled runtime with a
@@ -339,7 +469,13 @@ only when the existing owner-only authentication evidence proves the same
 provider account. An account change, signed-out state, or missing stable account
 identity fails closed to the current `unavailable` evidence instead of carrying
 capacity between accounts. A provider that has never returned usable evidence
-is `unavailable`. A controller with no supported native source is explicitly
+is `unavailable`. Its optional bounded reason distinguishes a sign-in gap,
+inapplicable account capability, omitted provider measurement, and a failed
+refresh. Independently reported reset evidence may remain known without a
+percentage. Grok's verified proto3 implicit float default is zero only for a
+successful unified-billing response with a recognized active period; malformed,
+non-unified, or expired responses never acquire guessed capacity.
+A controller with no supported native source is explicitly
 `unsupported`. The Service does not decide Agent Profile Wakeability, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection from these
 states. Core applies the shared versioned capability matrix to the report it
@@ -359,7 +495,7 @@ expired, unavailable, or otherwise unconfirmed Usage does not add a block;
 the separate current Controller readiness and trust requirements still apply.
 Positive fresh capacity remains required for automatic recovery after an
 exhausted execution. A controller that explicitly reports Usage as
-`unsupported`, or whose matrix entry is passive, unsupported, or not evaluated,
+`unsupported`, or whose matrix entry is observational, unsupported, or not evaluated,
 does not use Usage as a Wakeability condition. A separate structured
 provider-access evidence field may be emitted only after an ordinary Wake is
 accepted and returns a definitive account blocker: organization access
@@ -380,12 +516,46 @@ new work under a capability contract they did not implement.
 OpenCode is provider-scoped. Its ordinary provider inventory names connected
 providers but does not expose a universal quota contract. OpenMeld reads the
 official OpenCode Go usage endpoint for that provider's 5-hour, weekly, and
-monthly windows. The OpenCode Go API key is read transiently from OpenCode's
-official local auth input or store, used only for that request, and never
-logged, retained, or projected. Other connected OpenCode providers are
+monthly windows. A Go 403 is an inapplicable account capability, not evidence
+that the signed-in controller or its other providers are broken. OpenRouter's
+official key endpoint supplies independent free-model daily request limits and,
+when bounded, a key budget. Missing reset times remain unknown. OpenRouter
+observations cannot block a paid model or authorize exhausted-work recovery.
+Credentials come from the native provider inventory when exposed, otherwise
+OpenCode's official local auth input or store, then the provider environment
+key. Stored auth takes precedence over environment keys. Custom provider
+endpoints do not send credentials to the default account endpoint. Keys are
+used transiently and never logged, retained, or projected. Other providers are
 `unsupported` until a provider-owned, non-task capacity source is verified.
-Failure to read OpenCode Go usage produces provider-scoped `unavailable`
+Failure to read provider usage produces provider-scoped `unavailable`
 evidence without failing the rest of the Computer inventory.
+
+Inventory checks must not initiate interactive sign-in or request interactive
+credential-store access. An explicit status refresh is still a read, not consent
+to sign in. Known signed-out accounts skip quota collection; missing credentials
+or an unreadable credential store must never become zero remaining capacity.
+Only an explicit sign-in action may enter an interactive authorization flow.
+
+Antigravity's `agy --print /usage` can enter authentication and open browser
+login pages or request Keychain access. Until a provider-owned no-interaction
+contract is verified, both fresh and background ACI checks for the legacy CLI
+run only `--version`. The separately selected official ACP installation uses
+only the credential-free `initialize` handshake during inventory.
+They report authentication as unknown, an explicit warning explaining the
+unavailable checks, and Usage as `unsupported`. They must not claim signed-in
+readiness from installation alone or retain an old numeric quota without current
+account evidence. Status refresh cannot restore Antigravity authentication or
+quota verification in this version; users can inspect them directly in the
+Antigravity client. The legacy CLI execution transport remains available.
+The shared Usage support matrix declares Antigravity unsupported so historical
+quota cannot become new capacity authority or authorize automatic recovery.
+
+A completed signed-out check is reusable for the same binary within the normal
+15-minute background TTL. It clears account-bound passive usage, does not arm
+failure retries, and expires normally. A fresh user check bypasses this cache
+to discover an external sign-in immediately. Unknown authentication is not
+proof of sign-out, and transient failed checks retain the existing failure
+policy rather than becoming a permanent negative cache.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
@@ -401,15 +571,47 @@ Controller Report, so a Service restart followed by a temporary provider
 failure does not erase stored numeric evidence for a proven unchanged account.
 This is an update to the canonical report row, not a second Usage Limit store.
 
-Claude Code is partially supported through public Agent SDK
-`rate_limit_event` messages already present in OpenMeld-launched turns. Only a
-finite native utilization value and its allowlisted window/reset fields become
-capacity evidence; missing ordinary utilization remains unknown. OpenMeld must
-not install or replace the user's global Claude status line, invoke Claude for
-collection, read Claude credentials, call a private OAuth usage endpoint, or
-substitute transcript token/cost estimates.
+Claude Code uses the public Agent SDK control connection on verified CLI
+versions (2.1.285 or newer), without sending a user message. The probe disables
+hooks, tools, MCP connections, session persistence, and IDE connections, and
+requests usage with `skipBehaviors: true` so collection never scans local
+transcripts. Initialization must prove the same first-party account as native
+ACI authentication before reading usage. SDK account windows are percentages;
+ordinary `rate_limit_event` utilization is a fraction. Dynamic model windows
+and independently known reset times are preserved; monetary and behavior fields
+are discarded. Older versions remain observational with unreported capacity.
+OpenMeld must not replace the user's status line, read Claude credentials, call
+a private OAuth endpoint directly, or substitute transcript token/cost estimates.
+This experimental source is observational and never decides Wake admission or
+automatic recovery.
+
+Cursor reads its native CLI login token transiently from the effective
+environment, its official auth file, or the macOS Keychain with interaction
+disabled. Explicit API keys and memory-only stores never borrow a saved account;
+custom API endpoints never send tokens to the default account endpoint. The
+DashboardService percentages include bonus usage and are displayed independently
+of billing dollars. No browser cookies, IDE database fallback, refresh writes,
+or payment information are used. This internal source is observational because
+paid overage and account-specific limits cannot safely decide Wake admission.
+
+Codex also publishes `account/rateLimits/updated` events through this same
+account-bound keeper after native authentication proves the current account.
+Neither event collection nor account queries start a conversation or model call.
 
 ### Agent Instruction Delivery
+
+Within one dispatch preparation, Documents, Skills, and Space instructions share
+one freshly resolved Agent identity and one authorized Space metadata response.
+Document and Skill directories load concurrently after that scope is established.
+Do not retain this context across Wakes or reuse it for later context-tool reads:
+those reads must check current authorization and Skill enablement. Explicit
+handoff Skill releases remain pinned. A failed directory read does not discard
+the other directory or the authorized Space metadata.
+
+The local dispatch journal records `bootstrap_read_completed` with the operation,
+duration, and loaded/failed status. These measurements describe preparation only;
+provider acceptance, useful first text, and final publication are separate
+milestones. Timing records do not contain directory contents or credentials.
 
 For a new Codex Session created by an ordinary Wake, Service derives an optional
 bounded title from the Agent Profile name and the current Wake text, before
@@ -437,6 +639,15 @@ language advisory remain per-turn input. A preference change therefore does not
 change the stable instruction epoch. Provider adapters must not maintain a
 second copy of either category or run a separate language detector/model call.
 
+Space Action submission rules are also stable instructions, conditional on the
+current Wake requiring a reply or silence action. The permitted completion
+action remains explicit in every Wake, including when both briefs are hidden.
+Native instruction delivery omits repeated submission rules from that turn's
+input; the complete fallback retains them. The content-derived epoch changes
+when those rules change, so older or unproven conversations receive the complete
+fallback. No history is summarized or removed and no native conversation is
+replaced for this optimization.
+
 The stable workflow applies only to OpenMeld Wakes. User messages, Space Guides,
 attachments, and history remain task context rather than runtime instructions
 or new permissions. Current completion guidance requires the permitted action
@@ -453,6 +664,13 @@ context reads or other business tools. When a context read fails before any
 Space Action submission, the Agent should report the blocker through the
 permitted completion action rather than invent results or silently finish.
 Shared text attachments use the dispatch `read_file` tool when available.
+Large local Space reads retain their complete in-memory result and expose
+bounded pages. Agents may use `read_result.query` to locate literal text in that
+original JSON without replaying every earlier page. Search excerpts remain
+untrusted task data. They neither summarize nor replace history, and broader
+questions still require additional searches or complete reads. Every search
+revalidates source access and version through the same owner as paging; results
+remain scoped to the active Wake and tool connection.
 Dispatch MCP tool processes retain the carrier's `OPENMELD_HOME`,
 `OPENMELD_AUTH_URL` and `OPENMELD_GATEWAY_URL` when present, alongside its
 environment preset. The shared adapter configuration forwards these non-secret
@@ -476,8 +694,13 @@ instruction channel.
 For a supported controller, the Service may inject an ephemeral first-party
 Space Action tool configuration into the controller process for the active
 dispatch. That configuration is not written into user settings. It exposes only
-the allowed `reply`, `status`, and `stay_silent` operations, plus the read-only
-`read_file` context operation. File reads accept only a file ID and optional
+the exact shared adapter catalog of final actions, context readers, Task
+operations, progress, and ordinary Direct Message collaboration. The CLI server
+and `OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES` must agree; controllers still reject
+missing or unexpected tools. Delivery-only recovery exposes exactly `reply`,
+`stay_silent`, and `read_receipt`. Direct Messages retain the admitted Agent and
+source organization checks; tool discovery does not authorize a different lane
+or identity. File reads accept only a file ID and optional
 revision; the active dispatch supplies the Space and acting Agent identity.
 The trusted tool process invokes the dispatch-owned CLI's existing public file
 read command outside the controller sandbox, preserving normal authentication,
@@ -486,10 +709,55 @@ controller access to local credentials or arbitrary filesystem paths. A file
 read does not record an action or finish the Wake. The configuration forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
-boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
-their controller-native tool extension point and the same dispatch-owned action
-writer. Controllers without a proven structured-tool surface continue to use
-the exact dispatch-scoped CLI fallback.
+boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, Antigravity ACP, and OpenClaw use
+their controller-native tool extension point and the same
+dispatch-owned action writer. Controllers without a proven structured-tool
+surface continue to use the exact dispatch-scoped CLI fallback.
+
+Codex native-tool admission reads MCP tools and authentication status when it
+only needs to exclude an alternate OpenMeld carrier. Unrelated resource discovery
+must not block that turn. Scoped MCP carriers still request the full inventory
+and verify tools, resources and resource templates, including delivery-only
+recovery. Narrowing ordinary inventory does not weaken the scoped isolation
+contract or increase initialization timeouts.
+
+Antigravity's legacy CLI does not currently expose a proven per-invocation structured-
+tool configuration surface. During an action-enabled dispatch, the adapter
+therefore appends the dispatch publication contract to the invocation prompt,
+asking for one `reply`, `status`, or `silent` outcome through
+Antigravity's native JSON-schema output. The adapter validates that structured
+result and invokes the same dispatch-owned action writer directly without a
+shell. It grants the model no additional tool permission; all shell, file,
+network, and ambient MCP actions continue through Antigravity's normal
+permission policy. Publication requires no Skill read. Additional user-requested
+OpenMeld operations still use the official Skill under normal permissions.
+The prompt identifies the same working folder used to launch the CLI. The
+adapter must not add an auxiliary workspace for instruction delivery: an
+Antigravity conversation can retain that directory and resolve later file
+tasks there. It never writes Antigravity's user settings or the user's project
+customization files.
+
+Antigravity's Binding permission intent is passed to every new or resumed CLI
+invocation using its native mode/approval flags. This changes no Space action
+authorization and grants nothing beyond the owner's explicitly selected mode.
+The four `antigravity:*` permission values require an updated CLI/Service;
+older strict schemas reject those values. Both the CLI command contract and
+Service runtime epoch advance; the formal local-component release must mark
+both components required. Keep version stamps in that release PR.
+
+Use the existing receiver-first Core deployment when this change ships with a
+Service-to-Core addition such as workspace-recovery decline. Its immutable
+published-manifest override preserves the previous image-geometry epoch for
+old Services while also accepting the new Antigravity epoch. During this stage,
+Core rejects all new `antigravity:*` permission writes at Binding, creation
+request, and remembered-default boundaries. An omitted mode remains unchanged.
+Readiness diagnostics report the same effective epoch as runtime admission.
+After the new CLI/Service artifacts exist, the normal final Core projection
+enables those writers and requires the new epoch for new Wake work. Old Core
+does not accept the new Service epoch: the receiver deployment must precede
+Service publication. Never infer safety merely from the delayed version floor.
+Already accepted work keeps its existing lifecycle; unknown permission values
+must never silently fall back to another mode.
 
 OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
 action-enabled dispatch, the adapter therefore runs the same OpenClaw Session
@@ -558,6 +826,70 @@ selection is user intent and remains authoritative on resume and turn start.
 The Service must not inspect private Codex rollout files or global config to
 infer a substitute selection.
 
+The Codex adapter exposes optional, text-only exact-task steering through the
+active App Server session's native `turn/steer` method. It uses that session's
+accepted `threadId` and `expectedTurnId`; it must not resume a different thread,
+start a new turn, retarget a newer turn, or change execution policy. Stop and
+settled tasks reject further input. The caller's stable `inputId` is forwarded
+as `clientUserMessageId` for correlation, not as an idempotency guarantee.
+A matching native receipt means the input was admitted to that turn, not that
+the model finished acting on it. Native
+method/precondition rejection proves non-application; an internal error,
+missing acknowledgement, or mismatched receipt does not. A steering receipt
+timeout leaves the original execution running and never retries the input.
+Unconfirmed receipts retain a bounded diagnostic code and the native numeric
+error code when present, without forwarding provider error text as product copy.
+The native contract is documented in the
+[Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
+
+Claude Code uses the same exact-execution receiver with the Agent SDK's open
+user-message stream and native `priority: "now"`. It never opens a second query
+or resumes another session to deliver input. This requires Claude Code 2.1.290
+or later: older versions can acknowledge a duplicate UUID before consumption.
+The installed executable, not the SDK dependency version, determines eligibility.
+A matching top-level replay message from the active session confirms consumption;
+writing to the input stream alone does not. The receipt's `threadId` is the native
+session ID and `turnId` is the consumed native user-message UUID. Claude does not
+provide Codex's atomic `expectedTurnId` precondition; priority delivery follows
+Claude's current execution boundary. The UI promises immediate delivery to the
+working Agent, not identical provider turn semantics. Repair and delivery-only
+queries reject live input. A priority message can yield the old native turn's
+result before its own replay and continuation. That intermediate result must not
+settle the OpenMeld task; wait for consumption and the continuation's result.
+Stop, the final native result, and query cleanup close input
+and settle unacknowledged submissions as unconfirmed. A receipt timeout does not
+stop the original execution or authorize a resend. Space retains the durable
+queue and the Execution Host retains the existing deduplication responsibility.
+
+The Execution Host's private inherited IPC `executionInput` method accepts an
+exact owner account, Profile, dispatch, attempt and RuntimeCoordinator execution
+and run. The registry receives these identifiers from the existing admitted
+delivery, never from a new input; a replacement attempt cannot inherit old input.
+The current connector generation and Profile lease must match; draining admission
+rejects new application. Only the existing inflight registry resolves a local
+task. The frozen source retains Space, Signal, author, original requester and
+the `steer` effect; it is correlation, not a grant from the Agent's owner.
+The Host joins concurrent identical inputs and retains bounded receipts across
+socket replacement, including uncertain native outcomes. It never starts a
+turn or cancels the task. A receipt query cannot resend. A missing receipt after
+Host replacement or retired-execution receipt eviction is unknown, not proof
+of non-application; Space must keep that input held.
+
+The Service advertises this receiver through the optional
+`x-openmeld-local-execution-input: 1` handshake header, never a new field in old
+strict registration payloads. Core authorizes the original requester and effect
+in the Space queue owner, resolves the exact active attempt/run in the existing
+Coordinator, and sends apply/read over that execution's current socket and
+Profile lease. The connector forwards to this private receiver; it does not
+select an execution or grant authority. A read after Host replacement can only
+return missing evidence, never permission to apply again. RuntimeCoordinator
+execution and Stop ownership are unchanged; the adapter and receipt cache do
+not own a second execution or pending-message state machine. The private IPC
+extension ships with its matching connector/Host bundle. Installed-candidate
+and real Local model acceptance are separate from protocol fixtures; no old
+published bundle is certified by deferred feature checks. There is no new public
+Service command or general Local Agent tool in this slice.
+
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
 a connection-generation change, and a low-frequency recovery keepalive. Until
@@ -567,6 +899,15 @@ RuntimeCoordinator to `running`. Ordinary keepalives between those frames omit
 the additive field so an older Core can still observe fresh local ownership.
 Current Core may recover a lost transition after a WebSocket reconnect or
 Service restart without polling Codex or delaying normal Wake admission.
+Once Core knows the conversation is occupied, repeated same-phase keepalives
+only confirm liveness and do not extend the progress deadline. Availability or
+provider-accepted advancement to `running` restores normal progress tracking;
+the Coordinator's admission record remains the occupancy authority.
+Every registration on one socket reports its original `socketConnectedAtMs`.
+Core also preserves the first connection time on same-socket re-registration,
+so older Services that report the registration time cannot manufacture a
+reconnect. A genuinely new socket retains the existing communication-recovery
+semantics, including after Core restores persisted state.
 
 If Codex explicitly reports that an existing controller conversation is
 missing, the adapter starts one fresh thread and delivers the complete current
@@ -658,6 +999,21 @@ Agent receives one path-free awareness instruction so it understands that the
 run is intentionally bounded, but prompt text is guidance and never proof of
 enforcement.
 
+Codex boundary probes, CLI launches, and App Server thread/turn requests use
+`on-request` with an explicit `user` approval reviewer for Ask for approval.
+Approve for me alone selects `auto_review`. This aligns the boundary probe with
+the existing native App Server policy; it does not promise a prompt for every
+operation already allowed by the native sandbox. Explicit `untrusted` is no
+longer accepted by current Codex versions. Repair remains read-only with human
+approval, and isolated Execution Contexts retain their separate no-escalation
+`never` policy. No fallback to Full access or boundary bypass is permitted when
+an executable rejects these arguments.
+A completed negative boundary launch check retains the path-free
+`computer.file_access.launch_rejected` diagnosis. The owner decision explains
+that the selected Agent's version/configuration needs checking, rather than
+mistaking a launch rejection for missing consent. Unknown checks keep generic
+verification guidance; raw controller diagnostics and folder paths stay private.
+
 An active policy whose working folder is deterministically outside the boundary
 rejects before controller launch without asking the user. If the selected
 adapter cannot prove that it can enforce the exact boundary, the current Wake
@@ -680,7 +1036,7 @@ state.
 
 Absolute paths may cross Web, Gateway, Core, RuntimeTransportHub, and Service
 only in the authenticated Computer owner's immediate request-response. They
-must not be written to D1, Organization data, Agent Activity, cloud snapshots,
+must not be written to PostgreSQL, Organization data, Agent Activity, cloud snapshots,
 Center Agent context, browser persistence, logs, traces, or failure receipts.
 Service store failures expose only stable `computer.file_access.*` codes and
 path-free messages across process boundaries. The local typed error retains its
@@ -756,7 +1112,7 @@ client requests fail closed. ACP image/audio input remains unsupported when the
 live capability says so; the separate local-file-path attachment capability
 does not turn into native ACP image support.
 
-Cursor and Grok Build share adapter-core ACP process mechanics: newline JSON-RPC
+Cursor, Grok Build, and Antigravity ACP share adapter-core ACP process mechanics: newline JSON-RPC
 framing, pending-request ownership, lifecycle telemetry, bounded admission,
 session cancellation, and process-tree supervision. Their adapters retain
 vendor-specific launch, authentication, model, mode, extension-request, and
@@ -774,6 +1130,33 @@ Codex App Server maps current and legacy command/file approvals,
 elicitation into the same contract. Claude Agent SDK maps `canUseTool`,
 `AskUserQuestion`, `ExitPlanMode`, and MCP elicitation. OpenCode uses its local
 server event stream plus official permission and question reply endpoints.
+OpenCode 1 uses `@opencode-ai/sdk/v2`; OpenCode 2 uses `@opencode/client` and
+its native `/api` routes. Server startup identifies the API generation without
+an extra version process during ordinary Wake. OpenCode 2 confirms the submitted
+inbox receipt, execution outcome, and current-turn assistant messages separately;
+an HTTP prompt response or completed wait alone is not a successful execution.
+Its native forms and permission decisions reuse the existing human-interaction
+contract. An already active resumed session is rejected before policy mutation.
+The dispatch MCP server is registered in the owned server's in-memory registry,
+with direct tools and unchanged permission rules. No user configuration is
+written. OpenCode 2.0.24 reports MCP connection before its 100 ms debounced tool
+reload; startup allows 500 ms for that reload because the API has no public
+tool-registry-ready receipt. Real-binary smoke must verify tool execution, not
+only an MCP connection or a text answer.
+
+Antigravity ACP uses the official `agy_acp_server.par` or `agy_acp_server.exe`
+installation and its adjacent `localharness_external` executable. It remains
+a separate selectable installation from the legacy `agy` CLI. Explicit execution
+authenticates with the native cached account (default `oauth-personal`, optionally
+`OPENMELD_ANTIGRAVITY_ACP_AUTH_METHOD`), with browser launch disabled and bounded
+authentication admission. Missing credentials produce a sign-in error.
+The adapter uses native `session/new`, `session/resume`, model configuration,
+advertised modes, dispatch MCP servers, and `session/cancel`. Native choice
+questions and permission requests reuse the current interaction UI; security
+warnings remain visible, and native "always" approval means this session.
+Unsupported modes, reasoning settings, and choices fail explicitly. Installation
+does not imply authenticated model access; background inventory never authenticates.
+
 Provider abort or process exit must release any adapter-local waiter promptly.
 For a Binding with `codex:plan`, the local route resolves a Plan conversation
 policy, verifies the native collaboration-mode catalog, and passes the exact
@@ -866,15 +1249,16 @@ install evidence but must not start a disabled controller.
 
 Cloud-bound ACI reporting is a minimized projection of the richer local
 snapshot. It must not send a local command path, launch argument prefix,
-authentication type, controller-provided skill inventory, or free-text local
+controller-provided skill inventory, or free-text local
 diagnostic message. It may send the optional provider email or bounded account
 label only for the authenticated owner's local-runtime inventory so that the
 owner can distinguish which account OpenMeld will use. Core receives only the
-bounded controller identity, enabled/readiness status, static native
+bounded authentication type for account-scoped model admission, controller
+identity, enabled/readiness status, static native
 capabilities, native interface, version evidence, bounded check status and
 last-success timestamp, optional owner-facing account identifier, and other
 fields explicitly required by a current owner-facing product surface. This
-account evidence must not enter Organization computer directories, Center Agent
+account evidence and authentication type must not enter Organization computer directories, Center Agent
 context, Agent Activity, or another member's Computer view. Local CLI and
 Desktop diagnostics may retain the richer local snapshot without turning every
 local field into the cloud contract.
@@ -901,6 +1285,13 @@ use a context-specific local lane and ledger key. The Service must not search
 the Profile's other contexts as a fallback or heal a missing scoped conversation
 by silently starting another one. Ledger v2 reads valid v1 state without resetting
 its native conversation mappings. Corrupt scoped evidence fails closed.
+
+New Codex and Claude contexts with `permissionSource: agent_settings` use the
+ordinary native tool, settings, hooks, MCP, and permission-mode path. The starting
+Project folder does not create a filesystem boundary. Computer File Access still
+applies when configured. Only explicit or retained bounded Claude project tasks
+prepare a container and replace native shell tools; creating a new conversation
+alone must not do either. Delivery-only correction retains its narrow purpose.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
@@ -953,6 +1344,30 @@ not register a linked worktree in the user's source repository. Git hooks,
 ambient Git configuration, filters, lazy fetching, and non-file protocols are
 disabled during preparation. No dirty or ignored source files are copied.
 The resulting task boundary includes only that context's worktree and Git data.
+The workspace owner publishes the actual private Git config, hooks, worktree
+config, `.git` pointer, `commondir`, and `gitdir` paths as shared
+`ExecutionContextGitMetadata` facts. The native Codex boundary makes hooks and
+routing pointers read-only, including replacement and creation, even under
+`repository.git`, which native `.git` protection does not cover. Common and
+worktree config remain writable so normal branch, remote, user and submodule
+operations work. Service-owned Git inspection/preparation disables hooks,
+fsmonitor, credential commands and non-file transports independently of task
+Git; user task Git retains its normal credentials. Before native use, the
+workspace owner saves executable config settings in its protected lane. After
+native-process quiescence it restores new/changed executable settings, retaining
+ordinary settings. Hook-path changes are preserved and reported through public
+task progress: committed repository installers are identified where possible;
+unverified installers require user review. No command values are published.
+The audit is at dispatch completion, not between provider turns in a still-active
+process, and it is not proof that task-authored code or an unverified hook is safe.
+Objects, refs, logs, index and ordinary worktree data remain writable.
+An out-of-boundary metadata path fails closed
+instead of granting extra read access. Retained private repositories reject
+symlinks and multiply linked metadata files before use; direct native protection
+must not be generalized to arbitrary pre-existing aliases in current-folder
+tasks. Other controller boundaries are not certified by Codex sandbox evidence.
+`objects/info/alternates` remains a known native-boundary limitation: preparation
+and reuse reject it, but this protection does not certify task-time object routing.
 Its protected preparation record is outside the task's writable root and binds
 the context identity, source path, starting commit, owned paths, and completion.
 Retry verifies and reuses completed preparation. Incomplete or mismatched records
@@ -970,6 +1385,29 @@ window without requiring a sandboxed shell to load Node, CLI code, or local
 authentication files. Its Space, source Wake, and acting Profile are fixed by
 the active dispatch, and it rechecks that context after the authorized read.
 This read does not complete or publish the Wake.
+
+An implicit ordinary Codex Wake uses `workspace` access with the `current`
+workspace. The Service resolves that current workspace through the same
+effective Profile working-folder path used by legacy dispatch; it must not
+substitute the Service-owned Space-context scratch directory. Explicit
+Space-only and isolated-project selections retain their separate boundaries.
+
+A selected-file handoff is the narrow writable exception: after preparation,
+the Service adds the dispatch's `workingCopyId` to the adapter boundary and
+limits its folders to the prepared handoff root, not its parent scratch root.
+Codex must confirm workspace-write access and pass the same real inside/outside
+probe. Ordinary Space-only tasks remain read-only, repair remains read-only,
+and the context still starts a separate native session. Copy receipts and
+upload snapshots remain outside the writable root. This projection changes
+neither Core authorization nor RuntimeCoordinator execution ownership.
+
+Managed-copy reads and file creation require macOS `O_NOFOLLOW_ANY`, which
+rejects symlinks in every path component during the kernel open itself. Leaf-only
+`O_NOFOLLOW` and preflight directory checks are insufficient against a concurrent
+intermediate-directory replacement. Other platforms reject managed-copy commands
+until they have an equivalent verified primitive; explicit file commands remain
+available. This is a Service file-read boundary, not evidence of a production
+Codex sandbox escape.
 
 Claude SDK Space-context invocations expose only dispatch-owned Space tools;
 built-in local tools, ambient MCP servers, and hooks are disabled. User settings
@@ -1004,6 +1442,11 @@ materializes committed project content as described above; it does not copy the
 parent's dirty working files or implicitly synchronize parent and child. A
 completion without a verified native checkpoint may
 preserve conversation identity but cannot authorize a fork.
+Codex fork preparation reads the target's effective MCP configuration before
+suppressing a native-tool source's alternate Space carrier. It disables an
+existing reserved server without replacing its transport; when absent, it must
+not create a disabled-only server table. Preparation receives no dispatch action
+credentials. Malformed or unreadable effective configuration rejects the fork.
 The Service observes completed turns across the initial invocation, reply repair,
 and reconsideration. Each invocation clears the previous completion evidence;
 each submitted proposal carries its own final verified turn. A missing final
@@ -1157,8 +1600,8 @@ macOS and Linux assign one opaque supervision identity before the controller
 starts, and controller descendants inherit that identity. Stop snapshots the
 controller's current descendant tree, signals the whole recorded group, and
 also signals supervised descendants that created their own process groups,
-while Windows keeps the direct-process path. The adapter retains discovered
-process IDs through graceful-to-force escalation and uses the supervision
+while Windows records the native Job supervisor as the direct signal target.
+The POSIX adapter retains discovered process IDs through graceful-to-force escalation and uses the supervision
 identity after process exit, so reparenting cannot hide unfinished provider
 work. Descendant discovery is auxiliary to signaling the known process group
 and already recorded descendants: a discovery failure must emit a structured
@@ -1166,6 +1609,34 @@ diagnostic after those signal attempts and must never crash the OpenMeld
 Service or suppress the primary Stop. A wrapper or controller exit therefore
 cannot silently orphan a detached supervised descendant or keep a local
 execution slot occupied after an accepted Stop.
+
+On Windows 10 and newer, the shared process boundary launches each Agent
+Controller inside a native kill-on-close Job using atomic process-creation Job
+assignment. It does not create an unowned process and attach it afterward.
+Only the selected invocation's supervisor owns the Job handle; standard streams
+are inherited explicitly, and the Job handle is not. Normal controller exit,
+supervisor termination, or loss of the original caller's process handle ends
+owned descendants. Cleanup waits for the supervisor to exit and verifies an
+empty or destroyed Job before reporting success. A bounded cleanup wait may
+fail visibly; it is never a deadline on a healthy running Wake.
+
+This is process lifetime supervision, not a filesystem sandbox or authority to
+kill arbitrary same-name processes. Provider permission enforcement remains
+separate. Work delegated through external brokers such as WMI or a remote
+machine is not claimed to be a normal descendant of this Job. Native provider
+sandbox/nested-Job compatibility requires Windows acceptance. The fixed helper
+is a prebuilt Native AOT executable over the same reviewed Win32 API bridge;
+it also reads process creation FILETIME through an opened process handle.
+Windows builds compile it with the pinned SDK before packaging. Consumers do
+not install .NET or compile C# during Agent launch or cleanup. Node/npm reads
+the package's `dist/windows/openmeld-windows-process.exe`; this Service-owned
+asset is copied into the npm Service bundle and included in its content hash.
+All npm publishing platforms must use the same prebuilt Windows asset. A compiled carrier
+requires that executable alongside the CLI/Service in the same version bundle.
+There is no runtime PowerShell fallback for missing helper artifacts. The
+Task Scheduler task-host migration is a separate lifecycle boundary below;
+this change does not retire it or establish its timeout's cause. Denial by enterprise
+policy is a visible launch failure, never permission to fall back uncontained.
 
 A long-lived or multi-thread Agent Controller whose request protocol carries an
 explicit workspace starts its host process in an OS runtime directory, not in
@@ -1223,6 +1694,11 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  Replacing a known Service owner with a different known owner ends the old
+  owner's service using the existing `user_stop` cause, including the legacy
+  system-service stop path. Same-owner maintenance retains
+  `controlled_service_update`. The lifecycle chooses that cause once and keeps
+  it through the local stop journal consumed by the carrier.
   Desktop uses `computer connection-review --json` and
   `setup --connection-intent <json>` for that same boundary. The intent contains
   the expected new account and a non-secret hash of the reviewed old session;
@@ -1379,7 +1855,7 @@ Legacy current-target Project operations remain available to existing clients.
 An operation response may contain an absolute local path only for immediate
 forwarding through Core and Gateway to the authenticated owner who initiated
 that request. Immediate forwarding is not storage. Local paths must never be
-written to D1, Agent Activity events or projections, cloud snapshots,
+written to PostgreSQL, Agent Activity events or projections, cloud snapshots,
 Organization-shared Project records, or Center Agent context. Logs, traces,
 failure receipts, and diagnostics that cross the local trust boundary use
 Project ID, device ID, candidate ID, and binding generation instead of the
@@ -1488,7 +1964,7 @@ is unavailable.
 
 Selected paths may cross Web, Gateway, Core, RuntimeTransportHub, and Service
 only in the authenticated owner's immediate request-response. They must never
-enter command arguments, D1, browser persistence, logs, traces, failure
+enter command arguments, PostgreSQL, browser persistence, logs, traces, failure
 receipts, diagnostics, Agent Activity, Organization state, or Center Agent
 context. Scripts are supplied through stdin where the platform requires them,
 and the adapter returns its typed result through supervised stdout. Selected
@@ -1670,6 +2146,11 @@ Catalog consumption rules:
   during admission is persisted on a later read if the local principal still
   matches. A new Service process resolves its own startup principal. Remote
   authorization checks still decide whether the bearer session is valid.
+  During a same-account setup transition, a Service admitted for the candidate
+  login reads that exact candidate's credential snapshot. It must not replace
+  the candidate with the previous committed login just because both share an
+  account. The Execution Host independently verifies the same session identity;
+  commit and rollback remain owned by the existing auth transition journal.
 - One OpenMeld Service process reuses a verified credential for the same
   committed login, storage reference, lane, auth origin, client and account.
   Organization selection and display-only profile changes update context
@@ -1973,6 +2454,54 @@ of the macOS LaunchAgent session. Locking the screen does not mean logging out.
 Task registration is process supervision, not Service readiness: startup still
 requires the current Service lease, account/lane alignment, and Core connection.
 
+Background controller status and session-inventory probes must also suppress
+console creation on Windows. A GUI Service parent and piped stdio alone do not
+provide that guarantee: direct Node-compatible child launches use `windowsHide`.
+This does not change the interactive CLI launcher's terminal behavior.
+
+For the retained npm distribution, both tasks start a lane-owned Windows-subsystem host,
+not a console-subsystem PowerShell process. The host creates the existing system
+PowerShell action with `UseShellExecute=false` and `CreateNoWindow=true`, waits
+for it, and returns its exit code without detaching or breaking Task Scheduler
+process ownership. `-WindowStyle Hidden` and the task's `Hidden` setting are not
+substitutes for preventing a console at process creation. The existing encoded
+action remains the only command/environment configuration and retains its log;
+outer PowerShell/host failures are appended beside the host as `<host>.log`.
+
+The encoded Windows action has one canonical four-field contract: `executable`,
+`args`, `env`, and `logPath`. Its serializer projects and validates those fields
+rather than serializing a wider Service or maintenance registration spec.
+`workingDirectory` belongs to the Task Scheduler action, and `pendingJobPath`
+is maintenance registration metadata; neither is an encoded execution field.
+Readers narrowly accept the historical string-valued copies of these two fields
+from released writers, discard them, and return the canonical action. Unknown
+fields and malformed required or historical values still fail validation. This
+read compatibility permits status, ownership checks, and normal guarded repair
+of an existing task without deleting it or changing its user, permissions, or
+console-free host. The compatibility decoder does not create another execution
+configuration or make registration a claim of Service readiness.
+
+For the managed Windows binary distribution, Task Scheduler directly starts
+the selected verified x64 GUI Service (or an independent maintenance copy).
+Visible role arguments and a private four-field action envelope must agree.
+The entry applies its registered environment before importing business modules,
+writes stdout/stderr synchronously to the existing task log, and passes those
+file descriptors to the private Host while retaining its IPC channel. Task
+Scheduler observes the Service's actual exit status. Main Service replacement
+requires stopped state. An owned direct maintenance registration may select the
+next immutable copy while its current invocation finishes under the existing
+maintenance lease; it must not stop or overwrite that running worker.
+
+The existing npm compatibility path still compiles fixed bundled C# source with Windows PowerShell
+5.1's .NET compiler into a temporary WindowsApplication and atomically installs
+it at `<lane legacy script>.task-host-v1.exe`. Main and maintenance tasks have
+separate hosts, so neither replaces the other's running image. Compilation or
+replacement failure stops installation without falling back to a visible
+console, changing security policy, or requiring elevation. Read-only status
+never compiles. An owned stopped legacy PowerShell task is upgraded through the
+same install path; running tasks must first drain/stop under existing lifecycle
+rules. No new account, password storage, WSH dependency, or scheduler is added.
+
 The Windows adapter retains the serialized `windows-service` controller identifier
 for supported local-state and wire readers; that identifier does not imply SCM.
 New installations do not register batch files as SCM executables. A legacy SCM
@@ -1983,7 +2512,16 @@ registration is removed, so migration cannot create two execution owners. Task
 Scheduler's registered action is the source for command and environment diagnostics;
 new installs do not maintain a parallel batch-file configuration.
 
-On macOS, the managed LaunchAgent uses `RunAtLoad=true` and `KeepAlive=true`.
+On macOS, the managed LaunchAgent uses `RunAtLoad=true` and
+`KeepAlive.SuccessfulExit=false`: an abnormal exit is restarted, but a successful
+controlled drain must not spawn a replacement before the authorized Stop caller
+unloads the job. `launchctl disable` changes future loading eligibility; it does
+not cancel an already loaded job's unconditional keepalive. Account/PID checks
+remain mandatory, and Stop still requires actual Host exit and manager teardown.
+Normal update and explicit Start paths load/start the registered job themselves;
+they do not depend on respawn after a successful drain. Existing unconditional
+keepalive definitions are detected as startup-policy drift and reconciled through
+the existing guarded lifecycle path, never rewritten underneath a live process.
 It declares `ProcessType=Interactive` because people are waiting for its Wake
 execution and replies. Omitting that classification allows macOS to throttle
 the carrier's CPU and I/O as background work; child controller processes can
@@ -2023,11 +2561,19 @@ hash differ between macOS and Linux.
 The OS service manager registration is a per-user global resource keyed only by
 the env preset. `OPENMELD_HOME` isolates lane files but does not isolate this
 registration, so any process that mutates a service registration must fail
-closed unless its lane intent is unambiguous: test processes must never mutate
-the published production registration, and a process whose effective root left
-the published production lane must state an explicit `OPENMELD_ENV_PRESET`
-before mutating the production registration. Isolated validation targets the
-`dev-local` or `canary` service identity or stubs the service manager.
+closed unless its lane and root identify the same owner. The production service
+identity may be mutated only from the published production root; an explicit
+`OPENMELD_ENV_PRESET=prod` cannot authorize an isolated root. `openmeld-dev`
+always selects `dev-local`, even when its parent environment carried a production
+preset or production Auth, Gateway, and client defaults. Explicit lane-local
+endpoints remain intact. For compatibility, `OPENMELD_ENV=dev` resolves to the
+same `dev-local` lane; conflicting legacy and canonical selectors fail instead
+of choosing one silently. Test processes never mutate the published production registration.
+Isolated validation targets the `dev-local` or `canary` service identity or
+stubs the service manager. A dispatch-owned runtime may inspect production
+Service state, but it cannot run a production Service mutation that could stop
+or replace the carrier currently executing that dispatch; it may use a confirmed
+development lane for isolated lifecycle validation.
 
 Service alignment must compare the complete environment target persisted in
 that registration: env preset, Gateway URL, Auth URL, and user-facing CLI
@@ -2076,8 +2622,12 @@ recognized entries whose exact owners are all proven dead; unknown entries and
 unknown process identity fail closed. There is no live-owner timeout. Older
 single-entry readers cannot remove a nonempty multi-owner directory, including
 after their malformed-lock grace period. Read-only probes outside a lifecycle
-operation do not acquire this lock. Windows retains ordinary lifecycle behavior;
-the account-checked control path below is unavailable there.
+operation do not acquire this lock. On Windows, Task Scheduler control uses the
+same owner-scoped entries with the exact process creation FILETIME. PowerShell
+waits for an explicit stdin grant before any COM operation; failed attachment or
+EOF before grant has no Task Scheduler effect. Once granted, a surviving control
+process retains the fence until its exact owner exits. This is separate from a
+Wake Job: the independent OS-scheduled Service must survive the requesting CLI.
 
 ### Account-checked Service start and stop
 
@@ -2152,6 +2702,35 @@ explicit support from the actual carrier. No status schema, lifecycle mutation,
 startup attempt, shutdown attempt, or compensation is part of the query. Unsupported
 or uncertain pairs return disabled controls. This capability is not Wakeability.
 
+Windows npm installations use the same account admission, durable cancellation,
+startup receipt, controlled drain, and exact-session Disconnect. Native process
+creation FILETIME replaces POSIX `ps` identity; a live process with unavailable
+identity remains fenced. The capability probe invokes the integrity-aligned
+active JS entry directly with the exact Node executable that Start registers,
+never the repairing launcher. Its Windows-only v2 response identifies both Node
+and the entry script; a v1 response from an older Windows CLI does not prove
+support. The old macOS v1 response is unchanged. A running carrier must also
+confirm the authenticated control capability. Existing Windows tasks must use
+the current SID's interactive token, ordinary privileges, and the expected
+single action before any task mutation is permitted. Its executable must be
+either system PowerShell (the supported legacy task) or this lane/task's exact
+`task-host-v1.exe` path. Other executables remain refused. Pre-host CLI versions
+cannot manage a migrated task and fail closed; use the matching newer CLI for
+setup, repair and control. Cloud, Service transport, Wake and diagnostic payloads
+are unchanged by this local launch-carrier change.
+
+Managed Windows binary installations use the same account-admission protocol.
+Their read-only capability probe runs the integrity-aligned active GUI Service
+directly. Its `account-checked-service-control-v3` response identifies that
+executable after verifying native process identity; it has no fictitious Node
+entry script. A binary probe rejects the npm v2 response, and a Node probe
+still requires v2 plus the exact entry script. The active bundle must remain
+unchanged across the probe. A running Service must additionally answer the
+authenticated local control request. Older readers reject the new variant
+and leave controls disabled; the public Desktop capability shape is unchanged.
+Direct GUI task admission retains the same SID, lane, action and process
+ownership checks described above.
+
 ### Registration reconciliation
 
 A successfully confirmed explicit autostart command clears the repair marker
@@ -2183,10 +2762,10 @@ Wake work, even when the latest release itself is advisory. This keeps healthy
 supported Services eligible without allowing a later optional release to
 re-enable a known-broken Service or announcing an unavailable recovery target.
 
-The current monotonic floor is OpenMeld Service `0.3.153`. It is the first
-supported baseline that reports current working-folder facts and keeps reply
-observation owned by the accepted Wake, in addition to the existing startup
-recovery, managed-update, and active Permission/Wake behavior. Once the stable
+The current monotonic floor is OpenMeld Service `0.3.217`. It is the first
+supported baseline that refreshes Service admission after update or draining
+and carries the required Codex MCP startup behavior, in addition to the existing
+working-folder facts and dispatch-owned reply observation. Once the stable
 release manifest activates that floor, Core projects every connected older
 Service as `update_required` and blocks new Wake admission without terminating
 work already accepted by RuntimeCoordinator. The user-visible `requiredVersion`
@@ -2196,7 +2775,7 @@ Before the stable release manifest reaches the source floor, Core leaves that
 newer floor inactive rather than projecting `requiredVersion` above
 `latestVersion`. A later advisory release may raise that remediation target,
 but it must not lower or bypass an active compatibility floor. A Service already
-at `0.3.153` remains supported and receives only the advisory update policy of a
+at `0.3.217` remains supported and receives only the advisory update policy of a
 newer release.
 
 Wake Stop local control is an affected Service capability. A Core/Web deployment
@@ -2246,7 +2825,12 @@ downloading or reinstalling the CLI. A missing, truncated,
 or same-size-but-different executable follows the verified download and
 `install-self` repair path, which also forces Service carrier refresh.
 
-For Windows, explicit `?dist=npm`, or npm recovery, the package-based commands
+Windows binary setup verifies the signed CLI and native helper, then follows
+the shared managed installer receipt. Its GUI Service is a separate selected
+artifact; neither Node nor the console CLI is used as that background carrier.
+This entrypoint requires the accepted Windows artifact channel before rollout.
+
+For explicit `?dist=npm` or npm recovery, the package-based commands
 are:
 
 ```text
@@ -2712,6 +3296,13 @@ Service. That timeout is a compatibility fallback only during an actual version
 upgrade; the existing OpenMeld-owned-process and long-stalled-heartbeat checks
 remain mandatory before any automatic force kill.
 
+The final stopping heartbeat must receive a successful Core acknowledgement.
+A rejected or timed-out heartbeat cannot be reported as a completed controlled
+shutdown. Already accepted work still drains before that failure is returned;
+network failure does not authorize interrupting it or assert that Core observed
+the stop. Core's existing freshness window remains the bound when no stop
+heartbeat reaches it.
+
 Repeated process-discovery failures are aggregated within a bounded local log
 window, retaining the first occurrence, count, duration, affected controller,
 and recovery event. Local diagnostics preserve stable reason codes including
@@ -2873,12 +3464,18 @@ saved Binding permission mode or OpenCode permission JSON.
 Codex exact-controller recovery copies the canonical conversation into an
 ephemeral App Server fork and applies the conservative repair approval and
 sandbox policy only to that fork. Claude Code repair resumes through an Agent
-SDK or CLI fork and applies its temporary Plan mode only there. OpenCode repair
+SDK or CLI fork and applies its temporary Plan mode only there. OpenCode 1 repair
 uses the official Server session fork and passes the Binding's unchanged
 `OPENCODE_PERMISSION` JSON to the child. Each adapter continues to report the
 validated canonical conversation identity. If the installed controller cannot
 create the required isolated child, repair fails explicitly while ordinary
 Wake, setup, status, and diagnostics remain available.
+
+OpenCode 2 and Antigravity ACP currently reject delivery-only repair explicitly:
+their exposed APIs have no verified exclusive tool scope equivalent to the
+existing repair contract. Ordinary native MCP publication remains supported.
+Do not silently rerun a failed action with broader tools, mutate the canonical
+session's permissions for repair, or claim successful publication from text.
 
 Repair also fails explicitly when the canonical conversation no longer exists.
 The ordinary-Wake context-heal path must not create a new conversation during
@@ -2936,6 +3533,12 @@ The marker means the code is part of one of these explicitly scoped groups:
 | Legacy Proof Logic | Existing code that still speaks in Prepare, readiness, route, Binding, or service-health terms while helping setup or execution. This code is not automatically wrong, but it must be treated as a candidate for extraction, rename, demotion to diagnostics, or deletion. | `clients/openmeld-cli/src/start-local/*`, `clients/openmeld-cli/src/system/reply-readiness.ts`, `clients/openmeld-cli/src/system/current-reply-readiness-snapshot.ts`, `clients/openmeld-cli/src/system/action-participation-planner.ts`, `clients/openmeld-cli/src/local-service/routing/route-catalog.ts`                                                                                                                                                                                                                                                                            |
 
 The current codebase has one local-service implementation layout:
+
+`carrier/daemon-frame-transport.ts` owns frame parsing, registration and
+heartbeat acknowledgments, and transport-error correlation without importing
+the dispatch/adapter graph. Execution frame handling remains a separate
+consumer. This module boundary alone is not process isolation or a change to
+execution ownership.
 
 ```text
 clients/openmeld-cli/src/local-service/  host-bound service loop, lifecycle, inventory, reporting, diagnostics, status, and execution
@@ -2997,6 +3600,14 @@ RuntimeCoordinator token, execution identity, daemon session, lease, and
 authoritative Space placement; emitting a frame does not give the Service Space
 or execution authority.
 
+A supported controller may separately call the dispatch-scoped
+`report_progress` tool with a short deliberate public update. The Service keeps
+an in-memory deduplication set for the active turn, sends a bounded accumulated
+snapshot through RuntimeTransport, and drops the capability when only final
+action repair is allowed. The tool does not write the final action record and
+has no standalone CLI fallback, so a child process cannot bypass the active
+Service execution token or turn progress into a second Space writer.
+
 The Service Thin Core line must not reassign ownership:
 
 - RuntimeCoordinator remains the in-flight Wake execution truth.
@@ -3043,3 +3654,18 @@ or claim a Wake outcome.
   diagnostics.
 - Setup and repair must not report success from process start or inventory
   detection alone.
+## On-demand Codex history
+
+The optional `session-history-v1` transport capability admits bounded read-only
+Codex history requests. The Service owns the local Organization-scoped policy
+and the latest 200 metadata-only access records. Grants pin Project connection
+generations; reconnecting requires renewed consent. File access restrictions
+intersect this policy. Recheck policy, canonical source path, and current Project
+connection before releasing messages. Persist neither source text nor provider
+errors in the policy/audit store.
+
+Use native `thread/read`, first without turns to authorize the source directory,
+then with turns to project user/assistant text. Do not resume, inject, index, or
+copy source transcripts. Core owns caller authentication and verified human
+provenance; local Service enforces owner, reader, Project, and policy scope.
+This capability does not change Wake execution ownership or readiness.

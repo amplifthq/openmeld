@@ -1,5 +1,6 @@
 "use client";
 
+import AntigravityColor from "@lobehub/icons/es/Antigravity/components/Color.js";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color.js";
 import CodexColor from "@lobehub/icons/es/Codex/components/Color.js";
 import CursorMono from "@lobehub/icons/es/Cursor/components/Mono.js";
@@ -14,6 +15,7 @@ import type { ComponentType } from "react";
 import { cn } from "#lib/utils";
 
 const LOCAL_AGENT_LOGOS = {
+  antigravity: { Icon: AntigravityColor, inset: "h-3/4 w-3/4" },
   "claude-code": { Icon: ClaudeColor, inset: "h-3/4 w-3/4" },
   codex: { Icon: CodexColor, inset: "h-full w-full" },
   cursor: { Icon: CursorMono, inset: "h-3/5 w-3/5" },

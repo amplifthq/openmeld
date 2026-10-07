@@ -11,6 +11,7 @@ import {
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
@@ -27,6 +28,7 @@ import type {
   RuntimeTransportAgentControllerConversationOccupancy,
   RuntimeTransportDispatchLifecyclePhase,
   RuntimeTransportDispatchLocalQueueDiagnostics,
+  RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchReasoningRequest,
   RuntimeTransportDispatchRuntimeEvidencePhase,
   RuntimeTransportHeartbeatRequest,
@@ -34,9 +36,9 @@ import type {
   RuntimeTransportResultIdentityEcho,
   RuntimeTransportRuntimeEvidenceIdentityEcho,
 } from "@openmeld/schemas/types";
-import type { WsClient } from "../../transport/ws";
 import { normalizeOptionalText } from "../core/logger";
 import type {
+  DaemonFrameSink,
   DispatchResultPayloadResolveInput,
   OpenMeldDaemonTaskErrorType,
 } from "../core/types";
@@ -52,7 +54,7 @@ export function sendDispatchResultFrame(input: {
   leaseEpoch: number;
   payload: OpenMeldDaemonTaskResultPayload;
   runtimeCoordinatorExecutionId?: string | null;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   sendDispatchResultEnvelopeFrame({
     ...input,
@@ -69,7 +71,7 @@ export function sendDispatchResultEnvelopeFrame(input: {
   executionTokenEcho?: RuntimeCoordinatorExecutionTokenEcho | null;
   leaseEpoch: number;
   runtimeCoordinatorExecutionId?: string | null;
-  socket: WsClient;
+  socket: DaemonFrameSink;
   taskResult: OpenMeldDaemonTaskResultEnvelope;
 }): void {
   const resultRequest = runtimeTransportSubmitTaskResultRequestSchema.safeParse(
@@ -113,7 +115,7 @@ export function sendDispatchLifecycleFrame(input: {
   localQueue?: RuntimeTransportDispatchLocalQueueDiagnostics | null;
   executionTokenEcho?: RuntimeCoordinatorExecutionTokenEcho | null;
   runtimeCoordinatorExecutionId?: string | null;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   const lifecycleRequest =
     runtimeTransportDispatchLifecycleRequestSchema.safeParse({
@@ -167,7 +169,7 @@ export function sendDispatchRuntimeEvidenceFrame(input: {
   phase: RuntimeTransportDispatchRuntimeEvidencePhase;
   reasonCode?: string | null;
   runtimeCoordinatorExecutionId?: string | null;
-  socket: WsClient;
+  socket: DaemonFrameSink;
   sourceClientMessageId?: string | null;
   sourceSignalId: string;
   spaceId: string;
@@ -223,7 +225,7 @@ export function sendDispatchRuntimeEvidenceFrame(input: {
 
 export function sendDispatchReasoningFrame(
   input: Omit<RuntimeTransportDispatchReasoningRequest, "v"> & {
-    socket: WsClient;
+    socket: DaemonFrameSink;
   }
 ): void {
   const { socket, ...payload } = input;
@@ -240,6 +242,25 @@ export function sendDispatchReasoningFrame(
   });
 }
 
+export function sendDispatchProgressFrame(
+  input: Omit<RuntimeTransportDispatchProgressRequest, "v"> & {
+    socket: DaemonFrameSink;
+  }
+): void {
+  const { socket, ...payload } = input;
+  const parsed = runtimeTransportDispatchProgressRequestSchema.safeParse({
+    ...payload,
+    v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  });
+  if (!parsed.success) {
+    return;
+  }
+  sendDaemonFrame(socket, {
+    code: "daemon.dispatch.progress",
+    payload: parsed.data,
+  });
+}
+
 export function sendDispatchToolActivityFrame(input: {
   attemptId: string;
   connectionGeneration: number;
@@ -252,7 +273,7 @@ export function sendDispatchToolActivityFrame(input: {
   part: AgentStreamToolPart;
   runtimeCoordinatorExecutionId: string;
   sequence: number;
-  socket: WsClient;
+  socket: DaemonFrameSink;
   sourceSignalId: string;
   spaceId: string;
   targetProfileId: string;
@@ -298,7 +319,7 @@ export function sendDispatchInteractionRequestFrame(input: {
   interaction: AgentInteractionRequest;
   leaseEpoch: number;
   runtimeCoordinatorExecutionId: string;
-  socket: WsClient;
+  socket: DaemonFrameSink;
   taskId: string;
 }): void {
   const request = runtimeTransportDispatchInteractionRequestSchema.safeParse({
@@ -337,7 +358,7 @@ export function sendDispatchInteractionDeliveredFrame(input: {
   interactionId: string;
   leaseEpoch: number;
   runtimeCoordinatorExecutionId: string;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   const request =
     runtimeTransportDispatchInteractionDeliveredRequestSchema.safeParse({
@@ -372,7 +393,7 @@ export function sendDispatchPreviewFrame(input: {
   dispatchId: string;
   leaseEpoch: number;
   previewText: string;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   const previewRequest = runtimeTransportDispatchPreviewRequestSchema.safeParse(
     {
@@ -400,7 +421,7 @@ export function sendDispatchPreviewEndFrame(input: {
   daemonSessionId: string;
   dispatchId: string;
   leaseEpoch: number;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   const previewEndRequest =
     runtimeTransportDispatchPreviewEndRequestSchema.safeParse({
@@ -647,7 +668,7 @@ export function buildFailedTaskResultPayload(input: {
 }
 
 function sendDaemonFrame(
-  inputSocket: WsClient,
+  inputSocket: DaemonFrameSink,
   input: {
     code:
       | "daemon.dispatch.interaction_delivered"
@@ -659,6 +680,7 @@ function sendDaemonFrame(
       | "daemon.dispatch.runtime_evidence"
       | "daemon.dispatch.tool_activity"
       | "daemon.dispatch.reasoning"
+      | "daemon.dispatch.progress"
       | "daemon.session.heartbeat"
       | "daemon.session.register";
     payload:

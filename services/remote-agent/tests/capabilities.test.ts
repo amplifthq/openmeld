@@ -11,13 +11,16 @@ import {
   REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
   REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES,
 } from "../agent-core/tools";
-import { expandRemoteAgentCapabilityDependencies } from "../flue-adapter/capability-catalog";
+import {
+  expandRemoteAgentCapabilityDependencies,
+  rankRemoteAgentCapabilities,
+} from "../flue-adapter/capability-catalog";
 import {
   REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME,
   REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
   REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME,
 } from "../flue-adapter/capability-discovery";
-import { getRemoteAgentFlueTools as buildRemoteAgentFlueTools } from "../flue-adapter/tools";
+import { getTestCapabilityCatalog } from "./capability-catalog.test-support";
 import {
   TEST_CODE_MODE_LOADER,
   TEST_CODE_MODE_RUNTIME,
@@ -37,10 +40,10 @@ const REMOTE_AGENT_OPENMELD_TOOL_NAMES =
       name !== "openmeld_set_agent_profile_creation_approval_preferences"
   );
 
-async function getRemoteAgentFlueTools(
-  input: Omit<Parameters<typeof buildRemoteAgentFlueTools>[0], "submissionId">
+async function getCapabilityCatalogForTest(
+  input: Omit<Parameters<typeof getTestCapabilityCatalog>[0], "submissionId">
 ) {
-  return await buildRemoteAgentFlueTools({
+  return await getTestCapabilityCatalog({
     agentActivityReadEnabled: true,
     codeModeRuntime: TEST_CODE_MODE_RUNTIME,
     ...input,
@@ -90,7 +93,7 @@ async function createCapabilityInventoryStorage(
 }
 
 async function runFlueTool(
-  tool: Awaited<ReturnType<typeof buildRemoteAgentFlueTools>>[number],
+  tool: Awaited<ReturnType<typeof getTestCapabilityCatalog>>[number],
   context: { input: Record<string, unknown> }
 ) {
   const result = await tool.run({
@@ -105,15 +108,71 @@ async function runFlueTool(
 }
 
 describe("remote agent Flue capability inventory", () => {
+  it("enforces summary-only in both the direct and Code Mode catalogs", async () => {
+    const turnEnvelope: ReturnType<
+      typeof createSubmitTurnRequest
+    >["turnEnvelope"] = createOrganizationSharedTurnEnvelope();
+    turnEnvelope.trigger = {
+      source: "task_continuation",
+      summaryOnly: true,
+      subscriptionId: "summary-1",
+      delegationId: "delegation-1",
+      watchedTask: { v: 1, kind: "native_delivery", deliveryId: "parent-1" },
+      outcome: {
+        status: "succeeded",
+        errorCode: null,
+        eventId: "child-1",
+        occurredAtMs: TEST_NOW_MS,
+        publishedSignalId: "result-1",
+      },
+    };
+    const write = vi.fn();
+    const input = {
+      coreWorker: {},
+      storage: await createCapabilityInventoryStorage(turnEnvelope),
+      turnEnvelope,
+      sandboxDefinitions: [
+        {
+          name: "computer_exec",
+          description: "Run a command",
+          input: {} as never,
+          execute: write,
+        },
+      ],
+    };
+    const tools = await getCapabilityCatalogForTest(input);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
+      "openmeld_read_tool_result",
+      "openmeld_read_space_context",
+      "openmeld_read_space_file",
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
+      "codemode",
+    ]);
+    const codeMode = tools.find((tool) => tool.name === "codemode");
+    if (!codeMode) {
+      throw new Error("Missing Code Mode");
+    }
+    await expect(
+      runFlueTool(codeMode, {
+        input: {
+          code: "async () => codemode.computer_exec({command: 'touch unwanted'})",
+        },
+      })
+    ).rejects.toThrow("codemode.computer_exec is not a function");
+    expect(write).not.toHaveBeenCalled();
+  });
   it("exposes the complete first-phase explicit tool surface in an organization-shared turn", async () => {
     const turnEnvelope = createOrganizationSharedTurnEnvelope();
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(turnEnvelope),
       turnEnvelope,
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
@@ -122,7 +181,12 @@ describe("remote agent Flue capability inventory", () => {
     expect(tools.map((tool) => tool.name)).toContain("web_fetch");
     expect(tools.map((tool) => tool.name)).toContain("browser_read_page");
     expect(tools.map((tool) => tool.name)).toContain("browser_screenshot");
-    const recoveryTools = await getRemoteAgentFlueTools({
+    expect(
+      rankRemoteAgentCapabilities(tools, "web search fetch page")
+        .slice(0, 5)
+        .map(({ capability }) => capability.name)
+    ).toContain("browser_read_page");
+    const recoveryTools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(turnEnvelope),
       turnEnvelope,
@@ -132,7 +196,7 @@ describe("remote agent Flue capability inventory", () => {
   });
 
   it("describes every executable capability from the final registered turn catalog", async () => {
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(),
     });
@@ -190,7 +254,7 @@ describe("remote agent Flue capability inventory", () => {
   });
 
   it("finds the requester Computer diagnostics capability from a Chinese goal", async () => {
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(),
     });
@@ -216,7 +280,7 @@ describe("remote agent Flue capability inventory", () => {
   });
 
   it("finds the one-click OpenMeld Tools update capability from a Chinese goal", async () => {
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(),
     });
@@ -240,7 +304,7 @@ describe("remote agent Flue capability inventory", () => {
   });
 
   it("finds structured Center Agent turn diagnostics from a Chinese failure question", async () => {
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(),
     });
@@ -316,6 +380,7 @@ describe("remote agent Flue capability inventory", () => {
         "openmeld_create_agent_profile_request",
         "openmeld_read_organization_directory",
         "openmeld_read_agent_profile_creation_defaults",
+        "openmeld_list_hosted_models",
         "openmeld_list_local_agent_connection_candidates",
         "openmeld_list_projects",
       ])
@@ -341,7 +406,7 @@ describe("remote agent Flue capability inventory", () => {
       })
     );
     const centerAgentWakeAgentProfilesInSpace = vi.fn();
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {
         centerAgentReadSpaceAuthoringContract: vi.fn(async () => ({
           addressingModel: "wake_reference_mention" as const,
@@ -416,7 +481,7 @@ describe("remote agent Flue capability inventory", () => {
   });
 
   it("exposes Codex collaboration mode on every Agent Profile runtime settings tool", async () => {
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: new InMemoryDurableObjectStorage(),
     });
@@ -489,7 +554,7 @@ describe("remote agent Flue capability inventory", () => {
   });
 
   it("gives Routines Project tools while keeping continuation-owned task tools hidden", async () => {
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: new InMemoryDurableObjectStorage(),
       turnEnvelope: createRoutineTurnEnvelope({
@@ -503,6 +568,8 @@ describe("remote agent Flue capability inventory", () => {
     expect(names).toContain("openmeld_read_org_documents");
     expect(names).toContain("openmeld_draft_org_document");
     expect(names).toEqual([
+      "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
         (name) =>
           !REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES.some(
@@ -579,7 +646,7 @@ describe("remote agent Flue capability inventory", () => {
     source,
   }) => {
     const baseEnvelope = createSubmitTurnRequest().turnEnvelope;
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: new InMemoryDurableObjectStorage(),
       turnEnvelope: {
@@ -597,6 +664,8 @@ describe("remote agent Flue capability inventory", () => {
     );
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...expectedOpenMeldToolNames,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
@@ -605,7 +674,7 @@ describe("remote agent Flue capability inventory", () => {
 
   it("keeps task coordination available in Lark turns", async () => {
     const baseEnvelope = createSubmitTurnRequest().turnEnvelope;
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: new InMemoryDurableObjectStorage(),
       turnEnvelope: {
@@ -627,6 +696,8 @@ describe("remote agent Flue capability inventory", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
         (name) =>
           name !== "openmeld_remember_for_organization" &&
@@ -643,7 +714,7 @@ describe("remote agent Flue capability inventory", () => {
     if (baseEnvelope.sender.kind !== "member") {
       throw new Error("Expected a member sender fixture.");
     }
-    const tools = await getRemoteAgentFlueTools({
+    const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: new InMemoryDurableObjectStorage(),
       turnEnvelope: {
@@ -662,6 +733,8 @@ describe("remote agent Flue capability inventory", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",

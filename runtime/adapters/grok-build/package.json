@@ -18,9 +18,12 @@
     "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck"
   },
   "dependencies": {
-    "@openmeld/adapter-core": "workspace:*"
+    "@openmeld/adapter-core": "workspace:*",
+    "@openmeld/agent-runtime": "workspace:*",
+    "smol-toml": "1.7.0"
   },
   "devDependencies": {
-    "@types/node": "^24.3.0"
+    "@types/node": "^24.3.0",
+    "zod": "catalog:"
   }
 }

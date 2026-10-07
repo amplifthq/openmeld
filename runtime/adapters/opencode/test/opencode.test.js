@@ -3,7 +3,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { buildDispatchSpaceActionMcpToolIds } from "@openmeld/adapter-core";
+import { writeFakeOpenCodeServer } from "./fixtures/server-v1.js";
 
 const AUTH_RE = /not logged in|login required|unauthorized|credentials/i;
 const BAD_GATEWAY_RE = /Bad Gateway/i;
@@ -12,7 +12,6 @@ const INSUFFICIENT_BALANCE_RE = /insufficient balance/i;
 const PERMISSION_REQUESTED_RE = /permission requested/i;
 const RUNTIME_PERMISSION_DENIAL_COPY =
   "The requested action was blocked by the Agent Profile’s permission settings. Review its permissions and choose a less restrictive mode only if you trust the access it grants, then wake the agent again.";
-const DISPATCH_TOOL_IDS = buildDispatchSpaceActionMcpToolIds("_");
 const createRuntimeContext = (
   providerRuntimeWorkingDirectory = process.cwd()
 ) => ({
@@ -199,7 +198,7 @@ test("opencode output parser does not stringify object error payloads", async ()
   );
 });
 
-test("opencode cli transport passes cwd, prompt, model, variant, and session flags", async () => {
+test("opencode cli transport passes cwd, prompt, model, and variant for a new session", async () => {
   const { invokeOpenCodeCliTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-cli-fixture-"));
   const dispatchDir = await mkdtemp(join(tmpdir(), "opencode-dispatch-"));
@@ -221,9 +220,9 @@ test("opencode cli transport passes cwd, prompt, model, variant, and session fla
       "if (realpathSync(readArg('--dir')) !== process.cwd()) throw new Error('expected spawn cwd as --dir');",
       "if (readArg('--model') !== 'openai/gpt-5.4') throw new Error('missing model');",
       "if (readArg('--variant') !== 'high') throw new Error('missing variant');",
-      "if (readArg('--session') !== 'session-existing-1') throw new Error('missing session');",
+      "if (readArg('--session') !== null) throw new Error('CLI must not resume a session');",
       "const prompt = args[args.length - 1];",
-      "console.log(JSON.stringify({ type: 'text', sessionID: 'session-existing-1', part: { text: prompt + ':' + process.cwd() } }));",
+      "console.log(JSON.stringify({ type: 'text', sessionID: 'session-new-1', part: { text: prompt + ':' + process.cwd() } }));",
       "process.exit(0);",
     ].join("\n"),
     "utf8"
@@ -240,7 +239,7 @@ test("opencode cli transport passes cwd, prompt, model, variant, and session fla
       openCodeTimeoutMs: 5000,
       openCodeWorkdir: dispatchDir,
       prompt: "hello",
-      sessionId: "session-existing-1",
+      sessionId: null,
     });
 
     const expectedDispatchDir = await realpath(dispatchDir);
@@ -251,12 +250,25 @@ test("opencode cli transport passes cwd, prompt, model, variant, and session fla
       },
       {
         output: `hello:${expectedDispatchDir}`,
-        sessionId: "session-existing-1",
+        sessionId: "session-new-1",
       }
     );
     validateOpenCodeTelemetry(result.telemetry, {
-      resumedContext: true,
+      resumedContext: false,
     });
+    await assert.rejects(
+      invokeOpenCodeCliTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        openCodeTimeoutMs: 5000,
+        openCodeWorkdir: dispatchDir,
+        prompt: "continue",
+        sessionId: "session-existing-1",
+      }),
+      (error) => {
+        assert.equal(error.code, "context.resume_requires_server");
+        return true;
+      }
+    );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
@@ -268,17 +280,7 @@ test("opencode adapter dispatch launches the task directly without a version pro
   const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-cli-fixture-"));
   const fixturePath = join(fixtureDir, "opencode-fixture-dispatch.mjs");
 
-  await writeFile(
-    fixturePath,
-    [
-      "#!/usr/bin/env node",
-      "if (process.argv[2] !== 'run') throw new Error('Wake must launch the task, not probe the CLI');",
-      "console.log(JSON.stringify({ type: 'text', sessionID: 'opencode-session-1', part: { text: 'hello from opencode' } }));",
-      "process.exit(0);",
-    ].join("\n"),
-    "utf8"
-  );
-  await chmod(fixturePath, 0o755);
+  await writeFakeOpenCodeServer(fixturePath, { rejectVersion: true });
 
   try {
     const adapter = createOpenCodeAdapter({
@@ -294,6 +296,10 @@ test("opencode adapter dispatch launches the task directly without a version pro
       },
       prompt: "hello",
       runtimeContext: createRuntimeContext(),
+      env: {
+        OPENMELD_FAKE_OPENCODE_SESSION_ID: "opencode-session-1",
+        OPENMELD_FAKE_OPENCODE_REPLY: "hello from opencode",
+      },
       sourceEventId: "evt-opencode-1",
       spaceId: "space-1",
       taskId: "task-opencode-1",
@@ -319,26 +325,7 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
   const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-cli-fixture-"));
   const fixturePath = join(fixtureDir, "opencode-fixture-permission-env.mjs");
 
-  await writeFile(
-    fixturePath,
-    [
-      "#!/usr/bin/env node",
-      "console.log(JSON.stringify({",
-      "  type: 'text',",
-      "  sessionID: 'opencode-session-permission-env',",
-      "  part: {",
-      "    text: JSON.stringify({",
-      "      config: process.env.OPENCODE_CONFIG_CONTENT ?? null,",
-      "      permission: process.env.OPENCODE_PERMISSION ?? null,",
-      "      passthrough: process.env.OPENMELD_TEST_ENV ?? null,",
-      "    }),",
-      "  },",
-      "}));",
-      "process.exit(0);",
-    ].join("\n"),
-    "utf8"
-  );
-  await chmod(fixturePath, 0o755);
+  await writeFakeOpenCodeServer(fixturePath, { rejectVersion: true });
 
   try {
     const adapter = createOpenCodeAdapter({
@@ -352,12 +339,15 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
       },
       edit: "ask",
       websearch: "allow",
+      openmeld_internal_dispatch_space_action_reply: "deny",
+      openmeld_internal_dispatch_space_action_stay_silent: "ask",
     };
 
     const dispatchResult = await adapter.dispatch({
       agentId: "agt-demo",
       env: {
         OPENCODE_PERMISSION: '{"edit":"allow"}',
+        OPENMELD_FAKE_OPENCODE_ECHO_ENV: "1",
         OPENMELD_TEST_ENV: "kept",
         OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
         OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld-dev",
@@ -392,16 +382,8 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
             type: "local",
           },
         },
-        tools: Object.fromEntries(
-          DISPATCH_TOOL_IDS.map((toolId) => [toolId, true])
-        ),
       }),
-      permission: JSON.stringify({
-        ...openCodePermission,
-        ...Object.fromEntries(
-          DISPATCH_TOOL_IDS.map((toolId) => [toolId, "allow"])
-        ),
-      }),
+      permission: JSON.stringify(openCodePermission),
       passthrough: "kept",
     });
   } finally {

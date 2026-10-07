@@ -4,11 +4,13 @@ import "./setup-instructions.css";
 
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
+import { TextShimmer } from "@openmeld/ui/components/text-shimmer";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { TabItem, TabPanel, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -18,7 +20,6 @@ import {
 	ListChecksIcon,
 	TerminalIcon,
 } from "@phosphor-icons/react";
-import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import type { WebSetupCommandPlatform } from "#/lib/cli-entry-command";
 
 export const OPENMELD_SETUP_TERMINAL_CONFIRMATION_STEP =
@@ -154,21 +155,31 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 					<SetupCommandPlatformSwitch />
 				) : null}
 				<TabPanel className="grid gap-2" value={platform}>
-					<button
-						className="w-full min-w-0 touch-manipulation select-all overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors [scrollbar-width:none] hover:bg-muted/30 max-lg:min-h-11 [&::-webkit-scrollbar]:hidden"
-						onClick={input.onCopyCommand}
-						type="button"
+					<ScrollArea
+						className="rounded-md border border-border bg-muted/10"
+						orientation="horizontal"
 					>
-						{input.command ??
-							(input.isLoading ? (
-								<span className="inline-flex items-center gap-2">
-									<Bars className="h-4 w-6" />
-									{input.commandPlaceholder}
-								</span>
-							) : (
-								input.commandPlaceholder
-							))}
-					</button>
+						<button
+							className={cn(
+								"w-full min-w-0 touch-manipulation select-all rounded-md px-3 py-2 text-left font-mono text-xs transition-colors hover:bg-muted/30 max-lg:min-h-11",
+								platform === "posix"
+									? "whitespace-normal break-words"
+									: "whitespace-nowrap"
+							)}
+							onClick={input.onCopyCommand}
+							type="button"
+						>
+							{input.command ??
+								(input.isLoading ? (
+									<span className="inline-flex items-center gap-2">
+										<Bars className="h-4 w-6" />
+										{input.commandPlaceholder}
+									</span>
+								) : (
+									input.commandPlaceholder
+								))}
+						</button>
+					</ScrollArea>
 					<div className="flex flex-wrap gap-3">
 						<Button
 							disabled={!input.command || input.isLoading}
@@ -233,23 +244,23 @@ function SetupCommandPlatformSwitch() {
 			<TabItem
 				aria-label="Windows PowerShell"
 				label="Windows PowerShell"
+				trailing={
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<span className="rounded px-1 font-normal text-[10px] opacity-70">
+									Beta
+								</span>
+							}
+						/>
+						<TooltipContent className="max-w-64 whitespace-normal">
+							Windows setup is in beta. Some steps may need manual
+							troubleshooting.
+						</TooltipContent>
+					</Tooltip>
+				}
 				value="windows"
-			>
-				Windows PowerShell
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<span className="rounded px-1 font-normal text-[10px] opacity-70">
-								Beta
-							</span>
-						}
-					/>
-					<TooltipContent className="max-w-64 whitespace-normal">
-						Windows setup is in beta. Some steps may need manual
-						troubleshooting.
-					</TooltipContent>
-				</Tooltip>
-			</TabItem>
+			/>
 		</TabsList>
 	);
 }

@@ -1,24 +1,25 @@
-import { HOSTED_REMOTE_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import {
 	Avatar,
 	AvatarFallback,
 	AvatarImage,
 } from "@openmeld/ui/components/avatar";
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
-import { RobotIcon } from "@phosphor-icons/react";
+import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 
 type SpaceMessageProfileAvatarProps = {
 	agentControllerRef: string | null;
 	agentControllerPending?: boolean;
 	avatarImageUrl?: string | null;
+	avatarStyle?: AgentAvatarStyle | null;
+	avatarModelId?: string | null;
 	displayName: string;
 	isCenterAgent?: boolean;
 	working?: boolean;
 	profileId: string;
 	profileKind: "agent" | "human" | "system";
+	responsive?: boolean;
 };
 
 const PROFILE_INITIALS_SEPARATOR_PATTERN = /\s+/u;
@@ -26,64 +27,57 @@ const PROFILE_INITIALS_SEPARATOR_PATTERN = /\s+/u;
 export function SpaceMessageProfileAvatar(
 	input: SpaceMessageProfileAvatarProps
 ) {
+	// Draw at the largest transcript size; CSS scales the slot for narrower panes.
+	// This keeps canvas avatars sharp without a resize observer per message.
+	const avatar = (
+		<SpaceMessageProfileAvatarPresentation
+			{...input}
+			size={input.responsive ? 32 : 24}
+		/>
+	);
+	return input.responsive ? (
+		<span data-slot="message-speaker-avatar">
+			<span data-slot="message-speaker-avatar-content">{avatar}</span>
+		</span>
+	) : (
+		avatar
+	);
+}
+
+function SpaceMessageProfileAvatarPresentation(
+	input: SpaceMessageProfileAvatarProps & { size: number }
+) {
+	const savedProfile = useAgentAvatarProfile(input.profileId);
 	if (input.profileKind === "agent") {
-		if (input.isCenterAgent) {
-			return (
-				<RemoteAgentAvatar
-					className="size-6"
-					data-testid={`space-center-agent-profile-avatar-${input.profileId}`}
-					profileName={input.displayName}
-					shape="circle"
-					size={24}
-					working={input.working}
-				/>
-			);
-		}
-
-		if (input.agentControllerPending) {
+		if (input.agentControllerPending && !savedProfile && !input.isCenterAgent) {
 			return (
 				<span
 					aria-hidden="true"
-					className="inline-flex h-5 w-5 shrink-0 rounded-[5px] bg-muted"
+					className="inline-flex shrink-0 rounded-[22%] bg-muted"
 					data-testid={`space-agent-profile-pending-avatar-${input.profileId}`}
+					style={{ width: input.size, height: input.size }}
 				/>
-			);
-		}
-
-		if (input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
-			return (
-				<RemoteAgentAvatar
-					profileName={input.displayName}
-					size={24}
-					working={input.working}
-				/>
-			);
-		}
-		const agentControllerRef = input.agentControllerRef;
-		if (agentControllerRef !== null && hasLocalAgentLogo(agentControllerRef)) {
-			return (
-				<span
-					aria-hidden="true"
-					className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground"
-					data-testid={`space-agent-profile-avatar-${input.profileId}`}
-				>
-					<LocalAgentLogo agentId={agentControllerRef} size="md" />
-				</span>
 			);
 		}
 
 		return (
-			<span
-				aria-hidden="true"
-				className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground"
-				data-testid={`space-agent-profile-avatar-${input.profileId}`}
-			>
-				<RobotIcon
-					aria-hidden="true"
-					className="h-5 w-5"
-					data-testid={`space-agent-profile-fallback-avatar-${input.profileId}`}
-				/>
-			</span>
+			<RemoteAgentAvatar
+				agentControllerRef={input.agentControllerRef}
+				avatarImageUrl={input.avatarImageUrl}
+				avatarStyle={input.avatarStyle}
+				data-testid={`${input.isCenterAgent ? "space-center-agent-profile-avatar" : "space-agent-profile-avatar"}-${input.profileId}`}
+				fallbackTestId={
+					input.isCenterAgent
+						? undefined
+						: `space-agent-profile-fallback-avatar-${input.profileId}`
+				}
+				modelId={input.avatarModelId}
+				profileId={input.profileId}
+				profileName={input.displayName}
+				shape={input.isCenterAgent ? "circle" : "rounded-square"}
+				size={input.size}
+				working={input.working}
+			/>
 		);
 	}
 
@@ -91,12 +85,11 @@ export function SpaceMessageProfileAvatar(
 		return (
 			<DitherProfileAvatar
 				avatarImageUrl={input.avatarImageUrl}
-				className="size-6"
 				data-testid={`space-human-profile-avatar-${input.profileId}`}
 				profileId={input.profileId}
 				profileKind="human"
 				profileName={input.displayName}
-				size={24}
+				size={input.size}
 			/>
 		);
 	}
@@ -104,8 +97,9 @@ export function SpaceMessageProfileAvatar(
 	return (
 		<Avatar
 			aria-hidden="true"
-			className="size-6 after:border-0"
+			className="after:border-0"
 			data-testid={`space-system-profile-avatar-${input.profileId}`}
+			style={{ width: input.size, height: input.size }}
 		>
 			{input.avatarImageUrl ? (
 				<AvatarImage
@@ -114,7 +108,7 @@ export function SpaceMessageProfileAvatar(
 					src={input.avatarImageUrl}
 				/>
 			) : null}
-			<AvatarFallback className="text-[10px]">
+			<AvatarFallback style={{ fontSize: (input.size / 24) * 10 }}>
 				{buildProfileInitials(input.displayName)}
 			</AvatarFallback>
 		</Avatar>

@@ -318,7 +318,28 @@ describe("remote agent system prompt", () => {
       "For work you delegate now, choose completionMode yourself."
     );
     expect(prompt).toContain(
+      "Use resume_parent_when_all_terminal when review, another step, a decision, or synthesis remains after the children finish; use another resume_parent_* barrier only when its earlier or per-child condition matches the goal."
+    );
+    expect(prompt).toContain(
       "Use child_reports_directly only when each child's visible publication fully satisfies the user's request and you have no follow-up work."
+    );
+    expect(prompt).toContain(
+      "Tell the child to publish its result in the agreed Space and that OpenMeld will resume you automatically; never require it to @mention you."
+    );
+    expect(prompt).toContain(
+      "When resumed, read the child's published result and check its exact current task state before deciding what remains."
+    );
+    expect(prompt).toContain(
+      "Take the next action or explicitly say why the work is complete or whose action you are waiting for."
+    );
+    expect(prompt).toContain(
+      "If the child says it is waiting for your review or decision, that is your next action."
+    );
+    expect(prompt).toContain(
+      "For a discrete shared-Space deliverable needing durable ownership and independent review, consider a Space Task with an Agent assignee and Agent reviewer."
+    );
+    expect(prompt).toContain(
+      "Submitting the result sends a review Wake to that reviewer through the Space; the Task does not replace a watch for an already-running execution or make an unassigned future message into queued work."
     );
     expect(prompt).toContain(
       "In interactive turns, for existing independently started work, discover the exact Task Handle once when needed, then register one event-driven watch."
@@ -470,8 +491,10 @@ describe("remote agent system prompt", () => {
       "GitHub is not included in openmeld_list_connected_apps"
     );
     expect(prompt).toContain(
-      "when that matching GitHub tool is not exposed directly, call it through Code Mode"
+      "Call through Code Mode when an entry is not exposed directly"
     );
+    expect(prompt).toContain("github_list_actions/github_execute_action");
+    expect(prompt).toContain("neither may silently fall back to the other");
     expect(prompt).toContain(
       "when the tool needed to complete the request is not exposed directly"
     );
@@ -1028,12 +1051,24 @@ describe("remote agent system prompt", () => {
     );
   });
 
-  it("uses the shared Agent Profile creation request for every creation surface", () => {
+  it("explains Local and Remote creation contracts without requiring the same setup workflow", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "use openmeld_create_agent_profile_request as the single creation entry point"
+      "openmeld_create_agent_profile_request accepts Local and Remote selection"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Omit requestedSpaceId when the task does not need a Space"
+      'connectionSelection { kind: "remote" }'
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "createdAgentProfileId is an identity fact, not a canReply fact"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Default Project alone does not set the working folder"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "openmeld_update_agent_profile_runtime_settings with workspacePath"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Omit requestedSpaceId when no Space is needed"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).not.toContain(
       "Then use openmeld_create_configured_agent_profile"

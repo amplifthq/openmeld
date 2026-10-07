@@ -653,6 +653,7 @@ export function createSpaceMemberAgentSnapshot(
     agentControllerConversationId = null,
     agentControllerPermissionMode,
     agentControllerRef = "builtin:codex",
+    avatarStyle,
     createdAt = DEFAULT_TIMESTAMP,
     wakeRouteEvidence,
     wakeRouteStatus,
@@ -767,6 +768,7 @@ export function createSpaceMemberAgentSnapshot(
       ? {}
       : { agentControllerPermissionMode }),
     agentControllerRef,
+    ...(avatarStyle === undefined ? {} : { avatarStyle }),
     ...(modelSelection === undefined ? {} : { modelSelection }),
     createdAt,
     ...(workingDirectory === undefined ? {} : { workingDirectory }),

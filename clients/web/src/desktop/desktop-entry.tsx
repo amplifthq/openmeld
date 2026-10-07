@@ -1,4 +1,4 @@
-import type { DesktopSession } from "@openmeld/schemas";
+import type { DesktopPlatform, DesktopSession } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
@@ -14,8 +14,11 @@ import {
 	readKnownAccountIdBeforeSessionRevalidation,
 	resetAccountScopedQueriesAfterAuthChange,
 } from "#/query/auth-boundary";
+import { forgetDesktopSession, readDesktopSession } from "./auth-boundary";
 import { formatDesktopError } from "./desktop-error";
 import { getDesktopPlatform } from "./platform";
+
+const MAC_OS_PLATFORM_PATTERN = /mac/i;
 
 export function DesktopEntry() {
 	const router = useRouter();
@@ -29,8 +32,34 @@ export function DesktopEntry() {
 	const [browserOpened, setBrowserOpened] = useState(false);
 	const [signedOut, setSignedOut] = useState(false);
 	const [workspaceUnavailable, setWorkspaceUnavailable] = useState(false);
+	const [showKeychainNotice, setShowKeychainNotice] = useState(false);
 	const primaryAction = useRef<() => void>(() => undefined);
 	const bridge = getDesktopPlatform();
+
+	useEffect(() => {
+		let disposed = false;
+		if (!bridge) {
+			setShowKeychainNotice(false);
+			return;
+		}
+		bridge
+			.platform()
+			.then((platform) => {
+				if (!disposed) {
+					setShowKeychainNotice(
+						shouldShowMacOSKeychainNotice(platform, navigator)
+					);
+				}
+			})
+			.catch(() => {
+				if (!disposed) {
+					setShowKeychainNotice(false);
+				}
+			});
+		return () => {
+			disposed = true;
+		};
+	}, [bridge]);
 
 	useEffect(() => {
 		if (!bridge) {
@@ -60,6 +89,7 @@ export function DesktopEntry() {
 			noWorkspace = false;
 			setWorkspaceUnavailable(false);
 			if (sessionChanged) {
+				forgetDesktopSession(queryClient);
 				if (
 					sessionInvalidationRevision === handledSessionInvalidationRevision
 				) {
@@ -232,16 +262,40 @@ export function DesktopEntry() {
 					</p>
 				)}
 				{bridge && !workspaceUnavailable && (
-					<Button
-						className="w-full"
-						disabled={pending}
-						onClick={() => primaryAction.current()}
-					>
-						{copy.action}
-					</Button>
+					<div>
+						<Button
+							className="w-full"
+							disabled={pending}
+							onClick={() => primaryAction.current()}
+						>
+							{copy.action}
+						</Button>
+						{showKeychainNotice && signedOut && (
+							<p className="mt-2 text-muted-foreground text-xs leading-relaxed">
+								macOS may ask for Keychain access to securely remember your
+								sign-in.
+							</p>
+						)}
+					</div>
 				)}
 			</section>
 		</main>
+	);
+}
+
+export function shouldShowMacOSKeychainNotice(
+	platform: DesktopPlatform,
+	nativeNavigator: Pick<Navigator, "platform" | "userAgent">
+) {
+	const userAgentData = nativeNavigator as Pick<Navigator, "platform"> & {
+		userAgentData?: { platform?: string };
+	};
+	const operatingSystem =
+		userAgentData.userAgentData?.platform ||
+		nativeNavigator.platform ||
+		nativeNavigator.userAgent;
+	return Boolean(
+		platform.installedTarget && MAC_OS_PLATFORM_PATTERN.test(operatingSystem)
 	);
 }
 
@@ -263,7 +317,11 @@ async function revalidateDesktopEntry(input: {
 	if (!input.active()) {
 		return null;
 	}
-	const session = await input.bridge.session();
+	const session = await readDesktopSession({
+		bridge: input.bridge,
+		queryClient: input.queryClient,
+		revalidate: true,
+	});
 	if (!input.active()) {
 		return null;
 	}

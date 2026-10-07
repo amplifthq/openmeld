@@ -1,7 +1,9 @@
 import {
+  getPersonalRemoteAgentDefaultModelId,
   resolveAgentWakeAvailability,
   resolveHostedAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { Profile, SignalEnvelope, SpaceCreator } from "@openmeld/protocol";
 import {
   isHostedAgentControllerRef,
@@ -33,11 +35,12 @@ import {
   type AuthProfileFacts,
   readAuthProfileFacts,
 } from "../../auth/application/profile-facts-reader";
+import { readModelCatalog } from "../../config/model-catalog";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import { type CoreBindings, identityDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
   clearMemberProfileLivenessEvidence,
@@ -70,18 +73,15 @@ const SHORT_LAST_SEEN_MINUTE_MS = 60_000;
 const SHORT_LAST_SEEN_HOUR_MS = 3_600_000;
 const SHORT_LAST_SEEN_DAY_MS = 86_400_000;
 const HUMAN_AVATAR_READ_BATCH_SIZE = 100;
-
 type LiveSessionLike = {
   profile?: Profile;
   enforcedProfile?: Profile;
 };
-
 type SpaceMembersSnapshotTiming = {
   collector: SpaceBootstrapTimingCollector;
   descriptionPrefix: string;
   metricPrefix: string;
 };
-
 export type ResolvedAddSpaceMemberInput = {
   profileId: string;
   profileName: string | null;
@@ -90,38 +90,32 @@ export type ResolvedAddSpaceMemberInput = {
   ownerName: string | null;
   agentControllerRef: string | null;
 };
-
 type SpaceMemberSourceHint = {
   addedAt: string;
   addedByProfileId: string | null;
   addedByDisplayName: string | null;
   profileKind: "human" | "agent" | null;
 };
-
 type SpaceMemberSourceHints = {
   byProfileId: Map<string, SpaceMemberSourceHint>;
   byUniqueProfileName: Map<string, SpaceMemberSourceHint>;
 };
-
 type CursorMemberSnapshot = {
   profileId: string;
   mentionAlias: string | null;
   lastSeenAt: string | null;
   createdAt: string | null;
 };
-
 type LatestSignalActivity = {
   profileId: string;
   lastSignalAt: string;
 };
-
 type LatestAgentOriginFacts = {
   profileId: string;
   agentControllerConversationId: string | null;
   ts: number;
   workingDirectory: string | null;
 };
-
 type ExistingMemberProfileSnapshot = Pick<
   SpaceMemberRecord,
   | "profileNameSnapshot"
@@ -129,19 +123,20 @@ type ExistingMemberProfileSnapshot = Pick<
   | "ownerNameSnapshot"
   | "controllerRefSnapshot"
 >;
-
 export class SpaceMembersUseCaseError extends Error {
   readonly status: number;
   readonly code: string;
-
-  constructor(input: { status: number; code: string; message: string }) {
+  constructor(input: {
+    status: number;
+    code: string;
+    message: string;
+  }) {
     super(input.message);
     this.name = "SpaceMembersUseCaseError";
     this.status = input.status;
     this.code = input.code;
   }
 }
-
 export function recordSpaceMemberWebActivityUseCase(input: {
   sql: SqlStorage;
   organizationId: string | null;
@@ -176,7 +171,6 @@ export function recordSpaceMemberWebActivityUseCase(input: {
   );
   return activity.profileId;
 }
-
 export const upsertSpaceCreatorMember = (input: {
   sql: SqlStorage;
   spaceId: string;
@@ -188,7 +182,6 @@ export const upsertSpaceCreatorMember = (input: {
   if (!creator) {
     return null;
   }
-
   const nowIso = input.nowIso ?? new Date().toISOString();
   const existing = readSpaceMemberRecord(input.sql, creator.profileId);
   if (existing?.status === "removed") {
@@ -213,7 +206,6 @@ export const upsertSpaceCreatorMember = (input: {
   upsertSpaceMemberRecord(input.sql, next);
   return next;
 };
-
 export const upsertJoinedSpaceMember = (input: {
   sql: SqlStorage;
   spaceId: string;
@@ -230,7 +222,6 @@ export const upsertJoinedSpaceMember = (input: {
   if (!normalizedProfile) {
     return null;
   }
-
   const nowIso = input.nowIso ?? new Date().toISOString();
   const existing = readSpaceMemberRecord(
     input.sql,
@@ -254,7 +245,6 @@ export const upsertJoinedSpaceMember = (input: {
   upsertSpaceMemberRecord(input.sql, next);
   return next;
 };
-
 export const addSpaceMembersUseCase = (input: {
   sql: SqlStorage;
   env: CoreBindings;
@@ -274,14 +264,12 @@ export const addSpaceMembersUseCase = (input: {
   const seenProfileIds = new Set<string>();
   const uniqueMembers: ResolvedAddSpaceMemberInput[] = [];
   const memberRecordByProfileId = new Map<string, SpaceMemberRecord>();
-
   for (const member of input.members) {
     if (seenProfileIds.has(member.profileId)) {
       continue;
     }
     seenProfileIds.add(member.profileId);
     uniqueMembers.push(member);
-
     const existing = readSpaceMemberRecord(input.sql, member.profileId);
     const next = buildNextSpaceMemberRecord({
       existing,
@@ -303,14 +291,12 @@ export const addSpaceMembersUseCase = (input: {
     }
     addedMemberIds.push(member.profileId);
   }
-
   const itemByProfileId = buildSpaceMemberMutationItems({
     sql: input.sql,
     records: [...memberRecordByProfileId.values()],
     liveSessions: input.liveSessions,
     nowIso,
   });
-
   return {
     addedMemberIds,
     alreadyMemberIds,
@@ -322,7 +308,6 @@ export const addSpaceMembersUseCase = (input: {
       ),
   };
 };
-
 function buildSpaceMemberMutationItems(input: {
   sql: SqlStorage;
   records: SpaceMemberRecord[];
@@ -332,7 +317,6 @@ function buildSpaceMemberMutationItems(input: {
   if (input.records.length === 0) {
     return new Map();
   }
-
   const activeRecords = input.records.filter(
     (record) => record.status === "active"
   );
@@ -340,7 +324,6 @@ function buildSpaceMemberMutationItems(input: {
   const cursorSnapshots = listCursorMemberSnapshots(input.sql);
   const latestSignalActivity = listLatestSignalActivityFromSql(input.sql);
   const liveProfileById = buildLiveProfileById(liveSessions);
-
   const items = activeRecords.map((record) => {
     if (record.profileKindSnapshot === "human") {
       return buildHumanSnapshot({
@@ -366,10 +349,8 @@ function buildSpaceMemberMutationItems(input: {
       generatedAt: input.nowIso,
     });
   });
-
   return new Map(items.map((item) => [item.profileId, item] as const));
 }
-
 export const removeSpaceMembersUseCase = (input: {
   sql: SqlStorage;
   spaceId: string;
@@ -385,7 +366,6 @@ export const removeSpaceMembersUseCase = (input: {
   const alreadyAbsentMemberIds: string[] = [];
   const uniqueMemberProfileIds: string[] = [];
   const seenProfileIds = new Set<string>();
-
   for (const memberProfileId of input.memberProfileIds) {
     if (seenProfileIds.has(memberProfileId)) {
       continue;
@@ -393,7 +373,6 @@ export const removeSpaceMembersUseCase = (input: {
     seenProfileIds.add(memberProfileId);
     uniqueMemberProfileIds.push(memberProfileId);
   }
-
   for (const memberProfileId of uniqueMemberProfileIds) {
     if (memberProfileId === input.actorProfileId) {
       throw new SpaceMembersUseCaseError({
@@ -417,14 +396,12 @@ export const removeSpaceMembersUseCase = (input: {
       });
     }
   }
-
   for (const memberProfileId of uniqueMemberProfileIds) {
     const existing = readSpaceMemberRecord(input.sql, memberProfileId);
     if (existing?.status !== "active") {
       alreadyAbsentMemberIds.push(memberProfileId);
       continue;
     }
-
     upsertSpaceMemberRecord(
       input.sql,
       buildRemovedSpaceMemberRecord({
@@ -437,13 +414,11 @@ export const removeSpaceMembersUseCase = (input: {
     );
     removedMemberIds.push(memberProfileId);
   }
-
   return {
     removedMemberIds,
     alreadyAbsentMemberIds,
   };
 };
-
 export const leaveSpaceUseCase = (input: {
   sql: SqlStorage;
   spaceId: string;
@@ -464,7 +439,6 @@ export const leaveSpaceUseCase = (input: {
         "Change your role to Member before leaving. Add another owner first if you are the last owner.",
     });
   }
-
   const existing = readSpaceMemberRecord(input.sql, input.actorProfileId);
   if (existing?.status !== "active") {
     return {
@@ -472,7 +446,6 @@ export const leaveSpaceUseCase = (input: {
       status: "already_absent",
     };
   }
-
   upsertSpaceMemberRecord(
     input.sql,
     buildRemovedSpaceMemberRecord({
@@ -483,16 +456,17 @@ export const leaveSpaceUseCase = (input: {
       removalReason: "left_space",
     })
   );
-
   return {
     leftProfileId: input.actorProfileId,
     status: "left",
   };
 };
-
-export const listSpaceMembersSnapshotUseCase = async (input: {
+type SpaceMembersSnapshotInput = {
   includeAgentReadiness?: boolean;
-  profileFacts?: AuthProfileFacts | null;
+  profileFacts?:
+    | AuthProfileFacts
+    | null
+    | Promise<AuthProfileFacts | null | undefined>;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -508,10 +482,12 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   lineageLoader?: (
     ownerUserId: string
   ) => Promise<Record<string, string | null> | undefined>;
-}): Promise<SpaceMembersSnapshot> => {
+};
+export const listSpaceMembersSnapshotUseCase = async (
+  input: SpaceMembersSnapshotInput
+): Promise<SpaceMembersSnapshot> => {
   const startedAtMs = Date.now();
   const liveSessions = [...input.liveSessions];
-
   measureSpaceMembersSnapshotTiming(
     input.timing,
     "backfill",
@@ -525,7 +501,39 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
         nowIso: input.nowIso,
       })
   );
+  // Names and account avatars have independent owners. Start the avatar read
+  // while Auth refreshes names, then read the refreshed local member records.
+  const avatars = measureSpaceMembersSnapshotTimingAsync(
+    input.timing,
+    "human_avatar_batch",
+    "preload human member avatars",
+    () =>
+      preloadHumanMemberAvatars({
+        env: input.env,
+        records: listSpaceMemberRecords(input.sql, { status: "active" }),
+      })
+  );
+  const snapshot = Promise.resolve(input.profileFacts).then((profileFacts) =>
+    buildSpaceMembersSnapshot(
+      { ...input, liveSessions, profileFacts },
+      avatars,
+      startedAtMs
+    )
+  );
+  // Observe both branches immediately, including a failed avatar read while
+  // Auth is still pending. Readiness can start as soon as profile facts arrive.
+  return (await Promise.all([avatars, snapshot]))[1];
+};
 
+async function buildSpaceMembersSnapshot(
+  input: Omit<SpaceMembersSnapshotInput, "profileFacts"> & {
+    profileFacts: AuthProfileFacts | null | undefined;
+    liveSessions: LiveSessionLike[];
+  },
+  avatars: Promise<ReadonlyMap<string, string | null>>,
+  startedAtMs: number
+): Promise<SpaceMembersSnapshot> {
+  const { profileFacts, liveSessions } = input;
   const allRecords = measureSpaceMembersSnapshotTiming(
     input.timing,
     "records",
@@ -555,45 +563,51 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
           () => listLatestAgentOriginFactsFromSql(input.sql)
         );
   const liveProfileById = buildLiveProfileById(liveSessions);
+  const readinessReads = createAgentExecutionReadinessReads({
+    profileFacts,
+  });
+  const localPreloadRecords =
+    input.includeAgentReadiness === false
+      ? Promise.resolve([])
+      : resolveCurrentLocalPreloadRecords({
+          env: input.env,
+          records,
+          reads: readinessReads,
+        });
   const [
     preloadedHumanAvatarByOwnerUserId,
     preloadedDaemonRouteByProfileId,
     preloadedOwnerServiceByOwnerUserId,
     viewerCreatorProfileIdsByProfileId,
   ] = await Promise.all([
-    measureSpaceMembersSnapshotTimingAsync(
-      input.timing,
-      "human_avatar_batch",
-      "preload human member avatars",
-      () =>
-        preloadHumanMemberAvatars({
-          env: input.env,
-          records,
-        })
-    ),
-    measureSpaceMembersSnapshotTimingAsync(
-      input.timing,
-      "route_batch",
-      "preload agent member route evidence",
-      () =>
-        input.includeAgentReadiness === false
-          ? Promise.resolve(new Map())
-          : preloadAgentMemberDaemonRoutes({
+    avatars,
+    measureSpaceMembersSnapshotTimingAsync<
+      Awaited<ReturnType<typeof preloadAgentMemberDaemonRoutes>>
+    >(input.timing, "route_batch", "preload agent member route evidence", () =>
+      input.includeAgentReadiness === false
+        ? Promise.resolve(new Map())
+        : localPreloadRecords.then((currentRecords) =>
+            preloadAgentMemberDaemonRoutes({
               env: input.env,
-              records,
+              records: currentRecords,
             })
+          )
     ),
-    measureSpaceMembersSnapshotTimingAsync(
+    measureSpaceMembersSnapshotTimingAsync<
+      Awaited<ReturnType<typeof preloadAgentMemberOwnerServices>>
+    >(
       input.timing,
       "owner_service_batch",
       "preload agent member owner service evidence",
       () =>
         input.includeAgentReadiness === false
           ? Promise.resolve(new Map())
-          : preloadAgentMemberOwnerServices({
-              env: input.env,
-              records,
-            })
+          : localPreloadRecords.then((currentRecords) =>
+              preloadAgentMemberOwnerServices({
+                env: input.env,
+                records: currentRecords,
+              })
+            )
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
@@ -616,15 +630,17 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     ),
   ]);
   const generatedAt = input.nowIso ?? new Date().toISOString();
-
   const humans: SpaceMemberHumanSnapshot[] = [];
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
-  const readinessReads = createAgentExecutionReadinessReads({
-    batchProfileReads: true,
-    profileFacts: input.profileFacts,
-  });
-
+  const preloadedOwnerServiceByProfileId = new Map(
+    (await localPreloadRecords).flatMap((record) => {
+      const service = preloadedOwnerServiceByOwnerUserId.get(
+        record.ownerUserIdSnapshot ?? ""
+      );
+      return service ? [[record.profileId, service] as const] : [];
+    })
+  );
   for (const record of records) {
     if (record.profileKindSnapshot === "human") {
       humans.push(
@@ -646,12 +662,12 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       );
       continue;
     }
-
     agentSnapshotPromises.push(
       input.includeAgentReadiness === false
         ? Promise.resolve(
             buildAgentIdentitySnapshot({
               record,
+              profileFacts,
               liveProfileById,
               cursorSnapshots,
               latestSignalActivity,
@@ -660,6 +676,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
           )
         : buildAgentSnapshot({
             activeOrganizationId,
+            profileFacts,
             env: input.env,
             record,
             viewerOwnerUserId: input.viewerOwnerUserId,
@@ -670,20 +687,18 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
             latestSignalActivity,
             latestAgentOriginFactsByProfileId,
             preloadedDaemonRouteByProfileId,
-            preloadedOwnerServiceByOwnerUserId,
+            preloadedOwnerServiceByProfileId,
             readinessReads,
             generatedAt,
           })
     );
   }
-
   const agents = await measureSpaceMembersSnapshotTimingAsync(
     input.timing,
     "agent_snapshots",
     "build agent snapshots and readiness",
     () => Promise.all(agentSnapshotPromises)
   );
-
   // Membership liveness evidence: only the authoritative deleted-profile
   // verdict reaches the "agent_profile.not_found" availability reason (the
   // resolver keeps transient identity lookup failures away from it). Reads
@@ -715,7 +730,6 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       }
     }
   );
-
   const memberSummary = measureSpaceMembersSnapshotTiming(
     input.timing,
     "summary",
@@ -748,7 +762,6 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       };
     }
   );
-
   const snapshot = {
     spaceId: input.spaceId,
     generatedAt,
@@ -770,7 +783,6 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     humans: memberSummary.sortedHumans,
     agents: memberSummary.sortedAgents,
   };
-
   logSpaceMembersSnapshotTiming({
     activeMemberCount: records.length,
     agentCount: memberSummary.sortedAgents.length,
@@ -779,10 +791,8 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     spaceId: input.spaceId,
     startedAtMs,
   });
-
   return snapshot;
-};
-
+}
 export const listSpaceIdentityDirectoryUseCase = (input: {
   sql: SqlStorage;
   spaceId: string;
@@ -791,7 +801,6 @@ export const listSpaceIdentityDirectoryUseCase = (input: {
   nowIso?: string;
 }): SpaceIdentityDirectory => {
   const liveSessions = [...input.liveSessions];
-
   ensureSpaceMembersBackfilled({
     sql: input.sql,
     spaceId: input.spaceId,
@@ -799,7 +808,6 @@ export const listSpaceIdentityDirectoryUseCase = (input: {
     metaRecord: input.metaRecord ?? null,
     nowIso: input.nowIso,
   });
-
   const generatedAt = input.nowIso ?? new Date().toISOString();
   const cursorSnapshots = listCursorMemberSnapshots(input.sql);
   const entries = listSpaceMemberRecords(input.sql)
@@ -820,14 +828,12 @@ export const listSpaceIdentityDirectoryUseCase = (input: {
       };
     })
     .sort(sortSpaceIdentityDirectoryEntries);
-
   return {
     spaceId: input.spaceId,
     generatedAt,
     entries,
   };
 };
-
 export const listSpaceMemberDirectoryUseCase = (input: {
   sql: SqlStorage;
   spaceId: string;
@@ -839,7 +845,6 @@ export const listSpaceMemberDirectoryUseCase = (input: {
     listSpaceIdentityDirectoryUseCase(input)
   );
 };
-
 export const readSpaceStatusMembersSummaryUseCase = async (input: {
   profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
@@ -865,10 +870,8 @@ export const readSpaceStatusMembersSummaryUseCase = async (input: {
     viewerProfileId: input.viewerProfileId,
     ...(input.timing ? { timing: input.timing } : {}),
   });
-
   return buildSpaceStatusMembersSummaryFromSnapshot(snapshot);
 };
-
 export const buildSpaceStatusMembersSummaryFromSnapshot = (
   snapshot: SpaceMembersSnapshot
 ): SpaceStatusMembersSummary => {
@@ -878,7 +881,6 @@ export const buildSpaceStatusMembersSummaryFromSnapshot = (
   const liveAgentCount = snapshot.agents.filter(
     (item: SpaceMemberAgentSnapshot) => item.liveNow
   ).length;
-
   return {
     ...snapshot.summary,
     liveNowCount: liveHumanCount + liveAgentCount,
@@ -886,7 +888,6 @@ export const buildSpaceStatusMembersSummaryFromSnapshot = (
     liveAgentCount,
   };
 };
-
 export function ensureSpaceMembersBackfilled(input: {
   sql: SqlStorage;
   spaceId: string;
@@ -918,7 +919,6 @@ export function ensureSpaceMembersBackfilled(input: {
   );
   const cursorSnapshots = listCursorMemberSnapshots(input.sql);
   const discovered = new Map<string, SpaceMemberRecord>();
-
   maybeBackfillCreator({
     discovered,
     spaceId: input.spaceId,
@@ -958,7 +958,6 @@ export function ensureSpaceMembersBackfilled(input: {
     });
   }
 }
-
 function buildSnapshotBase(input: {
   record: SpaceMemberRecord;
   liveProfileById: Map<string, Profile>;
@@ -990,7 +989,6 @@ function buildSnapshotBase(input: {
       : null,
   };
 }
-
 function buildHumanSnapshot(input: {
   record: SpaceMemberRecord;
   webLastActiveAt: string | null;
@@ -1046,7 +1044,6 @@ function buildHumanSnapshot(input: {
     ownerName: input.record.ownerNameSnapshot,
   };
 }
-
 async function preloadHumanMemberAvatars(input: {
   env: CoreBindings;
   records: readonly SpaceMemberRecord[];
@@ -1062,12 +1059,10 @@ async function preloadHumanMemberAvatars(input: {
   if (ownerUserIds.length === 0) {
     return new Map();
   }
-
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return new Map();
   }
-
   const avatarByOwnerUserId = new Map<string, string | null>();
   for (
     let offset = 0;
@@ -1078,18 +1073,18 @@ async function preloadHumanMemberAvatars(input: {
       offset,
       offset + HUMAN_AVATAR_READ_BATCH_SIZE
     );
-    const placeholders = batch.map(() => "?").join(", ");
-    const result = await db
-      .prepare(
-        `
+    const result = await db.query<{
+      id: string;
+      image: string | null;
+    }>({
+      text: `
           SELECT id, image
-          FROM users
-          WHERE id IN (${placeholders})
-        `
-      )
-      .bind(...batch)
-      .all<{ id: string; image: string | null }>();
-    for (const row of result.results) {
+          FROM "openmeld"."users"
+          WHERE id = ANY($1::text[])
+        `,
+      values: [batch],
+    });
+    for (const row of result.rows) {
       const ownerUserId = row.id.trim();
       if (ownerUserId) {
         avatarByOwnerUserId.set(ownerUserId, normalizeOptionalText(row.image));
@@ -1098,8 +1093,8 @@ async function preloadHumanMemberAvatars(input: {
   }
   return avatarByOwnerUserId;
 }
-
 function buildAgentIdentitySnapshot(input: {
+  profileFacts?: AuthProfileFacts | null;
   record: SpaceMemberRecord;
   liveProfileById: Map<string, Profile>;
   cursorSnapshots: Map<string, CursorMemberSnapshot>;
@@ -1109,6 +1104,8 @@ function buildAgentIdentitySnapshot(input: {
   const snapshotBase = buildSnapshotBase(input);
   return {
     profileId: input.record.profileId,
+    avatarStyle:
+      input.profileFacts?.get(input.record.profileId)?.avatarStyle ?? null,
     profileName: input.record.profileNameSnapshot,
     profileKind: "agent",
     mentionAlias:
@@ -1140,22 +1137,81 @@ function buildAgentIdentitySnapshot(input: {
     ownerWakeDiagnostics: null,
   };
 }
-
+async function resolveCurrentLocalPreloadRecords(input: {
+  env: CoreBindings;
+  records: readonly SpaceMemberRecord[];
+  reads: AgentExecutionReadinessReads;
+}): Promise<SpaceMemberRecord[]> {
+  const db = getPostgresDatabase(input.env);
+  const authWorker = input.env.OPENMELD_AUTH_WORKER;
+  if (!(db && authWorker?.resolveProfileById)) {
+    return [];
+  }
+  const candidates = await Promise.all(
+    input.records.map(async (record): Promise<SpaceMemberRecord | null> => {
+      if (record.profileKindSnapshot !== "agent") {
+        return null;
+      }
+      try {
+        const result = await input.reads.resolveProfileById({
+          // The method's presence was checked above; TypeScript does not lift
+          // that property refinement into the owning RPC object type.
+          authWorker: authWorker as Parameters<
+            AgentExecutionReadinessReads["resolveProfileById"]
+          >[0]["authWorker"],
+          profileId: record.profileId,
+        });
+        if (
+          !result.ok ||
+          result.profile.profileId !== record.profileId ||
+          result.profile.profileKind !== "agent" ||
+          result.profile.status !== "active" ||
+          !result.profile.ownerUserId
+        ) {
+          return null;
+        }
+        const binding = await input.reads.readPrimaryAgentProfileBindingRecord({
+          db,
+          agentProfileId: record.profileId,
+          owner: { kind: "owner_account", id: result.profile.ownerUserId },
+        });
+        if (
+          binding?.runtimeKind !== "openmeld_service" ||
+          !binding.agentControllerRef ||
+          isHostedAgentControllerRef(binding.agentControllerRef)
+        ) {
+          return null;
+        }
+        // These are request-local preload keys, never persisted member identity.
+        return {
+          ...record,
+          ownerUserIdSnapshot: result.profile.ownerUserId,
+          controllerRefSnapshot: binding.agentControllerRef,
+        };
+      } catch {
+        // The same cached failure is interpreted by the readiness owner below.
+        // A failed read is never evidence that local transport should be queried.
+        return null;
+      }
+    })
+  );
+  return candidates.filter(
+    (record): record is SpaceMemberRecord => record !== null
+  );
+}
 async function preloadAgentMemberDaemonRoutes(input: {
   env: CoreBindings;
   records: readonly SpaceMemberRecord[];
 }): Promise<ReadonlyMap<string, RuntimeTransportLookupRouteResponse>> {
   const profileIdsByOwnerUserId = new Map<string, Set<string>>();
   for (const record of input.records) {
-    if (record.profileKindSnapshot !== "agent") {
+    if (!needsLocalMemberPreload(record)) {
       continue;
     }
-
     const ownerUserId = normalizeOptionalText(record.ownerUserIdSnapshot);
     if (!ownerUserId) {
       continue;
     }
-
     let profileIds = profileIdsByOwnerUserId.get(ownerUserId);
     if (!profileIds) {
       profileIds = new Set<string>();
@@ -1163,7 +1219,6 @@ async function preloadAgentMemberDaemonRoutes(input: {
     }
     profileIds.add(record.profileId);
   }
-
   const routesByProfileId = new Map<
     string,
     RuntimeTransportLookupRouteResponse
@@ -1186,7 +1241,6 @@ async function preloadAgentMemberDaemonRoutes(input: {
         if (!batch) {
           return;
         }
-
         for (const profileId of profileIds) {
           const route = batch.routes[profileId];
           if (route !== undefined) {
@@ -1196,17 +1250,15 @@ async function preloadAgentMemberDaemonRoutes(input: {
       }
     )
   );
-
   return routesByProfileId;
 }
-
 async function preloadAgentMemberOwnerServices(input: {
   env: CoreBindings;
   records: readonly SpaceMemberRecord[];
 }): Promise<ReadonlyMap<string, RuntimeTransportLookupOwnerServiceResponse>> {
   const ownerUserIds = new Set<string>();
   for (const record of input.records) {
-    if (record.profileKindSnapshot !== "agent") {
+    if (!needsLocalMemberPreload(record)) {
       continue;
     }
     const ownerUserId = normalizeOptionalText(record.ownerUserIdSnapshot);
@@ -1214,7 +1266,6 @@ async function preloadAgentMemberOwnerServices(input: {
       ownerUserIds.add(ownerUserId);
     }
   }
-
   const servicesByOwnerUserId = new Map<
     string,
     RuntimeTransportLookupOwnerServiceResponse
@@ -1234,8 +1285,27 @@ async function preloadAgentMemberOwnerServices(input: {
   );
   return servicesByOwnerUserId;
 }
-
+function needsLocalMemberPreload(record: SpaceMemberRecord): boolean {
+  // Called only on records classified from the request's current binding.
+  return (
+    record.profileKindSnapshot === "agent" &&
+    Boolean(record.controllerRefSnapshot) &&
+    !isHostedAgentControllerRef(record.controllerRefSnapshot)
+  );
+}
+function resolveHostedAvatarModelId(
+  agentControllerRef: string | null,
+  selectedModelId: string | null | undefined
+): string | null {
+  if (selectedModelId) {
+    return selectedModelId;
+  }
+  return agentControllerRef === "hosted:remote-agent"
+    ? getPersonalRemoteAgentDefaultModelId(readModelCatalog())
+    : null;
+}
 async function buildAgentSnapshot(input: {
+  profileFacts?: AuthProfileFacts | null;
   activeOrganizationId?: string | null;
   env: CoreBindings;
   record: SpaceMemberRecord;
@@ -1250,7 +1320,7 @@ async function buildAgentSnapshot(input: {
     string,
     RuntimeTransportLookupRouteResponse
   >;
-  preloadedOwnerServiceByOwnerUserId: ReadonlyMap<
+  preloadedOwnerServiceByProfileId: ReadonlyMap<
     string,
     RuntimeTransportLookupOwnerServiceResponse
   >;
@@ -1267,11 +1337,9 @@ async function buildAgentSnapshot(input: {
   const preloadedDaemonRoute = input.preloadedDaemonRouteByProfileId.get(
     input.record.profileId
   );
-  const preloadedOwnerService = input.record.ownerUserIdSnapshot
-    ? input.preloadedOwnerServiceByOwnerUserId.get(
-        input.record.ownerUserIdSnapshot
-      )
-    : undefined;
+  const preloadedOwnerService = input.preloadedOwnerServiceByProfileId.get(
+    input.record.profileId
+  );
   const executionReadiness = await resolveCoreAgentExecutionReadiness({
     reads: input.readinessReads,
     activeOrganizationId: input.activeOrganizationId ?? null,
@@ -1348,9 +1416,14 @@ async function buildAgentSnapshot(input: {
         wakeRouteStatus: executionReadiness.wakeRouteStatus,
       }
     : null;
-
   return {
     profileId: input.record.profileId,
+    avatarStyle:
+      input.profileFacts?.get(input.record.profileId)?.avatarStyle ?? null,
+    avatarModelId: resolveHostedAvatarModelId(
+      agentControllerRef,
+      executionReadiness.modelSelection?.modelId
+    ),
     profileName,
     profileKind: "agent",
     mentionAlias:
@@ -1400,7 +1473,6 @@ async function buildAgentSnapshot(input: {
     ),
   };
 }
-
 function projectDeviceWaitTarget(
   readiness: Awaited<ReturnType<typeof resolveCoreAgentExecutionReadiness>>,
   agentControllerRef: string | null
@@ -1419,7 +1491,6 @@ function projectDeviceWaitTarget(
     openMeldServiceRuntimeId: binding.executionTarget.openMeldServiceRuntimeId,
   };
 }
-
 function maybeBackfillCreator(input: {
   discovered: Map<string, SpaceMemberRecord>;
   spaceId: string;
@@ -1439,7 +1510,6 @@ function maybeBackfillCreator(input: {
     input.discovered.set(creatorRecord.profileId, creatorRecord);
   }
 }
-
 function backfillMembersFromSignals(input: {
   discovered: Map<string, SpaceMemberRecord>;
   existingRecordsByProfileId: Map<string, SpaceMemberRecord>;
@@ -1475,7 +1545,6 @@ function backfillMembersFromSignals(input: {
     });
   }
 }
-
 function isMemberDiscoverySignal(signal: SignalEnvelope): boolean {
   return (
     signal.type === "signal.text" ||
@@ -1483,7 +1552,6 @@ function isMemberDiscoverySignal(signal: SignalEnvelope): boolean {
     signal.type === "signal.system_notice"
   );
 }
-
 function normalizeMemberDiscoveryProfile(
   signal: SignalEnvelope
 ): ResolvedAddSpaceMemberInput | null {
@@ -1505,7 +1573,6 @@ function normalizeMemberDiscoveryProfile(
     profile: signal.profile,
   });
 }
-
 function backfillMembersFromLiveSessions(input: {
   discovered: Map<string, SpaceMemberRecord>;
   existingRecordsByProfileId: Map<string, SpaceMemberRecord>;
@@ -1541,7 +1608,6 @@ function backfillMembersFromLiveSessions(input: {
     });
   }
 }
-
 function backfillMembersFromCursorAliases(input: {
   discovered: Map<string, SpaceMemberRecord>;
   existingRecordsByProfileId: Map<string, SpaceMemberRecord>;
@@ -1579,7 +1645,6 @@ function backfillMembersFromCursorAliases(input: {
     });
   }
 }
-
 function setDiscoveredMemberRecord(input: {
   discovered: Map<string, SpaceMemberRecord>;
   existingRecordsByProfileId: Map<string, SpaceMemberRecord>;
@@ -1617,7 +1682,6 @@ function setDiscoveredMemberRecord(input: {
     })
   );
 }
-
 function persistBackfilledMembers(
   sql: SqlStorage,
   discovered: Map<string, SpaceMemberRecord>,
@@ -1626,7 +1690,6 @@ function persistBackfilledMembers(
   if (discovered.size === 0) {
     return;
   }
-
   // SQLite-backed Durable Objects coalesce sync writes in one turn atomically.
   for (const record of discovered.values()) {
     const existing = existingRecordsByProfileId.get(record.profileId) ?? null;
@@ -1642,7 +1705,6 @@ function persistBackfilledMembers(
     upsertSpaceMemberRecord(sql, next);
   }
 }
-
 function mergeBackfilledMemberRecord(input: {
   existing: SpaceMemberRecord;
   discovered: SpaceMemberRecord;
@@ -1651,7 +1713,6 @@ function mergeBackfilledMemberRecord(input: {
     existing: input.existing.memberSource,
     discovered: input.discovered.memberSource,
   });
-
   return {
     ...input.existing,
     profileKindSnapshot: input.discovered.profileKindSnapshot,
@@ -1689,7 +1750,6 @@ function mergeBackfilledMemberRecord(input: {
     updatedAt: input.discovered.updatedAt,
   };
 }
-
 export function refreshSpaceMemberNameSnapshot(input: {
   sql: SqlStorage;
   profileId: string;
@@ -1714,10 +1774,8 @@ export function refreshSpaceMemberNameSnapshot(input: {
   });
   return true;
 }
-
 // Display enrichment must not hold reply publication or status polling open.
 export const SPACE_MEMBER_NAME_READ_BUDGET_MS = 500;
-
 export async function refreshSpaceMemberNamesFromAuth(input: {
   sql: SqlStorage;
   env: CoreBindings;
@@ -1739,6 +1797,7 @@ export async function refreshSpaceMemberNamesFromAuth(input: {
     const profiles = await Promise.race([
       readAuthProfileFacts({
         authWorker: auth,
+        includeAvatarStyle: true,
         profileIds: members.map((member) => member.profileId),
         deadlineAtMs,
       }),
@@ -1785,7 +1844,6 @@ export async function refreshSpaceMemberNamesFromAuth(input: {
     }
   }
 }
-
 export async function readSpaceMemberNameFromAuth(input: {
   env: CoreBindings;
   profileId: string;
@@ -1840,7 +1898,6 @@ export async function readSpaceMemberNameFromAuth(input: {
     }
   }
 }
-
 function shouldPromoteMemberSource(input: {
   existing: SpaceMemberRecord["memberSource"];
   discovered: SpaceMemberRecord["memberSource"];
@@ -1850,7 +1907,6 @@ function shouldPromoteMemberSource(input: {
     resolveMemberSourcePriority(input.existing)
   );
 }
-
 function resolveMemberSourcePriority(
   source: SpaceMemberRecord["memberSource"]
 ): number {
@@ -1867,7 +1923,6 @@ function resolveMemberSourcePriority(
       return 0;
   }
 }
-
 function pickEarlierIsoTimestamp(
   left: string | null,
   right: string | null
@@ -1877,7 +1932,6 @@ function pickEarlierIsoTimestamp(
   }
   return Date.parse(left) <= Date.parse(right) ? left : right;
 }
-
 function pickLaterIsoTimestamp(
   left: string | null,
   right: string | null
@@ -1887,14 +1941,12 @@ function pickLaterIsoTimestamp(
   }
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
-
 function spaceMemberRecordsEqual(
   left: SpaceMemberRecord,
   right: SpaceMemberRecord
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
-
 function buildCreatorBackfillRecord(input: {
   spaceId: string;
   creator: SpaceCreator;
@@ -1905,7 +1957,6 @@ function buildCreatorBackfillRecord(input: {
   if (!creator) {
     return null;
   }
-
   return buildNextSpaceMemberRecord({
     existing: null,
     existingProfileSnapshot: null,
@@ -1923,7 +1974,6 @@ function buildCreatorBackfillRecord(input: {
     defaultAddedAt: input.addedAt,
   });
 }
-
 function buildNextSpaceMemberRecord(input: {
   existing: SpaceMemberRecord | null;
   existingProfileSnapshot: ExistingMemberProfileSnapshot | null;
@@ -1990,7 +2040,6 @@ function buildNextSpaceMemberRecord(input: {
     updatedAt: input.nowIso,
   };
 }
-
 function buildRemovedSpaceMemberRecord(input: {
   existing: SpaceMemberRecord;
   nowIso: string;
@@ -2008,7 +2057,6 @@ function buildRemovedSpaceMemberRecord(input: {
     updatedAt: input.nowIso,
   };
 }
-
 function buildMemberSourceLabel(record: SpaceMemberRecord): string {
   if (record.memberSource === "space_creator") {
     return "Creator";
@@ -2020,7 +2068,6 @@ function buildMemberSourceLabel(record: SpaceMemberRecord): string {
   }
   return "Joined directly";
 }
-
 function resolveOwnerWakeDiagnosticsState(input: {
   agentWakeAvailability: NonNullable<
     SpaceMemberAgentSnapshot["agentWakeAvailability"]
@@ -2034,23 +2081,18 @@ function resolveOwnerWakeDiagnosticsState(input: {
   }
   return "action_required";
 }
-
 function isPublicWakeableAgent(agent: SpaceMemberAgentSnapshot): boolean {
   return agent.agentWakeAvailability?.status === "available_for_wake";
 }
-
 function isPublicCheckingAgent(agent: SpaceMemberAgentSnapshot): boolean {
   return agent.agentWakeAvailability?.status === "checking_connection";
 }
-
 function isPublicOfflineAgent(agent: SpaceMemberAgentSnapshot): boolean {
   return agent.agentWakeAvailability?.status === "offline_for_wake";
 }
-
 function isPublicUnavailableAgent(agent: SpaceMemberAgentSnapshot): boolean {
   return agent.agentWakeAvailability?.status === "unavailable_for_wake";
 }
-
 function isSameOwnerUserId(input: {
   leftOwnerUserId: string | null | undefined;
   rightOwnerUserId: string | null | undefined;
@@ -2059,7 +2101,6 @@ function isSameOwnerUserId(input: {
   const right = normalizeOptionalText(input.rightOwnerUserId);
   return Boolean(left && right && left === right);
 }
-
 function resolveRedactedAgentOriginFields(input: {
   candidateAgentControllerConversationId: string | null;
   candidateWorkingDirectory: string | null;
@@ -2109,7 +2150,6 @@ function resolveRedactedAgentOriginFields(input: {
     workingDirectory,
   };
 }
-
 function resolveLastSeenAt(input: {
   record: SpaceMemberRecord;
   cursorSnapshot: CursorMemberSnapshot | null;
@@ -2120,16 +2160,13 @@ function resolveLastSeenAt(input: {
     input.cursorSnapshot?.lastSeenAt ?? null,
     input.record.lastEnteredAt,
   ].filter((value): value is string => Boolean(value));
-
   if (candidates.length === 0) {
     return null;
   }
-
   const [firstCandidate, ...otherCandidates] = candidates;
   if (!firstCandidate) {
     return null;
   }
-
   let latest = firstCandidate;
   for (const candidate of otherCandidates) {
     if (Date.parse(candidate) > Date.parse(latest)) {
@@ -2138,7 +2175,6 @@ function resolveLastSeenAt(input: {
   }
   return latest;
 }
-
 function formatLastSeenLabel(input: {
   generatedAt: string;
   lastSeenAt: string;
@@ -2158,7 +2194,6 @@ function formatLastSeenLabel(input: {
   }
   return `Seen ${Math.max(1, Math.floor(deltaMs / SHORT_LAST_SEEN_DAY_MS))}d ago`;
 }
-
 function sortMemberSnapshots<
   T extends SpaceMemberHumanSnapshot | SpaceMemberAgentSnapshot,
 >(items: T[]): T[] {
@@ -2168,19 +2203,16 @@ function sortMemberSnapshots<
     if (leftCreator !== rightCreator) {
       return leftCreator - rightCreator;
     }
-
     const leftLive = left.liveNow ? 0 : 1;
     const rightLive = right.liveNow ? 0 : 1;
     if (leftLive !== rightLive) {
       return leftLive - rightLive;
     }
-
     const leftSeen = left.lastSeenAt ? Date.parse(left.lastSeenAt) : 0;
     const rightSeen = right.lastSeenAt ? Date.parse(right.lastSeenAt) : 0;
     if (leftSeen !== rightSeen) {
       return rightSeen - leftSeen;
     }
-
     const byName = left.profileName.localeCompare(right.profileName);
     if (byName !== 0) {
       return byName;
@@ -2188,7 +2220,6 @@ function sortMemberSnapshots<
     return left.profileId.localeCompare(right.profileId);
   });
 }
-
 function sortSpaceIdentityDirectoryEntries(
   left: SpaceIdentityDirectoryEntry,
   right: SpaceIdentityDirectoryEntry
@@ -2198,24 +2229,24 @@ function sortSpaceIdentityDirectoryEntries(
   if (leftHuman !== rightHuman) {
     return leftHuman - rightHuman;
   }
-
   const byName = left.profileName.localeCompare(right.profileName);
   if (byName !== 0) {
     return byName;
   }
   return left.profileId.localeCompare(right.profileId);
 }
-
 type SpaceMembersBackfillWatermark = {
   lastTs: number;
   lastSignalId: string;
 };
-
 function readSpaceMembersBackfillWatermark(
   sql: SqlStorage
 ): SpaceMembersBackfillWatermark | null {
   const rows = sql
-    .exec<{ last_ts: number; last_signal_id: string }>(
+    .exec<{
+      last_ts: number;
+      last_signal_id: string;
+    }>(
       "SELECT last_ts, last_signal_id FROM space_members_backfill_watermark WHERE id = 1"
     )
     .toArray();
@@ -2225,7 +2256,6 @@ function readSpaceMembersBackfillWatermark(
   }
   return { lastTs: row.last_ts, lastSignalId: row.last_signal_id };
 }
-
 function writeSpaceMembersBackfillWatermark(
   sql: SqlStorage,
   watermark: SpaceMembersBackfillWatermark
@@ -2242,7 +2272,6 @@ function writeSpaceMembersBackfillWatermark(
     watermark.lastSignalId
   );
 }
-
 // Incremental read for the member backfill: signals at or before the
 // watermark were fully processed by an earlier backfill run (the discovery
 // merge is order-preserving and idempotent), so only newer rows are loaded.
@@ -2252,12 +2281,14 @@ function listStoredSignalsAfter(
 ): SignalEnvelope[] {
   const rows = watermark
     ? sql
-        .exec<{ payload_json: string }>(
+        .exec<{
+          payload_json: string;
+        }>(
           `
             SELECT payload_json
             FROM space_signals
             WHERE ts > ? OR (ts = ? AND id > ?)
-            ORDER BY ts ASC, id ASC
+            ORDER BY ts ASC NULLS FIRST, id ASC NULLS FIRST
           `,
           watermark.lastTs,
           watermark.lastTs,
@@ -2265,20 +2296,18 @@ function listStoredSignalsAfter(
         )
         .toArray()
     : sql
-        .exec<{ payload_json: string }>(
-          `
+        .exec<{
+          payload_json: string;
+        }>(`
             SELECT payload_json
             FROM space_signals
-            ORDER BY ts ASC, id ASC
-          `
-        )
+            ORDER BY ts ASC NULLS FIRST, id ASC NULLS FIRST
+          `)
         .toArray();
-
   return rows
     .map((row) => parseStoredSignal(row.payload_json))
     .filter((signal): signal is SignalEnvelope => Boolean(signal));
 }
-
 // SQL aggregation twin of listLatestSignalActivity: identical profile-id
 // selection (presence excluded, system notices attribute to the actor,
 // everything else to the authoring profile) pushed into SQLite so the
@@ -2287,8 +2316,10 @@ function listLatestSignalActivityFromSql(
   sql: SqlStorage
 ): Map<string, LatestSignalActivity> {
   const rows = sql
-    .exec<{ pid: string | null; max_ts: number }>(
-      `
+    .exec<{
+      pid: string | null;
+      max_ts: number;
+    }>(`
         SELECT
           CASE
             WHEN json_extract(payload_json, '$.type') IN ('presence.join', 'presence.quit') THEN NULL
@@ -2298,10 +2329,8 @@ function listLatestSignalActivityFromSql(
           MAX(ts) AS max_ts
         FROM space_signals
         GROUP BY pid
-      `
-    )
+      `)
     .toArray();
-
   const latestByProfileId = new Map<string, LatestSignalActivity>();
   for (const row of rows) {
     const profileId = normalizeOptionalText(row.pid);
@@ -2318,7 +2347,6 @@ function listLatestSignalActivityFromSql(
   }
   return latestByProfileId;
 }
-
 // SQL twin of listLatestAgentOriginFactsByProfileId: the WHERE clause
 // mirrors the JS normalization exactly (conversation id trims non-empty;
 // working directory is a 1..4096-char NUL-free string), so the newest
@@ -2329,14 +2357,15 @@ function listLatestAgentOriginFactsFromSql(
   sql: SqlStorage
 ): Map<string, LatestAgentOriginFacts> {
   const rows = sql
-    .exec<{ payload_json: string }>(
-      `
+    .exec<{
+      payload_json: string;
+    }>(`
         SELECT payload_json FROM (
           SELECT
             payload_json,
             ROW_NUMBER() OVER (
               PARTITION BY json_extract(payload_json, '$.profile.profileId')
-              ORDER BY ts DESC, id DESC
+              ORDER BY ts DESC NULLS LAST, id DESC NULLS LAST
             ) AS rn
           FROM space_signals
           WHERE json_extract(payload_json, '$.profile.kind') = 'agent'
@@ -2350,21 +2379,17 @@ function listLatestAgentOriginFactsFromSql(
             )
         )
         WHERE rn = 1
-      `
-    )
+      `)
     .toArray();
-
   const candidates = rows
     .map((row) => parseStoredSignal(row.payload_json))
     .filter((signal): signal is SignalEnvelope => Boolean(signal));
   return listLatestAgentOriginFactsByProfileId(candidates);
 }
-
 function listLatestAgentOriginFactsByProfileId(
   signals: SignalEnvelope[]
 ): Map<string, LatestAgentOriginFacts> {
   const latestByProfileId = new Map<string, LatestAgentOriginFacts>();
-
   for (const signal of signals) {
     if (signal.profile.kind !== "agent") {
       continue;
@@ -2389,10 +2414,8 @@ function listLatestAgentOriginFactsByProfileId(
       });
     }
   }
-
   return latestByProfileId;
 }
-
 function listCursorMemberSnapshots(
   sql: SqlStorage
 ): Map<string, CursorMemberSnapshot> {
@@ -2402,14 +2425,11 @@ function listCursorMemberSnapshots(
       mention_alias: string | null;
       last_seen_ts: number | null;
       created_at: number;
-    }>(
-      `
+    }>(`
         SELECT profile_id, mention_alias, last_seen_ts, created_at
         FROM space_cursors
-      `
-    )
+      `)
     .toArray();
-
   return new Map(
     rows.map((row) => {
       const profileId = row.profile_id.trim();
@@ -2433,7 +2453,6 @@ function listCursorMemberSnapshots(
     })
   );
 }
-
 function buildLiveProfileById(
   liveSessions: Iterable<LiveSessionLike>
 ): Map<string, Profile> {
@@ -2454,7 +2473,6 @@ function buildLiveProfileById(
   }
   return map;
 }
-
 // Join-notice hints must stay full-history even though discovery is now
 // incremental: a member's join notice can be arbitrarily older than the
 // signal that first discovers them. The purpose filter keeps this read to a
@@ -2463,13 +2481,15 @@ function buildLiveProfileById(
 // back to the joined_directly source label, which is display metadata only.
 function listJoinNoticeSignalsFromSql(sql: SqlStorage): SignalEnvelope[] {
   const rows = sql
-    .exec<{ payload_json: string }>(
+    .exec<{
+      payload_json: string;
+    }>(
       `
         SELECT payload_json
         FROM space_signals
         WHERE json_extract(payload_json, '$.type') = 'signal.text'
           AND json_extract(payload_json, '$.data.meta.purpose') = ?
-        ORDER BY ts ASC, id ASC
+        ORDER BY ts ASC NULLS FIRST, id ASC NULLS FIRST
       `,
       SPACE_MEMBER_JOIN_NOTICE_PURPOSE
     )
@@ -2478,13 +2498,11 @@ function listJoinNoticeSignalsFromSql(sql: SqlStorage): SignalEnvelope[] {
     .map((row) => parseStoredSignal(row.payload_json))
     .filter((signal): signal is SignalEnvelope => Boolean(signal));
 }
-
 function buildSpaceMemberSourceHints(
   signals: SignalEnvelope[]
 ): SpaceMemberSourceHints {
   const sourceHintsByProfileId = new Map<string, SpaceMemberSourceHint>();
   const legacyHintsByProfileName = new Map<string, SpaceMemberSourceHint[]>();
-
   for (const signal of signals) {
     if (signal.type !== "signal.text") {
       continue;
@@ -2519,7 +2537,6 @@ function buildSpaceMemberSourceHints(
       profileKind: normalizeProfileKindHint(signalMeta?.targetProfileKind),
     });
   }
-
   return {
     byProfileId: sourceHintsByProfileId,
     byUniqueProfileName: buildUniqueProfileNameHintMap(
@@ -2527,7 +2544,6 @@ function buildSpaceMemberSourceHints(
     ),
   };
 }
-
 function resolveSignalTextMeta(
   signal: SignalEnvelope
 ): Record<string, unknown> | null {
@@ -2535,14 +2551,17 @@ function resolveSignalTextMeta(
     signal.data &&
     typeof signal.data === "object" &&
     !Array.isArray(signal.data)
-      ? (signal.data as { meta?: unknown }).meta
+      ? (
+          signal.data as {
+            meta?: unknown;
+          }
+        ).meta
       : null;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
     return null;
   }
   return meta as Record<string, unknown>;
 }
-
 function normalizeProfileSnapshot(input: {
   profile: Profile;
   ownerUserId?: string;
@@ -2559,7 +2578,6 @@ function normalizeProfileSnapshot(input: {
     profileId,
     input.profile.profileName
   );
-
   return {
     profileId,
     profileName,
@@ -2576,7 +2594,6 @@ function normalizeProfileSnapshot(input: {
         : null,
   };
 }
-
 function normalizeSpaceCreator(creator?: SpaceCreator): {
   profileId: string;
   profileName: string;
@@ -2604,13 +2621,11 @@ function normalizeSpaceCreator(creator?: SpaceCreator): {
       normalizeOptionalText(creator.profileName),
   };
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized =
     typeof value === "string" ? value.trim() : String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function resolveSpaceMemberSourceHint(input: {
   sourceHints: SpaceMemberSourceHints;
   profileId: string;
@@ -2624,7 +2639,6 @@ function resolveSpaceMemberSourceHint(input: {
     null
   );
 }
-
 function collectLegacySpaceMemberSourceHint(input: {
   signal: SignalEnvelope;
   legacyHintsByProfileName: Map<string, SpaceMemberSourceHint[]>;
@@ -2633,7 +2647,6 @@ function collectLegacySpaceMemberSourceHint(input: {
   if (!parsed) {
     return;
   }
-
   const existing = input.legacyHintsByProfileName.get(parsed.profileName) ?? [];
   existing.push({
     addedAt: new Date(input.signal.ts).toISOString(),
@@ -2646,12 +2659,10 @@ function collectLegacySpaceMemberSourceHint(input: {
   });
   input.legacyHintsByProfileName.set(parsed.profileName, existing);
 }
-
 function buildUniqueProfileNameHintMap(
   legacyHintsByProfileName: Map<string, SpaceMemberSourceHint[]>
 ): Map<string, SpaceMemberSourceHint> {
   const uniqueHints = new Map<string, SpaceMemberSourceHint>();
-
   for (const [profileName, hints] of legacyHintsByProfileName) {
     if (hints.length !== 1) {
       continue;
@@ -2662,10 +2673,8 @@ function buildUniqueProfileNameHintMap(
     }
     uniqueHints.set(profileName, hint);
   }
-
   return uniqueHints;
 }
-
 function parseLegacySpaceMemberJoinNotice(signal: SignalEnvelope): {
   profileName: string;
   profileKind: "human" | "agent";
@@ -2673,12 +2682,10 @@ function parseLegacySpaceMemberJoinNotice(signal: SignalEnvelope): {
   if (signal.type !== "signal.text") {
     return null;
   }
-
   const text = normalizeOptionalText(signal.data?.text);
   if (!text) {
     return null;
   }
-
   const joinedMatch = LEGACY_ADD_MEMBERS_NOTICE_REGEX.exec(text);
   if (joinedMatch) {
     const profileName = normalizeSpaceMemberProfileName(joinedMatch[1] ?? null);
@@ -2686,18 +2693,15 @@ function parseLegacySpaceMemberJoinNotice(signal: SignalEnvelope): {
     if (!(profileName && profileKind)) {
       return null;
     }
-
     return {
       profileName,
       profileKind,
     };
   }
-
   const addedMatch = LEGACY_ADDED_TO_SPACE_NOTICE_REGEX.exec(text);
   if (!addedMatch) {
     return null;
   }
-
   const targetLabel = normalizeOptionalText(addedMatch[1]);
   if (!targetLabel) {
     return null;
@@ -2706,13 +2710,11 @@ function parseLegacySpaceMemberJoinNotice(signal: SignalEnvelope): {
   if (!parsedTarget.profileName) {
     return null;
   }
-
   return {
     profileName: parsedTarget.profileName,
     profileKind: parsedTarget.profileKind,
   };
 }
-
 function normalizeSpaceMemberProfileName(value: string | null): string | null {
   const normalized = normalizeOptionalText(value);
   if (!normalized) {
@@ -2720,14 +2722,12 @@ function normalizeSpaceMemberProfileName(value: string | null): string | null {
   }
   return normalized.replace(SPACE_MEMBER_LEADING_EMOJI_REGEX, "");
 }
-
 function normalizeProfileKindHint(value: unknown): "human" | "agent" | null {
   if (value === "human" || value === "agent") {
     return value;
   }
   return null;
 }
-
 function parseLegacyAddedToSpaceTargetLabel(value: string): {
   profileName: string | null;
   profileKind: "human" | "agent";
@@ -2756,7 +2756,6 @@ function parseLegacyAddedToSpaceTargetLabel(value: string): {
     profileKind: "human",
   };
 }
-
 function measureSpaceMembersSnapshotTiming<T>(
   timing: SpaceMembersSnapshotTiming | undefined,
   metricSuffix: string,
@@ -2774,7 +2773,6 @@ function measureSpaceMembersSnapshotTiming<T>(
     read
   );
 }
-
 async function measureSpaceMembersSnapshotTimingAsync<T>(
   timing: SpaceMembersSnapshotTiming | undefined,
   metricSuffix: string,
@@ -2792,7 +2790,6 @@ async function measureSpaceMembersSnapshotTimingAsync<T>(
     read
   );
 }
-
 function logSpaceMembersSnapshotTiming(input: {
   activeMemberCount: number;
   agentCount: number;
@@ -2805,7 +2802,6 @@ function logSpaceMembersSnapshotTiming(input: {
   if (durationMs < 500) {
     return;
   }
-
   console.info("[core.space.members_snapshot_built]", {
     activeMemberCount: input.activeMemberCount,
     agentCount: input.agentCount,

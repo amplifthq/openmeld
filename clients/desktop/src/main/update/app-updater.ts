@@ -1,19 +1,55 @@
 import {
-  DESKTOP_UPDATE_FEED_URL,
+  type DesktopReleasePlatform,
   type DesktopUpdaterAction,
+  type DesktopUpdaterFailureDiagnostic,
   type DesktopUpdaterState,
-  desktopUpdaterFeedSchema,
+  desktopPlatformUpdateFeedUrl,
+  desktopUpdaterFeedSchemaForPlatform,
 } from "@openmeld/schemas";
-import type { MacUpdater, UpdateInfo } from "electron-updater";
+import type { MacUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
+import { assertMacUpdateBundlePath } from "./mac-bundle-path";
+import { describeUpdateFailure } from "./update-failure-diagnostic";
 
-export function assertDesktopUpdateFiles(info: UpdateInfo) {
-  desktopUpdaterFeedSchema.parse(info);
+export function assertDesktopUpdateFiles(
+  info: UpdateInfo,
+  platform: DesktopReleasePlatform = "macos-arm64"
+) {
+  desktopUpdaterFeedSchemaForPlatform(platform).parse(info);
+}
+
+function recordMacInstallEvidence(input: {
+  platform: DesktopReleasePlatform;
+  currentAppBundle?: string | null;
+  targetVersion: string | null;
+  recordMacInstallRequested?: (targetVersion: string) => void;
+}): void {
+  if (input.platform !== "macos-arm64") {
+    return;
+  }
+  assertMacUpdateBundlePath(input.currentAppBundle ?? null);
+  if (!(input.targetVersion && input.recordMacInstallRequested)) {
+    return;
+  }
+  try {
+    input.recordMacInstallRequested(input.targetVersion);
+  } catch (error) {
+    // The receipt is bounded diagnostic evidence, not installation authority.
+    // Never turn an observability write into a new updater outage after the
+    // signed bundle path itself was verified.
+    console.warn("[openmeld.desktop.update_install_receipt_write_failed]", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
 }
 
 /** Application policy around electron-updater; no Service or account dependency. */
 export function createAppUpdater(input: {
-  updater: MacUpdater;
+  updater: MacUpdater | NsisUpdater;
+  platform?: DesktopReleasePlatform;
   currentVersion: string;
+  currentAppBundle?: string | null;
+  recordMacInstallRequested?: (targetVersion: string) => void;
+  recordFailure?: (record: DesktopUpdaterFailureDiagnostic) => void;
   publish: (state: DesktopUpdaterState) => void;
   prepareRestart: () => Promise<boolean>;
   setInstalling: (value: boolean) => void;
@@ -24,7 +60,11 @@ export function createAppUpdater(input: {
   updater.autoInstallOnAppQuit = false;
   updater.allowDowngrade = false;
   updater.disableDifferentialDownload = true;
-  updater.setFeedURL({ provider: "generic", url: DESKTOP_UPDATE_FEED_URL });
+  const platform = input.platform ?? "macos-arm64";
+  updater.setFeedURL({
+    provider: "generic",
+    url: desktopPlatformUpdateFeedUrl(platform),
+  });
   let state: DesktopUpdaterState = {
     status: "idle",
     currentVersion: input.currentVersion,
@@ -34,6 +74,7 @@ export function createAppUpdater(input: {
   };
   let operation: Promise<void> | null = null;
   let verifiedDownload = false;
+  let downloadedVersion: string | null = null;
   const publish = (patch: Partial<DesktopUpdaterState>) => {
     state = { ...state, ...patch };
     input.publish(state);
@@ -42,7 +83,18 @@ export function createAppUpdater(input: {
     stage: NonNullable<DesktopUpdaterState["errorStage"]>,
     error: unknown
   ) => {
-    console.error("[openmeld.desktop.update_failed]", { stage, error });
+    const diagnostic = describeUpdateFailure({
+      error,
+      stage,
+      currentVersion: input.currentVersion,
+      targetVersion: state.version,
+    });
+    console.error("[openmeld.desktop.update_failed]", diagnostic);
+    try {
+      input.recordFailure?.(diagnostic);
+    } catch {
+      console.warn("[openmeld.desktop.update_diagnostic_write_failed]");
+    }
     // MacUpdater has no public cancellation for its pending native install.
     // Once accepted, keep the saved renderer frozen and normal quit enabled.
     publish({ status: "error", errorStage: stage, percent: null });
@@ -65,11 +117,13 @@ export function createAppUpdater(input: {
       publish({ percent: Math.min(100, Math.max(0, percent)) });
     }
   });
-  updater.on("update-downloaded", () => {
+  updater.on("update-downloaded", (event) => {
     if (state.status === "installing" || state.errorStage === "install") {
       return;
     }
     verifiedDownload = true;
+    downloadedVersion =
+      event && typeof event.version === "string" ? event.version : null;
     publish({ status: "downloaded", percent: 100, errorStage: null });
   });
   const check = async () => {
@@ -84,7 +138,7 @@ export function createAppUpdater(input: {
     }
     // A newer version is exposed only after its complete feed is trusted.
     if (result.isUpdateAvailable) {
-      assertDesktopUpdateFiles(result.updateInfo);
+      assertDesktopUpdateFiles(result.updateInfo, platform);
     }
     publish({
       status: result.isUpdateAvailable ? "available" : "current",
@@ -113,6 +167,12 @@ export function createAppUpdater(input: {
     if (!(await input.prepareRestart())) {
       throw new Error("Desktop restart blocked by unsaved work.");
     }
+    recordMacInstallEvidence({
+      platform,
+      currentAppBundle: input.currentAppBundle,
+      targetVersion: state.version ?? downloadedVersion,
+      recordMacInstallRequested: input.recordMacInstallRequested,
+    });
     publish({ status: "installing" });
     input.setInstalling(true);
     updater.quitAndInstall();

@@ -1,4 +1,5 @@
 export const SPACE_MESSAGE_SURFACE_WIDTH_CLASS = "w-full max-w-full";
+export const SPACE_MESSAGE_BUBBLE_WIDTH_CLASS = "w-fit max-w-full";
 // Every speaker uses the same inset in multiplayer conversations.
 export const SPACE_MESSAGE_CONTENT_PADDING_CLASS = "px-3 py-2 sm:px-4";
 // Padding shared by every message row/run container. Layout-only: it carries
@@ -16,9 +17,9 @@ export function resolveSpaceMessageRowLayoutClassName(input: {
 		return "px-3 pt-1.5 pb-0";
 	}
 	if (input.isLastInGroup) {
-		return "px-3 pt-1 pb-1.5";
+		return "px-3 pt-px pb-1.5";
 	}
-	return "px-3 pt-1 pb-0";
+	return "px-3 pt-px pb-0";
 }
 // Hover/focus-within background for one message row. Apply this to the
 // per-message row element, not to a container that spans multiple grouped

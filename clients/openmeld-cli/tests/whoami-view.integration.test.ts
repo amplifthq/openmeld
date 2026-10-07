@@ -1007,7 +1007,7 @@ describe("whoami view mode", () => {
       expect(stdout).toContain("Agent: Codex");
       expect(stdout).toContain("Agent On: On");
       expect(stdout).toContain("Connection Type: Local CLI");
-      expect(stdout).toContain("Can Reply in Space: Can reply");
+      expect(stdout).toContain("Local Reply Setup: Local setup ready");
       expect(stdout).not.toContain("Auto-Reply:");
     });
   });
@@ -1079,7 +1079,7 @@ describe("whoami view mode", () => {
       expect(stderr).toBe("");
       expect(stdout).toContain("Connection Type: Local CLI");
       expect(stdout).toContain(
-        "Can Reply in Space: Blocked (OpenMeld is still setting up this device (run `openmeld doctor --repair`))"
+        "Local Reply Setup: Blocked (OpenMeld is still setting up this device (run `openmeld doctor --repair`))"
       );
     });
   });

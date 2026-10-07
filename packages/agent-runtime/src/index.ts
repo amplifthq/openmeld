@@ -51,6 +51,7 @@ export {
   type RuntimeAgentTargetKind,
   resolveAgentControllerRefFromAgentTarget,
   runtimeAgentControllerRefMatchesAdapterSnapshot,
+  supportsLocalExecutionInput,
 } from "./agent-controller-ref";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
@@ -59,6 +60,14 @@ export {
   resolveAgentControllerUsageLimitSupport,
   resolveAgentControllerUsageProviderId,
 } from "./agent-controller-usage-limit-support";
+export {
+  isAgentControllerUsageAccountUnavailable,
+  isAgentControllerUsageRefreshUnavailable,
+} from "./agent-controller-usage-refresh";
+export {
+  compareAgentControllerVersions,
+  supportsAgentControllerVersion,
+} from "./agent-controller-version";
 export {
   DUPLICATE_REPLY_CONVERSATION_CONTEXT,
   DUPLICATE_REPLY_CONVERSATION_REASON,
@@ -259,6 +268,17 @@ export {
   projectLocalAgentCatalogFromCapabilities,
 } from "./local-agent-catalog";
 export { buildLocalAgentConnectionCandidateId } from "./local-agent-connection-candidate";
+export {
+  getAgentControllerModelCatalogId,
+  getPersonalRemoteAgentDefaultModelId,
+} from "./model-catalog";
+export {
+  formatModelRetirementNotice,
+  type ModelAvailabilityDecision,
+  type ModelRetirementContext,
+  matchesModelRetirementScope,
+  resolveModelAvailability,
+} from "./model-retirement";
 export { resolveConversationPolicyFromModelSelection } from "./model-selection";
 export {
   peopleComputerCliCommand,
@@ -329,6 +349,10 @@ export {
   type RuntimeRegistryContractRegistrationResult,
   type RuntimeRegistryContractRegistrationStatus,
 } from "./runtime-registry-contract";
+export {
+  renderTaskKnowledgeIndex,
+  TASK_KNOWLEDGE_GUIDANCE,
+} from "./task-knowledge";
 export {
   isTaskResultStatusSuccessLike,
   resolveTaskResultDeliverySemantic,

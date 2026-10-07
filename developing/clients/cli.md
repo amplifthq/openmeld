@@ -53,6 +53,14 @@ state, process health, route state, setup completion, or local inventory.
 
 ## Client Responsibilities
 
+`openmeld space dm <target-profile-id>` opens a Direct Message as the acting
+Profile. With text, it opens first, emits `space.send.request` with the exact
+Space, sender, client message ID and Wake targets, then publishes to that DM.
+`--space <space-id> --message-id <uuid>` retries the pinned request without
+opening another conversation. `--wake` is explicit; a plain message does not
+start Agent work. Local dispatch tools open first and require `spaceId` when
+starting work, so callers can immediately use the existing `space wake-stop`.
+
 The CLI owns terminal-facing surfaces for:
 
 - service status, lifecycle guidance, and service diagnostics
@@ -110,11 +118,31 @@ automatic updates. This keeps localhost upgrade verification isolated from the
 production release channel.
 
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
-provides `list`, `show`, and `load` with Human View, Agent View, and strict JSON
+provides `list`, `show`, `load`, and `add` for GitHub or a local Skill directory with Human View, Agent View, and strict JSON
 contracts. `load` resolves one enabled exact release from the authenticated
 route Organization, verifies the digest, and writes only to the private
 Organization-scoped OpenMeld cache. It never copies a Skill into a global
 Codex, Claude, Cursor, or `.agents/skills` directory.
+`add <github-url> --preview` shows one importable Skill and the resolved commit;
+without `--preview`, the CLI pins that commit before installing it in the active
+Team. `add <local-directory> [--preview]` previews one complete portable Skill
+package through Core and installs it in one authorized operation unless
+preview-only is requested. Local Agents
+use the same authenticated member authority as the CLI user.
+The current import endpoint still has its bundle limits and does not install a
+whole multi-Skill repository in one call.
+
+`openmeld files` is the terminal entry for Team files and the signed-in
+member's private files in the active Organization. `--location team|my` is
+required so a person or Local Agent chooses the audience explicitly. The
+initial commands list files, read an exact text revision, download a binary
+revision, inspect history, upload local content, copy one exact Team/My revision
+to a stated Team or My destination, copy an exact Team/My revision into a named
+Space with `copy-to-space`, and write a new revision
+against the version previously read. `--view agent` and `--json` expose the same server-authorized results
+without a second local file authority. Existing `openmeld space files`
+commands remain the Space location entry; adding a location to the CLI never
+changes Space membership or file access rules.
 
 The former `openmeld skills ensure|install|uninstall|check|update` commands
 manage OpenMeld-owned setup assets, not Organization Skills. They remain
@@ -122,6 +150,14 @@ deprecated compatibility aliases for one published CLI window, print their
 Setup/Doctor replacement, and preserve existing behavior during that window.
 The old ambiguous local-helper `skills list` spelling is not retained because
 `openmeld skills list` now lists Organization Skills.
+`openmeld skills scan <github-repository-url>` lists one pinned repository's
+Skill directories and their declared blockers without installing anything.
+`--json` and Agent View return the same server-authorized inventory, so a
+Local Agent can select an exact Skill URL before `openmeld skills add`.
+`openmeld skills add <github-repository-url> --all` installs every eligible
+candidate at the scanned commit, reporting each installed, skipped, or failed
+item. The result includes a pinned `retrySource` and an operation ID. A Local
+Agent must pass both to retry without duplicating completed Skills.
 
 CLI must not infer Wake blocking from local component drift by itself. Core owns
 the user-visible local component update projection for Wake eligibility:
@@ -148,6 +184,19 @@ isolation, and CI/release workflow belong in
 `developing/engineering/development-workflow.md`.
 
 ## Command Model
+
+`openmeld computer cloud` resolves the authenticated account's personal cloud
+Computer. `--operation <json>` uses the shared Computer operation schema.
+Start with `{"action":"describe"}` for official file-tool schemas and execution
+capabilities. `files` takes a tool name and input object. `command` supports
+container, worker-shell and worker-javascript plus environment, launch-time stdin
+and structured JavaScript input/results. `browser` and `preview` use the existing
+private browser capability when configured. Existing file actions stay supported.
+Local Agents can use the same persistent files as that account's hosted Agents
+without mounting or exposing their workstation. Keep command invocation IDs and
+keys stable across retries; poll or list after uncertain outcomes. Computer
+identity, command observations and publication remain server-owned. This command
+does not manage OpenMeld Service or change the active local Computer connection.
 
 `openmeld org invitation-requests` uses the signed-in account and the same Auth
 contract as Web. `create --email ... [--space ...]` proposes an invitation;
@@ -287,6 +336,16 @@ Center Agent Chat. Agent View returns the structured pending interaction and
 stable Space, Signal, client-message, and target-profile identifiers. Neither
 view fabricates a final answer or starts a second turn.
 
+`openmeld space respond <space>` reads the same owner-private pending questions
+as Web and Desktop. Human View offers the available single-choice answers in
+the terminal. Agent View or non-interactive invocation returns the pending
+requests in the existing `GetActiveSpaceWakeProgressResponse` shape without
+selecting an answer. Explicit automation supplies `--execution`,
+`--interaction`, and `--response` JSON from that request. Core remains the sole
+response authority and rejects stale, unauthorized, or conflicting answers.
+An accepted response is reported as sent; it is never described as a completed
+task. `space wake-progress` and the Space retain the final outcome path.
+
 `OpenMeld Service` means the local background service only. Local service lifecycle
 and service diagnosis belong under:
 
@@ -421,6 +480,8 @@ openmeld profiles create "Release Reviewer" --kind agent --owner <user-id> --com
 openmeld profiles create "API Debugger" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session resume --native-session <provider-native-id>
 openmeld profiles create "Release Investigator" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session fork --native-session <provider-native-id>
 openmeld profiles create "Migration Agent" --kind agent --computer <computer-id> --agent-controller builtin:codex --project <project-id> --model gpt-5.6-sol --reasoning-effort high --agent-controller-collaboration-mode plan --agent-controller-permission-mode custom-config
+openmeld profiles create "Remote Reviewer" --kind agent --agent-controller hosted:remote-agent --model openai/gpt-6-sol --reasoning-effort medium
+openmeld profile update <remote-agent-profile-id> --model openai/gpt-6-sol --reasoning-effort high
 openmeld profiles requests list
 openmeld profiles requests approve <request-id>
 openmeld profiles requests decline <request-id>
@@ -461,6 +522,12 @@ ready here. The CLI resolves the computer's existing Organization identity and
 passes it into the shared creation request; Core remains responsible for final
 Computer, Local Agent, Project, and Binding validation. Teammate-owned requests
 require an explicit `--computer`, and the CLI never guesses another computer.
+An explicit `--computer` accepts only the exact `computerId` returned by
+`openmeld org computers --view agent`. That value is the device ID used by this
+command. A Connected Computer record ID and an Agent Profile ID belong to
+different records and fail before the creation request is submitted. Other
+profile-scoped commands require a full current Profile ID; display names such
+as `Human` are not implicit aliases unless that command documents one.
 
 The executor completes new-Session identity creation, exact native Resume, and
 provider-native Fork after Agent Activity and the local Binding path verify the
@@ -554,7 +621,8 @@ contract should expose the exact follow-up command prefix in the final
 `setup.complete` output. Agents must use that prefix for later commands. For
 example, local development binary setup uses `~/.openmeld-dev/bin/openmeld`, and
 production binary setup on supported macOS uses `~/.openmeld/bin/openmeld`.
-Windows, explicit `?dist=npm`, or npm recovery setup may report
+Managed Windows setup uses the lane's `bin/openmeld.exe`; its launcher reads
+the installer-owned active version record. Explicit `?dist=npm` or npm recovery setup may report
 `npx -y openmeld@latest` as the explicit fallback. Do not ask agents to infer the
 lane from prose or switch to a different CLI entry after setup.
 
@@ -577,7 +645,7 @@ surfaces should consume this field instead of copying CLI Human View cards.
 CLI Human View leaves Service versions, running state, autostart controls, and
 stop commands to `openmeld service status`; detailed component and Service facts
 stay in Agent View. Setup work should show short progress lines when stdout is
-not a TTY, because Web setup pipes the CLI output through the bootstrap script
+not a TTY, because Web setup runs the CLI through the bootstrap script
 and hidden spinners make the flow look stuck. Every important completed
 setup/Prepare step leaves one stable Human View record in the form
 `[HH:mm:ss] ✓ Result · elapsed`, using the local time zone of the computer
@@ -628,6 +696,15 @@ npm install -g openmeld@latest && openmeld setup --view agent
 
 Use `npx -y openmeld@latest setup` only for npm bootstrap or fallback when the
 global `openmeld` command is not installed yet.
+
+Generated POSIX and Windows bootstrap commands use the shared start package's
+supported Node policy; the CLI package engine declaration is checked against
+that policy. Reject unsupported majors before acquisition instead of promising
+that any newer Node version works. Native npm exit codes own success/failure,
+including Windows PowerShell 5.1 stderr warnings. An unresolved catalog or
+workspace dependency is a package-acquisition error, not evidence that the user
+must reset OpenMeld, reinstall Node or change network settings. Preserve the
+original npm error and direct users to a corrected CLI release.
 
 Do not ask a human user to run an Agent View setup command from Web. Do not ask
 an agent to use Human View when the agent needs structured `setup.complete`
@@ -883,10 +960,10 @@ provider creates them. The CLI remains startable on its declared Node 20 floor;
 OpenCode SQLite reconciliation is optional capability detection, while the
 managed OpenCode plugin is the low-latency primary path.
 
-### Center Agent Routines
+### Routines
 
 `openmeld routines` is the terminal surface for the active organization's
-Center Agent Routines. It exposes exactly eight commands:
+personal and Team Routines. It exposes exactly eight commands:
 
 ```text
 list
@@ -901,10 +978,13 @@ runs
 
 `show` selects one Routine from the canonical strict list response; it does not
 require or imply a separate HTTP endpoint. `runs` reads the shared paginated Run
-projection. All active organization members may read Routines and Runs. Core's
-owner/admin/member creator-scope remains the mutation authority; CLI must not
-infer it from local state.
+projection. List/show request the v3 management contract, including scope,
+executor, and available executor choices. Core enforces creator-only personal
+reads and destination-scoped Team reads; CLI never infers authority locally.
 
+Create accepts `--scope personal|team` (default personal) and
+`--agent <profile-id>|center`. List exposes authorized executor choices; an Agent
+uses an exact returned ID. The selected Agent supplies model and reasoning settings.
 Create requires a name, instructions, and explicit target Space. It accepts
 either `--run-at <ISO-8601>` with an explicit timezone offset for one future
 Run, or one raw five-field schedule expression/`--daily HH:MM` plus an explicit
@@ -965,16 +1045,62 @@ contract is not translated into a successful practical response, and a new
 producer must not add unknown required response fields to the no-contract v1
 projection.
 Deployment order and the separate W2/W5 Remote Agent windows live in
-`developing/product/center-agent-routines.md` and
+`developing/product/routines.md` and
 `developing/engineering/development-workflow.md`.
 
 ### Space File Commands
+
+Selected-file work uses these explicit boundaries:
+
+```text
+openmeld space files working-copy prepare <space-id> --selection <json> --directory <new-directory>
+openmeld space files working-copy status <space-id> <copy-id>
+openmeld space files working-copy resume <space-id> <copy-id>
+openmeld space files working-copy commit <space-id> <copy-id>
+openmeld space files working-copy reconcile <space-id> <copy-id>
+openmeld space files working-copy refresh <space-id> <copy-id>
+openmeld space files working-copy resolve <space-id> <copy-id> --file-id <file-id> --revision <incoming-revision>
+openmeld space files working-copy incoming <space-id> <copy-id> --directory <new-directory>
+openmeld space files handoff <space-id> --manifest <json> --target <profile-id> --client-message-id <stable-id> [--thread <thread-id>]
+```
+
+Selection JSON follows `spaceWorkSelectionSchema`; the handoff follows
+`spaceWorkHandoffSchema`. Prepare requires a fresh directory. Resume preserves
+edits to completed downloads. Commit freezes changed bytes and persists their
+mutation identities before upload. Reconcile retries those exact bytes after
+an unknown outcome, keeping subsequent local edits dirty. Incoming downloads
+the current shared versions to a separate directory for manual comparison;
+it never resets the existing copy. No background watcher uploads changes.
+
+A definite `space_file.conflict` stops retrying the rejected snapshot. For that
+same copy, `refresh` downloads the conflicting shared version alongside the
+working file; `status` returns its path and revision. Merge into the original
+working file, then explicitly `resolve` that file against the downloaded
+revision before committing. Identical local and incoming bytes can adopt that
+revision without another upload. Resolve rejects an unchanged rejected snapshot
+that differs from incoming, or
+an unprepared revision. It neither merges automatically nor selects latest
+silently. The server still rejects a base that advanced again. The original
+rejected snapshot and incoming content remain available; unknown upload outcomes
+continue to reconcile the same mutation instead of entering this flow.
+
+Use commit's returned exact references in a later handoff or final reply.
+Handoff posts one complete message through existing Wake admission. It does not
+upload an arbitrary directory or claim that the successor started. Account or
+Organization changes fence network work. Working copies are lane-, account-,
+Organization-, Space-, and Profile-scoped local bookkeeping, not permission.
+
+An admitted selected-work Wake prepares the same working copy before running.
+Its `working_copy` model tool exposes status, commit, reconcile, refresh, and
+resolve only for that Wake's copy; final `reply` can select returned exact file
+references. Managed-copy commands require macOS; automatic workstation execution
+requires the Codex App Server permission profile and actual access probe.
 
 `openmeld space files` is the canonical terminal and workstation-Agent entry to
 the current Space filesystem. The MVP commands are:
 
 ```text
-openmeld space files list <space-id> [--folder <folder-id>] [--json]
+openmeld space files list <space-id> [--folder <folder-id>] [--all] [--json]
 openmeld space files read <space-id> <file-id> [--revision <n>]
 openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>]
 openmeld space files write <space-id> <file-id> --base-revision <n> (--file <local-path> | --stdin)
@@ -1031,6 +1157,14 @@ actions stay in Messages. Creating assigns the current Agent by default and
 leaves the Task in To do; starting, result submission, review, and cancellation
 are explicit revision-bound writes. Task cancellation may request the existing
 Wake Stop path, but the Task receipt never claims that a process stopped.
+`review_task` also requires `expectedResultRevision` from the exact submitted
+result the Agent read. A Task or result revision conflict requires reading the
+changed Task and making a new decision; clients never silently retry the old
+decision against a newer revision. Older CLI/Service Task review tools without
+this field must be upgraded and fail closed on the new server contract.
+The Space owns delivery of review and rework handoffs through normal Wake
+admission. A successful Task transition must not prompt the Agent to publish a
+second manual Wake for that transition.
 
 An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
 final outcome. A supported controller receives first-party `reply`, `status`,
@@ -1086,6 +1220,10 @@ per-dispatch CLI shim ahead of `PATH`, and binds that shim to the current
 dispatch ID, target Agent Profile, and Space Action context. When the first-party
 tool is unavailable, Agents should run the exact fallback `space action`
 command printed in the dispatch prompt and must not rewrite it to `npx`.
+The native Windows binary carrier uses its verified lane-owned `openmeld.exe`
+directly for the dispatch MCP and fallback command, with the same dispatch ID,
+target Agent Profile, and context in the inherited runtime environment. Windows
+does not attempt to execute the POSIX shim as a process.
 Outside a Wake dispatch, help must use the
 `<DISPATCH_ACTION_CLI>` placeholder instead of presenting a guessed runnable
 command. `targets` requires the current dispatch target snapshot.
@@ -1197,8 +1335,10 @@ session before changing local auth. A cross-account switch requires explicit
 interactive confirmation. That confirmation is bound to the stable identity of
 the exact committed session the user reviewed and is compared again inside the
 auth mutation lock; a changed session fails closed and requires fresh review.
-The Web bootstrap arrives through a shell pipe and may reopen the controlling
-terminal for the managed CLI. Any prompt reachable from that bootstrap must use
+The Web bootstrap is piped to `sh` and may reopen the controlling terminal
+for the managed CLI. Its entire install body must be one top-level shell
+compound that cannot execute before the closing `fi` arrives. Any prompt
+reachable from that bootstrap must use
 the CLI's binary-safe interactive prompt primitive, which reads the reopened
 terminal synchronously in the compiled binary. It must not bypass that owner
 with an asynchronous third-party prompt. If no controlling terminal is usable,
@@ -1228,7 +1368,16 @@ Ordinary Service Stop keeps CLI credentials; cloud Forget removes the saved
 Computer record. Neither is an alias for Disconnect. Entry checks must not
 sign in, update, repair, or start the Service before reviewed admission.
 
-The signed macOS binary stores new bearer sessions in the user's macOS
+Isolated macOS `dev-local` sign-ins use the existing private-file store when
+Auth and Gateway are loopback endpoints and an explicit Home is outside the
+default user-state directories (including symlink targets). The CLI warns that
+this is unencrypted test storage. Existing token references are never migrated;
+Service reads use the same reference after restart. Set
+`OPENMELD_DEV_CREDENTIAL_STORE=system` at login to retain normal OS storage
+selection; use a fresh Home and verify the provider for Keychain acceptance.
+See [local development sign-in](../engineering/development-workflow.md#local-macos-cliservice-sign-in).
+
+The signed macOS binary otherwise stores new bearer sessions in the user's macOS
 Keychain through Security.framework. The bare Developer ID CLI must not request
 a restricted Keychain access-group entitlement, because it has no embedded
 provisioning profile and macOS would reject the executable before it starts.
@@ -1258,8 +1407,8 @@ one-off helper failures may recover through the single bounded retry. If the
 session is still unavailable, the command fails closed, preserves
 `session_token_unavailable` in Agent View, and tells the caller to retry from a
 fresh CLI process or inspect `openmeld auth status --view agent`. It must not
-misreport that unavailable state as an invalid sign-in or require a new login
-without that evidence. A later
+promise the condition is temporary, misreport it as an invalid sign-in, or
+require a new login without that evidence. A later
 login through a packaged CLI stores its newly issued replacement in Keychain
 only when that Keychain write succeeds, then removes the previous private file.
 A failed old credential deletion is retained as pending cleanup outside the
@@ -1542,7 +1691,7 @@ the message unsent and preserve a structured error; the command must never
 downgrade to a file-free success. `space action reply --file <path>` provides
 the same output path to a Local Agent handling a Wake.
 
-`space wake-progress <space-id>` is the live, polling-oriented Wake read. With
+`space wake-progress <space-id-or-url>` is the live, polling-oriented Wake read. With
 no selector it returns the active Wake summary for the Space. With
 `--client-message <id>` it returns the progress associated with that authored
 message, optionally narrowed by `--target-profile <id>`. The active summary can
@@ -1562,15 +1711,23 @@ wait reason with `includeWaitReason=true`; older CLI versions omit that query
 and must continue receiving the previous strict response shape. This command
 does not replace `space result`,
 which reads archived results, or `service trace`, which diagnoses the execution
-chain.
+chain. Missing archived results are not failed Wakes. All output views explain
+that hosted replies can exist without a workstation archive and provide the
+exact dispatch trace command. Read its visible Signal ID through Space history.
+Wake progress, Stop, and result accept trusted Space URLs through the shared
+target resolver before authentication. Explicit Profile and Gateway options
+retain precedence.
 
-`space wake-stop <space-id>` requires one Space-visible selector and an exact
+`space wake-stop <space-id-or-url>` requires one Space-visible selector and an exact
 target profile: either `--source-signal <id> --target-profile <id>` or
 `--client-message <id> --target-profile <id>`. It must never expose
-`dispatchId` as a public Stop selector. Before POST, the CLI explicitly reads
-Wake Stop eligibility and fails closed when the selected active Wake or its
-eligibility is missing. The server remains the access and cancellation
-authority. Agent View exits zero only for the server-confirmed `cancelled` and
+`dispatchId` as a public Stop selector. POST the exact selector directly: a
+progress projection may not exist yet, so a preflight read must not block Stop.
+The server remains the access and cancellation authority. `space send` accepts
+`--client-message <id>` and emits a `space.send.request` receipt before file
+upload or network admission. Callers can retain or supply that ID and stop the
+same request while send is still pending. Agent View exits zero only for the
+server-confirmed `cancelled` and
 `already_cancelled` responses, exits two for `cancellation_requested`, and
 exits one for permission, eligibility, transport, or semantic failure. A
 pending request is not presented as a stopped Wake; Core and
@@ -1692,7 +1849,8 @@ computer. It does not prove that a specific Agent Profile can reply in a
 specific Space.
 
 Service status and setup diagnostics may include `localServiceDiagnostics`. This
-is local OpenMeld Service evidence only. It must not be labeled as final
+is local OpenMeld Service evidence only. Local readiness labels say "Local setup
+ready", not "Can reply". Access and current Usage admission remain Core-owned. It must not be labeled as final
 Wakeability, final Wake truth, or final Space delivery truth.
 
 Reply-recovery copy may use shared Agent Profile recovery semantics. The CLI
@@ -1713,7 +1871,7 @@ The selector must include `clientMessageId` and `targetProfileId` for
 Web-authored Wake diagnosis because one message can Wake multiple Agent
 Profiles.
 
-CLI trace reads the shared observability model. It must not become a direct D1
+CLI trace reads the shared observability model. It must not become a direct PostgreSQL
 reader, direct Durable Object reader, or second trace system.
 
 The current CLI explicitly requests dispatch-trace response contract version
@@ -1748,6 +1906,13 @@ still supplies only the normal Space and dispatch selectors. Core resolves the
 frozen runtime conversation generation; the CLI must not accept or reconstruct
 that generation identity.
 
+Detailed trace explains the retained runtime counters. `modelCallCount` is the
+legacy field for completed agent prompt operations, each of which can contain
+many tool-loop requests. `providerRequestCount` counts individual model-provider
+requests. Conversation compaction is separate retained-history evidence. None
+of these counters proves Space delivery. A pending final projection does not
+establish that a Computer is offline, for either runtime family.
+
 Center Agent self-diagnostics use the same exact runtime-conversation boundary
 for Message Channel turns. The projection distinguishes retained runtime
 evidence, a turn with no retained evidence, and an unavailable runtime read.
@@ -1775,6 +1940,14 @@ The shared trace schema must also verify that the native delivery's dispatch,
 Space destination, and target Agent Profile match the traced Wake. CLI consumes
 that shared projection; it must not require workstation-only identity fields or
 relax hosted identity drift checks locally.
+
+Exact-dispatch trace also reads native continuations that have no workstation
+Dispatch Ledger row. The negotiated v6 `nativeDeliveryTrace` projection reports
+the recorded native execution status, publication state, and verified final
+visible outcome separately. A completed turn without a visible Space message
+does not become `delivered` or `not_found`. `--details` preserves durable facts
+when frozen runtime evidence is unavailable. Source-signal and client-message
+lookup do not infer continuation identity without an owning durable mapping.
 
 `openmeld doctor` also reads the local Runtime Reporting Health record for both
 Runtime Agent Controller reporting and provider conversation proof reporting.
@@ -1832,7 +2005,7 @@ Use scoped owner documents for deeper rules:
 - `developing/product/product-model.md`: product promise and main loop.
 - `developing/product/agent-profiles.md`: Agent Profile identity and recovery
   semantics.
-- `developing/product/center-agent-routines.md`: Routine and Run semantics,
+- `developing/product/routines.md`: Routine and Run semantics,
   authority, scheduling, and result surfaces.
 - `developing/product/space-collaboration.md`: Space addressing, threads, and
   visible outcome semantics.
@@ -1876,6 +2049,18 @@ Use scoped owner documents for deeper rules:
 - `space files list --trash`, `space files history`, `space files restore`, and
   `space files restore-version` consume the same member-only Trash and immutable
   revision contract as Web; restoring a version creates a new latest revision.
+- `space files list` defaults to artifacts only, matching Web's default; pass
+  `--all` to also see files shared as chat uploads. `space files upload` always
+  records the new file as an artifact; `space send --file` and
+  `space action reply --file` always record theirs as chat uploads. A CLI
+  build that predates this classification omits `origin` on upload; Core
+  treats that omission as `artifact`, matching the pre-feature create
+  default, so an old CLI keeps working against new Core without an update.
+  Reading `origin` back is negotiated: a current CLI declares an explicit
+  capability header on every Space Files request and gets `origin` in the
+  response; a CLI build that predates this feature never declares it and
+  keeps getting the exact pre-origin response shape it already parses, so
+  it is never forced to update.
 - Status commands must remain read-only.
 - Mutating commands must be explicit and lane-scoped.
 - `openmeld routines` exposes exactly eight commands, uses an explicit target
@@ -1891,7 +2076,7 @@ Use scoped owner documents for deeper rules:
   `developing/engineering/development-workflow.md`.
 ## Plugins
 
-`openmeld plugins list`, `plugins actions <service>`, and
+`openmeld plugins list`, `plugins connect <service>`, `plugins actions <service>`, and
 `plugins call <service> <action-id>` use the current Organization's connected
 accounts through Core. Calls require a Local Agent owned by the signed-in
 account and an enabled workstation Binding; `--profile` selects that Agent.
@@ -1902,6 +2087,17 @@ uses the signed-in account's authority. The local account and its Service are
 the trust boundary; a dispatch ID is provenance, not a RuntimeCoordinator token
 or a sandbox protecting the account from arbitrary local programs.
 
+`plugins connect <service> --account personal|shared|choose` returns the shared
+secure setup URL and an exact final-reply suffix. `choose` is only for unspecified
+intent, not permission to substitute accounts during execution. In a Wake, put
+`replyText` unchanged in the final reply: Web/Desktop uses the same lazy setup
+surface as Hosted Agent messages. Only the original human can continue, and Core
+checks the actual RuntimeCoordinator published reply, current Local Binding,
+original source/revision, Thread and Local Agent Plugin permission. A connection
+callback never resumes work. Subsequent Local Plugin actions enforce the private
+Space account binding, including across successive Plugin setups. Standalone
+CLI invocation has no conversation to resume and returns setup guidance only.
+
 Action discovery and execution explicitly select `--account personal|shared`.
 There is no fallback between these identities. `--view agent` returns the shared
 structured response. `--operation` is required for execution and identifies an
@@ -1910,3 +2106,12 @@ first return a confirmation token; the Agent must review the exact action,
 input, and account with the requester before using `--confirm`. A replay reports
 the previous status rather than executing again. Failed or unknown outcomes
 exit unsuccessfully; discovery and confirmation are not successful execution.
+## Read authorized session history
+
+`openmeld activity history --device <id> --lane <lane> --project-id <id>
+--session <native-session-id> [--offset <n>] [--limit <n>] --json` reads bounded
+Codex messages from a connected Computer. Select IDs from current Computer and
+Activity inventory, not guessed paths. The Computer owner enables access for
+the connected Project and reader on the Computer page. A Wake uses its admitted
+Agent identity and execution proof; missing proof cannot fall back to a human
+caller. The command does not resume the source session or persist its messages.

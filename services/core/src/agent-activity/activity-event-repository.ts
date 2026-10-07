@@ -1,9 +1,11 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AgentActivityEvent } from "@openmeld/schemas/types";
 
-type StoredEventIdentity = { canonical_payload_hash: string };
-
+type StoredEventIdentity = {
+  canonical_payload_hash: string;
+};
 export async function acceptAgentActivityEventRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   deviceId: string;
   event: AgentActivityEvent;
   memberUserId: string;
@@ -48,11 +50,12 @@ export async function acceptAgentActivityEventRecord(input: {
     provider: input.event.provider,
     providerSessionId: input.event.providerSessionId,
   });
-  const [insertResult] = await input.db.batch([
-    input.db
-      .prepare(
-        `
-          INSERT INTO agent_activity_events (
+  const [insertResult] = await input.db.transaction(
+    async (client) =>
+      [
+        await client.query({
+          text: `
+          INSERT INTO "openmeld"."agent_activity_events" (
             id, event_id, canonical_payload_hash, organization_id, project_id,
             member_user_id, device_id, openmeld_service_runtime_id, provider,
             client_kind, provider_session_id, event_type, title, model, status,
@@ -60,49 +63,48 @@ export async function acceptAgentActivityEventRecord(input: {
             observed_at_ms, expires_at_ms, provider_metadata_json, accepted_at_ms,
             daily_session_key, daily_aggregated_at_ms
           )
-          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NULL
           WHERE EXISTS (
             SELECT 1
-            FROM projects
-            WHERE id = ?
-              AND organization_id = ?
+            FROM "openmeld"."projects"
+            WHERE id = $25
+              AND organization_id = $26
               AND archived_at_ms IS NULL
           )
           ON CONFLICT(organization_id, event_id) DO NOTHING
-        `
-      )
-      .bind(
-        storageEventId,
-        input.event.eventId,
-        canonical.hash,
-        input.event.organizationId,
-        input.event.projectId,
-        input.memberUserId,
-        input.deviceId,
-        input.openMeldServiceRuntimeId,
-        input.event.provider,
-        input.event.clientKind,
-        input.event.providerSessionId,
-        input.event.eventType,
-        input.event.title,
-        input.event.model,
-        input.event.status,
-        input.event.gitBranch,
-        input.event.gitCommit,
-        input.event.repositoryFingerprint,
-        input.event.startedAtMs,
-        input.event.observedAtMs,
-        input.event.expiresAtMs,
-        providerMetadataJson,
-        input.nowMs,
-        dailySessionKey,
-        input.event.projectId,
-        input.event.organizationId
-      ),
-    input.db
-      .prepare(
-        `
-          INSERT INTO agent_activity_sessions (
+        `,
+          values: [
+            storageEventId,
+            input.event.eventId,
+            canonical.hash,
+            input.event.organizationId,
+            input.event.projectId,
+            input.memberUserId,
+            input.deviceId,
+            input.openMeldServiceRuntimeId,
+            input.event.provider,
+            input.event.clientKind,
+            input.event.providerSessionId,
+            input.event.eventType,
+            input.event.title,
+            input.event.model,
+            input.event.status,
+            input.event.gitBranch,
+            input.event.gitCommit,
+            input.event.repositoryFingerprint,
+            input.event.startedAtMs,
+            input.event.observedAtMs,
+            input.event.expiresAtMs,
+            providerMetadataJson,
+            input.nowMs,
+            dailySessionKey,
+            input.event.projectId,
+            input.event.organizationId,
+          ],
+        }),
+        await client.query({
+          text: `
+          INSERT INTO "openmeld"."agent_activity_sessions" (
             id, organization_id, project_id, member_user_id, device_id,
             openmeld_service_runtime_id, provider, client_kind,
             provider_session_id, title, model, status, git_branch, git_commit,
@@ -110,16 +112,16 @@ export async function acceptAgentActivityEventRecord(input: {
             expires_at_ms, provider_metadata_json, last_event_id,
             last_accepted_sequence, created_at_ms, updated_at_ms
           )
-          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
             (
-              SELECT accepted_sequence FROM agent_activity_events
-              WHERE organization_id = ? AND event_id = ?
-                AND canonical_payload_hash = ?
-            ), ?, ?
+              SELECT accepted_sequence FROM "openmeld"."agent_activity_events"
+              WHERE organization_id = $21 AND event_id = $22
+                AND canonical_payload_hash = $23
+            ), $24, $25
           WHERE EXISTS (
-            SELECT 1 FROM agent_activity_events
-            WHERE organization_id = ? AND event_id = ?
-              AND canonical_payload_hash = ?
+            SELECT 1 FROM "openmeld"."agent_activity_events"
+            WHERE organization_id = $26 AND event_id = $27
+              AND canonical_payload_hash = $28
           )
           ON CONFLICT(
             organization_id, member_user_id, device_id, provider,
@@ -150,10 +152,9 @@ export async function acceptAgentActivityEventRecord(input: {
             ),
             last_observed_at_ms = excluded.last_observed_at_ms,
             expires_at_ms = excluded.expires_at_ms,
-            provider_metadata_json = json_patch(
-              agent_activity_sessions.provider_metadata_json,
-              excluded.provider_metadata_json
-            ),
+            -- Provider metadata is a schema-validated flat object of non-null
+            -- scalar fields. Merge only the newly supplied observations.
+            provider_metadata_json = (agent_activity_sessions.provider_metadata_json::jsonb || excluded.provider_metadata_json::jsonb)::text,
             last_event_id = excluded.last_event_id,
             last_accepted_sequence = excluded.last_accepted_sequence,
             updated_at_ms = excluded.updated_at_ms
@@ -165,45 +166,46 @@ export async function acceptAgentActivityEventRecord(input: {
               AND excluded.last_accepted_sequence >
                 agent_activity_sessions.last_accepted_sequence
             )
-        `
-      )
-      .bind(
-        sessionId,
-        input.event.organizationId,
-        input.event.projectId,
-        input.memberUserId,
-        input.deviceId,
-        input.openMeldServiceRuntimeId,
-        input.event.provider,
-        input.event.clientKind,
-        input.event.providerSessionId,
-        input.event.title,
-        input.event.model,
-        input.event.status,
-        input.event.gitBranch,
-        input.event.gitCommit,
-        input.event.repositoryFingerprint,
-        input.event.startedAtMs,
-        input.event.observedAtMs,
-        input.event.expiresAtMs,
-        providerMetadataJson,
-        input.event.eventId,
-        input.event.organizationId,
-        input.event.eventId,
-        canonical.hash,
-        input.nowMs,
-        input.nowMs,
-        input.event.organizationId,
-        input.event.eventId,
-        canonical.hash
-      ),
-  ]);
+        `,
+          values: [
+            sessionId,
+            input.event.organizationId,
+            input.event.projectId,
+            input.memberUserId,
+            input.deviceId,
+            input.openMeldServiceRuntimeId,
+            input.event.provider,
+            input.event.clientKind,
+            input.event.providerSessionId,
+            input.event.title,
+            input.event.model,
+            input.event.status,
+            input.event.gitBranch,
+            input.event.gitCommit,
+            input.event.repositoryFingerprint,
+            input.event.startedAtMs,
+            input.event.observedAtMs,
+            input.event.expiresAtMs,
+            providerMetadataJson,
+            input.event.eventId,
+            input.event.organizationId,
+            input.event.eventId,
+            canonical.hash,
+            input.nowMs,
+            input.nowMs,
+            input.event.organizationId,
+            input.event.eventId,
+            canonical.hash,
+          ],
+        }),
+      ] as const
+  );
   if (!insertResult) {
     throw new Error(
       "Agent Activity event batch did not return insert evidence."
     );
   }
-  if (Number(insertResult.meta.changes ?? 0) === 1) {
+  if (Number(insertResult.rowCount ?? 0) === 1) {
     return "accepted";
   }
   const raced = await readStoredEventIdentity(
@@ -217,16 +219,18 @@ export async function acceptAgentActivityEventRecord(input: {
       : "event_id_conflict";
   }
   const project = await input.db
-    .prepare(
-      `
+    .query<{
+      archived_at_ms: number | null;
+    }>({
+      text: `
         SELECT archived_at_ms
-        FROM projects
-        WHERE id = ? AND organization_id = ?
+        FROM "openmeld"."projects"
+        WHERE id = $1 AND organization_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.event.projectId, input.event.organizationId)
-    .first<{ archived_at_ms: number | null }>();
+      `,
+      values: [input.event.projectId, input.event.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!project) {
     return "project_missing";
   }
@@ -234,25 +238,23 @@ export async function acceptAgentActivityEventRecord(input: {
     ? "event_id_conflict"
     : "project_archived";
 }
-
 async function readStoredEventIdentity(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   eventId: string
 ): Promise<StoredEventIdentity | null> {
   return await db
-    .prepare(
-      `
+    .query<StoredEventIdentity>({
+      text: `
         SELECT canonical_payload_hash
-        FROM agent_activity_events
-        WHERE organization_id = ? AND event_id = ?
+        FROM "openmeld"."agent_activity_events"
+        WHERE organization_id = $1 AND event_id = $2
         LIMIT 1
-      `
-    )
-    .bind(organizationId, eventId)
-    .first<StoredEventIdentity>();
+      `,
+      values: [organizationId, eventId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 async function buildActivityEventStorageId(input: {
   eventId: string;
   organizationId: string;
@@ -260,12 +262,10 @@ async function buildActivityEventStorageId(input: {
   const digest = await sha256Hex(stableStringify(input));
   return `activity_event_${digest}`;
 }
-
 async function canonicalizeAgentActivityEvent(event: AgentActivityEvent) {
   const json = stableStringify(event);
   return { hash: `sha256:${await sha256Hex(json)}` };
 }
-
 async function buildActivitySessionId(input: {
   deviceId: string;
   memberUserId: string;
@@ -276,7 +276,6 @@ async function buildActivitySessionId(input: {
   const digest = await sha256Hex(stableStringify(input));
   return `activity_session_${digest}`;
 }
-
 async function buildDailySessionKey(input: {
   deviceId: string;
   memberUserId: string;
@@ -299,7 +298,6 @@ async function buildDailySessionKey(input: {
     })
   )}`;
 }
-
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -309,11 +307,9 @@ async function sha256Hex(value: string): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-
 function stableStringify(value: unknown): string {
   return JSON.stringify(sortJson(value));
 }
-
 function sortJson(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(sortJson);

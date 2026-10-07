@@ -1,12 +1,13 @@
 import { relations, sql } from "drizzle-orm";
+import { check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import {
+  epochMilliseconds,
+  integerBoolean,
+} from "../postgresql/schema-types.ts";
 import { organizations, users } from "./auth.schema.ts";
 
 export const OPENMELD_PROFILE_KINDS = ["human", "agent", "system"] as const;
@@ -35,7 +36,7 @@ export type OpenMeldProfileStatus = (typeof OPENMELD_PROFILE_STATUSES)[number];
 const buildUuidConstraintSql = (expression: string): string =>
   [
     `length(${expression}) = 36`,
-    `${expression} not glob '*[^0-9a-f-]*'`,
+    `${expression} !~ '^.*[^0-9a-f-].*$'`,
     `length(replace(${expression}, '-', '')) = 32`,
     `substr(${expression}, 9, 1) = '-'`,
     `substr(${expression}, 14, 1) = '-'`,
@@ -50,16 +51,14 @@ const AGENT_PROFILE_ID_SQL = [
   buildUuidConstraintSql(`substr("profile_id", 5)`),
 ].join(" and ");
 
-export const openMeldProfiles = sqliteTable(
+export const openMeldProfiles = applicationTable(
   "openmeld_profiles",
   {
     profileId: text("profile_id").primaryKey(),
     profileName: text("profile_name").notNull(),
     profileHandle: text("profile_handle").notNull(),
     profileKind: text("profile_kind").$type<OpenMeldProfileKind>().notNull(),
-    isDefault: integer("is_default", { mode: "boolean" })
-      .notNull()
-      .default(false),
+    isDefault: integerBoolean("is_default").notNull().default(sql`0`),
     status: text("status")
       .$type<OpenMeldProfileStatus>()
       .notNull()
@@ -81,12 +80,13 @@ export const openMeldProfiles = sqliteTable(
     managedRole: text("managed_role").$type<OpenMeldProfileManagedRole>(),
     creationIdempotencyKey: text("creation_idempotency_key"),
     defaultProjectId: text("default_project_id"),
-    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    avatarStyle: text("avatar_style"),
+    lastUsedAt: epochMilliseconds("last_used_at"),
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
@@ -156,7 +156,7 @@ export const openMeldProfiles = sqliteTable(
     ),
     check(
       "openmeld_profiles_profile_handle_check",
-      sql`length(trim("profile_handle")) > 0 and "profile_handle" not glob '*[^A-Za-z0-9._-]*' and substr(trim("profile_handle"), 1, 1) glob '[A-Za-z0-9]' and length(trim("profile_handle")) <= 128`
+      sql`length(trim("profile_handle")) > 0 and "profile_handle" !~ '^.*[^A-Za-z0-9._-].*$' and substr(trim("profile_handle"), 1, 1) ~ '^[A-Za-z0-9]$' and length(trim("profile_handle")) <= 128`
     ),
     check(
       "openmeld_profiles_profile_id_format_check",

@@ -364,14 +364,29 @@ describe("Sidebar family", () => {
   });
 
   describe("pointer drag (window-edge, left side)", () => {
-    it("updates the wrapper CSS variable before pointerup for smooth dragging", () => {
+    it("uses updated bounds during live dragging before pointerup", () => {
       const onWidthChange = vi.fn();
-      const { container } = renderSidebar({
+      const { container, rerender } = renderSidebar({
         maxWidth: "400px",
         minWidth: "200px",
         onWidthChange,
         width: "288px",
       });
+      rerender(
+        <SidebarProvider
+          maxWidth="320px"
+          minWidth="200px"
+          onWidthChange={onWidthChange}
+          width="288px"
+        >
+          <Sidebar>
+            <SidebarContent>
+              <div>body</div>
+            </SidebarContent>
+            <SidebarRail />
+          </Sidebar>
+        </SidebarProvider>
+      );
       const rail = getRail(container);
       const wrapper = getWrapper(container);
 
@@ -382,7 +397,7 @@ describe("Sidebar family", () => {
         );
       });
 
-      expect(wrapper.style.getPropertyValue("--sidebar-width")).toBe("350px");
+      expect(wrapper.style.getPropertyValue("--sidebar-width")).toBe("320px");
 
       act(() => {
         document.dispatchEvent(

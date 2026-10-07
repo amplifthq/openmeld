@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   ChannelContext,
   MessageChannelConversationLocator,
@@ -5,7 +6,7 @@ import type {
 import {
   type RemoteAgentLarkPlatformChannelConnectionRecord,
   readRemoteAgentLarkPlatformChannelCredentials,
-} from "../infrastructure/d1/lark-platform-channel-connection-repo";
+} from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   decryptLarkPlatformCredential,
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
@@ -20,6 +21,7 @@ import {
   publishLarkPlatformNavigationActionCard,
   publishLarkPlatformReply,
   readLarkPlatformChannelContext,
+  readLarkPlatformPluginSourceProof,
   updateLarkPlatformStreamingCardContent,
 } from "./lark-platform-openapi-client";
 import type {
@@ -30,12 +32,13 @@ import type {
 
 type LarkPlatformConversationLocator = Extract<
   MessageChannelConversationLocator,
-  { provider: "feishu" | "lark" }
+  {
+    provider: "feishu" | "lark";
+  }
 >;
-
 export function createLarkPlatformMessageChannelAdapter(input: {
   cryptoKey?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   fetchImpl?: typeof fetch;
   provider: LarkPlatformMessageChannelProvider;
 }): MessageChannelProviderAdapter {
@@ -109,9 +112,31 @@ export function createLarkPlatformMessageChannelAdapter(input: {
       text: publication.text,
     });
   };
-
   return {
     provider: input.provider,
+    async readPluginSourceProof(request) {
+      const locator = requireMatchingLocator({
+        ...request,
+        provider: input.provider,
+      });
+      if (!locator) {
+        return null;
+      }
+      const appSecret = await readAppSecret(request.connection);
+      if (!appSecret) {
+        throw new Error("plugin.channel.provider_access_unavailable");
+      }
+      return await readLarkPlatformPluginSourceProof({
+        appId: request.connection.appId,
+        appSecret,
+        botOpenId: request.connection.botOpenId,
+        provider: input.provider,
+        messageId: request.messageId,
+        chatId: locator.chatId,
+        rootMessageId: locator.rootMessageId,
+        fetchImpl: input.fetchImpl,
+      });
+    },
     async createWorkingCard(publication) {
       const locator = requireMatchingLocator({
         connection: publication.connection,
@@ -408,13 +433,11 @@ export function createLarkPlatformMessageChannelAdapter(input: {
     },
   };
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error
     ? `${error.name}: ${error.message}`
     : String(error);
 }
-
 function requireMatchingLocator(input: {
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   locator: MessageChannelConversationLocator;

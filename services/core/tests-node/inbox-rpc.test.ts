@@ -1,4 +1,8 @@
-import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import type {
+  InboxSourceFacts,
+  OpenMeldRequestContext,
+} from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import {
@@ -8,23 +12,159 @@ import {
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
   rpcGetSpaceInboxUnreadTargets,
+  rpcListInboxFeed,
   rpcListInboxItems,
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
+  rpcMutateInboxFeed,
+  rpcObserveInboxNotifications,
   rpcUpdateInboxMessageNotificationPreferences,
 } from "../src/inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("Inbox Core RPC", () => {
+  it("binds notification observations to the authenticated recipient and rejects injected scope", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as unknown as CoreBindings;
+      const baseline = await rpcObserveInboxNotifications(env, {
+        context: contextFor("user-1"),
+      });
+      const saved = await seedItem(harness.db, "user-1", true, {
+        version: 1,
+        recipientReasons: ["thread_reply"],
+        agentProfileIds: [],
+      });
+      const page = await rpcObserveInboxNotifications(env, {
+        context: contextFor("user-1"),
+        cursor: baseline.cursor,
+      });
+      expect(page.items.map((item) => item.id)).toEqual([saved.itemId]);
+      expect(page.items[0]?.sourceTarget).toHaveProperty(
+        "replyToRecipient",
+        true
+      );
+      expect(page.items[0]?.sourceFacts?.recipientReasons).toEqual([
+        "thread_reply",
+      ]);
+      await expect(
+        rpcObserveInboxNotifications(env, {
+          context: contextFor("user-2"),
+          cursor: baseline.cursor,
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        rpcObserveInboxNotifications(env, { context: contextFor("outsider") })
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        rpcObserveInboxNotifications(env, {
+          context: contextFor("user-1"),
+          // @ts-expect-error Recipients can only come from verified membership.
+          recipientUserId: "user-2",
+        })
+      ).rejects.toMatchObject({ status: 400 });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("binds the attention feed and its frozen mutations to verified membership, not client-selected recipients", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const saved = await seedItem(harness.db, "user-1", true, {
+        version: 1,
+        recipientReasons: ["thread_reply"],
+        agentProfileIds: ["codex"],
+      });
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as unknown as CoreBindings;
+      const feed = await rpcListInboxFeed(env, {
+        context: contextFor("user-1"),
+        agentsOnly: "true",
+      });
+      expect(feed.rows[0]?.item.id).toBe(saved.itemId);
+      await expect(
+        rpcMutateInboxFeed(env, {
+          context: contextFor("user-2"),
+          snapshotId: feed.snapshotId,
+          operation: "read",
+        })
+      ).rejects.toMatchObject({ status: 409 });
+      await expect(
+        rpcListInboxFeed(env, { context: contextFor("outsider") })
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        rpcListInboxFeed(env, {
+          context: contextFor("user-1"),
+          // @ts-expect-error A recipient is derived from authentication, never from a feed query.
+          recipientUserId: "user-2",
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      expect(
+        await rpcMutateInboxFeed(env, {
+          context: contextFor("user-1"),
+          snapshotId: feed.snapshotId,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 1 });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("returns durable relevance facts only to receivers that explicitly support them", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const sourceFacts: InboxSourceFacts = {
+        version: 1,
+        recipientReasons: ["thread_reply"],
+        agentProfileIds: ["codex"],
+      };
+      const saved = await seedItem(harness.db, "user-1", true, sourceFacts);
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as unknown as CoreBindings;
+      for (const includeSourceFacts of [undefined, true]) {
+        const request = {
+          context: contextFor("user-1"),
+          includeReplyToRecipient: true,
+          includeSourceFacts,
+        };
+        const list = await rpcListInboxItems(env, request);
+        const get = await rpcGetInboxItem(env, {
+          ...request,
+          itemId: saved.itemId,
+        });
+        const read = await rpcMarkInboxItemRead(env, {
+          ...request,
+          itemId: saved.itemId,
+          read: false,
+        });
+        for (const item of [list.items[0], get.item, read.item]) {
+          expect(item?.sourceFacts).toEqual(
+            includeSourceFacts ? sourceFacts : undefined
+          );
+          expect(item?.sourceTarget).toHaveProperty("replyToRecipient", true);
+        }
+      }
+    } finally {
+      await harness.close();
+    }
+  });
   it("persists Human reply facts but returns them only to an opted-in RPC receiver", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const saved = await seedItem(harness.db, "user-1", true);
-      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as unknown as CoreBindings;
       for (const includeReplyToRecipient of [undefined, true]) {
         const request = {
           context: contextFor("user-1"),
@@ -51,17 +191,15 @@ describe("Inbox Core RPC", () => {
         }
       }
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("saves message preferences only for the verified member and rejects recipient injection", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      applyDrizzleMigrationsForTables(harness, [
-        "inbox_message_notification_defaults",
-        "inbox_conversation_notification_preferences",
-      ]);
-      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as unknown as CoreBindings;
       await expect(
         rpcUpdateInboxMessageNotificationPreferences(env, {
           context: contextFor("user-1"),
@@ -85,14 +223,16 @@ describe("Inbox Core RPC", () => {
         })
       ).rejects.toMatchObject({ status: 400 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("derives the recipient from verified active membership", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const item = await seedItem(harness.db, "user-1");
-      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as unknown as CoreBindings;
 
       await expect(
         rpcListInboxItems(env, {
@@ -166,14 +306,16 @@ describe("Inbox Core RPC", () => {
         })
       ).rejects.toMatchObject({ code: "inbox.item_not_found", status: 404 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a caller without active Organization membership", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as unknown as CoreBindings;
       await expect(
         rpcGetInboxSummary(env, { context: contextFor("outsider") })
       ).rejects.toMatchObject({
@@ -181,7 +323,7 @@ describe("Inbox Core RPC", () => {
         status: 403,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
@@ -201,9 +343,10 @@ function contextFor(userId: string): OpenMeldRequestContext {
 }
 
 async function seedItem(
-  db: D1Database,
+  db: PostgresDatabase,
   recipientUserId: string,
-  replyToRecipient?: boolean
+  replyToRecipient?: boolean,
+  sourceFacts?: InboxSourceFacts
 ) {
   return await ensureInboxItem({
     candidate: {
@@ -217,6 +360,7 @@ async function seedItem(
       recipientUserId,
       sourceKey: "signal-1",
       sourceKind: "space_signal",
+      sourceFacts,
       sourceTarget: {
         replyToRecipient,
         kind: "space",
@@ -230,36 +374,15 @@ async function seedItem(
   });
 }
 
-function createInboxHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL)",
+async function createInboxHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    values: ["org-1", "Amplift", "amplift", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
-  harness.run({
-    sql: "CREATE TABLE users (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL)",
-  });
-  harness.run({
-    sql: "CREATE TABLE members (id TEXT PRIMARY KEY NOT NULL, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)",
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "organization_join_requests",
-    "openmeld_profiles",
-    "center_agent_designations",
-    "center_agent_tasks",
-    "inbox_items",
-    "inbox_email_deliveries",
-    "inbox_notification_preferences",
-    "inbox_center_agent_read_watermarks",
-    "inbox_space_thread_read_watermarks",
-    "space_index_spaces",
-    "space_index_memberships",
-  ]);
-  harness.run({
-    params: ["org-1", "Amplift", "amplift", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
-  });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "space-1",
       "org-1",
       "private",
@@ -268,8 +391,8 @@ function createInboxHarness() {
       1000,
       "space-projection",
     ],
-    sql: `
-      INSERT INTO space_index_spaces (
+    text: `
+      INSERT INTO "openmeld"."space_index_spaces" (
         space_id,
         organization_id,
         organization_visibility,
@@ -277,21 +400,21 @@ function createInboxHarness() {
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
     `,
   });
   for (const userId of ["user-1", "user-2"] as const) {
-    harness.run({
-      params: [userId, userId, `${userId}@example.com`],
-      sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+    await harness.query({
+      values: [userId, userId, `${userId}@example.com`],
+      text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
     });
-    harness.run({
-      params: [`member-${userId}`, "org-1", userId, "member"],
-      sql: "INSERT INTO members (id, organization_id, user_id, role) VALUES (?, ?, ?, ?)",
+    await harness.query({
+      values: [`member-${userId}`, "org-1", userId, "member"],
+      text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, "created_at") VALUES ($1, $2, $3, $4, 1700000000000)',
     });
   }
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "space-1",
       "profile-user-1",
       "User 1",
@@ -301,8 +424,8 @@ function createInboxHarness() {
       1000,
       "projection-user-1",
     ],
-    sql: `
-      INSERT INTO space_index_memberships (
+    text: `
+      INSERT INTO "openmeld"."space_index_memberships" (
         space_id,
         profile_id,
         profile_kind_snapshot,
@@ -314,7 +437,7 @@ function createInboxHarness() {
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, 'human', ?, ?, 'active', 'joined_directly', ?, ?, ?, ?)
+      ) VALUES ($1, $2, 'human', $3, $4, 'active', 'joined_directly', $5, $6, $7, $8)
     `,
   });
   return harness;

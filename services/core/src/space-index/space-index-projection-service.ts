@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { SpaceMemberRecord } from "../space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../space/infrastructure/sql/space-meta-repo";
 import {
@@ -7,9 +8,8 @@ import {
   upsertSpaceIndexSpace,
   writeSpaceIndexProjectionEvent,
 } from "./space-index-repository";
-
 export type ProjectSpaceIndexSnapshotInput = {
-  db: D1Database;
+  db: PostgresDatabase;
   eventType:
     | "space.index_backfilled"
     | "space.created"
@@ -19,7 +19,6 @@ export type ProjectSpaceIndexSnapshotInput = {
   metaRecord: SpaceMetaRecord;
   memberRecords: readonly SpaceMemberRecord[];
 };
-
 export type ProjectDeletedSpaceIndexSnapshotInput =
   ProjectSpaceIndexSnapshotInput & {
     deletedAt: string;
@@ -27,10 +26,12 @@ export type ProjectDeletedSpaceIndexSnapshotInput =
     deletedByProfileId?: string | null;
     deletedByProfileName?: string | null;
   };
-
 export async function projectActiveSpaceIndexSnapshot(
   input: ProjectSpaceIndexSnapshotInput
-): Promise<{ memberCount: number; projectionEventId: string }> {
+): Promise<{
+  memberCount: number;
+  projectionEventId: string;
+}> {
   const sourceUpdatedAt = resolveActiveSnapshotSourceUpdatedAt(input);
   const projectionEventId = buildSpaceIndexProjectionEventId({
     eventType: input.eventType,
@@ -74,10 +75,11 @@ export async function projectActiveSpaceIndexSnapshot(
     projectionEventId,
   };
 }
-
 export async function projectDeletedSpaceIndexSnapshot(
   input: ProjectDeletedSpaceIndexSnapshotInput
-): Promise<{ projectionEventId: string }> {
+): Promise<{
+  projectionEventId: string;
+}> {
   const projectionEventId = buildSpaceIndexProjectionEventId({
     eventType: "space.deleted",
     sourceUpdatedAt: input.deletedAt,
@@ -134,7 +136,6 @@ export async function projectDeletedSpaceIndexSnapshot(
   });
   return { projectionEventId };
 }
-
 function toActiveSpaceProjection(input: {
   memberRecords: readonly SpaceMemberRecord[];
   metaRecord: SpaceMetaRecord;
@@ -173,7 +174,6 @@ function toActiveSpaceProjection(input: {
     status: "active",
   };
 }
-
 function toDeletedSpaceProjection(input: {
   deletedAt: string;
   deletedByOwnerUserId: string | null;
@@ -198,7 +198,6 @@ function toDeletedSpaceProjection(input: {
     status: "deleted",
   };
 }
-
 function toMembershipProjection(input: {
   memberRecord: SpaceMemberRecord;
   projectionEventId: string;
@@ -228,7 +227,6 @@ function toMembershipProjection(input: {
     status: input.memberRecord.status,
   };
 }
-
 function resolveActiveSnapshotSourceUpdatedAt(
   input: ProjectSpaceIndexSnapshotInput
 ): string {
@@ -238,7 +236,6 @@ function resolveActiveSnapshotSourceUpdatedAt(
       : latest;
   }, input.metaRecord.updatedAt);
 }
-
 function buildSpaceIndexProjectionEventId(input: {
   eventType: string;
   sourceUpdatedAt: string;

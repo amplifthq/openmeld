@@ -1,8 +1,10 @@
 import {
+	accountSidebarResponseSchema,
 	getCenterAgentDirectMessageSpaceProjectionResponseSchema,
 	listSpaceThreadsResponseSchema,
 	organizationSpaceDirectoryWithMemberCountsResponseSchema,
 	signalEnvelopeSchema,
+	spaceHistoryNavigationSchema,
 } from "@openmeld/schemas";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import {
@@ -16,10 +18,10 @@ import {
 	type PersistedClient,
 	type Persister,
 	persistQueryClientRestore,
-	persistQueryClientSave,
 } from "@tanstack/react-query-persist-client";
 import { z } from "zod/v4";
 import { observeSpaceOpen } from "#/lib/observability/space-open";
+import { accountSidebarQueryKey } from "#/query/account/sidebar-preferences";
 import { currentComputerToolbarDisplaySnapshotSchema } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -36,6 +38,7 @@ import {
 	SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES,
 } from "#/query/spaces/history";
 import { spaceMemberDirectoryDisplaySchema } from "#/query/spaces/member-directory-display";
+import { clearSpaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import type {
 	DexieQueryCacheStore,
@@ -89,6 +92,14 @@ export type BrowserQueryPersistenceController = {
 		spaceId: string;
 		openMeldProfileId: string;
 	}) => Promise<void>;
+	restoreSpaceConversation: (input: {
+		organizationId: string;
+		organizationSlug: string;
+		ownerAccountId: string;
+		queryClient: QueryClient;
+		spaceId: string;
+		openMeldProfileId: string;
+	}) => Promise<void>;
 	clearSpaceConversation: (input: {
 		organizationId: string;
 		organizationSlug: string;
@@ -130,6 +141,7 @@ type CreateBrowserQueryPersistenceControllerInput = {
 
 type ActiveSegment = {
 	activation: Promise<void>;
+	flushPending?: () => Promise<void>;
 	organizationId: string | null;
 	ownerAccountId: string;
 	queryClient: QueryClient;
@@ -193,6 +205,7 @@ export function createBrowserQueryPersistenceController(
 	};
 
 	const activateSegment = async (options: {
+		readOnly?: boolean;
 		reload?: boolean;
 		organizationId?: string;
 		ownerAccountId: string;
@@ -213,7 +226,10 @@ export function createBrowserQueryPersistenceController(
 			return;
 		}
 
-		current?.unsubscribe?.();
+		if (!options.readOnly) {
+			await current?.flushPending?.();
+			current?.unsubscribe?.();
+		}
 		const scope: QueryCacheScope = {
 			...(options.organizationId === undefined
 				? {}
@@ -229,7 +245,9 @@ export function createBrowserQueryPersistenceController(
 			nowMs,
 			scope,
 			storage: input.store.createStorage(scope),
-			throttleTimeMs: input.throttleTimeMs,
+			// Coalesce before dehydration. Keep a short storage interval so
+			// overlapping writes do not spin on zero-delay retries.
+			throttleTimeMs: Math.min(100, input.throttleTimeMs ?? 1000),
 		});
 		const segment = {
 			activation: Promise.resolve(),
@@ -244,14 +262,27 @@ export function createBrowserQueryPersistenceController(
 		knownPersistedQueries.set(resolveKnownQueryKey(segment), segment);
 		segment.activation = restoreAndSubscribe({
 			didRestoreUsableClient: observedPersister.didRestoreUsableClient,
-			isCurrent: () => resolveActiveSegment(options.scopeKind) === segment,
+			diagnostics,
+			isCurrent: () =>
+				options.readOnly
+					? knownPersistedQueries.get(resolveKnownQueryKey(segment)) ===
+							segment &&
+						activeOwnerAccountId === options.ownerAccountId &&
+						organizationSegment?.organizationId === options.organizationId &&
+						organizationSegment?.queryClient === options.queryClient
+					: resolveActiveSegment(options.scopeKind) === segment,
 			maxAgeMs,
+			nowMs,
 			persister: observedPersister.persister,
 			queryClient: options.queryClient,
+			saveDelayMs: input.throttleTimeMs ?? 1000,
 			segment,
+			subscribe: !options.readOnly,
 			targetQueryKeys: options.targetQueryKeys,
 		});
-		setActiveSegment(segment);
+		if (!options.readOnly) {
+			setActiveSegment(segment);
+		}
 
 		await waitWithinRestoreBudget({
 			diagnostics,
@@ -444,6 +475,77 @@ export function createBrowserQueryPersistenceController(
 			console.error("Failed to refresh saved browser views.", error)
 		);
 	});
+	const openSpaceConversation = (
+		{
+			organizationId,
+			organizationSlug,
+			ownerAccountId,
+			queryClient,
+			spaceId,
+			openMeldProfileId,
+		}: Parameters<
+			BrowserQueryPersistenceController["activateSpaceConversation"]
+		>[0],
+		readOnly: boolean
+	) => {
+		const hasDisplay = Boolean(
+			queryClient.getQueryData(
+				spaceQueryKeys.history(spaceId, openMeldProfileId)
+			) &&
+				queryClient.getQueryData(
+					spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)
+				)
+		);
+		observeSpaceOpen(spaceId, { cache: hasDisplay ? "memory" : "cold" });
+		// Route prefetch only needs a display snapshot. Re-reading and validating
+		// the saved segment on every warm revisit delays the route and repeats the
+		// same work again when the mounted Space activates its save subscription.
+		// Activation still checks disk for newer cross-window data.
+		if (
+			readOnly &&
+			hasDisplay &&
+			queryClient.getQueryData(
+				spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId)
+			)
+		) {
+			return Promise.resolve();
+		}
+		const operation = runExclusive(async () => {
+			if (
+				activeOwnerAccountId !== ownerAccountId ||
+				organizationSegment?.ownerAccountId !== ownerAccountId ||
+				organizationSegment.organizationId !== organizationId ||
+				organizationSegment.scopeAlias !== organizationSlug ||
+				organizationSegment.queryClient !== queryClient
+			) {
+				return;
+			}
+			await activateSegment({
+				organizationId,
+				ownerAccountId,
+				queryClient,
+				readOnly,
+				scopeAlias: organizationSlug,
+				scopeId: buildSpaceConversationQueryCacheScopeId(
+					spaceId,
+					openMeldProfileId
+				),
+				scopeKind: "space",
+				targetQueryKeys: [
+					spaceQueryKeys.history(spaceId, openMeldProfileId),
+					spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
+					spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
+					spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId),
+				],
+			});
+		});
+		return waitWithinRestoreBudget({
+			diagnostics,
+			promise: operation,
+			restoreBudgetMs: input.restoreBudgetMs,
+			scopeKind: "space",
+		});
+	};
 	return {
 		activateAuthorizedScope: ({
 			organizationId,
@@ -515,6 +617,7 @@ export function createBrowserQueryPersistenceController(
 						scopeKind: "organization",
 						targetQueryKeys: [
 							organizationQueryKeys.spaces(organizationId),
+							accountSidebarQueryKey(ownerAccountId, organizationId),
 							organizationPluginConnectionQueryKeys.statusSummary(
 								organizationId
 							),
@@ -545,57 +648,8 @@ export function createBrowserQueryPersistenceController(
 			authorizedScopeActivation = activation;
 			return activation.promise;
 		},
-		activateSpaceConversation: ({
-			organizationId,
-			organizationSlug,
-			ownerAccountId,
-			queryClient,
-			spaceId,
-			openMeldProfileId,
-		}) => {
-			const hasDisplay = Boolean(
-				queryClient.getQueryData(
-					spaceQueryKeys.history(spaceId, openMeldProfileId)
-				) &&
-					queryClient.getQueryData(
-						spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)
-					)
-			);
-			observeSpaceOpen(spaceId, { cache: hasDisplay ? "memory" : "cold" });
-			const operation = runExclusive(async () => {
-				if (
-					activeOwnerAccountId !== ownerAccountId ||
-					organizationSegment?.ownerAccountId !== ownerAccountId ||
-					organizationSegment.organizationId !== organizationId ||
-					organizationSegment.scopeAlias !== organizationSlug ||
-					organizationSegment.queryClient !== queryClient
-				) {
-					return;
-				}
-				await activateSegment({
-					organizationId,
-					ownerAccountId,
-					queryClient,
-					scopeAlias: organizationSlug,
-					scopeId: buildSpaceConversationQueryCacheScopeId(
-						spaceId,
-						openMeldProfileId
-					),
-					scopeKind: "space",
-					targetQueryKeys: [
-						spaceQueryKeys.history(spaceId, openMeldProfileId),
-						spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
-						spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
-					],
-				});
-			});
-			return waitWithinRestoreBudget({
-				diagnostics,
-				promise: operation,
-				restoreBudgetMs: input.restoreBudgetMs,
-				scopeKind: "space",
-			});
-		},
+		activateSpaceConversation: (space) => openSpaceConversation(space, false),
+		restoreSpaceConversation: (space) => openSpaceConversation(space, true),
 		clearSpaceConversation: async ({
 			organizationId,
 			organizationSlug,
@@ -776,6 +830,16 @@ function resolveKnownQueryKey(segment: KnownPersistedQuery): string {
 }
 
 function removeSegmentQueries(segment: KnownPersistedQuery): void {
+	if (segment.scopeKind === "account") {
+		clearSpaceFileMediaResources(segment.queryClient);
+	} else if (segment.scopeKind === "space") {
+		const spaceId = segment.targetQueryKeys.find(
+			(key) => key[0] === "spaces" && key[1] === "history"
+		)?.[2];
+		if (typeof spaceId === "string") {
+			clearSpaceFileMediaResources(segment.queryClient, spaceId);
+		}
+	}
 	for (const targetQueryKey of segment.targetQueryKeys) {
 		segment.queryClient.removeQueries({
 			exact: true,
@@ -786,11 +850,15 @@ function removeSegmentQueries(segment: KnownPersistedQuery): void {
 
 async function restoreAndSubscribe(input: {
 	didRestoreUsableClient: () => boolean;
+	diagnostics: QueryPersistenceDiagnostics;
 	isCurrent: () => boolean;
 	maxAgeMs: number;
+	nowMs: () => number;
 	persister: Persister;
 	queryClient: QueryClient;
+	saveDelayMs: number;
 	segment: ActiveSegment;
+	subscribe: boolean;
 	targetQueryKeys: readonly (readonly unknown[])[];
 }): Promise<void> {
 	const dataUpdatedAtBeforeRestore = new Map(
@@ -892,43 +960,83 @@ async function restoreAndSubscribe(input: {
 			})
 		);
 	}
-	if (!input.isCurrent()) {
+	if (!(input.isCurrent() && input.subscribe)) {
 		return;
 	}
-	const saveOptions = {
-		buster: BROWSER_QUERY_CACHE_BUSTER,
-		dehydrateOptions: {
-			...resolvePersistedDataSerializer(input.segment.scopeKind),
-			shouldDehydrateMutation: () => false,
-			shouldDehydrateQuery: (query: Query) =>
-				isApprovedSuccessfulQuery(
-					query,
-					input.targetQueryKeys,
-					input.segment.scopeKind
-				),
-		},
-		persister: input.persister,
-		queryClient: input.queryClient,
+	const dehydrateOptions = {
+		...resolvePersistedDataSerializer(input.segment.scopeKind),
+		shouldDehydrateMutation: () => false,
+		shouldDehydrateQuery: (query: Query) =>
+			isApprovedSuccessfulQuery(
+				query,
+				input.targetQueryKeys,
+				input.segment.scopeKind
+			),
 	};
-	input.segment.unsubscribe = input.queryClient
-		.getQueryCache()
-		.subscribe((event) => {
-			if (
-				event.type !== "updated" ||
-				event.action.type !== "success" ||
-				!isApprovedSuccessfulQuery(
-					event.query,
-					input.targetQueryKeys,
-					input.segment.scopeKind
-				)
-			) {
-				return;
-			}
-			persistQueryClientSave(saveOptions);
+	const targetQueryHashes = new Set(input.targetQueryKeys.map(hashKey));
+	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+	const save = async () => {
+		if (!input.isCurrent()) {
+			return;
+		}
+		const startedAtMs = input.nowMs();
+		const clientState = dehydrate(input.queryClient, dehydrateOptions);
+		input.diagnostics.record({
+			durationMs: elapsedMs(input.nowMs, startedAtMs),
+			event: "save_preparation",
+			scopeKind: input.segment.scopeKind,
 		});
+		if (clientState.queries.length === 0) {
+			return;
+		}
+		await input.persister.persistClient({
+			buster: BROWSER_QUERY_CACHE_BUSTER,
+			clientState,
+			timestamp: Date.now(),
+		});
+	};
+	input.segment.flushPending = async () => {
+		if (saveTimer === null) {
+			return;
+		}
+		clearTimeout(saveTimer);
+		saveTimer = null;
+		await save();
+	};
+	const unsubscribe = input.queryClient.getQueryCache().subscribe((event) => {
+		if (
+			event.type !== "updated" ||
+			event.action.type !== "success" ||
+			!targetQueryHashes.has(event.query.queryHash)
+		) {
+			return;
+		}
+		if (input.saveDelayMs <= 0) {
+			save().catch((error: unknown) =>
+				console.error("Could not save a browser read cache snapshot.", error)
+			);
+			return;
+		}
+		if (saveTimer === null) {
+			saveTimer = setTimeout(() => {
+				saveTimer = null;
+				save().catch((error: unknown) =>
+					console.error("Could not save a browser read cache snapshot.", error)
+				);
+			}, input.saveDelayMs);
+		}
+	});
+	input.segment.unsubscribe = () => {
+		if (saveTimer !== null) {
+			clearTimeout(saveTimer);
+			saveTimer = null;
+		}
+		unsubscribe();
+	};
 }
 
 const spaceHistorySnapshotSchema = z.strictObject({
+	confirmedCursor: z.string().nullable().optional(),
 	threadDisplay: listSpaceThreadsResponseSchema
 		.refine(
 			(snapshot) =>
@@ -1022,6 +1130,10 @@ function resolvePersistedDataSerializer(scopeKind: QueryCacheScopeKind): {
 }
 
 function serializeSpacePersistedDisplayData(data: unknown): unknown {
+	const historyNavigation = spaceHistoryNavigationSchema.safeParse(data);
+	if (historyNavigation.success) {
+		return historyNavigation.data;
+	}
 	const directory = spaceMemberDirectoryDisplaySchema.safeParse(data);
 	if (directory.success) {
 		return directory.data;
@@ -1035,6 +1147,10 @@ function serializeSpacePersistedDisplayData(data: unknown): unknown {
 }
 
 function redactOrganizationPersistedDisplayData(data: unknown): unknown {
+	const sidebar = accountSidebarResponseSchema.safeParse(data);
+	if (sidebar.success) {
+		return sidebar.data;
+	}
 	const centerAgentProjection =
 		getCenterAgentDirectMessageSpaceProjectionResponseSchema.safeParse(data);
 	if (centerAgentProjection.success) {
@@ -1089,6 +1205,9 @@ function isApprovedSuccessfulQuery(
 		case "organization":
 			return true;
 		case "space":
+			if (targetQueryKey[3] === "history-navigation") {
+				return spaceHistoryNavigationSchema.safeParse(query.state.data).success;
+			}
 			if (targetQueryKey[1] === "history") {
 				return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
 			}

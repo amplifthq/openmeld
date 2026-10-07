@@ -5,7 +5,7 @@ import {
 	screen,
 	within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppGlobalControls } from "./app-global-controls";
 
 vi.mock("./current-computer", () => ({
@@ -35,6 +35,9 @@ vi.mock("#/components/organizations/global-center-agent-launcher", () => ({
 }));
 
 describe("AppGlobalControls", () => {
+	beforeEach(() => {
+		localStorage.setItem("openmeld.toolbar.hidden", "");
+	});
 	afterEach(() => {
 		cleanup();
 		localStorage.clear();
@@ -86,6 +89,8 @@ describe("AppGlobalControls", () => {
 		).toEqual(["Open Center Agent panel", "Open Inbox panel"]);
 		expect(toolbar.classList.contains("lg:ps-0")).toBe(true);
 		expect(toolbar.classList.contains("lg:pe-2")).toBe(true);
+		expect(toolbar.classList.contains("hidden")).toBe(true);
+		expect(toolbar.classList.contains("lg:flex")).toBe(true);
 	});
 
 	it("hides a shortcut without opening its panel and remembers the choice", () => {

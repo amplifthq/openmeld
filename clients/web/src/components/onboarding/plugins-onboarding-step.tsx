@@ -1,5 +1,10 @@
 "use client";
 
+import {
+	type findPluginDefinition,
+	PLUGINS,
+	pluginFromProvider,
+} from "@openmeld/product-catalog/plugins";
 import { buildConnectorAppRequestProviderKey } from "@openmeld/schemas";
 import type {
 	ConnectorAppCatalogProvider,
@@ -24,12 +29,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useMemo, useState } from "react";
 import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
-import { CenterAgentGitHubConnectionCard } from "#/components/organizations/center-agent-github-connection-card";
-import {
-	findPluginDefinition,
-	PLUGINS,
-} from "#/components/organizations/plugin-catalog";
-import { PluginConnectionCard } from "#/components/organizations/plugin-connection-card";
+import { PluginConnectionSurface } from "#/components/organizations/plugin-connection-surface";
 import { createCurrentOrganizationConnectorAppRequest } from "#/lib/organizations/connector-connections";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
@@ -161,7 +161,7 @@ export function PluginsOnboardingStep(input: { onContinue: () => void }) {
 		},
 	});
 	const selectedPlugin = selectedProvider
-		? findPluginDefinition(selectedProvider.service)
+		? pluginFromProvider(selectedProvider)
 		: null;
 	const selectedIsRequested =
 		selectedProvider !== null &&
@@ -350,23 +350,14 @@ function AvailableAppConnectionPanel(input: {
 						: "Connect your own account. Organization connections stay visible but read-only."}
 				</p>
 			</div>
-			{input.provider.service === "github" ? (
-				<CenterAgentGitHubConnectionCard
-					canManage={input.canManageSharedPlugins}
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					mode={mode}
-					organizationId={input.organizationId}
-					presentation="onboarding"
-				/>
-			) : (
-				<PluginConnectionCard
-					canManage={input.canManageSharedPlugins}
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					mode={mode}
-					organizationId={input.organizationId}
-					plugin={input.app}
-				/>
-			)}
+			<PluginConnectionSurface
+				canManage={input.canManageSharedPlugins}
+				isPersonalWorkspace={input.isPersonalWorkspace}
+				mode={mode}
+				organizationId={input.organizationId}
+				plugin={input.app}
+				presentation="onboarding"
+			/>
 		</Card>
 	);
 }
@@ -383,7 +374,7 @@ function ProviderGrid(input: {
 	return (
 		<div className="grid gap-2 sm:grid-cols-2">
 			{input.providers.slice(0, RESULT_LIMIT).map((provider) => {
-				const app = findPluginDefinition(provider.service);
+				const app = pluginFromProvider(provider);
 				const available = app?.availability === "available";
 				return (
 					<ProviderRow
@@ -457,7 +448,7 @@ function ProviderRow(input: {
 	requested: boolean;
 	selected: boolean;
 }) {
-	const app = findPluginDefinition(input.provider.service);
+	const app = pluginFromProvider(input.provider);
 	const logoUrl = app?.logoPath ?? input.provider.iconUrl;
 	let statusClassName = "text-muted-foreground";
 	let statusLabel = "Request";

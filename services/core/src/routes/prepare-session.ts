@@ -1,6 +1,10 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { prepareOpaqueTokenSchema } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
-import { type HonoBindings, localStateDb } from "../lib/bindings";
+import type { HonoBindings } from "../lib/bindings";
 import {
   PrepareSessionNotFoundError,
   PrepareSessionTokenInvalidError,
@@ -15,7 +19,6 @@ import {
 import { readResolvedOpenMeldContext } from "../shared/context/openmeld-context";
 
 const PREPARE_TOKEN_HEADER = "x-openmeld-prepare-token";
-
 export function registerPrepareSessionRoutes(app: Hono<HonoBindings>): void {
   app.get("/v1/prepare/sessions/:prepareSessionId/stream", async (c) => {
     if (c.req.header("Upgrade")?.toLowerCase() !== "websocket") {
@@ -28,7 +31,6 @@ export function registerPrepareSessionRoutes(app: Hono<HonoBindings>): void {
         400
       );
     }
-
     const prepareSessionId = String(
       c.req.param("prepareSessionId") ?? ""
     ).trim();
@@ -42,7 +44,6 @@ export function registerPrepareSessionRoutes(app: Hono<HonoBindings>): void {
         400
       );
     }
-
     const role = c.req.query("role");
     if (role === "web") {
       const authResult = await authorizeWebJoin(c, prepareSessionId);
@@ -54,7 +55,6 @@ export function registerPrepareSessionRoutes(app: Hono<HonoBindings>): void {
         role,
       });
     }
-
     if (role === "terminal") {
       const terminalResult = await authorizeTerminalJoin(c, prepareSessionId);
       if (!terminalResult.ok) {
@@ -65,7 +65,6 @@ export function registerPrepareSessionRoutes(app: Hono<HonoBindings>): void {
         role,
       });
     }
-
     return c.json(
       {
         ok: false,
@@ -76,14 +75,14 @@ export function registerPrepareSessionRoutes(app: Hono<HonoBindings>): void {
     );
   });
 }
-
 type AuthorizationResult =
-  | { ok: true }
+  | {
+      ok: true;
+    }
   | {
       ok: false;
       response: Response;
     };
-
 async function authorizeWebJoin(
   c: Context<HonoBindings>,
   prepareSessionId: string
@@ -110,7 +109,6 @@ async function authorizeWebJoin(
       ),
     };
   }
-
   const ownerUserId = String(
     resolved.context.actorContext.ownerUserId ?? ""
   ).trim();
@@ -128,7 +126,6 @@ async function authorizeWebJoin(
       ),
     };
   }
-
   const snapshot = await readPrepareSessionSnapshotUseCase({
     db: requireDb(c),
     prepareSessionId,
@@ -152,10 +149,8 @@ async function authorizeWebJoin(
       ),
     };
   }
-
   return { ok: true };
 }
-
 async function authorizeTerminalJoin(
   c: Context<HonoBindings>,
   prepareSessionId: string
@@ -176,7 +171,6 @@ async function authorizeTerminalJoin(
       ),
     };
   }
-
   const snapshot = await resolvePrepareSessionTokenUseCase({
     db: requireDb(c),
     opaqueToken: parsed.data,
@@ -199,10 +193,8 @@ async function authorizeTerminalJoin(
       ),
     };
   }
-
   return { ok: true };
 }
-
 function fetchPrepareSessionHub(
   c: Context<HonoBindings>,
   input: {
@@ -221,9 +213,8 @@ function fetchPrepareSessionHub(
   });
   return shard.fetch(request);
 }
-
-function requireDb(c: Context<HonoBindings>): D1Database {
-  const db = localStateDb(c.env);
+function requireDb(c: Context<HonoBindings>): PostgresDatabase {
+  const db = getPostgresDatabase(c.env);
   if (!db) {
     throw new Error("prepare session store unavailable");
   }

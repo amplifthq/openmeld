@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -47,6 +48,7 @@ export async function materializeOrganizationSkillRelease(input: {
   organizationId: string;
   releaseId: string;
   skillId: string;
+  releaseDirectory?: string;
 }): Promise<MaterializedOrganizationSkillRelease> {
   const bundle = organizationSkillBundleSchema.parse(input.bundle);
   const actualDigest = sha256(
@@ -58,11 +60,13 @@ export async function materializeOrganizationSkillRelease(input: {
     );
   }
 
-  const releaseDir = organizationSkillReleaseDir(
-    input.organizationId,
-    input.skillId,
-    input.releaseId
-  );
+  const releaseDir =
+    input.releaseDirectory ??
+    organizationSkillReleaseDir(
+      input.organizationId,
+      input.skillId,
+      input.releaseId
+    );
   const skillMarkdown = serializePortableSkillMarkdown(bundle);
   const expectedFiles = buildExpectedCacheFiles({
     bundle,
@@ -171,6 +175,14 @@ async function cacheMatches(
   }
   try {
     for (const [relativePath, expected] of expectedFiles) {
+      let current = join(rootDir, relativePath);
+      while (current !== dirname(rootDir)) {
+        const info = await lstat(current);
+        if (info.isSymbolicLink() || (info.isFile() && info.nlink !== 1)) {
+          return false;
+        }
+        current = dirname(current);
+      }
       const actual = await readFile(join(rootDir, relativePath));
       if (!actual.equals(expected)) {
         return false;

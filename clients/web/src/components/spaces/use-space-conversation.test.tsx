@@ -4,11 +4,34 @@ import type {
 	SpaceAgentStreamPresence,
 	SpaceAgentStreamSnapshot,
 } from "@openmeld/schemas/types";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import {
+	notifyManager,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
+import {
+	act,
+	cleanup,
+	type RenderHookOptions,
+	renderHook as renderTestHook,
+} from "@testing-library/react";
+import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSpaceConversation } from "./use-space-conversation";
 
 const requestJsonMock = vi.hoisted(() => vi.fn());
+let queryClient: QueryClient;
+function Wrapper({ children }: PropsWithChildren) {
+	return (
+		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+	);
+}
+function renderHook<Result, Props>(
+	callback: (props: Props) => Result,
+	options?: RenderHookOptions<Props>
+) {
+	return renderTestHook(callback, { ...options, wrapper: Wrapper });
+}
 
 vi.mock("#/lib/openmeld-api/client", () => ({
 	createUnscopedWebOpenMeldApiFoundation: vi.fn(() => ({
@@ -18,6 +41,10 @@ vi.mock("#/lib/openmeld-api/client", () => ({
 
 describe("useSpaceConversation", () => {
 	beforeEach(() => {
+		notifyManager.setScheduler((callback) => callback());
+		queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
 		requestJsonMock.mockReset().mockResolvedValue({
 			v: 1,
 			spaceId: "space-123",
@@ -27,6 +54,8 @@ describe("useSpaceConversation", () => {
 
 	afterEach(() => {
 		cleanup();
+		queryClient.clear();
+		notifyManager.setScheduler((callback) => setTimeout(callback, 0));
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
 	});
@@ -36,7 +65,6 @@ describe("useSpaceConversation", () => {
 			(props: { initialAgentStreams: readonly SpaceAgentStreamSnapshot[] }) =>
 				useSpaceConversation({
 					initialAgentStreams: props.initialAgentStreams,
-					liveConnectionEpoch: 0,
 					spaceId: "space-123",
 					openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 				}),
@@ -89,7 +117,6 @@ describe("useSpaceConversation", () => {
 				useSpaceConversation({
 					initialAgentStreamPresences: props.initialAgentStreamPresences,
 					initialAgentStreams: [],
-					liveConnectionEpoch: 0,
 					spaceId: "space-123",
 					openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 				}),
@@ -144,7 +171,6 @@ describe("useSpaceConversation", () => {
 		const { result } = renderHook(() =>
 			useSpaceConversation({
 				initialAgentStreams: [],
-				liveConnectionEpoch: 0,
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 			})
@@ -202,7 +228,6 @@ describe("useSpaceConversation", () => {
 		const { result } = renderHook(() =>
 			useSpaceConversation({
 				initialAgentStreams: [],
-				liveConnectionEpoch: 0,
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 			})
@@ -244,7 +269,6 @@ describe("useSpaceConversation", () => {
 		const { result } = renderHook(() =>
 			useSpaceConversation({
 				initialAgentStreams: [],
-				liveConnectionEpoch: 0,
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 			})
@@ -266,7 +290,7 @@ describe("useSpaceConversation", () => {
 		]);
 	});
 
-	it("clears transient thinking when the live connection is replaced", () => {
+	it("keeps received work on return, isolates viewers, and clears it on revoked access", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(10_000);
 		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
@@ -275,31 +299,51 @@ describe("useSpaceConversation", () => {
 		vi.stubGlobal("cancelAnimationFrame", (handle: number) => {
 			window.clearTimeout(handle);
 		});
-		const { result, rerender } = renderHook(
-			(props: { liveConnectionEpoch: number }) =>
-				useSpaceConversation({
-					initialAgentStreams: [],
-					liveConnectionEpoch: props.liveConnectionEpoch,
-					spaceId: "space-123",
-					openMeldProfileId: "11111111-1111-4111-8111-111111111111",
-				}),
-			{ initialProps: { liveConnectionEpoch: 0 } }
+		const first = renderHook(() =>
+			useSpaceConversation({
+				initialAgentStreams: [],
+				spaceId: "space-123",
+				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
+			})
 		);
 
 		act(() => {
-			result.current.handleAgentStreamFrame(
+			first.result.current.handleAgentStreamFrame(
 				createThinkingDeltaFrame({
 					sequence: 3,
-					thinkingSnapshot: "This belongs to the old socket",
+					thinkingSnapshot: "Already received work",
 				})
 			);
 		});
 		act(() => {
 			vi.runAllTimers();
 		});
-		expect(result.current.agentStreamProjections[0]).toHaveProperty("thinking");
+		expect(first.result.current.agentStreamProjections[0]).toHaveProperty(
+			"thinking"
+		);
+		first.unmount();
+		const otherViewer = renderHook(() =>
+			useSpaceConversation({
+				initialAgentStreams: [],
+				spaceId: "space-123",
+				openMeldProfileId: "other-viewer",
+			})
+		);
+		expect(otherViewer.result.current.agentStreamProjections).toEqual([]);
+		otherViewer.unmount();
+		const { result } = renderHook(() =>
+			useSpaceConversation({
+				initialAgentStreams: [],
+				spaceId: "space-123",
+				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
+			})
+		);
 
-		rerender({ liveConnectionEpoch: 1 });
+		expect(result.current.agentStreamProjections[0]).toHaveProperty(
+			"thinking",
+			"Already received work"
+		);
+		act(() => result.current.clearTransientStreams());
 
 		expect(result.current.agentStreamProjections[0]).not.toHaveProperty(
 			"thinking"

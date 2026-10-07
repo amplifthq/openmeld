@@ -1,12 +1,18 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import type { Profile } from "@openmeld/protocol";
 import type {
   OpenMeldRequestContext,
   OrganizationWeeklyEvalMetrics,
+  ResolvedSpaceMemberProfile,
 } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
+import { readResolvedOrganizationOwnerHumanSpaceMember } from "../center-agent/center-agent-repository";
 import type { CoreBindings } from "../lib/bindings";
-import { identityDb, projectionsDb } from "../lib/bindings";
+
 import { resolveNamedSpaceId } from "../rpc/space-ref";
 import { emitSpaceTextSignalOnceByClientMessageId } from "../rpc/space-signal-emitter";
 import {
@@ -14,24 +20,19 @@ import {
   createOrganizationWeeklyEvalReport,
   readOrganizationWeeklyEvalReport,
 } from "./eval-report-repository";
-
 export const EVAL_WEEKLY_REPORT_CRON = "0 5 * * 1";
-
 // Intentional internal dogfood scope: this report only serves OpenMeld's
 // official Organization work loop, so its destination Space and Organization
 // slug remain fixed until reporting becomes a tenant-configurable product.
 export const QUALITY_SPACE_NAME = "OpenMeld Quality";
-
 const OFFICIAL_ORGANIZATION_SLUG = "openmeld";
 const QUALITY_SPACE_ID_NAMESPACE = "eval-quality-space-v1";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-
 type EvalReportPublisher = {
   organizationId: string;
   profileId: string;
   profileName: string;
 };
-
 export type WeeklyEvalReportRunResult =
   | {
       reason: "official_organization_not_found";
@@ -45,17 +46,15 @@ export type WeeklyEvalReportRunResult =
       spaceId: string;
       status: "published";
     };
-
 export async function runWeeklyEvalReport(input: {
   env: CoreBindings;
   nowMs: number;
 }): Promise<WeeklyEvalReportRunResult> {
-  const identityDatabase = identityDb(input.env);
-  const reportDatabase = projectionsDb(input.env);
+  const identityDatabase = getPostgresDatabase(input.env);
+  const reportDatabase = getPostgresDatabase(input.env);
   if (!(identityDatabase && reportDatabase)) {
     throw new Error("Weekly eval reporting requires the shared Core database");
   }
-
   const publisher =
     await readOfficialOrganizationEvalPublisher(identityDatabase);
   if (!publisher) {
@@ -70,7 +69,6 @@ export async function runWeeklyEvalReport(input: {
       status: "skipped",
     };
   }
-
   const period = resolveCompletedWeeklyEvalPeriod(input.nowMs);
   const previousPeriod = {
     periodEndMs: period.periodStartMs,
@@ -99,8 +97,8 @@ export async function runWeeklyEvalReport(input: {
     organizationId: publisher.organizationId,
     ...previousPeriod,
   });
-
   const { context, profile, spaceId } = await ensureQualitySpace({
+    db: identityDatabase,
     env: input.env,
     publisher,
   });
@@ -130,7 +128,6 @@ export async function runWeeklyEvalReport(input: {
       previousMetrics,
     }),
   });
-
   const result: WeeklyEvalReportRunResult = {
     organizationId: publisher.organizationId,
     periodEndMs: period.periodEndMs,
@@ -147,7 +144,6 @@ export async function runWeeklyEvalReport(input: {
   );
   return result;
 }
-
 export function resolveCompletedWeeklyEvalPeriod(nowMs: number): {
   periodEndMs: number;
   periodStartMs: number;
@@ -167,7 +163,6 @@ export function resolveCompletedWeeklyEvalPeriod(nowMs: number): {
     periodStartMs: periodEndMs - WEEK_MS,
   };
 }
-
 export function formatWeeklyEvalReportMarkdown(input: {
   metrics: OrganizationWeeklyEvalMetrics;
   periodEndMs: number;
@@ -200,50 +195,50 @@ export function formatWeeklyEvalReportMarkdown(input: {
     "- Exact Space-ledger rates currently require one Durable Object call per indexed Space and need a rollup before an Organization exceeds the safe per-invocation fan-out limit.",
   ].join("\n");
 }
-
 async function readOfficialOrganizationEvalPublisher(
-  db: D1Database
+  db: PostgresDatabase
 ): Promise<EvalReportPublisher | null> {
   const organization = await db
-    .prepare(
-      `
+    .query<{
+      id: string;
+    }>({
+      text: `
         SELECT id
-        FROM organizations
-        WHERE slug = ?
+        FROM "openmeld"."organizations"
+        WHERE slug = $1
         LIMIT 1
-      `
-    )
-    .bind(OFFICIAL_ORGANIZATION_SLUG)
-    .first<{ id: string }>();
+      `,
+      values: [OFFICIAL_ORGANIZATION_SLUG],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!organization) {
     return null;
   }
-
   const publisher = await db
-    .prepare(
-      `
+    .query<{
+      organization_id: string;
+      profile_id: string;
+      profile_name: string;
+    }>({
+      text: `
         SELECT
           designation.organization_id,
           profile.profile_id,
           profile.profile_name
-        FROM center_agent_designations AS designation
-        INNER JOIN openmeld_profiles AS profile
+        FROM "openmeld"."center_agent_designations" AS designation
+        INNER JOIN "openmeld"."openmeld_profiles" AS profile
           ON profile.profile_id = designation.agent_profile_id
-        WHERE designation.organization_id = ?
+        WHERE designation.organization_id = $1
           AND profile.organization_id = designation.organization_id
           AND profile.profile_kind = 'agent'
           AND profile.managed_role = 'center_agent'
           AND profile.owner_user_id IS NULL
           AND profile.status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(organization.id)
-    .first<{
-      organization_id: string;
-      profile_id: string;
-      profile_name: string;
-    }>();
+      `,
+      values: [organization.id],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!publisher) {
     throw new Error(
       `Weekly eval reporting could not resolve the official Organization's active Center Agent`
@@ -255,8 +250,8 @@ async function readOfficialOrganizationEvalPublisher(
     profileName: publisher.profile_name,
   };
 }
-
 async function ensureQualitySpace(input: {
+  db: PostgresDatabase;
   env: CoreBindings;
   publisher: EvalReportPublisher;
 }): Promise<{
@@ -286,19 +281,38 @@ async function ensureQualitySpace(input: {
     profileName: input.publisher.profileName,
   };
   const stub = input.env.OPENMELD_SPACES.get(objectId);
-  const meta = await stub.rpcPatchMeta({
-    context,
+  const initializationInput = {
     creator: {
-      kind: "agent",
+      kind: "agent" as const,
       profileId: input.publisher.profileId,
       profileName: input.publisher.profileName,
     },
-    initializeIfAbsent: true,
     name: QUALITY_SPACE_NAME,
     organizationId: input.publisher.organizationId,
     spaceId,
-    visibility: "public",
-  });
+    visibility: "public" as const,
+  };
+  const initialization =
+    await stub.rpcInitializeSpaceMetaWithOwners(initializationInput);
+  const initialized =
+    initialization.status === "owners_required"
+      ? await stub.rpcInitializeSpaceMetaWithOwners({
+          ...initializationInput,
+          owners: await readCurrentOrganizationOwnerMembers({
+            db: input.db,
+            organizationId: input.publisher.organizationId,
+          }),
+        })
+      : initialization;
+  if (initialized.status === "owners_required") {
+    throw new Error(
+      "Weekly eval Quality Space initialization requires organization owners"
+    );
+  }
+  if (initialized.status === "owners_invalid") {
+    throw new Error(initialized.reason);
+  }
+  const meta = initialized.meta;
   if (meta.organizationId !== input.publisher.organizationId) {
     throw new Error(
       `Weekly eval Quality Space ${spaceId} belongs to a different Organization`
@@ -309,26 +323,59 @@ async function ensureQualitySpace(input: {
       `Weekly eval Quality Space ${spaceId} is not named ${QUALITY_SPACE_NAME}`
     );
   }
-
   return { context, profile, spaceId };
 }
-
+async function readCurrentOrganizationOwnerMembers(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+}): Promise<ResolvedSpaceMemberProfile[]> {
+  const ownerRows = await input.db.query<{
+    user_id: string;
+  }>({
+    text: `
+        SELECT user_id
+        FROM "openmeld"."members"
+        WHERE organization_id = $1
+          AND role = 'owner'
+        ORDER BY user_id ASC NULLS FIRST
+      `,
+    values: [input.organizationId],
+  });
+  if (ownerRows.rows.length === 0) {
+    throw new Error(
+      "Weekly eval Quality Space requires a current organization owner"
+    );
+  }
+  const owners = await Promise.all(
+    ownerRows.rows.map(async (row) => {
+      const owner = await readResolvedOrganizationOwnerHumanSpaceMember({
+        db: input.db,
+        organizationId: input.organizationId,
+        ownerUserId: row.user_id,
+      });
+      if (!owner) {
+        throw new Error(
+          "Weekly eval Quality Space owner must have an active Human Profile"
+        );
+      }
+      return owner;
+    })
+  );
+  return owners;
+}
 function buildWeeklyEvalClientMessageId(input: {
   organizationId: string;
   periodStartMs: number;
 }): string {
   return `eval-weekly:${input.organizationId}:${input.periodStartMs}`;
 }
-
 function formatUtcDate(value: number): string {
   return new Date(value).toISOString().slice(0, 10);
 }
-
 function formatRateResult(numerator: number, denominator: number): string {
   const rate = denominator > 0 ? numerator / denominator : 0;
   return `${numerator} / ${denominator} (${(rate * 100).toFixed(1)}%)`;
 }
-
 function formatRateChange(
   current: number,
   previous: number | undefined
@@ -342,7 +389,6 @@ function formatRateChange(
   }
   return `${percentagePoints > 0 ? "+" : ""}${percentagePoints.toFixed(1)} pp`;
 }
-
 function formatCountChange(
   current: number,
   previous: number | undefined

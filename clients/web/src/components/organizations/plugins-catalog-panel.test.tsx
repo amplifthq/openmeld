@@ -1,3 +1,4 @@
+import { PLUGINS } from "@openmeld/product-catalog/plugins";
 import {
 	cleanup,
 	fireEvent,
@@ -12,7 +13,6 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { PLUGINS } from "./plugin-catalog";
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 const GITHUB_LINK_NAME = /GitHub/;
@@ -147,7 +147,7 @@ describe("PluginsCatalogPanel", () => {
 		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
 		expect(catalog.getAttribute("aria-busy")).toBe("true");
 		expect(githubLink.hasAttribute("aria-disabled")).toBe(false);
-		expect(within(githubLink).queryByText("Connected")).toBeNull();
+		expect(within(githubLink).queryByText("Account connected")).toBeNull();
 		expect(
 			within(githubLink).queryByTestId("plugin-connection-status-skeleton")
 		).toBeTruthy();
@@ -175,37 +175,43 @@ describe("PluginsCatalogPanel", () => {
 		const own = screen.getByRole("link", { name: GITHUB_LINK_NAME });
 		const shared = screen.getByRole("link", { name: NOTION_LINK_NAME });
 		expect(
-			await within(scope === "personal" ? own : shared).findByText("Connected")
+			await within(scope === "personal" ? own : shared).findByText(
+				"Account connected"
+			)
 		).toBeTruthy();
 		expect(
-			within(scope === "personal" ? shared : own).queryByText("Connected")
+			within(scope === "personal" ? shared : own).queryByText(
+				"Account connected"
+			)
 		).toBeNull();
 		expect(
 			within(screen.getByRole("link", { name: FIGMA_LINK_NAME })).queryByText(
-				"Connected"
+				"Account connected"
 			)
 		).toBeNull();
 	});
 
-	it("shows Connected only for real Plugin connections", async () => {
+	it("shows Account connected only for real Plugin connections", async () => {
 		renderCatalog();
 
 		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
-		expect(await within(githubLink).findByText("Connected")).toBeTruthy();
+		expect(
+			await within(githubLink).findByText("Account connected")
+		).toBeTruthy();
 		expect(screen.queryByText("Available")).toBeNull();
 		expect(
 			within(
 				screen.getByRole("link", { name: GOOGLE_DRIVE_LINK_NAME })
-			).queryByText("Connected")
+			).queryByText("Account connected")
 		).toBeNull();
 		expect(
 			within(screen.getByRole("link", { name: NOTION_LINK_NAME })).getByText(
-				"Connected"
+				"Account connected"
 			)
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("link", { name: FIGMA_LINK_NAME })).queryByText(
-				"Connected"
+				"Account connected"
 			)
 		).toBeNull();
 		expect(screen.queryByText("Planned")).toBeNull();
@@ -247,7 +253,7 @@ describe("PluginsCatalogPanel", () => {
 			)
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-		expect(screen.queryByText("Connected")).toBeNull();
+		expect(screen.queryByText("Account connected")).toBeNull();
 		expect(screen.queryByText("Available")).toBeNull();
 	});
 });

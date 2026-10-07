@@ -50,12 +50,14 @@ afterEach(() => {
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
-		currentOrganization: { id: "org-test" },
+		currentOrganization: { id: "org-test", slug: "org-test" },
 		currentUserId: "viewer",
 	}),
 }));
 const testPresence = vi.hoisted(() => new Map<string, "online" | "offline">());
+const sidebarPending = vi.hoisted(() => ({ value: false }));
 beforeEach(() => {
+	sidebarPending.value = false;
 	testPresence.clear();
 	testPresence.set("profile-current", "online");
 	testPresence.set("profile-grace", "offline");
@@ -77,6 +79,9 @@ vi.mock("../app/use-sidebar-preferences", () => ({
 		disabled: false,
 		save: vi.fn(),
 		isError: false,
+		get isPending() {
+			return sidebarPending.value;
+		},
 	}),
 }));
 
@@ -203,6 +208,26 @@ vi.mock("./center-agent-item", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
+	it("shows known people while personal sidebar settings are still loading", () => {
+		sidebarPending.value = true;
+		renderWorkspace({
+			members: [
+				buildMember({ current: true }),
+				buildMember({ current: false }),
+			],
+			selectedProfileId: null,
+		});
+		expect(screen.queryByRole("region", { name: "Loading people" })).toBeNull();
+		expect(screen.queryByRole("region", { name: "Loading team" })).toBeNull();
+		const team = within(screen.getByRole("tabpanel"));
+		expect(
+			team.getByRole("button", { name: "Open Felix's profile" })
+		).toBeTruthy();
+		expect(
+			team.getByRole("button", { name: "Open Grace Hopper's profile" })
+		).toBeTruthy();
+	});
+
 	it("uses the same placement and self-first order for Team groups", () => {
 		const self = { ...buildMember({ current: true }), name: "Zoe" };
 		const other = {
@@ -579,7 +604,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
 		).toHaveLength(1);
-		expect(screen.getByRole("main").dataset.showMainHeader).toBe("true");
+		expect(screen.getByRole("main").dataset.showMainHeader).toBe("false");
 	});
 
 	it("keeps a single clipped row structure when the resizable sidebar becomes narrow", () => {
@@ -736,7 +761,11 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Manage Agents" })).toBeTruthy();
 		const agentStrip = screen.getByLabelText("Felix's Agents");
-		expect(agentStrip.className).toContain("overflow-x-auto");
+		expect(
+			agentStrip
+				.closest('[data-slot="scroll-area-viewport"]')
+				?.getAttribute("data-orientation")
+		).toBe("horizontal");
 		expect(agentStrip.className).toContain("flex");
 		expect(
 			within(agentStrip)
@@ -751,8 +780,11 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				?.getAttribute("href")
 		).toBe("/o/acme/agents?profileId=agent-default");
 		expect(
-			within(agentStrip).getAllByText("Codex · GPT-5.6 Sol · model default")
-		).toHaveLength(2);
+			within(agentStrip).getByText("Codex · GPT-5.6 Sol · model default")
+		).toBeTruthy();
+		expect(
+			within(agentStrip).getByText("Codex · Controller default")
+		).toBeTruthy();
 	});
 
 	it("makes Chat with the primary action for another member", () => {
@@ -801,8 +833,42 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			selectedProfileId: "profile-grace",
 		});
 
-		expect(screen.getByText("Loading computers…")).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading computers" })
+		).toBeTruthy();
 		expect(screen.queryByText("No computers connected.")).toBeNull();
+	});
+
+	it.each([
+		{ directoryIsPending: true },
+		{ directoryError: "Team inventory unavailable" },
+	])("does not block the owner's verified Computers on team inventory: %j", (query) => {
+		renderWorkspace(query);
+		expect(screen.getByTestId("profile-computers-picker")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Add a Computer" })).toBeTruthy();
+		expect(
+			screen.queryByRole("status", { name: "Loading computers" })
+		).toBeNull();
+		expect(screen.queryByText("Team inventory unavailable")).toBeNull();
+	});
+
+	it("uses the current Computer projection in details while keeping the display cache", () => {
+		renderWorkspace({
+			strictComputerGroups: [{ ...buildCurrentComputerGroup(), computers: [] }],
+		});
+		expect(screen.getByTestId("profile-computers-picker")).toBeTruthy();
+		expect(screen.queryByText("Felix's MacBook Pro")).toBeNull();
+	});
+
+	it("shows an owner inventory failure with a retry instead of a false empty or Add flow", () => {
+		const onRetryComputers = vi.fn();
+		renderWorkspace({ inventoryError: true, onRetryComputers });
+		expect(screen.getByRole("alert").textContent).toBe(
+			"Your computers could not be loaded."
+		);
+		expect(screen.queryByTestId("profile-computers-picker")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(onRetryComputers).toHaveBeenCalledOnce();
 	});
 
 	it("explains a missing personal Human Profile identity in detail", () => {
@@ -823,7 +889,10 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 
 function renderWorkspace(
 	input: {
+		inventoryError?: boolean;
+		onRetryComputers?: () => void;
 		computerGroups?: readonly OrganizationComputerGroup[];
+		strictComputerGroups?: readonly OrganizationComputerGroup[];
 		currentNotice?: string;
 		directoryError?: string | null;
 		directoryIsPending?: boolean;
@@ -865,7 +934,7 @@ function renderWorkspace(
 			pendingResearch={undefined}
 			profileReportsAreRetrying={false}
 			profileReportsErrorMessage={input.profileReportsErrorMessage ?? null}
-			recovery={buildRecovery()}
+			recovery={buildRecovery(input)}
 			researchErrorMessage={null}
 			selectedProfileId={
 				input.selectedProfileId === undefined
@@ -878,6 +947,7 @@ function renderWorkspace(
 				profiles: "ready",
 				research: "idle",
 			}}
+			strictComputerGroups={input.strictComputerGroups}
 		/>
 	);
 }
@@ -1046,15 +1116,19 @@ function formatTestLocalAgentName(agentId: string): string {
 	}
 }
 
-function buildRecovery(): Parameters<
-	typeof DirectoryHumanProfilesWorkspace
->[0]["recovery"] {
+function buildRecovery(
+	input: { inventoryError?: boolean; onRetryComputers?: () => void } = {}
+): Parameters<typeof DirectoryHumanProfilesWorkspace>[0]["recovery"] {
 	return {
 		currentLocalRuntimeReplyReadinessQuery: {
 			isFetchedAfterMount: true,
 			isFetching: false,
 		},
-		localRuntimesQuery: { isPending: false },
+		localRuntimesQuery: {
+			isPending: false,
+			isError: input.inventoryError ?? false,
+			refetch: input.onRetryComputers,
+		},
 	} as unknown as Parameters<
 		typeof DirectoryHumanProfilesWorkspace
 	>[0]["recovery"];

@@ -48,7 +48,11 @@ describe("api-client Center Agent api", () => {
     );
     expect(transport).toHaveBeenCalledTimes(1);
   });
-  it("reads and updates the Organization model through the canonical route", async () => {
+  it.each([
+    { reasoningLevel: "high" as const },
+    { reasoningLevel: null },
+    {},
+  ])("reads and updates the Organization model with reasoning %j", async (reasoning) => {
     const modelConfiguration = {
       canManage: true,
       choices: [
@@ -117,6 +121,7 @@ describe("api-client Center Agent api", () => {
           kind: "selected_model",
           modelId: "deepseek/deepseek-v4-flash",
         },
+        ...reasoning,
         requestContext: REQUEST_CONTEXT,
       })
     ).resolves.toMatchObject({
@@ -142,6 +147,7 @@ describe("api-client Center Agent api", () => {
               kind: "selected_model",
               modelId: "deepseek/deepseek-v4-flash",
             },
+            ...reasoning,
           }),
           method: "PUT",
         }),
@@ -149,6 +155,28 @@ describe("api-client Center Agent api", () => {
         url: "https://gateway.openmeld.invalid/v1/organizations/current/center-agent/model",
       })
     );
+  });
+
+  it("rejects an invalid model reasoning effort before sending", async () => {
+    const transport = vi.fn();
+    const api = createCenterAgentApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    await expect(
+      api.updateModel({
+        expectedConfigurationRevision: 3,
+        preference: {
+          kind: "selected_model",
+          modelId: "openai/gpt-6.1-sol-pro",
+        },
+        // @ts-expect-error Runtime callers must also respect the shared contract.
+        reasoningLevel: "unsupported",
+      })
+    ).rejects.toThrow();
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it("reads Remote Agent runtime availability from Center Agent designation responses", async () => {

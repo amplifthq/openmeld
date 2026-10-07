@@ -76,6 +76,24 @@ function buildHostedPreflightFixture(extraControlScripts = []) {
     ),
     "#!/usr/bin/env node\nprocess.exit(0);\n"
   );
+  writeFileSync(
+    path.join(
+      repository,
+      "scripts",
+      "release",
+      "production-stage-admission.mjs"
+    ),
+    "#!/usr/bin/env node\nprocess.exit(0);\n"
+  );
+  writeFileSync(
+    path.join(
+      repository,
+      "scripts",
+      "release",
+      "production-train-artifact-admission.mjs"
+    ),
+    "#!/usr/bin/env node\nprocess.exit(0);\n"
+  );
   for (const script of extraControlScripts) {
     writeFileSync(path.join(repository, script.path), script.content);
   }
@@ -93,13 +111,20 @@ function buildHostedPreflightFixture(extraControlScripts = []) {
 }
 
 test("current control preflights a historical release source that predates the control", async () => {
-  const fixture = buildHostedPreflightFixture();
+  const fixture = buildHostedPreflightFixture([
+    {
+      path: "scripts/release/cli-skill-check.mjs",
+      content:
+        'import { readFileSync } from "node:fs"; if (readFileSync("product.txt", "utf8") !== "historical product\\n") process.exit(94);\n',
+    },
+  ]);
   try {
     await runHostedProductionPreflight({
       controlRoot: fixture.controlRoot,
       releaseSha: fixture.releaseSha,
       releaseSource: fixture.releaseSource,
       scope: "web",
+      adapters: { admitWebsiteDomainRelease: async () => null },
     });
 
     const historicalControlProbe = spawnSync(
@@ -123,6 +148,37 @@ test("current control preflights a historical release source that predates the c
       ),
       false
     );
+  } finally {
+    fixture.remove();
+  }
+});
+
+test("a Skill verification failure stops hosted Web preflight before later steps", async () => {
+  const fixture = buildHostedPreflightFixture();
+  const steps = [];
+  try {
+    await assert.rejects(
+      runHostedProductionPreflight({
+        controlRoot: fixture.controlRoot,
+        releaseSha: fixture.releaseSha,
+        releaseSource: fixture.releaseSource,
+        scope: "web",
+        adapters: {
+          runControlStep: (step) => {
+            steps.push(step.label);
+            if (step.label === "Verify signed CLI Skill content") {
+              throw new Error("signed revision mismatch");
+            }
+          },
+        },
+      }),
+      { message: "signed revision mismatch" }
+    );
+    assert.deepEqual(steps, [
+      "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
+      "Verify signed CLI Skill content",
+    ]);
   } finally {
     fixture.remove();
   }
@@ -157,6 +213,7 @@ test("hosted Core preflight runs the CLI channel compatibility gate through trus
       releaseSha: fixture.releaseSha,
       releaseSource: fixture.releaseSource,
       scope: "core",
+      adapters: { admitWebsiteDomainRelease: async () => null },
     });
 
     assert.equal(existsSync(channelGateMarker), true);

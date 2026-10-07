@@ -137,10 +137,14 @@ export function resolveCodexExecutionContextAccess(
   boundary: AdapterComputerFileAccessBoundary,
   executionMode?: AdapterDispatchExecutionMode
 ): AdapterComputerFileAccessBoundary["executionContextAccess"] {
-  return executionMode === "repair" &&
-    boundary.executionContextAccess === "workspace"
+  const access =
+    boundary.executionContextAccess === "space_context" &&
+    boundary.workingCopyId
+      ? "workspace"
+      : boundary.executionContextAccess;
+  return executionMode === "repair" && access === "workspace"
     ? "read_only"
-    : boundary.executionContextAccess;
+    : access;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -181,6 +185,24 @@ function resolveFileAccess(input: {
     if (input.boundary.mode !== "only_selected_folders") {
       throw new Error("execution_context.file_access_unverified");
     }
+    if (
+      input.boundary.gitMetadata &&
+      !Object.values(input.boundary.gitMetadata).every(
+        (path) =>
+          isAbsolute(path) &&
+          input.boundary.folders.some((root) => {
+            const child = relative(root, path);
+            return (
+              child === "" ||
+              (!isAbsolute(child) &&
+                child !== ".." &&
+                !child.startsWith(`..${sep}`))
+            );
+          })
+      )
+    ) {
+      throw new Error("execution_context.file_access_unverified");
+    }
     return {
       extendsProfile: null,
       filesystemEntries: [
@@ -195,6 +217,19 @@ function resolveFileAccess(input: {
             ? "write"
             : "read"
         ),
+        // Protect executable hook files and routing, while ordinary Git
+        // configuration remains writable for push -u, identity and installers.
+        ...(input.boundary.gitMetadata
+          ? buildFolderEntries(
+              [
+                input.boundary.gitMetadata.hooksPath,
+                input.boundary.gitMetadata.worktreeGitPointerPath,
+                input.boundary.gitMetadata.commonDirectoryPointerPath,
+                input.boundary.gitMetadata.gitDirectoryPointerPath,
+              ],
+              "read"
+            )
+          : []),
       ],
       fullNetwork: !isRepair && input.permissionMode === "codex:fullAccess",
     };
@@ -260,7 +295,7 @@ function buildApprovalArgs(input: {
   permissionMode: CodexPermissionMode;
 }): string[] {
   if (input.executionMode === "repair") {
-    return ["-a", "untrusted"];
+    return ["-a", "on-request", "-c", 'approvals_reviewer="user"'];
   }
   if (input.permissionMode === "codex:fullAccess") {
     return ["-a", "never"];
@@ -268,7 +303,9 @@ function buildApprovalArgs(input: {
   if (input.permissionMode === "codex:approveForMe") {
     return ["-a", "on-request", "-c", 'approvals_reviewer="auto_review"'];
   }
-  return ["-a", "untrusted"];
+  // Match native App Server Ask for approval. Explicit `untrusted` is no
+  // longer a supported CLI policy; never inherit an auto-reviewer here.
+  return ["-a", "on-request", "-c", 'approvals_reviewer="user"'];
 }
 
 function resolveCodexPermissionMode(value: unknown): CodexPermissionMode {
@@ -285,3 +322,5 @@ function resolveCodexPermissionMode(value: unknown): CodexPermissionMode {
 function tomlString(value: string): string {
   return JSON.stringify(value);
 }
+
+import { isAbsolute, relative, sep } from "node:path";

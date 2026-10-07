@@ -80,3 +80,10 @@ function normalizePositiveNumber(
 
 // biome-ignore lint/performance/noBarrelFile: Public shared utility package entrypoint.
 export { digestCanonicalJson, stringifyCanonicalJson } from "./canonical-json";
+export {
+  type DisplayImageDimensions,
+  IMAGE_METADATA_MAX_BYTES,
+  IMAGE_METADATA_MAX_READS,
+  type ImageByteSource,
+  readDisplayImageDimensions,
+} from "./image-dimensions";

@@ -13,12 +13,62 @@ import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { SpaceComposer } from "./space-composer";
 import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
+import { SpaceComposerTaskMenu } from "./space-composer-task-menu";
 import {
 	SpaceWakeRecommendationScope,
 	useSpaceWakeRecommendation,
 } from "./space-wake-recommendation";
 
 afterEach(cleanup);
+
+it.each([
+	{
+		choice: "New task",
+		label: "New task",
+		supportsCurrentFolder: true,
+		selection: { mode: "new" },
+	},
+	{
+		choice: "New task",
+		label: "New task",
+		supportsCurrentFolder: false,
+		selection: { mode: "new" },
+	},
+	{
+		choice: "Isolated project worktree",
+		label: "Isolated project task",
+		supportsCurrentFolder: false,
+		selection: { mode: "new", access: "workspace", workspace: "isolated" },
+	},
+	{
+		choice: "Space context only",
+		label: "New Space-only task",
+		supportsCurrentFolder: false,
+		selection: { mode: "new", access: "space_context", workspace: "isolated" },
+	},
+] as const)("makes $choice explicit in the Task menu", async (input) => {
+	const onChange = vi.fn();
+	render(
+		<SpaceComposerTaskMenu
+			disabled={false}
+			onChange={onChange}
+			requiresProjectContainer={true}
+			sources={[]}
+			supportsCurrentFolder={input.supportsCurrentFolder}
+			targetProfileId="agent"
+		/>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Task context" }));
+	if (input.choice !== "New task") {
+		fireEvent.click(await screen.findByText("Limit task access"));
+	}
+	fireEvent.click(await screen.findByText(input.choice));
+	expect(onChange).toHaveBeenCalledWith({
+		label: input.label,
+		selection: input.selection,
+		targetProfileId: "agent",
+	});
+});
 
 describe("SpaceComposer sending focus", () => {
 	it.each([

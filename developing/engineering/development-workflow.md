@@ -21,6 +21,14 @@
   end-to-end candidate, merge, release, health, smoke, evidence, and recovery
   lifecycle is owned by `agent-native-delivery.md`.
 
+## Storage and migration references
+
+Production shared relational storage is PostgreSQL. Numeric migration references
+from the original D1 rollout describe historical schema dependencies already
+absorbed into the native baseline; they are not D1 commands to run now. New
+changes use the native journal and scoped database release in the
+[PostgreSQL workflow](postgresql.md). Receiver-first service and client compatibility requirements still apply.
+
 ## Boundary
 
 This document defines how contributors prove changes safely.
@@ -84,7 +92,7 @@ the correct owner document. Do not migrate raw logs or long historical notes.
   or an agreed sequence before either lane edits the overlap; a newly discovered
   intersection stops only the overlapping work until ownership is resolved.
 - Resolve concurrent changes to shared registry-style files, including existing
-  schema export entrypoints, `packages/db/drizzle/meta/_journal.json`, and
+  schema export entrypoints, `packages/db/postgresql/migrations/meta/_journal.json`, and
   `developing/*.md`, as an additive semantic union. Preserve independent entries
   and rules from every lane, adjudicate genuine semantic contradictions through
   the owner document, and never take one side wholesale or drop unrelated
@@ -125,43 +133,36 @@ environment callback, or no coordination best fits the actual work.
   next action. Ordinary evidence and status facts can be sent without Wake.
   The Center Agent can summarize or connect organization context when that adds
   value; it is not a merge authority or a required relay.
-- Treat OpenMeld friction as product evidence. Record every firsthand problem
-  in any OpenMeld product surface, App, client, Service, runtime, integration,
-  Wake, CI/CD, OpenCode Worker, or collaboration path through
+- Report eligible problems from released, supported OpenMeld product use through
   [Agent Experience Occurrence Feedback](agent-native-delivery.md#agent-experience-occurrence-feedback)
-  without searching for or suppressing duplicates.
+  under its production-use and occurrence rules. An Agent doing development
+  can encounter a released product defect; findings confined to unreleased
+  work or internal development tooling stay in the owning task, PR, or issue.
   For ordinary development coordination, an authorized native fallback may
-  keep delivery moving after the failure is recorded. When Wake itself is the
-  product behavior under smoke, only the visible product path proves success.
+  keep delivery moving. When Wake itself is the product behavior under smoke,
+  only the visible product path proves success.
 
 ### Delivery Pipeline
 
 - Follow `developing/engineering/agent-native-delivery.md` from final-candidate
   validation through merge, release, health, smoke, and evidence. This document
   owns the local lanes and test-selection details used inside that lifecycle.
-- A release has two implementation stages: run `pnpm run release:preflight` for
-  the aggregate read-only readiness report, then use the guarded execution
-  entrypoint selected by `developing/engineering/production-release.md`. The
-  aggregate command does not replace the scope-specific
-  `release:preflight:local` deployment gate.
-- Hotfixes use the same pipeline. Speed comes from exposing every prerequisite
-  in one preflight, not from skipping a gate.
+- Use the guarded execution entrypoint selected by
+  `developing/engineering/production-release.md`. It runs the checks for the
+  selected scope before publication. Run `release:preflight:local` only when a
+  separate, read-only local go/no-go result is useful; the subsequent deploy
+  repeats the required admission checks.
+- Hotfixes use the same guarded entrypoint. Choose focused development checks
+  by risk; do not add a whole-train check to a scoped release.
 - `main` is PR-only. Release branches pass the exact Final Candidate contract
   and merge through a PR before their approved `main` commit becomes a release
-  source. The preflight reports this repository policy; it does not claim to
-  verify GitHub Ruleset settings.
-- For a coordinated release that includes migrations, local components, and
-  dependent Workers, the single order is migration, CLI/Service channel,
-  scoped Worker verify/deploy, then real-user smoke. Release only what changed:
-  a Worker-only or Web-only release does not publish CLI/Service merely to
-  manufacture this sequence.
+  source.
 
 ### Resource Discipline
 
 For a new worktree, use Node from `.nvmrc`, pnpm from `packageManager`, and
 `pnpm install --frozen-lockfile`. Run `pnpm dev:doctor`, then
-`pnpm dev:worktree`. Once its readiness message appears, run
-`pnpm dev:web:worktree` in a second terminal **in the same worktree**. Use the
+`pnpm dev:postgresql` to start the complete Web/Worker stack. Use the
 printed lane-specific URL. Docker is needed only for
 `pnpm dev:worktree:sandbox`. `pnpm check` checks installed dependencies; it no
 longer installs them implicitly. Install again after a lockfile change.
@@ -178,11 +179,31 @@ this admission policy. Keep those focused and inspect machine facts first.
 Hosted GitHub jobs retain their independent runner limits.
 
 Startup budgets are estimates: 6 GiB for a Worker stack, 2 GiB for Web and
-2 GiB for broad verification. Admission keeps 15% of effective machine memory
-(at least 1 GiB) as headroom and accounts for reservations that have not yet
-materialized as resident memory. macOS also blocks new work while the OS
-reports memory pressure. These checks reduce overlapping peaks; they are not
-OS-enforced memory caps and cannot prevent another application from growing.
+2 GiB for broad verification. Admission keeps 10% of effective memory on macOS,
+where critical OS memory pressure blocks new work. Other platforms keep 15%; all platforms keep at least 1 GiB and
+account for reservations that have not yet materialized as resident memory.
+These checks reduce overlapping peaks; they are not OS-enforced memory caps and
+cannot prevent another application from growing.
+
+On macOS, warning pressure is distinct from critical pressure. Broad builds
+still wait for normal pressure. Worker and Web starts, plus Desktop starts with
+a reusable prepared bundle, may proceed at warning only after 30 continuous
+seconds without an increase in `vm_stat` swapouts, and only if the unchanged
+memory budget fits. Missing counters,
+counter resets, critical pressure, or a sampling gap over five seconds restart
+the observation. The 30-second window is a conservative local policy, not an
+Apple capacity guarantee; a quiet swap counter does not mean RAM is unused.
+The existing shared registry serializes admission: a starting Worker stack must
+report ready, and at least 30 seconds must pass after the preceding live
+reservation before more work starts at warning. Each next component samples
+again; worsening pressure pauses subsequent admission, never kills running work.
+Normal-pressure behavior and Windows/Linux budget checks are unchanged.
+
+Pressure levels follow [Apple's memory-pressure notifications](https://github.com/apple-oss-distributions/xnu/blob/main/doc/vm/memorystatus_notify.md).
+Use current swap activity rather than the historical amount of swap in use;
+[Activity Monitor](https://support.apple.com/guide/activity-monitor/view-memory-usage-actmntr1004/mac)
+also considers swap rate when describing pressure. Waiting output identifies
+the pressure level, observation/readiness condition and memory budget.
 
 After the Worker stack's existing readiness probes pass, its reservation keeps
 growth room of 25% of current process-tree RSS (at least 1 GiB), instead of
@@ -193,6 +214,16 @@ budget because compilation is request-driven. Restart owned environments with
 the updated launchers to benefit; never rewrite another task's reservation.
 Waiting messages show available memory, machine headroom, new startup budget,
 and existing growth reservations separately.
+
+Desktop development uses the same resource registry, not a second scheduler.
+`pnpm desktop:dev` reserves heavy capacity only while preparing the native build,
+then releases it and reserves the `desktop` memory class (default 1 GiB) for the
+GUI. Actual process RSS is included in the machine snapshot. The existing pressure
+and headroom guards still apply; `OPENMELD_LOCAL_DESKTOP_GIB` is an explicit measured
+workload tuning option, not a way to make memory appear free. Run `desktop:doctor`,
+`desktop:status` or `desktop:stop` in the owning worktree. See
+[Desktop development lanes](../clients/desktop.md#development-lanes) for the complete
+command contract. Repeated starts do not duplicate a GUI or rebuild underneath it.
 
 `pnpm dev:status` reports process trees, summed RSS and machine memory
 separately from disk space. RSS can count shared pages more than once. macOS
@@ -258,6 +289,10 @@ hot reload and two-lane isolation still require a real development smoke.
   environment: uninstall its Service and maintenance worker, stop its dev stack,
   then remove only its isolated OpenMeld home and Wrangler data. Do not remove
   directories while a supervisor or owned execution can still use them.
+  Before stopping or deleting anything, cleanup refuses registered worktrees
+  within a disposable lane directory. Parent worktree removal also refuses any
+  registered descendant, including ignored directories. Resolve each child's
+  ownership separately; cleanup never removes or archives it on the parent's behalf.
 - After merge and completion of acceptance/release dependencies, remove a
   task-created temporary worktree from a retained checkout with
   `pnpm dev:clean -- --worktree /absolute/worktree/path --remove-worktree`.
@@ -313,60 +348,25 @@ Do not substitute a Production binary with hand-written endpoint overrides.
 
 ## Local Worker Persistence
 
-The local Worker stack must use one shared Miniflare persistence root at the
-repository root:
+Use `pnpm dev:postgresql` for the current full local product. The Dev Supervisor
+owns a PostgreSQL 18 cluster and aligned Web/Worker processes for this worktree.
+Its synthetic relational data persists across normal stops; `pnpm dev:stop`
+stops only that stack. See the [PostgreSQL workflow](postgresql.md#tools-and-local-development)
+for connection injection, disposable clusters and D1 capture rehearsal.
 
-```text
-.wrangler-dev-state/
-```
+Auth and Core use the same worktree PostgreSQL database. Durable Object SQLite,
+R2 emulation and other Miniflare state retain the worktree's isolated Wrangler
+persistence root. They are separate owners, not copies of relational tables.
+Do not start package-local Workers against guessed state or connection paths.
 
-Auth and Core share one physical local D1 database. Root `pnpm dev` starts them
-through the Auth package `dev` script with one multi-config Wrangler command:
-`wrangler dev -c ./wrangler.jsonc -c ../core/wrangler.jsonc --persist-to
-../../.wrangler-dev-state`. Keep Auth first so `http://localhost:8788` remains
-the exposed local Auth URL. Core runs as an auxiliary Worker in the same
-Miniflare instance and is reached through service bindings; do not require
-`http://localhost:8787` as a normal dev-lane readiness proof.
-
-Gateway still runs in its own package `dev` process because it owns the public
-local Gateway URL and has no D1 binding. Its service bindings must connect to
-the Auth/Core multi-worker process. Do not start Auth and Core as two
-independent `wrangler dev --persist-to ../../.wrangler-dev-state` processes:
-that creates two Miniflare D1DatabaseObject owners for the same SQLite files and
-can surface as local D1 `internal error` failures.
-
-Do not start these services with bare `wrangler dev` from inside an individual
-service directory for normal dev-lane validation: Miniflare's default
-`.wrangler/state` would create one physical SQLite copy per service, even when
-the Worker D1 bindings all point at the same `database_id`.
-
-Shared-DB tooling shares this same root. `pnpm db:migrate:dev`,
-`pnpm db:verify:dev`, and `pnpm db:inspect:dev` resolve their local sqlite
-through `.wrangler-dev-state` (migration apply runs with
-`--persist-to ../../.wrangler-dev-state`), so migrations land in the exact
-database the dev Worker reads. Do not point tooling at a service-local
-`.wrangler/state`: that reintroduces the split where `db:migrate:dev` reports
-`applied` while the dev Worker still fails with `D1_ERROR: no such column`. The
-root is the single source in `getSharedLocalDevWranglerStateDirectoryPath` and a
-db test pins every worker `--persist-to` to it. On the `local` worker
-environment Core also warns once per isolate when the applied `d1_migrations` id
-is behind the built-in migration history.
-
-The root `pnpm dev` guard must verify the database that the local Workers will
-actually open, not only compare committed migration source. After the source
-check, it runs the shared physical verification against every discovered local
-worker target and reads the maximum applied `d1_migrations.id`. A target behind
-the built-in migration history is migrated and verified again before any dev
-service starts. If the applied migration cannot be read, applied, or verified,
-startup stops with the database error instead of launching a predictably broken
-stack.
-
-This shared root is local machine state and must stay ignored by git. If a
-service-local split state has to be repaired, seed the shared D1 state from the
-service copy that owns the current Auth users, sessions, organizations, members,
-and profiles. Treat stale service-local Core Durable Object state as disposable
-dev state; Spaces and Prepare/Runtime local objects can be rebuilt after the
-stack restarts.
+`pnpm dev`, `pnpm dev:worktree`, and the explicit `pnpm dev:postgresql` alias
+start the same PostgreSQL supervisor. Low-level isolated launchers also use
+PostgreSQL. The historical D1 fixture scripts do not prepare a current product
+database.
+Do not repair current PostgreSQL startup by seeding a historical Miniflare D1
+file or resetting another worktree's state. Use the current supervisor and the
+native migration/acceptance owner; preserve the affected lane when diagnosing
+startup failures.
 
 ## Parallel Worktree Dev Lanes
 
@@ -376,37 +376,42 @@ commands when multiple worktrees need live localhost stacks at the same time:
 | Command | Use |
 | --- | --- |
 | `pnpm dev:doctor` | Check the shared Doppler development environment without printing values. Run this first on a new computer or when startup fails. |
-| `pnpm dev:worktree` | Preferred start command. Reserve a stable worktree-specific port block and start Auth/Core, Gateway, and Remote Agent with shared Doppler values. Remote Agent Sandbox tools are disabled, so Docker is not required. |
-| `pnpm dev:web:worktree` | Start Web in a second terminal and attach it to the live Worker stack from the same worktree. |
-| `pnpm dev:seed` | Create or refresh shared fictional product fixtures in this worktree's running isolated lane. See [fixture scenarios and ownership](../../scripts/dev/sidebar-fixtures.md). |
-| `pnpm dev:account` | Prepare or retrieve a local test email and simple password for normal browser sign-in. `--new` creates another account; subsequent seeds use it. See [local test accounts](../../scripts/dev/sidebar-fixtures.md#prepare-a-login-without-sample-data). |
-| `pnpm dev:worktree:sandbox` | Start the same Doppler-backed Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
-| `pnpm dev` | Start the exclusive fixed-port Worker stack for the current worktree. DevGuard blocks before Turbo if another worktree owns a required port and does not stop that owner. |
-| `pnpm dev:web` | Start Web on the fixed-port lane after `pnpm dev` is ready. |
-| `pnpm dev:isolated` | Legacy low-level isolated stack for checkouts that still use local environment files. |
-| `pnpm dev:isolated:no-sandbox` | Legacy Docker-free isolated stack for checkouts that still use local environment files. |
-| `pnpm dev:isolated --test-scheduled` | Legacy isolated stack that also prints its loopback-only Routine scheduler trigger. |
+| `pnpm dev:postgresql` | Preferred current-product command. Start the isolated PostgreSQL database, Web and Workers with shared Doppler values. Remote Agent Sandbox tools are disabled, so Docker is not required. |
+| `pnpm dev:web:worktree` | Separate Web launcher when needed; `dev:postgresql` already starts Web. |
+| `pnpm dev:seed` | Historical D1 fixture helper; does not support the PostgreSQL product lane. See [fixture scope](../../scripts/dev/sidebar-fixtures.md). |
+| `pnpm dev:account` | Historical D1 account helper; use normal local product sign-up for PostgreSQL smoke. |
+| `pnpm dev:worktree:sandbox` | Start the PostgreSQL Web/Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
+| `pnpm dev` / `pnpm dev:worktree` | Start the current PostgreSQL product through the same isolated supervisor. |
+| `pnpm dev:web` | Legacy fixed-port Web launcher; keep its Worker and database lane aligned. |
+| `pnpm dev:isolated` | Low-level PostgreSQL isolated stack for checkouts that still use local environment files. |
+| `pnpm dev:isolated:no-sandbox` | Low-level Docker-free PostgreSQL isolated stack for checkouts that still use local environment files. |
+| `pnpm dev:isolated --test-scheduled` | PostgreSQL isolated stack that also prints its loopback-only Routine scheduler trigger. |
 | `pnpm dev:web:isolated` | Legacy low-level Web attachment for checkouts that still use local environment files. |
 
-For isolated Plugin UI acceptance, `OPENMELD_DEV_PLUGIN_FIXTURE_URL` can point
-Gateway at a compatible local provider simulator. It accepts only an
-`http://127.0.0.1` origin and uses the fixed non-secret `local-plugin-fixture`
-token, never the real OpenConnector administration credential. Keep simulator
-state disposable and make simulated authorization explicit. This option does
-not simulate Remote Agent tool execution or establish a real provider connection.
+For isolated Plugin acceptance, set `OPENMELD_DEV_PLUGIN_FIXTURE_URL` in the
+same worktree lane to a compatible disposable provider simulator. The launcher
+routes both Gateway and Remote Agent to that exact `http://127.0.0.1` origin,
+with the non-secret `local-plugin-fixture` administration/runtime token in both
+build/child environments and explicit Wrangler runtime overrides. A present but
+empty, non-loopback or non-origin value stops startup; it never falls back to
+production. An absent switch preserves ordinary approved development behavior.
 
-For normal localhost development, use two terminals in the same worktree:
+The simulator must implement the API/runtime actions being tested; the switch
+only isolates connector routing, not the model gateway or all external network
+access. Check the running Gateway and Remote Agent settings before any Plugin
+action, keep simulator state disposable and label simulated authorization as
+such. This does not establish a real provider connection or replace approved
+GitHub/Slack/Feishu/Lark resources for actual end-to-end acceptance.
+
+For normal localhost development, start the complete product in this worktree:
 
 ```bash
-# Terminal 1
-pnpm dev:worktree
-
-# Terminal 2, after the Worker stack is ready
-# Optional: prepare a test login and representative product data
-pnpm dev:account
-pnpm dev:seed
-pnpm dev:web:worktree
+pnpm dev:doctor
+pnpm dev:postgresql
 ```
+
+Use the normal local product UI for synthetic accounts and test data. Historical
+D1 seed/account helpers do not support this PostgreSQL lane.
 
 The first Web page load can take about one minute while Web and Cloudflare
 compile. Keep the page open; later loads should be fast. This message is also
@@ -414,21 +419,59 @@ printed by the launcher so a newcomer does not mistake first compilation for a
 failed start.
 
 For real CLI/Service Setup smoke, run `pnpm cli:binary:serve:worktree` in the same
-worktree and use the Web-generated lane command. On macOS, when testing real
+worktree and use the Web-generated lane command. The CLI resolves its default
+OAuth client from the active lane:
+`dev-local` uses `openmeld-cli-dev`, matching the Web-issued grant; production
+and canary use `openmeld-cli`. Explicit CLI/client environment overrides retain
+precedence. The packaged binary and source entry use the same resolver.
+On macOS, when testing real
 Keychain access across CLI and Service copies, an already provisioned signing
 identity can be selected with `OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY`.
 The binary server signs with the normal release entitlements, verifies the
 signature, then computes the served checksum. Without this option it retains
 the normal ad-hoc development build. This is local test packaging, not a release
 or notarization; never replace production binaries or credentials to run it.
+Ad-hoc signatures identify the exact build by its code hash. Copying identical
+bytes into the Service carrier preserves that identity; rebuilding the binary
+does not. A rebuilt ad-hoc CLI can therefore receive Keychain access denied
+(`OSStatus -25293`) for a previous build's saved sign-in while that previous
+build still works. This is not evidence that the account expired, nor a reason
+to keep retrying. Use normal setup or login through the current packaged build
+in the isolated lane to issue a new credential. Do not copy tokens, edit Keychain
+ACLs, force private-file storage, or use release signing credentials to bypass
+this boundary. If the lane's normal login entry is unavailable, retain the
+existing login and report authentication smoke as blocked. Cross-version
+credential continuity for a signed release requires a separate test with an
+authorized stable signing identity; ad-hoc rebuilds cannot certify it.
 The isolated Web launcher uses this worktree's reserved binary-server port.
 It must never download another worktree's build from the shared fixed-port
 server. Restart the binary server after changing CLI source; `dev:stop` includes
 that server. `cli:binary:serve` without the worktree suffix remains the fixed-port
 development entry only.
 
+### Local macOS CLI/Service sign-in
+
+The Device Authorization client defaults to `openmeld-cli-dev` in `dev-local`,
+including when Web Setup launches the packaged binary instead of the
+`openmeld-dev` entry. Explicit CLI and `OPENMELD_AUTH_CLIENT_ID` settings retain
+their existing precedence. Production and canary defaults remain `openmeld-cli`.
+
+New sign-ins automatically use the existing private-file token store when
+`dev-local` has an explicit isolated `OPENMELD_HOME` and both Auth and Gateway
+use loopback URLs. No extra setup flag is needed. Credentials are unencrypted,
+protected by directory `0700` / file `0600` permissions; use test accounts only.
+CLI rebuilds and Service restarts reuse the same login. Existing Keychain
+sessions are not migrated: sign in normally once with the current build.
+
+For real-Keychain acceptance, set `OPENMELD_DEV_CREDENTIAL_STORE=system` on the
+setup/login command and use a separate fresh Home. Check that the saved
+`tokenRef.provider` is `macos-keychain`; disabling the development mode does not
+convert an existing file credential. Production, canary, remote endpoints,
+default user-state directories and other operating systems retain their normal
+storage behavior. This mode does not change provider credentials or permissions.
+
 For a localhost Routine smoke, start the Worker stack with
-`pnpm dev:worktree -- --test-scheduled`, create an enabled Routine through Web,
+`pnpm dev:postgresql -- --test-scheduled`, create an enabled Routine through Web,
 then run the printed command to trigger one Core minute-scheduler tick:
 
 ```bash
@@ -439,7 +482,7 @@ The route exists only when the Gateway is running with
 `OPENMELD_WORKER_ENVIRONMENT=local` and Wrangler identifies a direct loopback
 client. Forwarded tunnel traffic and deployed Workers receive `404`. Gateway
 calls Core through the existing Service Binding, so Auth and Core keep their
-normal single Wrangler process and one local D1 owner. The trigger runs the same
+normal single Wrangler process and one local PostgreSQL owner. The trigger runs the same
 Core scheduler used by the minute Cron; it does not create or edit Routine or
 Run rows itself.
 Validate the resulting Run and final Space reply through Web; do not create or
@@ -450,7 +493,7 @@ instead of editing `wrangler.jsonc`:
 
 ```bash
 OPENMELD_SLACK_OAUTH_REDIRECT_URL="https://<current-tunnel-host>/slack/oauth/callback" \
-  pnpm dev:worktree -- --test-scheduled
+  pnpm dev:postgresql -- --test-scheduled
 ```
 
 Configure that exact callback, plus `/slack/events` and `/slack/interactive`,
@@ -473,15 +516,14 @@ the event and card callback routes before the connection can become connected.
 This setting does not change staging or production configuration.
 
 A Git worktree does not copy ignored local secret files. The preferred shared
-environment path is `pnpm dev:doctor`, followed by `pnpm dev:worktree` and
-`pnpm dev:web:worktree`. The runner supplies the same authorized Doppler `dev`
+environment path is `pnpm dev:doctor`, followed by `pnpm dev:postgresql`. The runner supplies the same authorized Doppler `dev`
 configs to every worktree without copying files. Legacy package-local
 `.dev.vars` files remain supported by the low-level commands during the
 migration, but the Doppler runner fails if one would shadow its process
 environment. Secret ownership, safety, and onboarding are defined in
 `developing/engineering/environment-and-secrets.md`.
 
-Both isolated stack commands print the lane ID, actual local URLs,
+The isolated stack commands print the lane ID, actual local URLs,
 persistence root, and effective `OPENMELD_HOME`. Do not assume the fixed
 3000/8080/8788/8790 ports in an isolated lane. Use the printed URLs.
 `pnpm dev:web:worktree` fails closed unless the same worktree has a live
@@ -516,7 +558,7 @@ through the lane-specific `openmeld service status` output. A machine-wide
 dev-local Services at the same time and is not evidence of multiple owners in
 one lane.
 
-Agents should use `pnpm dev:worktree` by default when the touched
+Agents should use `pnpm dev:postgresql` by default when the touched
 scope is limited to Research, Browser Run, stateless Code Mode, model execution,
 or ordinary OpenMeld product tools. This launcher passes
 `--enable-containers=false` only to Remote Agent Wrangler and selects the
@@ -565,7 +607,7 @@ skips a port block already owned by an unrelated process. Starting an isolated
 lane does not bypass the normal Node, shared-DB migration, build, or readiness
 guards.
 
-Isolated D1, Durable Object, and local OpenMeld state intentionally do not share
+Isolated PostgreSQL, Durable Object, and local OpenMeld state intentionally do not share
 accounts or application data with the fixed-port lane or another worktree. Seed
 or create the test data needed by that lane through normal local development
 flows. Use isolated lanes for parallel agent validation; keep `pnpm dev` as the
@@ -604,8 +646,14 @@ The pilot requires an existing Worker lane and the CLI installed through its
 normal Web setup. Its launcher reuses `readCurrentIsolatedDevLane` and
 `buildIsolatedDevEnvironment`; it does not maintain another port map or registry.
 It requires `<OPENMELD_HOME>/bin/openmeld` to be executable and resolve within
-the lane home, and isolates Electron data under `desktop/user-data` there before
-authentication storage initializes.
+the lane home. On macOS, the normal source and Private package pilot launchers
+use Chromium's mock Keychain before authentication storage initializes and keep
+its lower-protection test credentials under the stable lane-owned
+`desktop/mock-keychain-user-data` directory. The first launch after switching to
+this directory needs one test login; later builds and restarts reuse it. Do not
+store production credentials in this test profile. Installed production,
+staging, and disposable acceptance builds keep the real system Keychain. Use
+`pnpm desktop:package:acceptance` for explicit real-Keychain acceptance.
 
 Serve matching compiled Web assets with
 `OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`, then launch Desktop with
@@ -620,6 +668,22 @@ the pilot flag on a package-local build. The client requires the lane's compiled
 `VITE_BETTER_AUTH_URL`; pilot builds reject missing or invalid values after Vite
 loads its environment. The native launch environment cannot supply that value
 retroactively to an already built renderer.
+
+The same worktree producer declares `VITE_OPENMELD_SETUP_USER_FACING_COMMAND`,
+`VITE_OPENMELD_DEV_LANE_ID`, the public Auth/Gateway/Web endpoints, isolated Home,
+and the client/server CLI manifest. The compiled renderer and installer must
+agree on that target. Missing or conflicting isolation fields fail closed;
+production-mode compilation is never permission to select the published lane.
+The unnamed Wrangler environment declares local development, `stg` declares
+Canary, and `prod` (including an installed production Desktop target) declares
+the published lane. Build-time public command endpoints are projected from the
+selected existing Web Wrangler vars, not a second environment registry.
+
+All dynamic Web setup, repair, login, start/stop, Space join, Skill guidance and
+Agent-prompt command prefixes use `resolveWebCliTarget`. Follow-up commands keep
+the isolated Home and endpoints. After installation, `setup.complete` remains
+the authority for the installed command; this build target does not invent an
+installed binary path or certify clean-install acceptance.
 
 ## `OPENMELD_HOME` And Production-State Safety
 
@@ -757,8 +821,8 @@ for an ordinary authorized change.
 Keep assertions tied to independent behavior. In PR #883, replacing an SQL
 interpreter mock with SQLite made harmless SQL formatting changes pass while
 detecting swapped persisted identifiers the mock missed. Use real persistence
-when SQL semantics are the risk, with focused local D1 tests for D1-specific
-behavior. The skills' no-network advice applies to isolated unit tests, not
+when SQL semantics are the risk, with focused PostgreSQL tests for shared relational behavior and SQLite
+tests for Durable Object or local Service storage. The skills' no-network advice applies to isolated unit tests, not
 to explicitly selected integration or real-user smoke.
 
 When cleaning substantial coverage, establish what still catches the important
@@ -785,8 +849,8 @@ Canonical command families:
 - repository gates: `verify:pre-push:checks`, `verify:release-ready`,
   `verify:pr`, and `verify:pr:full`.
 
-Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.43.0;
-`@flue/vite@2.0.3` requires Vite 8. Web and Desktop retain their independently
+Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.54.6;
+`@flue/vite@2.1.0` requires Vite 8. Web and Desktop retain their independently
 validated Vite 7 builds. Root Sherif configuration allows only those exact
 Remote Agent build dependency versions to differ; it does not disable the
 dependency rule or exempt a package. Reassess these version-specific entries
@@ -799,14 +863,20 @@ The CI/CD procedure and its rationale have one owner:
 engineers and every coding agent. Read it before pushing a candidate or merging.
 
 - Commit hook: staged-file checks.
-- Development push hook: mandatory focused checks on the exact clean commit.
-- Draft PR: focused remote feedback; keep work draft until ready to merge.
+- Development push hook: quick protected-release checks; no automatic affected
+  builds or tests on ordinary branches.
+- Draft PR: risk-selected local validation;
+  keep work draft until ready to merge. There is no automatic full-PR hosted
+  unit-test run on every Draft push.
 - Standard FC: exact identity, trusted control, static contracts, and path-owned
   database/release readiness. No blanket unit or integration rerun.
 - The owner validates changed behavior and downstream risks before marking ready.
 
 Use `pnpm run verify:pr -- --feedback --plan` to inspect focused selection;
-remove `--plan` to execute it. `verify:pr` remains the explicit affected-workspace
+remove `--plan` when the selected checks fit the change, or run the necessary
+owner checks directly. The feedback mode runs changed or adjacent Vitest tests,
+not every test importing a changed component, and leaves non-Vitest package
+test selection to the Agent. `verify:pr` remains the explicit affected-workspace
 code/type-check and unit-test command, including downstream consumers.
 `test:integration:affected` validates affected integration boundaries;
 `verify:pr:full` requests whole-repository confidence. Do not use broad commands
@@ -855,7 +925,7 @@ These are internal diagnostics unless paired with a real user path:
 
 - direct internal HTTP/RPC calls
 - Cloudflare Worker subrequests
-- D1 SQL reads or writes
+- PostgreSQL SQL reads or writes
 - Durable Object storage or alarm inspection
 - Queue inspection
 - admin scripts
@@ -913,11 +983,11 @@ openmeld-dev whoami --view agent                          # CLI/auth/profile/dae
 pnpm run test:e2e:gateway:cli                        # Gateway/Core/CLI smoke
 ```
 
-Workflow scripts must not become direct D1 readers, direct Durable Object
+Workflow scripts must not become direct PostgreSQL readers, direct Durable Object
 readers, or a second trace system.
 
 New cross-boundary behavior must stay diagnosable end to end. Before finishing
-a flow that crosses Web, CLI, Gateway, Core, Durable Objects, shared D1,
+a flow that crosses Web, CLI, Gateway, Core, Durable Objects, shared PostgreSQL,
 daemon, or agent runtime boundaries, verify:
 
 - one stable correlation key exists before the first network hop, and every
@@ -1024,20 +1094,128 @@ Answer these questions in the PR, task handoff, or release note:
   separately; a single generic "Core before Remote Agent" statement is not a
   Contract Impact Audit.
 
+### Trusted Delegation Contract Impact Audit
+
+The Local task permission correction also adds an optional Core-owned requester
+fact and assignment permission source. Roll out schema readers and Core before
+the new Service: an old strict capability reader cannot accept the new
+`executionContextPermissionInheritance` declaration. New Core accepts old
+Services, but refuses inherited-permission contexts on those Services instead
+of silently imposing a directory boundary. Retained bounded contexts and legacy
+serial Wakes keep their previous contracts. New Web's **New task** uses the
+existing `{ mode: new }` selection shape; old Core can parse it but does not
+provide the corrected permission behavior, so expose this entry with the Core
+rollout. Gateway passes no caller-supplied owner fact. Auth, Remote Agent and
+Skills do not grant filesystem authority. Native permission settings, explicit
+Computer policy, and task restrictions remain intersecting constraints.
+This rollout order is required; it is not an assertion that a new Service can
+register against an old Core or permission to update an installed Service.
+
+The exact-evidence, ordinary Plugin delegation, excerpt-copy, and replay changes
+touch shared schemas, Core RPC/HTTP, native Remote tools, the packaged CLI,
+Service dispatch context, and the managed Plugin playbook.
+
+- Existing setup, Service status, trace, rescue, token issuance/retirement, and
+  finalization contracts remain unchanged. Ordinary human-source Plugin calls
+  keep their prior response shape unless the caller opts into recovery receipts.
+- New Local evidence tools and excerpt/verification commands require the new
+  CLI. Older Core rejects unsupported exact-evidence/selection requests; clients
+  must not substitute a latest version or broader history. Older Services receive
+  the structured references rendered into source text without a new strict wire
+  field. They cannot run delegated Plugin actions without the new private token
+  forwarding and fail closed. Existing Wake/setup paths can continue, so local
+  CLI, Service, and Skills updates are advisory (`available`). No token or
+  permission floor is weakened and no automatic update is initiated.
+- New Remote callers opt into Core delegation/permit projections and use new
+  evidence read variants. Center's existing Space-context RPC adds opt-in
+  `source_evidence` and `thread_evidence` scopes with a fixed version and offset;
+  existing scope responses are unchanged. Older Core rejects these new scopes,
+  so a caller cannot turn an unavailable exact read into a latest-version read.
+  Personal Remote and Center share the same message-page response contract and
+  Protocol version builders. Missing projections refuse the new path. Deploy the
+  additive PostgreSQL migration before Core, Core receivers before Remote callers, and
+  publish new Local artifacts only after Core is ready. Keep the mixed window
+  short; old callers cannot use the new evidence or verification features.
+- The immutable task/effect fence applies to newly recorded operations. Legacy
+  Local operation signatures included the caller-chosen operation ID and did
+  not retain the original input or dispatch identity. They cannot be safely
+  reverse-mapped to the new effect key. Legacy unknown receipts remain unknown
+  and receive no replay permit without a frozen account version. Before rollout,
+  legacy active requests with unresolved writes need an explicit reconciliation
+  boundary; do not claim cross-version new-ID deduplication for those rows or
+  block unrelated later requests by guessing their task identity.
+- Replay projection and the atomic journal claim both require a frozen original
+  account version. A denied legacy replay cannot consume a claim through the
+  execution RPC. Remote duplicate claims return the existing completed/failed
+  receipt, original operation and account attribution through both direct tools
+  and Code Mode; they do not reconstruct provider result data. The terminal
+  receipt is a shared schema, not a new operation state or writer.
+- Local writes without a trusted exact request now retain a private pending
+  Plugin request before provider execution. The same operation, actor, account,
+  input and permission revision reuse that request. Only the request owner's
+  authenticated account with a Human Profile can approve its stable root.
+  An Agent credential, selected Profile name, caller-issued confirmation token,
+  new dispatch ID, restart or fork does not supply this authority. A manual
+  approval remains bound to its executor. A recorded delegation can carry its
+  original request root to its admitted child without another approval.
+  An independently approved request may intentionally have identical content.
+- Excerpt copies use the existing Files reservation, R2 object, revision commit,
+  and audience owner. The new optional expected audience is checked synchronously
+  at the destination commit. Completed copies have independent Files lifecycles.
+
+#### Manual request authority and private Inbox confirmation
+
+The approved threat model uses existing account credentials. An Agent's
+delegation/execution credential cannot approve a Plugin request. The owner's
+independently authenticated account can. The product does not claim human
+presence when an Agent has been given the owner's full account credentials.
+Do not add independent factor enrollment, email codes, or new recovery machinery
+to this task.
+
+Verified owner Wakes and recorded Center delegations reuse their Core-derived
+original request root. Cold continuation and selected child execution preserve
+the same task/effect fence. A new operation ID or executor cannot repeat the
+write. Current access, membership, delegation, exact input and account version
+are still checked. Only the original executor can claim a permitted provider
+replay; other executors receive its original receipt.
+
+A manual Local call with no verified request provenance creates a private
+`plugin_action_requests` record (migration 0192). It freezes the actor, original
+requester, account version, access revision, action, effect and input. Inbox
+holds an opaque request ID and input-free preview. The inline detail shows
+bounded reviewed labels and identifies omitted input. Core requires a Human
+Profile and an authenticated account principal matching the request owner
+before approving or declining. Agent-supplied identity text is not authority.
+
+Approval and Inbox resolution use one conditional PostgreSQL transaction. Repeated decisions
+return retained state; conflicting decisions fail. Execution rechecks approval,
+membership and connection/access revisions. Requests expire after one hour.
+Replay retains the operation's single durable allowance and original 24-hour
+maximum window. A separately approved new request does not resolve an older
+unknown result.
+
+Deploy current Gateway/shared schema and replay readers before the Core writer,
+apply migration 0192, then deliver Web/CLI consumers. The unreleased email-code
+prototype has no supported installed consumer and is removed. Inbox capability
+10 adds request details; older consumers receive guidance to current Web.
+This is a rollout dependency, not permission to deploy. Stamp the final local
+components and verify release readiness. Storage tests, browser smoke, native
+model execution and actual provider writes remain separate evidence.
+
 ### Active-Wake Agent Settings Contract Impact Audit
 
 Active-Wake Agent settings change Web behavior, Core Binding writers,
-RuntimeCoordinator's Core-owned execution-target mutation RPC, and shared D1
+RuntimeCoordinator's Core-owned execution-target mutation RPC, and shared PostgreSQL
 Binding storage. They do not change CLI commands, OpenMeld Service frames,
 Prepare Session, Wake dispatch frames, Space Actions, trace/diagnostics, or any
 local Agent Controller adapter.
 
-- First deploy only the Core compatibility bridge while the old D1 schema is
+- First deploy only the Core compatibility bridge while the old PostgreSQL schema is
   still active. The bridge keeps the historical Durable Object
   `rpc*AgentProfileControllerMutation` wire names, admits every owner shard
   before an execution-target change, and atomically disables admitted legacy
   Bindings, installs or reuses the canonical hosted target, and carries its
-  Organization authorization in one guarded D1 batch. Do not select Database
+  Organization authorization in one guarded PostgreSQL transaction. Do not select Database
   in this first release. Confirm the exact merged Core SHA and health with
   `pnpm run release:status -- --ref <merged-sha>` before continuing; this is the
   observable bridge-propagation signal, and the old wire names keep old and new
@@ -1049,8 +1227,7 @@ local Agent Controller adapter.
   Remote Agent designation attempt returns
   `center_agent.remote_designation_paused`. Existing Remote Agent execution
   stays enabled; do not use the broader runtime kill switch for this rollout.
-- With designation visibly paused, apply canonical-Binding D1 migration
-  `0140_aspiring_masked_marvel`.
+- With designation visibly paused, apply canonical-Binding historical D1 migration `0140_aspiring_masked_marvel`.
   Its profile-first partial index bounds legacy-owner discovery, and its write
   triggers preserve existing legacy rows while rejecting any new or re-enabled
   noncanonical or parallel enabled primary Binding. Then set the gate back with
@@ -1063,7 +1240,7 @@ local Agent Controller adapter.
   backward-compatible throughout eventual Worker and shard propagation. Old
   and new local components keep their existing setup, Wake, status, Space
   Action, and diagnostic behavior.
-- Rollback keeps the D1 index and triggers. Never restore a Core version from
+- Rollback keeps the PostgreSQL index and triggers. Never restore a Core version from
   before execution-target admission, even if the migration has not run yet;
   keep designation disabled and roll Core forward with a compatible fix. Web
   can roll back independently because it does not own Binding or execution
@@ -1075,23 +1252,58 @@ Live permission-mode reconciliation changes the CLI-carried local Service and
 the process-internal `RuntimeAdapter` contract. It reuses the existing
 `daemon.route_catalog.changed` signal, expected-routes projection, Binding
 schema, Wake dispatch frame, Agent Interaction response path, and diagnostics
-transport; it adds no cloud-to-Service frame or shared schema field.
+transport. Approval sequencing additionally extends permission requests with
+optional `supportsPermissionModeUpdate` and responses with an optional reference
+to a saved Binding (`permissionModeUpdate`). The reference contains no execution
+authority; Service reads the canonical route before attempting a native update.
 
-- Old cloud can talk to the new local component because Core already sends the
-  catalog invalidation and canonical expected routes. New cloud can talk to an
-  old local component because the old Service keeps the established
-  future-work-only behavior. Mixed versions remain safe and explicit.
+- Deploy Web, Gateway, and Core readers for the optional fields before publishing
+  the new CLI/Service producer. Old strict cloud schemas reject new permission
+  requests, so publishing the local producer first is not supported. New Web
+  only sends the response reference when the pending request advertises support.
+  New cloud continues to accept old Service requests and ordinary approval
+  responses. Older local components retain their existing live-update subset or
+  future-work-only behavior; setup, Wake dispatch, status, Space Actions,
+  diagnostics, and self-rescue commands keep their current contracts.
 - The new local component applies a mode to an active task only after a
   controller adapter acknowledges native support. Unsupported providers and
   modes keep the starting mode and do not block catalog convergence, existing
   Wake work, setup, status, Space Actions, trace, or diagnostics.
 - No Runtime Transport epoch, OpenMeld Service contract, CLI command contract,
   or shared schema constant changes. At publication time, stamp the touched
-  CLI/Service artifact as advisory `available`; no cloud deploy order or forced
-  local update is required.
+  CLI/Service artifact as advisory `available`; existing local components remain
+  safe without a forced update. The receiver-first order above is required.
 - Rollback removes the local live-update capability and returns to the previous
   future-work-only behavior. It must not rewrite Binding state, active Wake
-  state, or pending Agent Interactions.
+  state, or pending Agent Interactions. Once a new Service is published, retain
+  cloud readers for the optional fields during rollback. Web and local native
+  update behavior can roll back independently; do not restore strict cloud
+  schemas that reject requests from the already published Service.
+
+### Local Installation Recovery Contract Impact Audit
+
+- Boundaries: Codex host-app discovery and persisted launch reconciliation,
+  additive optional ACI `launch.failureReason`, and Web installation controls.
+  The raw message/path privacy boundary remains unchanged. Setup, Wake frames,
+  Space actions, status, trace, and self-rescue commands retain their contracts.
+- Publish schema consumers before the Service emits the optional reason. Old
+  Services omit it; new Web retains generic repair guidance. Old cloud uses a
+  strict snapshot schema and must be upgraded before the new producer. Rollback
+  must retain the additive schema reader while new Services remain connected.
+- The Service contract advances to
+  `openmeld-service-contract-2026-09-local-install-recovery-v1`. The release
+  owner must stamp Service **required**: old carriers retain a disappeared Codex
+  App executable and cannot recover the affected Wake path. Use the existing
+  required-update floor and automatic updater, preserving accepted work and
+  self-rescue. Do not invent a separate connection reset or rollout mechanism.
+- CLI commands remain compatible; stamp CLI **available** unless another change
+  in the release requires a higher floor. Feature branches leave release version
+  and manifest untouched. The clean release PR stamps the exact post-merge
+  artifact and publishes CLI/Service before Core advertises its required floor.
+- Cursor keeps its provider-owned relocation rule. Other providers share stable
+  entrypoint preservation, typed file-failure diagnostics, and owner selection
+  even with one alternative. Node-version or package-channel changes do not
+  authorize silently adopting a different installation.
 
 ### Safe Local Agent Installation Selection Contract Impact Audit
 
@@ -1099,7 +1311,7 @@ Safe installation selection changes Web behavior, Local Runtimes HTTP/RPC,
 Runtime Transport capabilities and result frames, the OpenMeld Service carrier,
 and the process-internal local execution-slot contract. It does not change
 Prepare Session, Wake dispatch frames, Space Actions, controller adapter
-contracts, diagnostics, D1, or the local registry schema.
+contracts, diagnostics, PostgreSQL, or the local registry schema.
 
 - Deploy the additive schema consumers in Core, Gateway, and Web before
   publishing the new local component. The daemon capability and result field
@@ -1127,7 +1339,7 @@ contracts, diagnostics, D1, or the local registry schema.
 The local Agent Interaction rollout changes shared HTTP/RPC/WebSocket schemas,
 Runtime Transport frames, RuntimeCoordinator state, the OpenMeld Service
 carrier, and all supported local-agent adapters. It does not change setup,
-Prepare Session, dispatch-owned Space Action, diagnostic, or D1 schemas.
+Prepare Session, dispatch-owned Space Action, diagnostic, or PostgreSQL schemas.
 
 - Old cloud -> new local component is not a supported rollout direction for
   interactive Wakes. Old Core cannot route the new strict interaction request
@@ -1145,7 +1357,7 @@ Prepare Session, dispatch-owned Space Action, diagnostic, or D1 schemas.
 - `pendingInteraction` is optional on Wake progress, so new consumers accept
   old Core responses. No existing daemon frame changed; new request, response,
   and delivered codes are emitted only after the receiver deployment. No
-  contract constant or D1 migration is required for this additive ordered
+  contract constant or PostgreSQL migration is required for this additive ordered
   rollout.
 - Rollback disables the new local producer before rolling Core back. An
   already-running interaction must be stopped or allowed to reach an explicit
@@ -1170,8 +1382,7 @@ envelope to old cloud code. Deploy Core's source-text preservation before the
 new CLI/Web so literal examples are never stripped from a dispatched prompt.
 No running Wake or historical message is rewritten.
 
-Keep CLI and local-component manifests unchanged on this feature branch and
-use deferred release verification. The final clean-main release must stamp the
+The final release must stamp the
 new CLI/Skill contracts, publish the matching signed Skill channel with the new
 CLI version as its minimum, and preserve the previous signed contract release.
 The CLI and Skills updates are required because their command and Skill contracts
@@ -1187,7 +1398,7 @@ Agent reply context review changes the shared Runtime Transport capability and
 result-response schemas, the Service result outbox and exact-conversation
 continuation path, RuntimeCoordinator result settlement, and Space atomic final
 reply publication. It does not change setup, Prepare Session, CLI command,
-Gateway HTTP, D1 schema, or controller-specific adapter contracts.
+Gateway HTTP, PostgreSQL schema, or controller-specific adapter contracts.
 
 - Old cloud -> new local is not a safe rollout direction. The frozen base
   capability envelope is strict, so an old Core can reject the new
@@ -1220,7 +1431,7 @@ definition, Service installer, and adapter package. It reuses the existing
 RuntimeAdapter, Agent Interaction, Binding, Runtime Transport, Space Action,
 diagnostic, and finalization envelopes. No existing daemon frame shape, Prepare
 Session shape, Runtime Transport contract epoch, Service contract version, CLI
-command contract version, or D1 schema changes.
+command contract version, or PostgreSQL schema changes.
 
 - Old cloud -> new local remains safe for existing controllers. The new Service
   may detect and report Grok as an additional generic controller capability, but
@@ -1238,8 +1449,7 @@ command contract version, or D1 schema changes.
 - No contract constant bump is required because the new strict permission enum
   values are emitted only after their cloud receivers deploy, the controller
   registration is additive, and all execution/result envelopes are unchanged.
-  The feature branch must use deferred release verification; version bump and
-  local-component manifest stamping happen only in the clean release worktree.
+  Prepare the version and local-component manifest once the release source is stable.
 - Rollback removes or disables the Grok local producer before rolling back the
   shared cloud receivers/catalog. Any active Grok Wake must first reach one
   explicit reply, stopped outcome, or failure; rollback must not reinterpret a
@@ -1251,11 +1461,11 @@ The Center Agent Local Agent bridge adds the `openmeld center-agent ask`
 command, optional Local Agent source metadata on the existing Center Agent Chat
 ingress, the `receive_local_agent_request` Audit Log action set v14, Center
 Agent Task response contract v3, and nullable Task origin attribution in shared
-D1 migration `0106_flimsy_angel`. It does not change setup, Prepare Session,
+historical D1 migration `0106_flimsy_angel`. It does not change setup, Prepare Session,
 Runtime Transport, Wake execution, dispatch-owned Space Actions, Service
 status, trace selectors, or self-rescue commands.
 
-- Apply D1 migration `0106_flimsy_angel` before deploying the Core reader and
+- Verify the native schema originating in historical D1 migration `0106_flimsy_angel` before deploying the Core reader and
   writer. Existing Tasks remain readable with null attribution; Core owns the
   new source projection and never treats private Local Agent session locators as
   Task or Audit Log provenance.
@@ -1288,7 +1498,7 @@ status, trace selectors, or self-rescue commands.
   Core advertise an unavailable CLI during the rollout.
 
 The progressive read side adds shared Context Manifest v1, Audit Log action set
-v15, `openmeld center-agent context`, and D1 migration `0107_heavy_stick`.
+v15, `openmeld center-agent context`, and historical D1 migration `0107_heavy_stick`.
 Apply `0107_heavy_stick` before deploying Core because the Core audit reader
 left-joins the manifest table. Then deploy Core, Gateway, Web, and publish the
 CLI. Old clients remain on earlier explicit Audit Log action sets and do not see
@@ -1308,13 +1518,12 @@ compatible with old Core by deriving the same plan from existing authoritative
 sender and environment facts. New Core must not precede the new Remote Agent:
 an old strict worker rejects the additional envelope field. Gateway, Web, CLI,
 OpenMeld Service, setup, Prepare, Space Action, and diagnostics contracts do not
-change. Rollback stops the Core emitter before rolling Remote Agent back; no D1
+change. Rollback stops the Core emitter before rolling Remote Agent back; no PostgreSQL
 migration, local-component contract bump, or release stamp is required for this
 hosted additive contract.
 
 The Context Load Receipt side adds shared receipt v1, Audit Log action set v16,
-`openmeld center-agent context receipt`, and additive D1 migration
-`0108_tiresome_magik`. The migration creates the manifest-materialization and
+`openmeld center-agent context receipt`, and additive historical D1 migration `0108_tiresome_magik`. The migration creates the manifest-materialization and
 load-receipt tables without rebuilding the existing manifest ledger.
 
 - Apply `0108_tiresome_magik`, then deploy Core, Gateway, Web, and finally the
@@ -1340,7 +1549,7 @@ The requester-provenance side adds Routine actions to the shared Audit Log enum,
 Audit Log action set v17, and an optional Local Agent interaction-source
 projection on downstream Center Agent actions. It reuses the existing
 `source_native_delivery_id` column and Local Agent request row, so it needs no
-D1 migration and creates no second artifact or transcript store.
+relational migration and creates no second artifact or transcript store.
 
 - Deploy Core first so it can accept `actionSet=v17`, filter Routine actions for
   v16 and older callers, and return interaction source only to v14-or-newer
@@ -1386,14 +1595,14 @@ that local machine-output contract does not require a cloud receiver.
 
 ### Codex Collaboration Mode Contract Impact Audit
 
-Codex Collaboration Mode adds nullable D1 Binding metadata, shared
+Codex Collaboration Mode adds nullable PostgreSQL Binding metadata, shared
 Binding/Gateway/Core schemas, negotiated expected-routes v2 output, local route
 cache metadata, Center Agent model-visible runtime-setting inputs, and Codex App
 Server `turn/start` behavior. It does not change Runtime Transport frames,
 setup, Prepare Session, Space Actions, Wake outcome authority, or existing v1
 expected-routes output.
 
-- Apply D1 migration `0079_curvy_rocket_raccoon` before deploying the Core
+- Verify the native schema originating in historical D1 migration `0079_curvy_rocket_raccoon` before deploying the Core
   reader/writer. Existing rows remain valid and retain Codex Default execution
   semantics without emitting a new response field.
 - Deploy the Core receiver after the migration, then Gateway, Web, and Remote
@@ -1429,8 +1638,276 @@ expected-routes output.
   thread-resolved model is available.
 - Rollback switches affected Bindings to `codex:default` before removing the
   new local producer, then withdraws Web/Gateway and Remote Agent callers before
-  Core. The nullable D1 column remains in place; rollback must not rewrite
+  Core. The nullable PostgreSQL column remains in place; rollback must not rewrite
   Binding rows or active RuntimeCoordinator execution state.
+
+### Space Files Origin Classification Contract Impact Audit
+
+Space Files origin classification (`artifact` vs. `chat_upload`) adds a
+nullable `origin` column to Core's `space_file_entries` SQL, an `origin`
+field on shared file-descriptor and list-response HTTP schemas
+(`packages/schemas/src/schemas/http/space-files.ts`), an optional `origin`
+query filter on list, Web/CLI/Remote Agent write-path defaults, and a
+**negotiated response capability** so the new `origin` field never reaches a
+caller that has not explicitly declared it understands the field. It does
+not change Runtime Transport frames, setup, Prepare Session, Wake dispatch,
+Space Actions, PostgreSQL schemas, or any local-component/service contract version.
+
+**Why negotiation, not a bare additive field.** Per
+[Schema rules](../architecture/shared-contracts.md#space-access-context-propagation),
+"published CLI versions can never be forced to update first," so a shared
+response addition must preserve an already-published frozen strict reader —
+adding `origin` directly to `spaceFileDescriptorSchema`/
+`listSpaceFilesResponseSchema` (both `z.strictObject()`) would have broken
+every already-published CLI and Remote Agent build on every Space Files
+response, which an earlier revision of this audit incorrectly accepted as a
+forced-update policy. That is corrected here: **old requests continue
+receiving the exact pre-origin response shape (no `origin` key anywhere);
+only a caller that explicitly opts in receives `origin`.** One canonical
+`origin` fact remains on `space_file_entries`; only the wire projection
+varies by caller capability.
+
+**The negotiation mechanism, one per transport boundary:**
+
+- **Gateway HTTP (Web, CLI).** A capability header,
+  `x-openmeld-space-files-origin-version: 1`
+  (`OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION`/
+  `OPENMELD_SPACE_FILES_ORIGIN_VERSION` in `packages/gateway-contract`).
+  `services/gateway/src/routes/rpc-http.helpers.ts`'s `executeRpcRoute`/
+  `executePublicRpcRoute` accept `includeLegacySpaceFilesOriginWireFields:
+  true` (mirroring the existing `includeLegacySpaceAddressingWireFields`
+  pattern) and, when the caller's request lacks the header, apply
+  `toLegacySpaceFilesOriginWireValue` — a pure recursive JSON walker in
+  `packages/schemas/src/compatibility/legacy-space-files-origin-wire.ts`
+  (mirroring `toLegacySpaceAddressingWireValue`) — to the **already-validated
+  response**, stripping every `origin` key regardless of whether Core
+  actually sent it or Gateway's own schema default materialized it. Every
+  file-bearing Space Files route opts in: list, get, list-revisions,
+  update-entry, restore-entry, restore-revision, upload (both the direct and
+  multipart/raw paths), and Composer publish. Non-file-bearing routes
+  (create-folder, trash, Composer stage/discard, content download) carry no
+  `origin` field and are unaffected.
+- **Core/Remote Agent RPC (Center Agent tools).** This boundary has no HTTP
+  headers, so the capability is an explicit optional field,
+  `requestedOriginModel: "origin_aware"`
+  (`SPACE_FILES_ORIGIN_CAPABILITY_TOKEN` in `packages/schemas`), added once
+  to the shared `centerAgentSpaceFileScopeSchema` base that every Center
+  Agent Space Files RPC input schema extends
+  (`packages/schemas/src/schemas/http/center-agent-space-files.ts`). Core's
+  `CoreEntrypoint` methods (`centerAgentListSpaceFiles`,
+  `centerAgentReadSpaceFile`, `centerAgentSaveSpaceFile`,
+  `centerAgentManageSpaceFiles` in `services/core/src/index.ts`) wrap the
+  underlying `rpcCenterAgent*` call in `withSpaceFilesOriginRpcOutput`
+  (mirroring `withSpaceAddressingRpcOutput`), which strips `origin` unless
+  the caller's `requestedOriginModel` matches the token exactly. Remote
+  Agent's tool-calling code
+  (`services/remote-agent/agent-core/tools.ts`) sets this token on every one
+  of the four Space Files tool calls.
+- **Gateway/Core RPC (every ordinary Gateway-facing Space Files method).**
+  This is a third, independent boundary from the two above: current Gateway
+  and current Core are separately deployed Workers, and Core's *ordinary*
+  Gateway-facing entrypoint methods (`listSpaceFiles`, `getSpaceFile`,
+  `listSpaceFileRevisions`, `updateSpaceFileEntry`, `restoreSpaceFileEntry`,
+  `restoreSpaceFileRevision`, `writeSpaceFileContent`, `spaceFileUpload`,
+  `publishSpaceComposerUpload`, `streamSpaceFileContent` in
+  `services/core/src/index.ts`'s `CoreRpcEntrypoint`, redeclared with the
+  same signature on `GatewayRpcEntrypoint`) are a *separate* call path from
+  the four `centerAgentXxx` methods above — wrapping only those four does not
+  protect this path. Each of these methods now accepts an optional
+  `spaceFilesOriginVersion` second argument, mirroring exactly how
+  `listSpaceThreads`/`getSpaceThread`/`getSpaceMemberDirectory`/
+  `getSpaceBootstrap` already accept `spaceAddressingVersion` for the
+  addressing rollout, and downgrades its response
+  (via `withSpaceFilesOriginRpcOutput`, or
+  `withSpaceFilesOriginStreamRpcOutput` for `streamSpaceFileContent`, whose
+  resolved value embeds a live `bytes: ReadableStream` that the generic JSON
+  walker would otherwise corrupt) unless the caller passes
+  `OPENMELD_SPACE_FILES_ORIGIN_VERSION` exactly. Current Gateway's HTTP route
+  handlers (`services/gateway/src/routes/rpc-http.space-files.ts`) always
+  pass that constant on every one of these calls, independent of whether the
+  *HTTP* caller declared its own capability — Gateway always wants the full
+  data from Core so it can apply its own HTTP-caller-facing projection
+  (the first bullet above). An already-published Gateway build has no such
+  second argument on any of these calls and never sends it, so it keeps
+  receiving the exact pre-origin response shape from a new Core.
+
+**Supported matrix, proven by behavior tests, not asserted:**
+
+- *Any caller (old or new) + Gateway/Core, default request, no capability
+  declared*: safe — response omits `origin` entirely, matching the exact
+  pre-origin shape. An already-published CLI's frozen strict schema parses
+  this successfully because the key it never learned about is genuinely
+  absent, not defaulted-and-present.
+  `services/gateway/tests/space-file-routes.test.ts` ("strips origin from
+  every file descriptor for a caller that has not declared the origin
+  capability", "strips origin from a single-file read (getSpaceFile) for a
+  non-capable caller").
+- *New reader declaring the capability + a producer that predates `origin`
+  entirely* (old Core, or a transient rollout window before Core
+  redeploys): safe — the missing key still defaults for the capable caller
+  (`origin: null` on a descriptor, `"artifact"` on a list), and the capable
+  caller already knows how to interpret that default.
+  `packages/schemas/tests/http/space-files.test.ts` ("lets a current reader
+  parse a response from a producer that predates origin");
+  `packages/api-client/tests/space-api.test.ts` ("keeps default Space Files
+  listing working against a Core response from before the origin filter
+  existed").
+- *A capability-declaring caller requesting `origin: "all"` against a
+  producer that predates `origin`*: fails explicitly, not silently. The
+  missing response field still defaults to `"artifact"`, which does not
+  match the requested `"all"`; the existing `packages/api-client/src/space/
+  files.ts` filter-echo check throws `OpenMeldApiClientInvalidResponseError`
+  (the same mechanism already used for the `view` field).
+  `space-api.test.ts` ("fails closed instead of silently showing an
+  unfiltered list as chat uploads during rollout").
+- *Gateway is new, Core still predates `origin`, caller has not declared the
+  capability*: safe and non-leaking. Gateway's own current schema still
+  defaults the missing key during validation, but the origin-capability
+  check runs **after** validation and strips the key regardless of whether
+  Core sent it or Gateway's schema default produced it — no cloud step
+  emits `origin` to a non-capable caller merely because a schema default
+  materialized it. `space-file-routes.test.ts` ("never leaks a
+  schema-defaulted origin to a non-capable caller even when Core itself
+  predates origin").
+- *An already-published CLI or Remote Agent (built before this release) +
+  new Core/Gateway*: safe — it never sends the capability header/field
+  (it has no code path that could), so every Space Files response it
+  receives is downgraded to the exact shape its frozen schema already
+  parses. `packages/schemas/tests/http/space-files.test.ts` ("documents that
+  an already-published pre-origin strict reader rejects the new response
+  shape") proves *why* this matters — a frozen reader genuinely cannot
+  tolerate the field present — which is exactly what the negotiation now
+  prevents from happening to it.
+  `services/core/tests/organization-rpc.test.ts` ("strips origin from a
+  Remote Agent's Space Files response unless it declares the origin
+  capability") and `services/remote-agent/tests/tools.test.ts` (the
+  `openmeld_list_space_files`/`openmeld_read_space_file`/
+  `openmeld_save_space_file`/`openmeld_manage_space_files` scenarios, which
+  assert the tool layer always sends `requestedOriginModel: "origin_aware"`)
+  prove the Core/Remote Agent direction end to end.
+- *An already-published (frozen) Gateway build + new Core*: safe — Core's
+  ordinary Gateway-facing methods (the Gateway/Core RPC boundary above)
+  downgrade their response whenever the caller omits
+  `spaceFilesOriginVersion`, which an already-published Gateway's compiled
+  code has no way to send. `services/core/tests/organization-rpc.test.ts`
+  proves the underlying `withSpaceFilesOriginRpcOutput` gate at the
+  entrypoint level, and
+  `packages/schemas/tests/http/space-files.test.ts` ("lets a frozen
+  pre-origin Gateway parse a current Core response once the Gateway-to-Core
+  RPC boundary downgrades it") reconstructs the exact frozen Gateway
+  response schemas for every representative Gateway-facing operation
+  family (get, upload/write, restore-revision, list-revisions,
+  update-entry, restore-entry — both the file and folder entry variants)
+  and proves each accepts the downgraded value while rejecting the raw
+  new-shaped one.
+  `services/gateway/tests/space-file-routes.test.ts` ("declares the origin
+  capability on the Gateway-to-Core RPC boundary for every file-bearing
+  operation...") proves current Gateway's own route handlers always pass
+  the version constant on this boundary, independent of the calling HTTP
+  client's own capability.
+- **No required CLI/Remote Agent update.** Because the response is
+  negotiated rather than unconditionally additive, there is no forced-update
+  policy and no CLI release-note warning to write. An old CLI or Remote
+  Agent keeps working indefinitely with the pre-origin behavior (an
+  unclassified caller never sees `origin`, never sees the chat-upload
+  filter, and cannot request `--all`); it simply does not gain the new
+  capability until it updates — the same "advisory `available`" shape as
+  every other additive local-component change in this file, not a breaking
+  one.
+- **Core (schema and repository) — the migration is retry-safe.** The
+  Durable Object schema migration bumped `SPACE_SQL_SCHEMA_VERSION`/
+  `SPACE_SQL_SCHEMA_CHECKSUM` to 45 specifically for this repair: any
+  database that already recorded schema v44 (including one that ran an
+  earlier, buggy copy of this migration that left rows unrepaired) does not
+  match v45 and re-enters the full migration, which repairs it. Within that
+  migration, `ensureSpaceFileEntriesOriginColumn` adds the `origin` column
+  via `ALTER TABLE` only when it is missing, but then **unconditionally**
+  runs `backfillSpaceFileEntriesOrigin` (`UPDATE ... WHERE kind = 'file' AND
+  origin IS NULL`) every time this function runs — whether the column was
+  just added, already existed with every row classified, or already existed
+  with rows still `NULL` from an earlier incomplete run. This mirrors the
+  existing `ensureSpaceMetaAccessModeColumn` repair pattern in the same
+  file. There is no reliable signal in pre-existing rows to recover a
+  historical chat upload versus deliberately created work — both wrote
+  through the same path before this column existed — so `'artifact'` is the
+  deterministic backfill target, matching the repository's create-time
+  default. Folders are excluded from the backfill (`kind = 'file'` guard)
+  and never carry an `origin`. After migration, a `NULL` origin on a file
+  row is exceptional/corrupt data (for example a direct database edit), not
+  normal history, and the read path still fails closed on it (excluded from
+  the default `artifact` list, included only under `origin: "all"`).
+  `services/core/tests/space-file-entries-origin-migration.test.ts` proves
+  this against a real Durable Object SQLite instance: nested file/folder
+  outcomes, the interrupted/earlier-v44 repair path (column present, rows
+  still `NULL`, migration marker removed to force re-entry), unchanged
+  folder placement, and idempotent rerun of both the short-circuit and the
+  full migration body.
+- **Core (write path, legacy interoperability).** `SpaceFileRepository
+  .commitWrite` treats a missing `origin` on a new-file write
+  (`baseRevision === null`) as `'artifact'`, not `NULL`. `origin` is
+  otherwise immutable — set once at file creation and never touched by a
+  later revision write, an update, a trash, or a restore. Explicit
+  `chat_upload` writes (Web Composer publish, CLI `space send --file`)
+  always set `origin` themselves and are unaffected by this default.
+- **Gateway / Core HTTP request side is safe independent of negotiation.**
+  `origin` stays optional on `listSpaceFilesQuerySchema`,
+  `createSpaceFileUploadQuerySchema`, and
+  `prepareSpaceFileWriteInputSchema`/`commitSpaceFileWriteInputSchema`. An
+  old client that never sends `origin` on a request is unaffected: Core
+  applies the deterministic default above. This direction was never in
+  doubt; the request-side field was optional from the start and no
+  strict-object rejects an *absent* key.
+- **Web.** New Web builds send the capability header on every Space Files
+  request (`packages/api-client/src/space/files.ts`) and explicitly send
+  `origin: "artifact"` for Files-panel uploads and Markdown-file creation;
+  `origin: "chat_upload"` is set server-side for Composer-published
+  attachments. The Files list defaults to `origin: "artifact"`; a "Show chat
+  uploads" toggle switches to `origin: "all"`. The "Chat upload" badge
+  renders only when `entry.origin === "chat_upload"` — never for
+  `NULL`/unclassified. The toggle resets to its default `false` on every
+  `changeView` call. Web, Gateway, and Core deploy together as one
+  coordinated release, so Web always declares the capability against an
+  origin-aware Gateway/Core in steady state.
+- **CLI.** `space files upload` sends `origin: "artifact"`; `space send
+  --file` sends `origin: "chat_upload"`. `space files list` defaults to
+  `artifact` and accepts `--all` to request `origin: "all"`. A CLI built
+  from this release or later declares the capability header on every Space
+  Files call (via the same shared `packages/api-client`) and reads `origin`
+  back normally. A CLI built before this release never declares the
+  capability and is fully unaffected — see the supported matrix above.
+- **Remote Agent.** Agent-authored output files
+  (`publishRemoteAgentOutputFile`) always set `origin: "artifact"`. The
+  `openmeld_list_space_files` tool exposes the same `origin` filter
+  (`"artifact"` default, `"all"`) as the HTTP/RPC contract, and every Space
+  Files tool call sets `requestedOriginModel: "origin_aware"`.
+- **Rollout order.** Deploy in the standard coordinated order (Auth, Web,
+  Gateway, Core, Remote Agent). Because the response is negotiated on all
+  three boundaries above (HTTP client/Gateway, Gateway/Core RPC, Core/Remote
+  Agent RPC) rather than unconditionally additive on any of them, there is
+  no ordering constraint beyond normal deploy hygiene: any mix of old/new
+  Web, Gateway, Core, CLI, and Remote Agent is safe in either direction,
+  proven directly by behavior tests for each pairing above — not asserted
+  from deployment order — since a non-capable caller never receives the
+  field regardless of which side changed first. No local-component contract
+  version or Runtime Transport epoch changes. `SPACE_SQL_SCHEMA_CHECKSUM`
+  does change (v44 → v45) specifically so a database stuck in a broken v44
+  state self-heals on the next deploy; this is intentional, not an
+  oversight, and safe to apply at any point in the rollout since the
+  migration is additive and self-repairing.
+- **Rollback.** Rolling back Core does not need to reverse the migration:
+  the `origin` column and its backfilled values are additive and harmless
+  to a pre-feature Core build, which simply never reads or writes that
+  column. Do not delete or null out backfilled `origin` values as part of a
+  rollback; that would recreate the exact historical-file-hiding defect
+  this migration fixes. Rolling any single component back to a pre-origin
+  version is safe under this negotiated contract on all three boundaries: a
+  rolled-back component simply stops declaring (Gateway/Core RPC,
+  Core/Remote Agent RPC) or stops honoring (HTTP client/Gateway) the
+  capability, and every caller on the other side of that boundary reverts to
+  the pre-origin response shape it already understands — including rolling
+  Gateway back to a pre-origin build while Core stays current, which the
+  Gateway/Core RPC negotiation now covers explicitly (see above); it was not
+  covered before that negotiation existed.
 
 ### Versioned local-state rollout discipline
 
@@ -1485,7 +1962,7 @@ make their rollout shapes look uniform.
 
 ### Agent Activity rollout and CLI release closure
 
-Agent Activity adds D1 truth, strict cloud contracts, an OpenMeld Service
+Agent Activity adds PostgreSQL truth, strict cloud contracts, an OpenMeld Service
 observer, managed provider integrations, a Remote Agent digest consumer, and a
 published CLI surface. Keep its producer windows explicit:
 
@@ -1520,12 +1997,12 @@ edit them into a rollback state.
 
 ### Agent Task Coordination rollout and CLI release closure
 
-Agent Task Coordination adds strict shared task schemas, Core D1 coordination,
+Agent Task Coordination adds strict shared task schemas, Core PostgreSQL coordination,
 private Center Agent tools, Runtime Reporting callbacks, a Local OpenMeld
 Service outbox, and managed Codex/Claude Code Hook artifacts. Keep the receiver,
 storage, and local-producer windows explicit:
 
-1. Apply D1 migrations `0051_motionless_firestar`,
+1. Verify the native schema originating in historical D1 migrations `0051_motionless_firestar`,
    `0052_sudden_captain_universe`, `0053_last_power_pack`, and
    `0054_dusty_roulette` in order before Core accepts controller-task callbacks,
    discovery, scheduled retention, or durable delegated-Wake publication.
@@ -1560,7 +2037,7 @@ storage, and local-producer windows explicit:
 
 Rollback removes Remote Agent callers before Core receivers, disables local
 callback producers before withdrawing the Gateway/Core route, and preserves
-the D1 ledgers for replay and diagnosis. Agent Task Coordination remains a
+the PostgreSQL ledgers for replay and diagnosis. Agent Task Coordination remains a
 coordination projection throughout; RuntimeCoordinator, native delivery, and
 controller-native providers keep execution authority.
 
@@ -1571,7 +2048,7 @@ commands, nonterminal recovery notice variants, Runtime Transport drain and
 exact-conversation frames, a Service capability bit, and one Agent Task
 Coordination observation table. Roll it out consumer and storage first:
 
-1. Apply D1 migration `0083_young_red_shift` before Core can persist
+1. Verify the native schema originating in historical D1 migration `0083_young_red_shift` before Core can persist
    interaction-needed observations or redrive their task continuations. Apply
    `0084_furry_blink` before Core admits hosted Native Delivery rows with their
    frozen controller-normalization snapshot. Apply
@@ -1616,7 +2093,7 @@ two opposite Remote Agent dependency directions. W4 also changes the published
 OpenMeld CLI, so the integrated feature has a separate local-component release
 closure. Keep these responsibilities and the two cloud windows separate:
 
-1. Apply D1 migration `0025_center_agent_routines` before
+1. Verify the native schema originating in historical D1 migration `0025_center_agent_routines` before
    `0026_routine_scheduling_execution`, then apply
    `0028_routine_run_workflow` before enabling the Workflow engine. Migrations
    are forward-owned durable state; rollback must not drop the tables or rewrite
@@ -1647,7 +2124,7 @@ deployed early only to satisfy W2.
 Rollback reverses each dependency: remove W5 callers before Core receivers;
 remove Web/CLI consumers before Gateway routes when those routes are being
 withdrawn; stop Core's Routine scheduler/emitter before rolling back the W2
-worker consumer. Preserve the D1 definition and Run ledger throughout rollback.
+worker consumer. Preserve the PostgreSQL definition and Run ledger throughout rollback.
 
 Routine execution is Workflow-first. Keep
 `OPENMELD_ROUTINE_ENGINE_DEFAULT=workflow` for normal local and production
@@ -1658,7 +2135,7 @@ Core after changing either value. The selection applies only to newly claimed
 Runs: each Run freezes its engine at claim time and never crosses from Workflow
 to legacy after Workflow ownership begins. Do not test rollback by editing
 `routine_runs.execution_engine`; change the configuration, create a new
-occurrence, and compare the new Run's D1 record, Workflow instance status,
+occurrence, and compare the new Run's PostgreSQL record, Workflow instance status,
 native-delivery ledger, and single Space result.
 
 Before removing the last production legacy override, prove one complete
@@ -1669,13 +2146,13 @@ operator views open for the validation window:
    attempts, retry counts, and unusually long waits;
 2. OpenMeld Analytics Engine events under
    `core.openmeld.routine_workflow.*`, correlated by `dispatchId = runId`;
-3. the D1 Run and native-delivery ledger for that same Run id; and
+3. the PostgreSQL Run and native-delivery ledger for that same Run id; and
 4. the target Space, which must contain at most one final success or explicit
    failure result.
 
 Alert or apply a legacy override for future Runs when an instance is
 terminated, recovery is blocked, callback forwarding repeatedly fails, a
-Workflow completes while its D1 Run remains nonterminal, one Run produces
+Workflow completes while its PostgreSQL Run remains nonterminal, one Run produces
 multiple model admissions or Space results, or the Run/ledger/Workflow target
 or identity evidence diverges.
 Do not page on ordinary `waiting` instances or a single platform-managed step
@@ -1685,7 +2162,7 @@ the current implementation until its binding, consumer, generated types, owner
 docs, and deployment gate are added together.
 
 For blocked recovery, inspect the instance with the supported Wrangler Workflow
-instance commands and correlate it with the D1 Run before acting. Restart only
+instance commands and correlate it with the PostgreSQL Run before acting. Restart only
 from the named failed step when that phase is known safe. Never recover by
 editing Run rows, changing `executionEngine`, or blindly restarting an unknown
 or terminated instance from the beginning.
@@ -1721,6 +2198,10 @@ feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
 
+For the current promoted source and version on each platform, use the read-only
+[Desktop release status](production-release.md#desktop-release-coverage) before
+selecting a candidate.
+
 Authorized production previews use a shareable public page at
 `/desktop?candidate=<dmg-sha256>` and an immutable candidate download URL without
 changing the default update channel. The plain `/desktop` page is the stable
@@ -1733,29 +2214,67 @@ After review, protected merge, and selection of the exact release SHA:
 
 1. Use a clean checkout at that merged SHA and fetch `origin/main`. Export
    `OPENMELD_DESKTOP_RELEASE_SHA` as that full commit hash.
-2. Build Web through the scoped Web environment entry with
-   `OPENMELD_DESKTOP_TARGET=production`. This emits the production installed
-   renderer marker. Do not reuse a disposable marker or edit generated metadata.
-3. Run `pnpm desktop:package:production-preview` once. The installed pipeline
+   For an optional read-only credential diagnostic before packaging, check the
+   publisher with `openmeld-release/prd` credentials:
+
+   ```sh
+   doppler --silent run --project openmeld-release --config prd --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN --no-fallback -- node scripts/release/desktop-publisher.mjs
+   ```
+
+   It confirms the selected account and Desktop bucket with the named release
+   token. This read check does not prove upload permission. The production
+   package entry runs the same check before build and signing, so the separate
+   diagnostic is not required. Upload and promotion require the same named token
+   and pass it to Wrangler as `CLOUDFLARE_API_TOKEN`; neither command falls back
+   to local Wrangler OAuth. Run those commands under the same Doppler wrapper,
+   replacing the command after `--`. The production package entry removes the
+   Cloudflare credentials from its signing child process.
+
+2. Run the production package command once with the release credentials:
+
+   ```sh
+   doppler --silent run --project openmeld-release --config prd \
+     --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+     --no-fallback -- pnpm desktop:package:production-preview
+   ```
+
+   The installed pipeline owns the production renderer artifact check: it
+   builds or reuses the exact renderer and runs the Workerd SSR check. Do not
+   run a separate manual Web build, reuse a disposable marker, or edit generated
+   metadata. The pipeline
    validates the production target, rejects test settings and mixed signing
    credentials, and uses the existing company Developer ID and
    `openmeld-notary` Keychain profile. It requires the exact clean merged source.
    The signed App includes `desktop-production-source.json` with its source SHA,
    renderer fingerprint, and production target.
-4. Verify the signed App, DMG copy and update ZIP: strict signature, stapled ticket,
+   On a native macOS host with sufficient admitted memory, the measured release
+   recipe uses the same credential wrapper with measured memory overrides:
+
+   ```sh
+   OPENMELD_RENDERER_NODE_HEAP_MB=5120 OPENMELD_LOCAL_HEAVY_GIB=6 \
+     doppler --silent run --project openmeld-release --config prd \
+       --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+       --no-fallback -- pnpm desktop:package:production-preview
+   ```
+
+   Keep normal resource admission enabled. This is a macOS packaging budget,
+   not a replacement for the bounded Linux runner defaults.
+3. Verify the signed App, DMG copy and update ZIP: strict signature, stapled ticket,
    macOS trust, identity, resource equality, final hash and size. Review the
    artifact before the authorized publisher runs
    `pnpm release:desktop-preview:upload-candidate` from the same release checkout.
-5. Deploy the additive Web candidate/feed readers before uploading a candidate
+4. Deploy the additive Web candidate/feed readers before uploading a candidate
    with ZIP metadata; older strict metadata readers cannot read the new field.
    The uploader verifies the actual DMG's production identity, ticket, version
    and signed source record, and checks that the ZIP seals the same signed App.
    It uploads both artifacts before their immutable candidate manifest. Existing
    public candidates cannot be overwritten. It never promotes a release.
-6. Verify public GET and HEAD, full download hash/size, and normal macOS install
-   and production smoke through user-facing entrypoints. An upload alone does
-   not prove availability or application behavior.
-7. Separately authorize promotion. Deploy the Web feed/download readers first,
+5. Verify public HEAD for both artifacts. Download the public DMG, check its
+   hash and size, then use it for normal macOS install and production smoke
+   through user-facing entrypoints. Do not separately download the full update
+   ZIP here; the promotion command verifies both public artifacts. An upload
+   alone does not prove availability or application behavior.
+6. Separately authorize promotion. Deploy the Web feed/download readers first,
    then run from the same clean approved checkout:
    `OPENMELD_DESKTOP_RELEASE_SHA=<sha> node scripts/release/desktop-preview.mjs promote <candidate-hash> <current-version-or-none>`.
    The command verifies remote candidate metadata and hashes both public artifacts.
@@ -1797,6 +2316,55 @@ candidate URLs remain valid but cannot be promoted into the updater channel.
 Production deployment and ordering still follow
 [Production Release](production-release.md); this workflow grants no independent
 permission to deploy or publish.
+
+### Native Windows Desktop candidates
+
+The approval, clean merged source, scoped Web build, immutable upload, public
+verification, explicit promotion and production-scope lease rules above also
+apply to Windows. Mac pointers/projections remain unchanged. Windows uses one
+reviewed pointer per `windows-x64` or `windows-arm64`, never a Mac fallback.
+
+Use `pnpm desktop:package:production-preview` on native Windows with
+`OPENMELD_DESKTOP_RELEASE_SHA` set to the full approved merged SHA and
+`OPENMELD_DESKTOP_WINDOWS_PUBLISHER` set to the actual certificate's publisher
+name or full subject DN. Supply operator-owned credentials through supported
+electron-builder Windows signing mechanisms. Optional
+`OPENMELD_DESKTOP_WINDOWS_CERTIFICATE_SHA1` selects an exact installed certificate;
+`OPENMELD_DESKTOP_ARCH` selects `x64` or `arm64`. The script does not create a
+certificate, guess identity or bypass signature checks. The signed source record
+additionally binds platform and publisher.
+
+The package is `clients/desktop/dist/production-preview/OpenMeld-Desktop-<version>-windows-<arch>.exe`.
+Inspection requires full 7-Zip (`7z.exe`, including NSIS support), discovered
+under Program Files or selected with the absolute `OPENMELD_DESKTOP_7ZIP` path.
+The release owner verifies the installer and its embedded signed application
+without executing installation; sidecars are not proof of signed source.
+Unsigned disposable acceptance uses the existing disposable target and
+`pnpm desktop:package:installed`. It cannot exercise production auto-update or
+be published. Preinstall the fixed candidate CLI for pre-release Computer smoke;
+production bootstrap intentionally targets the published npm stable channel.
+
+After separate publication authorization, use the existing root
+`pnpm release:desktop-preview:upload-candidate`. After review, installed Windows
+acceptance, additive Web deployment and separate promotion authorization, use
+`pnpm release:desktop-preview:promote -- <candidate-sha256> <expected-current-version-or-none>`.
+Windows root pnpm invocations preserve the exact pnpm JS entry; a direct release
+script call without that entry fails instead of executing shell text. The shared
+Git-backed `web` production lease and monotonic version check remain mandatory.
+
+Windows metadata and installer share `desktop/candidates/<installer-sha256>/`.
+The sole platform pointer is `desktop/promoted-windows-<arch>.json`. The page and
+default download take `?platform=windows-<arch>`; immutable candidate links remain
+hash-selected. The feed is `/desktop/updates/windows-<arch>/latest.yml` and its
+payload is `/desktop/updates/<installer-sha256>/windows-<arch>.exe`.
+
+Deploy platform-aware Web readers before these manifests. Verify page, GET,
+HEAD, complete digest/size, platform feed and installed A-to-B behavior separately.
+Real signed NSIS extraction, normal-user installation, ARM64 execution and the
+actual OpenMeld signature/SmartScreen outcome remain native release acceptance,
+not facts established by plan/PE tests or process-contract CI. GUI update/uninstall
+must leave independently running Service and Wake work untouched. No feature PR
+validation grants release authorization.
 
 ## Local Components Release Tool
 
@@ -1849,16 +2417,11 @@ stable version, and increments its patch. It prints both channel facts and warns
 when they drift. Missing network, credentials, or valid channel versions fail
 closed without writing a guessed version. `--version X.Y.Z` remains the explicit
 operator-approved mode; it skips channel reads and is mutually exclusive with
-`--next`. `release:preflight` uses the same version decision function.
+`--next`.
 
-CLI version bumps and manifest re-stamps belong to the release that actually
-publishes from `main`. Do not bump the CLI version or commit a release manifest
-re-stamp from a feature branch: perform both in the clean release worktree, or
-the repository records release state that never reached users.
-
-Final Candidate enforces that rule with the explicit
+For local-component changes without a release stamp, Final Candidate uses
 `verify:release-ready -- --defer-release --base <exact-base-sha>` mode on an
-ordinary feature branch. Ordinary development pushes do not repeat this build.
+unstamped candidate. Ordinary development pushes do not repeat this build.
 Deferred verification still rebuilds the packaged CLI and Service facts and
 runs the release-tool tests. It requires the CLI version and
 `release/local-components.json` to remain identical to the base, then reports
@@ -1866,30 +2429,24 @@ source and hash changes as pending work for the final clean-`main` release. It
 does not treat the base manifest hash as release truth for changed feature
 source.
 
-The final operator-approved release commit uses a versioned
-`codex/release-X.Y.Z-<baseSHA>` branch. The version must match the CLI package
-and local-components manifest, and the SHA suffix must match the PR's exact
-base. A normal release PR changes exactly
-`clients/openmeld-cli/package.json` and `release/local-components.json`. If the
-base package and manifest already declare that same release version, a restamp
-after later local-component changes may change only
-`release/local-components.json`; publication preflight must still confirm that
-version is unpublished. That explicit, release-only branch shape selects strict
-release-ready verification in both pre-push and Final Candidate, so the stamped
-manifest can pass the exact candidate gate before merging to PR-only `main`.
-The shared release branch
-policy script owns this classification; ordinary feature branches remain
-deferred and cannot carry a release stamp, while a malformed or mixed-scope
-release branch fails closed.
+The final operator-approved release stamp may share a PR with the exact stable
+local-component source and compatibility floor it describes. If the feature
+already merged, use a separate release PR. The CLI package version must match
+the manifest version, and the manifest must match the built candidate. Any
+subsequent source change requires a restamp. Final Candidate selects strict
+release-ready verification whenever the candidate changes the local-components
+manifest; otherwise local-component source and package metadata changes receive
+deferred verification. Branch spelling and release-only diffs are not release
+authority. Publication preflight still confirms the version is unpublished.
 
-The pre-push release check defers ordinary development builds to FC; the
-focused-check hook still runs on development pushes. Release checking remains
-strict when a push includes `refs/heads/main`, a
-versioned release branch, a tag, malformed input, or no input. A strict push
+The pre-push release check does not run ordinary development builds or tests.
+Agents select focused checks before Ready. Release checking remains
+strict when a push includes `refs/heads/main`, any `codex/release-*` branch,
+a tag, malformed input, or no input. A strict push
 requires every non-deletion object to resolve to checked-out `HEAD` and rejects
 uncommitted release-relevant or gate-control paths. Final Candidate passes the
 pull request's exact base SHA and chooses deferred or strict release readiness
-from the branch contract. Release preflight, publish, Core deploy, and every
+from the candidate diff. Release preflight, publish, Core deploy, and every
 actual release path remain strict.
 
 Inspect the exact local-component changes before choosing an advisory or
@@ -1954,26 +2511,22 @@ normal contracts.
 
 ## Database Workflow
 
-Run shared D1 workflow commands from the repo root through the `pnpm db:*`
-command family.
+The shared product database is PostgreSQL. Use the single
+[PostgreSQL workflow](postgresql.md) for local setup, generation, native
+migration history and acceptance. Root `db:check`, `db:generate` and `db:studio`
+use `packages/db/postgresql/drizzle.config.ts`. Run connection-dependent local
+commands inside the documented isolated PostgreSQL cluster.
 
-Use these commands for shared database workflow: check, inspect, generate,
-migrate, verify, optimize, sync, and studio.
+Production database changes use the guarded scoped release owner in
+[Production Database Release](production-release.md#production-database-release).
+The legacy `db:release:prod` and `db:sync:prod` commands reject the PostgreSQL
+manifest. Shared staging remains on its deployed D1 revision and cannot receive
+current-source product deployments until its separate migration is supported.
 
-Use `pnpm run db:release:prod` as the only production implementation
-entrypoint. `pnpm db:sync:prod` is an alias to it. It owns generation-drift
-failure, remote migration preflight and apply, physical-contract verification,
-and one final `PRAGMA optimize`. Component-only deploys do not run it.
-
-Production selection and recovery rules belong in
-`developing/engineering/production-release.md`. Migration history safety
-belongs in `packages/db/drizzle/README.md`.
-
-These are workflow entry points, not data ownership truth.
-
-Data ownership, projections, Dispatch Ledger, Diagnostic Reports, and
-observability boundaries belong in
-`developing/architecture/data-and-observability.md`.
+Historical D1 files remain immutable import/recovery evidence; see
+[the historical migration directory](../../packages/db/drizzle/README.md).
+Data ownership and projections remain in
+[data-and-observability.md](../architecture/data-and-observability.md).
 
 ## Fresh Web Start
 

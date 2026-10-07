@@ -1,20 +1,21 @@
 "use client";
 
-import type { InboxItem } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
+import type { InboxFeedRow, InboxItem } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import {
 	SharedLayoutGroup,
 	SharedLayoutItem,
 } from "@openmeld/ui/fluid/shared-layout-group";
-import { resolveStatusToneAdvisoryBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
@@ -27,6 +28,11 @@ import {
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
+import {
+	presentInboxItem,
+	useConversationNames,
+} from "#/components/spaces/conversation-names";
 import {
 	resolveInboxIndicatorClassName,
 	resolveInboxItemIndicator,
@@ -34,6 +40,7 @@ import {
 import { isInboxReview } from "#/lib/inbox/review";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
+import { useInboxAvatar } from "./inbox-avatars";
 import { InvitationReview } from "./invitation-review";
 
 const INBOX_SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -41,6 +48,26 @@ const INBOX_SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	month: "short",
 	timeZone: "UTC",
 });
+
+function InboxLeadingAvatar(input: {
+	item: InboxItem;
+	compact: boolean;
+	inlineInvitation: boolean;
+}) {
+	const avatar = useInboxAvatar(input.item);
+	return (
+		<span
+			className={cn(
+				"relative grid shrink-0 place-items-center text-muted-foreground",
+				!avatar && "rounded-md border border-border/70 bg-background",
+				input.compact ? "size-8" : "size-9",
+				input.inlineInvitation && "size-5 border-0 bg-transparent"
+			)}
+		>
+			{avatar ?? <InboxKindIcon item={input.item} />}
+		</span>
+	);
+}
 
 const INBOX_TIMESTAMP_TITLE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
@@ -61,10 +88,7 @@ export function InboxItemsList(input: {
 	onOpenItem: (item: InboxItem) => void;
 	onSetRead: (item: InboxItem, read: boolean) => void;
 	organizationSlug: string;
-	registerItemElement?: (
-		itemId: string,
-		element: HTMLAnchorElement | null
-	) => void;
+	registerItemElement?: (itemId: string, element: HTMLElement | null) => void;
 	showItemActions?: boolean;
 }) {
 	return (
@@ -92,31 +116,107 @@ export function InboxItemsList(input: {
 	);
 }
 
-function InboxItemRow(input: {
-	density: "compact" | "default";
+type InboxItemRowProps = {
+	titleOverride?: string;
+	previewOverride?: string;
+	trailingActions?: ReactNode;
+	contextActions?: ReactNode;
+	feedRow?: InboxFeedRow;
+	children?: ReactNode;
+	density: "compact" | "default" | "preview";
 	focused: boolean;
 	item: InboxItem;
 	onDismiss?: (item: InboxItem) => void;
 	onOpenItem: (item: InboxItem) => void;
 	onSetRead: (item: InboxItem, read: boolean) => void;
 	organizationSlug: string;
-	registerItemElement?: (
-		itemId: string,
-		element: HTMLAnchorElement | null
-	) => void;
+	registerItemElement?: (itemId: string, element: HTMLElement | null) => void;
 	showItemActions: boolean;
-}) {
-	const inlineInvitation =
-		input.density === "default" &&
-		input.item.sourceTarget.kind === "organization_join_request" &&
-		input.item.resolutionStatus === "open";
-	const unread = input.item.readAt === null;
+};
+
+function useInboxRowNavigation(input: InboxItemRowProps) {
 	const sourceNavigation = buildInboxItemSourceNavigation({
 		item: input.item,
 		orgSlug: input.organizationSlug,
 	});
-	const handleOpen = () => {
+	const navigate = useNavigate();
+	const informational =
+		input.item.sourceTarget.kind === "desktop_update" &&
+		(input.item.sourceTarget.state === "installed" ||
+			input.item.sourceTarget.state === "superseded");
+	const onOpen = () => {
 		input.onOpenItem(input.item);
+		if (informational) {
+			return;
+		}
+		if (sourceNavigation.openInNewTab) {
+			window.open(sourceNavigation.href, "_blank", "noopener,noreferrer");
+			return;
+		}
+		navigate({
+			to: sourceNavigation.href,
+			state: requestInboxSourceFocus,
+		}).catch((error) =>
+			console.warn("[openmeld.web.inbox_navigation_failed]", { error })
+		);
+	};
+	return { sourceNavigation, informational, onOpen };
+}
+
+const ROW_DENSITY_STYLES = {
+	default: {
+		actions: "pe-4 pb-2 sm:pb-0",
+		layout:
+			"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+		metadata: "mt-2",
+		preview: "",
+	},
+	compact: {
+		actions: "pe-4 pb-2 sm:pb-0",
+		layout:
+			"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+		metadata: "mt-1",
+		preview: "",
+	},
+	preview: {
+		actions: "pe-2",
+		layout: "grid grid-cols-[minmax(0,1fr)_auto] items-center",
+		metadata: "mt-1",
+		preview: "line-clamp-1 text-xs",
+	},
+};
+
+export function InboxItemRow(input: InboxItemRowProps) {
+	const densityStyles = ROW_DENSITY_STYLES[input.density];
+	const item = presentInboxItem(input.item, useConversationNames());
+	const inlineInvitation =
+		input.density === "default" &&
+		item.sourceTarget.kind === "organization_join_request" &&
+		item.resolutionStatus === "open";
+	const unread = input.feedRow
+		? input.feedRow.unreadCount > 0
+		: item.readAt === null;
+	const { sourceNavigation, informational, onOpen } = useInboxRowNavigation({
+		...input,
+		item,
+	});
+	const menu = (
+		<>
+			{informational ? null : (
+				<ObjectMenuItems href={sourceNavigation.href} onOpen={onOpen} />
+			)}
+			{input.contextActions ?? (
+				<InboxItemMenuItems
+					item={item}
+					onDismiss={input.onDismiss}
+					onSetRead={input.onSetRead}
+					unread={unread}
+				/>
+			)}
+		</>
+	);
+	const handleOpen = () => {
+		input.onOpenItem(item);
 	};
 	const handleAuxClick = (event: MouseEvent<HTMLAnchorElement>) => {
 		if (event.button === 1) {
@@ -126,114 +226,162 @@ function InboxItemRow(input: {
 
 	return (
 		<li>
-			<SharedLayoutItem
-				className={cn(
-					"group/inbox-row transition-colors motion-reduce:transition-none",
-					unread && "bg-foreground/[0.025]",
-					input.focused && "bg-muted/50"
-				)}
-				data-inbox-focused={input.focused ? "true" : undefined}
-				data-inbox-read-state={unread ? "unread" : "read"}
-				itemId={input.item.id}
-			>
-				<InboxItemSourceLink
-					className={cn(
-						"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-						input.density === "compact"
-							? "min-h-16 px-3 py-3"
-							: "min-h-20 px-4 py-4 pe-16 sm:gap-4",
-						inlineInvitation && "min-h-0 gap-4 pb-1"
-					)}
-					href={sourceNavigation.href}
-					onAuxClick={handleAuxClick}
-					onClick={handleOpen}
-					openInNewTab={sourceNavigation.openInNewTab}
-					ref={(element) => {
-						input.registerItemElement?.(input.item.id, element);
-					}}
-				>
-					<span
+			<FluidContextMenu
+				target={
+					<SharedLayoutItem
 						className={cn(
-							"relative grid shrink-0 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground",
-							input.density === "compact" ? "size-8" : "size-9",
-							inlineInvitation && "size-5 border-0 bg-transparent"
+							"group/inbox-row relative transition-colors motion-reduce:transition-none",
+							unread && "bg-foreground/[0.025]",
+							input.focused && "bg-muted/50"
 						)}
+						data-inbox-focused={input.focused ? "true" : undefined}
+						data-inbox-read-state={unread ? "unread" : "read"}
+						itemId={item.id}
 					>
-						<InboxKindIcon item={input.item} />
-					</span>
-
-					<span className="min-w-0 flex-1 ps-3.5">
-						<span className="flex min-w-0 flex-wrap items-center gap-2">
-							<span
+						<div className={cn(input.trailingActions && densityStyles.layout)}>
+							<InboxItemSourceLink
 								className={cn(
-									"relative min-w-0 break-words text-foreground text-sm leading-5",
-									unread ? "font-semibold" : "font-medium"
+									"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+									input.density !== "default"
+										? "min-h-16 px-3 py-3 pe-14"
+										: "min-h-20 px-4 py-4 pe-16 sm:gap-4",
+									inlineInvitation && "min-h-0 gap-4 pb-1",
+									{ "pe-3": input.trailingActions }
 								)}
+								href={sourceNavigation.href}
+								informational={informational}
+								onAuxClick={handleAuxClick}
+								onClick={handleOpen}
+								openInNewTab={sourceNavigation.openInNewTab}
+								ref={(element) => {
+									input.registerItemElement?.(item.id, element);
+								}}
 							>
-								<InboxItemStatusDot item={input.item} />
-								{input.item.title}
-							</span>
-							{unread ? <span className="sr-only">Unread.</span> : null}
-							<InboxItemBadges item={input.item} />
-							{inlineInvitation ? (
-								<span className="text-muted-foreground text-xs">
-									<InboxTimestamp occurredAt={input.item.occurredAt} />
+								<span
+									aria-hidden="true"
+									className="mt-2 flex w-2 shrink-0 justify-center"
+								>
+									<InboxItemStatusDot dot={input.feedRow?.dot} item={item} />
 								</span>
-							) : null}
-						</span>
-						<span
-							className={cn(
-								"mt-1 block break-words text-muted-foreground text-sm leading-5",
-								inlineInvitation && "hidden"
-							)}
-						>
-							{input.item.preview}
-						</span>
-						<span
-							className={cn(
-								"flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs",
-								input.density === "compact" ? "mt-1" : "mt-2",
-								inlineInvitation && "hidden"
-							)}
-						>
-							{input.item.contextLabel ? (
-								<span className="min-w-0 truncate">
-									{input.item.contextLabel}
-								</span>
-							) : null}
-							{input.item.contextLabel ? (
-								<span aria-hidden="true">·</span>
-							) : null}
-							<InboxTimestamp occurredAt={input.item.occurredAt} />
-						</span>
-					</span>
-				</InboxItemSourceLink>
+								<InboxLeadingAvatar
+									compact={input.density !== "default"}
+									inlineInvitation={inlineInvitation}
+									item={item}
+								/>
 
-				{inlineInvitation &&
-				input.item.sourceTarget.kind === "organization_join_request" ? (
-					<div className="ps-[4.125rem] pe-4 pb-4">
-						<InvitationReview
-							inline
-							onInteract={handleOpen}
-							requestId={input.item.sourceTarget.requestId}
-						/>
-					</div>
-				) : null}
-				{input.showItemActions ? (
-					<InboxItemActions
-						item={input.item}
-						onDismiss={input.onDismiss}
-						onSetRead={input.onSetRead}
-						unread={unread}
-					/>
-				) : null}
-			</SharedLayoutItem>
+								<span className="min-w-0 flex-1">
+									<span className="flex min-w-0 flex-wrap items-center gap-2">
+										<span
+											className={cn(
+												"relative line-clamp-2 min-w-0 break-words text-foreground text-sm leading-5",
+												unread ? "font-semibold" : "font-medium"
+											)}
+										>
+											{input.titleOverride ?? item.title}
+										</span>
+										{unread ? <span className="sr-only">Unread.</span> : null}
+										<InboxItemBadges item={item} />
+										{inlineInvitation ? (
+											<span className="text-muted-foreground text-xs">
+												<InboxTimestamp occurredAt={item.occurredAt} />
+											</span>
+										) : null}
+									</span>
+									<span
+										className={cn(
+											"mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-5",
+											inlineInvitation && "hidden",
+											densityStyles.preview
+										)}
+									>
+										{input.previewOverride ?? item.preview}
+									</span>
+									<span
+										className={cn(
+											"flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs",
+											densityStyles.metadata,
+											inlineInvitation && "hidden"
+										)}
+									>
+										<InboxRowMetadata feedRow={input.feedRow} item={item} />
+									</span>
+								</span>
+							</InboxItemSourceLink>
+
+							<InboxInlineInvitation
+								enabled={inlineInvitation}
+								item={item}
+								onInteract={handleOpen}
+							/>
+							{input.trailingActions ? (
+								<div className={cn("flex justify-end", densityStyles.actions)}>
+									{input.trailingActions}
+								</div>
+							) : null}
+							{input.children}
+							{input.showItemActions ? (
+								<InboxItemActions menu={menu} title={item.title} />
+							) : null}
+						</div>
+					</SharedLayoutItem>
+				}
+			>
+				{menu}
+			</FluidContextMenu>
 		</li>
 	);
 }
 
-function InboxItemStatusDot({ item }: { item: InboxItem }) {
-	const indicator = resolveInboxItemIndicator(item);
+function InboxInlineInvitation({
+	enabled,
+	item,
+	onInteract,
+}: {
+	enabled: boolean;
+	item: InboxItem;
+	onInteract: () => void;
+}) {
+	if (!enabled || item.sourceTarget.kind !== "organization_join_request") {
+		return null;
+	}
+	return (
+		<div className="ps-[4.125rem] pe-4 pb-4">
+			<InvitationReview
+				inline
+				onInteract={onInteract}
+				requestId={item.sourceTarget.requestId}
+			/>
+		</div>
+	);
+}
+
+function resolveRowIndicator(
+	item: InboxItem,
+	dot?: InboxFeedRow["dot"]
+): ReturnType<typeof resolveInboxItemIndicator> {
+	if (
+		item.attention === "action_required" &&
+		item.resolutionStatus === "open"
+	) {
+		return "warning";
+	}
+	if (dot === undefined) {
+		return resolveInboxItemIndicator(item);
+	}
+	if (dot === "yellow") {
+		return "warning";
+	}
+	return dot === "blue" ? "unread" : null;
+}
+
+function InboxItemStatusDot({
+	item,
+	dot,
+}: {
+	item: InboxItem;
+	dot?: InboxFeedRow["dot"];
+}) {
+	const indicator = resolveRowIndicator(item, dot);
 	if (!indicator) {
 		return null;
 	}
@@ -241,7 +389,7 @@ function InboxItemStatusDot({ item }: { item: InboxItem }) {
 		<span
 			aria-hidden="true"
 			className={cn(
-				"status-dot absolute -start-3.5 top-[7px]",
+				"status-dot shrink-0",
 				resolveInboxIndicatorClassName(
 					indicator === "unread" ? null : indicator
 				)
@@ -252,15 +400,28 @@ function InboxItemStatusDot({ item }: { item: InboxItem }) {
 }
 
 function InboxItemSourceLink(input: {
+	informational?: boolean;
 	children: ReactNode;
 	className: string;
 	href: string;
 	onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => void;
 	onClick: () => void;
 	openInNewTab: boolean;
-	ref: (element: HTMLAnchorElement | null) => void;
+	ref: (element: HTMLElement | null) => void;
 }) {
 	const navigate = useNavigate();
+	if (input.informational) {
+		return (
+			<button
+				className={cn(input.className, "w-full text-left")}
+				onClick={input.onClick}
+				ref={input.ref}
+				type="button"
+			>
+				{input.children}
+			</button>
+		);
+	}
 	const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
 		input.onClick();
 		if (
@@ -310,43 +471,56 @@ function InboxItemSourceLink(input: {
 	);
 }
 
-function InboxItemActions(input: {
-	item: InboxItem;
-	onDismiss?: (item: InboxItem) => void;
-	onSetRead: (item: InboxItem, read: boolean) => void;
-	unread: boolean;
-}) {
+function InboxItemActions(input: { menu: ReactNode; title: string }) {
 	return (
 		<div className="absolute inset-y-0 end-2 z-20 flex items-center">
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
 						<Button
-							aria-label={`Actions for ${input.item.title}`}
+							aria-label={`Actions for ${input.title}`}
 							className="size-10 opacity-100 transition-opacity motion-reduce:transition-none sm:opacity-0 sm:data-popup-open:opacity-100 sm:group-hover/inbox-row:opacity-100 sm:focus-visible:opacity-100"
 							size="icon-sm"
-							variant="ghost"
+							variant="secondary"
 						/>
 					}
 				>
 					<DotsThreeIcon aria-hidden="true" weight="bold" />
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end">
-					<DropdownMenuItem
-						onClick={() => input.onSetRead(input.item, input.unread)}
-					>
-						<CheckCircleIcon aria-hidden="true" />
-						{input.unread ? "Mark as read" : "Mark as unread"}
-					</DropdownMenuItem>
-					{input.onDismiss ? (
-						<DropdownMenuItem onClick={() => input.onDismiss?.(input.item)}>
-							<XIcon aria-hidden="true" />
-							Dismiss
-						</DropdownMenuItem>
-					) : null}
-				</DropdownMenuContent>
+				<FluidDropdownMenuContent align="end">
+					{input.menu}
+				</FluidDropdownMenuContent>
 			</DropdownMenu>
 		</div>
+	);
+}
+
+function InboxItemMenuItems(input: {
+	item: InboxItem;
+	onDismiss?: (item: InboxItem) => void;
+	onSetRead: (item: InboxItem, read: boolean) => void;
+	unread: boolean;
+}) {
+	return (
+		<>
+			{" "}
+			<FluidDropdownMenuItem
+				index={0}
+				onClick={() => input.onSetRead(input.item, input.unread)}
+			>
+				<CheckCircleIcon aria-hidden="true" />
+				{input.unread ? "Mark as read" : "Mark as unread"}
+			</FluidDropdownMenuItem>
+			{input.onDismiss ? (
+				<FluidDropdownMenuItem
+					index={1}
+					onClick={() => input.onDismiss?.(input.item)}
+				>
+					<XIcon aria-hidden="true" />
+					Remove from Inbox
+				</FluidDropdownMenuItem>
+			) : null}
+		</>
 	);
 }
 
@@ -370,13 +544,48 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 				<CheckCircleIcon aria-hidden="true" className="size-4" />
 			);
 		case "system_issue":
+		case "computer_connection":
 			return <WarningCircleIcon aria-hidden="true" className="size-4" />;
+		case "desktop_update":
+			return <CheckCircleIcon aria-hidden="true" className="size-4" />;
 		default:
 			return assertNever(input.item.kind);
 	}
 }
 
-function InboxTimestamp(input: { occurredAt: string }) {
+function InboxRowMetadata({
+	item,
+	feedRow,
+}: {
+	item: InboxItem;
+	feedRow?: InboxFeedRow;
+}) {
+	return (
+		<>
+			{item.contextLabel ? (
+				<>
+					<span className="min-w-0 truncate">{item.contextLabel}</span>
+					<span aria-hidden="true">·</span>
+				</>
+			) : null}
+			<InboxTimestamp
+				occurredAt={feedRow?.latestOccurredAt ?? item.occurredAt}
+			/>
+			{feedRow && feedRow.itemCount > 1 ? (
+				<>
+					<span aria-hidden="true">·</span>
+					<span className="tabular-nums">
+						{feedRow.unreadCount > 0
+							? `${feedRow.unreadCount} unread`
+							: `${feedRow.itemCount} activities`}
+					</span>
+				</>
+			) : null}
+		</>
+	);
+}
+
+export function InboxTimestamp(input: { occurredAt: string }) {
 	const date = new Date(input.occurredAt);
 	return (
 		<TooltipHint content={INBOX_TIMESTAMP_TITLE_FORMATTER.format(date)}>
@@ -412,24 +621,12 @@ function assertNever(value: never): never {
 	throw new Error(`Unsupported Inbox item kind: ${String(value)}`);
 }
 function InboxItemBadges({ item }: { item: InboxItem }) {
-	const open =
-		item.attention === "action_required" && item.resolutionStatus === "open";
-	if (
-		item.importance === "urgent" &&
-		(item.attention !== "action_required" || open)
-	) {
-		return (
-			<Badge
-				className={resolveStatusToneAdvisoryBadgeClassName()}
-				variant="outline"
-			>
-				Urgent
-			</Badge>
-		);
+	if (item.attention !== "action_required") {
+		return null;
 	}
-	return open ? (
-		<span className="text-muted-foreground text-xs">
-			{isInboxReview(item) ? "Needs review" : "Needs action"}
-		</span>
-	) : null;
+	const pendingLabel = isInboxReview(item)
+		? "Awaiting review"
+		: "Awaiting your action";
+	const label = item.resolutionStatus === "open" ? pendingLabel : "Ended";
+	return <span className="text-muted-foreground text-xs">{label}</span>;
 }

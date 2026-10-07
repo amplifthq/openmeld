@@ -15,6 +15,11 @@ export {
   agentControllerInterfaceStatusSchema,
 } from "./agent-controller-interface";
 export {
+  agentExecutionSteerRequestSchema,
+  agentExecutionSteerResponseSchema,
+} from "./agent-execution-steer";
+export { agentFailureFactsSchema } from "./agent-failure";
+export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,
   agentDelegationBarrierSchema,
   agentDelegationChildSnapshotSchema,
@@ -47,6 +52,16 @@ export {
   channelContextSchema,
   channelContextSyncSchema,
 } from "./channel-context";
+export {
+  GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES,
+  githubAppWebhookIssueActionSchema,
+  githubAppWebhookIssueObservationSchema,
+  githubAppWebhookIssueStateSchema,
+  githubAppWebhookQueueMessageSchema,
+  githubAppWebhookVerificationInputSchema,
+  githubAppWebhookVerificationResponseSchema,
+  readGitHubAppWebhookIssueObservation,
+} from "./github-app-webhook";
 export {
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
@@ -152,6 +167,7 @@ export {
 } from "./remote-agent-turn-envelope";
 export {
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   REMOTE_AGENT_ADMISSION_STAGE_OPERATIONS,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
@@ -161,10 +177,12 @@ export {
   REMOTE_AGENT_RUNTIME_EVIDENCE_EVENTS,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_STREAM_DELTA_MAX_CHARS,
+  remoteAgentAdmissionAttemptEvidenceSchema,
   remoteAgentAdmissionStageOperationSchema,
   remoteAgentConversationContinuityContextSchema,
   remoteAgentConversationContinuityEntrySchema,
   remoteAgentConversationContinuityEntrySourceSchema,
+  remoteAgentCoreAdmissionCallbackSchema,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
@@ -178,9 +196,11 @@ export {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
   remoteAgentStreamPartCallbackBodySchema,
+  remoteAgentTaskContinuationEvidenceSchema,
   remoteAgentTurnRuntimeEvidenceSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
+  remoteAgentWorkerAdmissionStopIntentSchema,
   remoteAgentWorkerAuthorContextSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerCancellationResponseSchema,
@@ -192,10 +212,14 @@ export {
   remoteAgentWorkerExecutionStatusSchema,
   remoteAgentWorkerInputAttachmentSchema,
   remoteAgentWorkerInputAttachmentsSchema,
+  remoteAgentWorkerReadAdmissionResponseSchema,
+  remoteAgentWorkerReadAdmissionStopResponseSchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   remoteAgentWorkerSubmissionStatusSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnRequestV1Schema,

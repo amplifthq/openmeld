@@ -1,6 +1,10 @@
 import type { RemoteAgentWorkerSubmitTurnRequestV4 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
+import {
+  buildRemoteAgentExecutionIdentity,
+  requestRemoteAgentExecutionCancellation,
+} from "../agent-core/execution-state";
 import { buildRemoteAgentSystemPrompt } from "../agent-core/prompt";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "../agent-core/slack-member-research-state";
 import {
@@ -13,6 +17,8 @@ import {
   REMOTE_AGENT_SUBMISSION_RECEIPT_RETENTION_MS,
   type RemoteAgentAdmissionHost,
   readExistingRemoteAgentSubmission,
+  readRemoteAgentAdmission,
+  readRemoteAgentAdmissionStop,
   resolveRemoteAgentTurnEnvelopeForName,
   submitRemoteAgentConversationTurn,
 } from "../agent-core/submission";
@@ -35,6 +41,207 @@ const SHA_256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 const ATTACHMENT_SEQUENCE_SUFFIX_PATTERN = /attachment-(\d+)$/u;
 
 describe("remote agent submission", () => {
+  it("advertises summary-only enforcement only on an opt-in read, without writing owner state", async () => {
+    const request = createSubmitTurnRequest();
+    request.turnEnvelope.trigger = {
+      source: "task_continuation",
+      summaryOnly: true,
+      subscriptionId: "summary-1",
+      delegationId: "delegation-1",
+      watchedTask: { v: 1, kind: "native_delivery", deliveryId: "parent-1" },
+      outcome: {
+        status: "failed",
+        errorCode: "remote_agent.turn_not_completed",
+        eventId: "failed-1",
+        occurredAtMs: TEST_NOW_MS,
+        publishedSignalId: null,
+      },
+    };
+    const storage = new InMemoryDurableObjectStorage();
+    const put = vi.spyOn(storage, "put");
+    await expect(
+      readRemoteAgentAdmissionStop({ request, storage })
+    ).resolves.toEqual({
+      v: 1,
+      status: "not_found",
+      summaryOnlySupported: true,
+      summaryRecoveryFenceSupported: true,
+    });
+    expect(put).not.toHaveBeenCalled();
+    await expect(
+      readRemoteAgentAdmission({ request, storage })
+    ).resolves.toEqual({ v: 1, status: "not_found" });
+  });
+  it("reads the immutable Stop receipt without creating admission or execution evidence", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = new InMemoryDurableObjectStorage();
+    await expect(
+      readRemoteAgentAdmissionStop({ request, storage })
+    ).resolves.toEqual({
+      v: 1,
+      status: "not_found",
+    });
+    const identity = buildRemoteAgentExecutionIdentity({
+      ...request,
+      submissionId: request.dispatchId,
+    });
+    await requestRemoteAgentExecutionCancellation({
+      identity,
+      storage,
+      nowMs: 100,
+    });
+    const readonlyStorage = { get: storage.get.bind(storage) };
+    for (let index = 0; index < 2; index++) {
+      await expect(
+        readRemoteAgentAdmissionStop({ request, storage: readonlyStorage })
+      ).resolves.toEqual({
+        v: 1,
+        status: "found",
+        stopIntent: {
+          v: 1,
+          organizationId: request.organizationId,
+          spaceId: request.spaceId,
+          idempotencyKey: request.idempotencyKey,
+          requestedAtMs: 100,
+          reason: null,
+        },
+      });
+    }
+    await expect(
+      readRemoteAgentAdmission({ request, storage })
+    ).resolves.toEqual({ v: 1, status: "not_found" });
+    await expect(
+      readRemoteAgentAdmissionStop({
+        request: { ...request, idempotencyKey: "other-request" },
+        storage,
+      })
+    ).resolves.toEqual({ v: 1, status: "not_found" });
+  });
+  it("rejects a late stopped request before admitting it to the conversation host", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    await requestRemoteAgentExecutionCancellation({
+      identity: buildRemoteAgentExecutionIdentity({
+        ...request,
+        submissionId: request.dispatchId,
+      }),
+      storage,
+      nowMs: TEST_NOW_MS,
+    });
+    const host = { admitConversationTurn: vi.fn() };
+    await expect(
+      submitRemoteAgentConversationTurn({
+        agentName: buildRemoteAgentName(request),
+        host,
+        input: request,
+        storage,
+        nowMs: () => TEST_NOW_MS + 100,
+      })
+    ).rejects.toThrow("cancelled before this action could run");
+    expect(host.admitConversationTurn).not.toHaveBeenCalled();
+    await expect(
+      readRemoteAgentAdmission({ request, storage })
+    ).resolves.toEqual({ v: 1, status: "unconfirmed" });
+  });
+  it("reads a lost original ACK without new admission or storage writes and rejects changed request content", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const host: RemoteAgentAdmissionHost = {
+      admitConversationTurn: vi.fn(async (input) => ({
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: input.request.idempotencyKey,
+        submissionId: input.submissionId,
+        status: "pending" as const,
+      })),
+    };
+    const first = await submitRemoteAgentConversationTurn({
+      agentName: buildRemoteAgentName(request),
+      host,
+      input: request,
+      nowMs: () => TEST_NOW_MS,
+      storage,
+    });
+    const before = await storage.list();
+    const readOnlyStorage = { get: storage.get.bind(storage) };
+    await expect(
+      readRemoteAgentAdmission({ request, storage: readOnlyStorage })
+    ).resolves.toEqual({
+      v: 1,
+      status: "found",
+      ack: { ...first.ack, accepted: false },
+    });
+    await expect(
+      readRemoteAgentAdmission({
+        request: {
+          ...request,
+          messages: [{ role: "user", content: "Different task" }],
+        },
+        storage: readOnlyStorage,
+      })
+    ).rejects.toThrow("different turn");
+    expect(await storage.list()).toEqual(before);
+    expect(host.admitConversationTurn).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a missing receipt unconfirmed without a synthetic submission identity", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await expect(
+      readRemoteAgentAdmission({
+        request: createSubmitTurnRequest(),
+        storage: { get: storage.get.bind(storage) },
+      })
+    ).resolves.toEqual({ v: 1, status: "not_found" });
+    expect((await storage.list()).size).toBe(0);
+  });
+
+  it("does not promote a claimed receipt into an execution while native admission is unresolved", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    let releaseAdmission!: () => void;
+    let enteredAdmission!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const entered = new Promise<void>((resolve) => {
+      enteredAdmission = resolve;
+    });
+    const host: RemoteAgentAdmissionHost = {
+      admitConversationTurn: vi.fn(async (input) => {
+        enteredAdmission();
+        await gate;
+        return {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: input.request.idempotencyKey,
+          submissionId: input.submissionId,
+          status: "pending" as const,
+        };
+      }),
+    };
+    const admission = submitRemoteAgentConversationTurn({
+      agentName: buildRemoteAgentName(request),
+      host,
+      input: request,
+      nowMs: () => TEST_NOW_MS,
+      storage,
+    });
+    await entered;
+    try {
+      const before = await storage.list();
+      await expect(
+        readRemoteAgentAdmission({
+          request,
+          storage: { get: storage.get.bind(storage) },
+        })
+      ).resolves.toEqual({ v: 1, status: "unconfirmed" });
+      expect(await storage.list()).toEqual(before);
+      expect(host.admitConversationTurn).toHaveBeenCalledOnce();
+    } finally {
+      releaseAdmission();
+      await admission;
+    }
+  });
   it("admits a personal Routine only for its verified owner and exact Agent identity", () => {
     const base = createSubmitTurnRequestV2();
     const request: RemoteAgentWorkerSubmitTurnRequestV4 = {
@@ -506,7 +713,7 @@ describe("remote agent submission", () => {
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
         "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Current verified request]",
         "Summarize the launch blocker.",
@@ -759,6 +966,14 @@ describe("remote agent submission", () => {
     ];
     const { submissionId: _submissionId, ...v2Receipt } = receipt;
     await storage.put(receiptKey, { ...v2Receipt, v: 2 });
+
+    await expect(
+      readRemoteAgentAdmission({ request, storage })
+    ).resolves.toMatchObject({
+      v: 1,
+      status: "found",
+      ack: { submissionId: first.ack.submissionId, accepted: false },
+    });
 
     const retry = await submitRemoteAgentConversationTurn({
       agentName: buildRemoteAgentName(request),
@@ -1169,9 +1384,9 @@ describe("remote agent submission", () => {
         "Treat the speaking Agent Profile as the requester without inventing a human identity.",
         "Personal memory is not available; do not imply that you remember private facts about this person.",
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "Space guide (maintained by this space's steward): Keep launch decisions reversible.",
         "",
         "[Current verified request]",
@@ -1292,11 +1507,11 @@ describe("remote agent submission", () => {
         "[Context handling]",
         "Current reply audience: people in an external conversation.",
         "Treat this as the same verified requester across OpenMeld, Slack, Message Channels, and Local Agents.",
-        "Use personal memory silently to help this same requester without asking them to repeat themselves. Do not quote, expose, or imply private details in this shared reply.",
+        "Use personal memory silently to help this same requester without asking them to repeat themselves. Do not quote, expose, or imply private details in model-emitted thinking, public progress, this shared reply, or outbound tool arguments.",
         "Use Organization context privately to solve the request, but do not expose non-public Organization details in this shared reply.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Current verified request]",
         "Who am I?",
@@ -1660,9 +1875,9 @@ describe("remote agent submission", () => {
         "Treat this as Organization-configured unattended work, not a live personal conversation.",
         "Personal memory is not available; do not imply that you remember private facts about this person.",
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "Space guide (maintained by this space's steward): Publish decisions with evidence.",
         "",
         "[Routine execution]",
@@ -1779,7 +1994,7 @@ describe("remote agent submission", () => {
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
         "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Scoped memory]",
         "- [Available to this requester] personal memory from Center Agent DM: [Recorded 2025-07-27T00:00:00.000Z] The launch team deploys on Thursday.",
@@ -1835,14 +2050,14 @@ describe("remote agent submission", () => {
       "Use personal memory silently to help this same requester without asking them to repeat themselves."
     );
     expect(prompt).toContain(
-      "Do not quote, expose, or imply private details in this shared reply."
+      "Do not quote, expose, or imply private details in model-emitted thinking, public progress, this shared reply, or outbound tool arguments."
     );
     expect(prompt).toContain(
-      "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules."
+      "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules."
     );
     expect(prompt).toContain("Felix prefers launch plans");
     expect(prompt).toContain(
-      "[Private reasoning only — never quote, expose, or imply this detail in the current reply] personal memory from Center Agent DM"
+      "[Restricted context — never quote, expose, or imply this detail in model-emitted thinking, public progress, the current reply, or outbound tool arguments] personal memory from Center Agent DM"
     );
   });
 

@@ -21,6 +21,65 @@ describe("SpaceAgentInteractionCard", () => {
 		cleanup();
 	});
 
+	it.each([
+		[
+			"start_new_conversation",
+			"Start a new conversation",
+			"Continue task",
+			"Response sent",
+		],
+		["leave_task", "Stop this task", "Stop task", "Stop requested"],
+	])("submits the explicit folder choice %s without claiming task completion", async (optionId, label, button, acknowledgement) => {
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+		render(
+			<SpaceAgentInteractionCard
+				item={createWakeProgressItem({
+					canRespond: true,
+					request: {
+						v: 1,
+						interactionId: "folder-choice",
+						requestedAtMs: 1000,
+						expiresAtMs: 2000,
+						kind: "question",
+						title: "Choose where to continue",
+						questions: [
+							{
+								questionId: "working_folder_recovery",
+								prompt: "Which conversation should this task use?",
+								multiple: false,
+								allowOther: false,
+								options: [
+									{
+										optionId: "start_new_conversation",
+										label: "Start a new conversation",
+									},
+									{ optionId: "leave_task", label: "Stop this task" },
+								],
+							},
+						],
+					},
+				})}
+				onRespond={onRespond}
+			/>
+		);
+		expect(onRespond).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("radio", { name: label }));
+		fireEvent.click(screen.getByRole("button", { name: button }));
+		await screen.findByText(acknowledgement);
+		expect(onRespond).toHaveBeenCalledOnce();
+		expect(onRespond).toHaveBeenCalledWith({
+			interactionId: "folder-choice",
+			runtimeCoordinatorExecutionId: "rce_interaction",
+			response: {
+				kind: "question",
+				answers: [
+					{ questionId: "working_folder_recovery", values: [optionId] },
+				],
+			},
+		});
+		expect(screen.queryByText("Task completed")).toBeNull();
+	});
+
 	it("shows permission context and submits the selected permission option", async () => {
 		const onRespond = vi.fn().mockResolvedValue(undefined);
 		render(
@@ -225,6 +284,47 @@ describe("SpaceAgentInteractionCard", () => {
 				runtimeCoordinatorExecutionId: "rce_interaction",
 			});
 		});
+	});
+
+	it("requires a fresh decision when a new plan replaces an answered request", async () => {
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+		const plan = (interactionId: string, title: string) =>
+			createWakeProgressItem({
+				canRespond: true,
+				request: {
+					v: 1,
+					kind: "plan_review",
+					interactionId,
+					title,
+					requestedAtMs: Date.now(),
+					expiresAtMs: Date.now() + 60_000,
+					plan: title,
+					allowFeedback: false,
+				},
+			});
+		const { rerender } = render(
+			<SpaceAgentInteractionCard
+				item={plan("first-plan", "Review the first plan")}
+				onRespond={onRespond}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Approve plan" }));
+		await screen.findByText("Response sent");
+		rerender(
+			<SpaceAgentInteractionCard
+				item={plan("revised-plan", "Review the revised plan")}
+				onRespond={onRespond}
+			/>
+		);
+		expect(screen.queryByText("Response sent")).toBeNull();
+		expect(onRespond).toHaveBeenCalledTimes(1);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Approve plan",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
 	});
 
 	it("keeps request details private from people who do not own the local agent", () => {

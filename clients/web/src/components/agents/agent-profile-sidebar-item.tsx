@@ -16,6 +16,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import {
 	SidebarMenuActions,
@@ -33,19 +34,24 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
+import { ProfileMenuItems } from "#/components/app/profile-menu-items";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import {
 	localAgentSidebarState,
 	useAgentSidebarPreviewReady,
 } from "#/lib/dev/agent-sidebar-fixtures";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import type { useSortableSidebarItem } from "../app/sidebar-drag";
 import { SidebarRowAction } from "../app/sidebar-row-action";
 import { AgentCard } from "./agent-card";
+import { AgentGroupItem } from "./agent-group-context";
 
 export const AgentProfileSidebarItem = memo(AgentProfileSidebarItemComponent);
 
 export function AgentProfileSidebarItemComponent(input: {
+	selection?: import("./agent-list-selection").AgentCardSelection;
 	variant?: "sidebar" | "card";
 	avatarSize?: number;
 	agentControllerRef: string | null;
@@ -65,9 +71,27 @@ export function AgentProfileSidebarItemComponent(input: {
 	onChat?: () => void;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
+	const { currentOrganization } = useAppOrganization();
+	const menu = (
+		<ProfileMenuItems
+			disabled={input.actionsDisabled}
+			href={`${buildOrganizationAgentsPath(currentOrganization.slug)}?profileId=${encodeURIComponent(input.profile.openMeldProfileId)}`}
+			onChat={input.onChat}
+			onOpen={() => {
+				input.onSelectProfile(input.profile.openMeldProfileId);
+				dismiss();
+			}}
+			onToggleStar={input.onToggleStar}
+			starred={input.starred}
+		/>
+	);
 	const agentControllerRef = resolveAgentProfileControllerRef(
 		input.readiness,
 		input.agentControllerRef
+	);
+	const avatarModelId = resolveSidebarAvatarModelId(
+		input.readiness,
+		input.modelCatalog
 	);
 	const presentation = resolveAgentProfileSidebarPresentation({
 		agentControllerRef,
@@ -139,108 +163,138 @@ export function AgentProfileSidebarItemComponent(input: {
 	);
 	if (input.variant === "card") {
 		return (
-			<FluidNavMenuItem
-				index={input.index}
-				value={input.profile.openMeldProfileId}
-			>
-				<AgentCard
-					describedBy={availabilityDescriptionId}
-					description={presentation.controllerModelSummary}
-					indicators={indicators}
-					name={input.profile.profileName}
-					onClick={() => {
-						input.onSelectProfile(input.profile.openMeldProfileId);
-						dismiss();
-					}}
-					profileId={input.profile.openMeldProfileId}
-					renderAvatar={(size) => (
-						<AgentProfileControllerAvatar
-							agentControllerRef={agentControllerRef}
-							className={avatarClassName}
+			<FluidContextMenu
+				target={
+					<AgentGroupItem
+						index={input.index}
+						value={input.profile.openMeldProfileId}
+					>
+						<AgentCard
+							describedBy={availabilityDescriptionId}
+							description={presentation.controllerModelSummary}
+							indicators={indicators}
+							name={input.profile.profileName}
+							onClick={() => {
+								input.onSelectProfile(input.profile.openMeldProfileId);
+								dismiss();
+							}}
 							profileId={input.profile.openMeldProfileId}
-							profileName={input.profile.profileName}
-							size={size}
-							working={input.operationalContext?.status === "working"}
+							renderAvatar={(size) => (
+								<AgentProfileControllerAvatar
+									agentControllerRef={agentControllerRef}
+									avatarStyle={input.profile.avatarStyle}
+									className={avatarClassName}
+									modelId={avatarModelId}
+									profileId={input.profile.openMeldProfileId}
+									profileName={input.profile.profileName}
+									size={size}
+									working={input.operationalContext?.status === "working"}
+								/>
+							)}
+							selection={input.selection}
 						/>
-					)}
-				/>
-			</FluidNavMenuItem>
+					</AgentGroupItem>
+				}
+			>
+				{menu}
+			</FluidContextMenu>
 		);
 	}
 
 	return (
-		<FluidNavMenuItem
-			className="relative"
-			index={input.index}
-			ref={input.drag?.ref}
-			style={input.drag?.style}
-			value={input.profile.openMeldProfileId}
-		>
-			<SidebarMenuButton
-				actionLayout="heading"
-				isActive={input.isActive}
-				{...input.drag?.rowProps}
-				aria-current={input.isActive ? "page" : undefined}
-				aria-describedby={availabilityDescriptionId}
-				aria-label={`Open ${input.profile.profileName}`}
-				className={cn(
-					"h-auto min-w-0 items-start gap-1.5 py-1 text-left outline-none",
-					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
-					APP_NAV_ITEM_TONE_CLASS_NAME,
-					input.isActive ? "text-sidebar-accent-foreground" : null
-				)}
-				data-profile-id={input.profile.openMeldProfileId}
-				onClick={() => {
-					input.onSelectProfile(input.profile.openMeldProfileId);
-					dismiss();
-				}}
-				type="button"
-			>
-				<AgentProfileControllerAvatar
-					agentControllerRef={agentControllerRef}
-					className={avatarClassName}
-					profileId={input.profile.openMeldProfileId}
-					profileName={input.profile.profileName}
-					size={input.avatarSize ?? 20}
-					working={input.operationalContext?.status === "working"}
-				/>
-				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
-					<span
-						className="flex min-w-0 items-center gap-1.5"
-						data-sidebar="menu-heading"
+		<FluidContextMenu
+			target={
+				<FluidNavMenuItem
+					className="relative"
+					index={input.index}
+					ref={input.drag?.ref}
+					style={input.drag?.style}
+					value={input.profile.openMeldProfileId}
+				>
+					<SidebarMenuButton
+						actionLayout="heading"
+						isActive={input.isActive}
+						{...input.drag?.rowProps}
+						aria-current={input.isActive ? "page" : undefined}
+						aria-describedby={availabilityDescriptionId}
+						aria-label={`Open ${input.profile.profileName}`}
+						className={cn(
+							"h-auto min-w-0 items-start gap-1.5 py-1 text-left outline-none",
+							APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
+							APP_NAV_ITEM_TONE_CLASS_NAME,
+							input.isActive ? "text-sidebar-accent-foreground" : null
+						)}
+						data-profile-id={input.profile.openMeldProfileId}
+						onClick={() => {
+							input.onSelectProfile(input.profile.openMeldProfileId);
+							dismiss();
+						}}
+						type="button"
 					>
-						<span className={profileNameClassName}>
-							{input.profile.profileName}
+						<AgentProfileControllerAvatar
+							agentControllerRef={agentControllerRef}
+							avatarStyle={input.profile.avatarStyle}
+							className={avatarClassName}
+							modelId={avatarModelId}
+							profileId={input.profile.openMeldProfileId}
+							profileName={input.profile.profileName}
+							size={input.avatarSize ?? 20}
+							working={input.operationalContext?.status === "working"}
+						/>
+						<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
+							<span
+								className="flex min-w-0 items-center gap-1.5"
+								data-sidebar="menu-heading"
+							>
+								<span className={profileNameClassName}>
+									{input.profile.profileName}
+								</span>
+								{indicators}
+							</span>
+							<span className="truncate text-muted-foreground text-xs">
+								{presentation.controllerModelSummary}
+							</span>
 						</span>
-						{indicators}
-					</span>
-					<span className="truncate text-muted-foreground text-xs">
-						{presentation.controllerModelSummary}
-					</span>
-				</span>
-			</SidebarMenuButton>
-			{hasActions && (
-				<SidebarMenuActions showOnHover>
-					{input.onChat && (
-						<SidebarRowAction
-							label={`Chat with ${input.profile.profileName}`}
-							onClick={input.onChat}
-						>
-							<ChatCircleTextIcon />
-						</SidebarRowAction>
+					</SidebarMenuButton>
+					{hasActions && (
+						<SidebarMenuActions showOnHover>
+							{input.onChat && (
+								<SidebarRowAction
+									label={`Chat with ${input.profile.profileName}`}
+									onClick={input.onChat}
+								>
+									<ChatCircleTextIcon />
+								</SidebarRowAction>
+							)}
+							{input.onToggleStar && (
+								<SidebarRowAction
+									disabled={input.actionsDisabled}
+									label={`${input.starred ? "Unstar" : "Star"} ${input.profile.profileName}`}
+									onClick={input.onToggleStar}
+								>
+									<StarIcon weight={input.starred ? "fill" : "regular"} />
+								</SidebarRowAction>
+							)}
+						</SidebarMenuActions>
 					)}
-					{input.onToggleStar && (
-						<SidebarRowAction
-							disabled={input.actionsDisabled}
-							label={`${input.starred ? "Unstar" : "Star"} ${input.profile.profileName}`}
-							onClick={input.onToggleStar}
-						>
-							<StarIcon weight={input.starred ? "fill" : "regular"} />
-						</SidebarRowAction>
-					)}
-				</SidebarMenuActions>
-			)}
-		</FluidNavMenuItem>
+				</FluidNavMenuItem>
+			}
+		>
+			{menu}
+		</FluidContextMenu>
+	);
+}
+
+function resolveSidebarAvatarModelId(
+	readiness: GetAgentExecutionReadinessResponse | null,
+	catalog: ModelCatalog | null
+): string | null {
+	return (
+		readiness?.primaryBinding?.modelSelection?.modelId ??
+		readiness?.publicProfileConfiguration?.modelSelection?.modelId ??
+		catalog?.agentControllers["center-agent"]?.hostedRuntimePolicy
+			?.personalRemoteAgentDefaultModelId ??
+		null
 	);
 }
 

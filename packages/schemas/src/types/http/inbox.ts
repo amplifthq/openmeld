@@ -2,6 +2,19 @@ import type { z } from "zod/v4";
 
 type InboxSchemas = typeof import("../../schemas/http/inbox");
 
+export type InboxNotificationObservationCursor = z.infer<
+  InboxSchemas["inboxNotificationObservationCursorSchema"]
+>;
+export type InboxNotificationObservationsQuery = z.infer<
+  InboxSchemas["inboxNotificationObservationsQuerySchema"]
+>;
+export type InboxNotificationObservationsResponse = z.infer<
+  InboxSchemas["inboxNotificationObservationsResponseSchema"]
+>;
+export type ObserveInboxNotificationsRpcInput = z.infer<
+  InboxSchemas["observeInboxNotificationsRpcInputSchema"]
+>;
+
 export type InboxMessageNotificationMode = z.infer<
   InboxSchemas["inboxMessageNotificationModeSchema"]
 >;
@@ -27,6 +40,10 @@ export type InboxPresentation = z.infer<
 >;
 export type InboxAttention = z.infer<InboxSchemas["inboxAttentionSchema"]>;
 export type InboxImportance = z.infer<InboxSchemas["inboxImportanceSchema"]>;
+export type InboxRecipientReason = z.infer<
+  InboxSchemas["inboxRecipientReasonSchema"]
+>;
+export type InboxSourceFacts = z.infer<InboxSchemas["inboxSourceFactsSchema"]>;
 export type InboxResolutionStatus = z.infer<
   InboxSchemas["inboxResolutionStatusSchema"]
 >;
@@ -81,6 +98,16 @@ export type MarkCenterAgentInboxReadThroughBody = z.infer<
 export type MarkCenterAgentInboxReadThroughResponse = z.infer<
   InboxSchemas["markCenterAgentInboxReadThroughResponseSchema"]
 >;
+export type MutateSpaceInboxReadBody = z.infer<
+  InboxSchemas["mutateSpaceInboxReadBodySchema"]
+>;
+export type MutateSpaceInboxReadRpcInput = z.infer<
+  InboxSchemas["mutateSpaceInboxReadRpcInputSchema"]
+>;
+export type MutateSpaceInboxReadResponse = z.infer<
+  InboxSchemas["mutateSpaceInboxReadResponseSchema"]
+>;
+
 export type MarkSpaceInboxReadThroughBody = z.infer<
   InboxSchemas["markSpaceInboxReadThroughBodySchema"]
 >;

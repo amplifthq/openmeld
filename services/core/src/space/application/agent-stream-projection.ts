@@ -24,11 +24,14 @@ export const AGENT_WORKING_DETAILS_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 const MAX_RECORDED_AGENT_TOOLS = 50;
 const MAX_TRACKED_AGENT_TOOL_CALLS = 500;
+const MAX_PERSISTED_PUBLIC_PROGRESS_CHARS = 8192;
 
 const ACTIVE_STREAM_STORAGE_PREFIX = "agent_stream:";
 const ACTIVE_STREAM_CURSOR_STORAGE_PREFIX = "agent_stream_cursor:";
 const TERMINAL_GUARD_STORAGE_PREFIX = "agent_stream_terminal:";
 const WORKING_DETAILS_DRAFT_STORAGE_PREFIX = "agent_stream_working_draft:";
+const PUBLIC_PROGRESS_DRAFT_STORAGE_PREFIX =
+  "agent_stream_public_progress_draft:";
 const WORKING_DETAILS_STORAGE_PREFIX = "agent_working_details:";
 
 type AgentStreamDeltaProjection = Omit<
@@ -52,9 +55,16 @@ type AgentStreamPartProjection = AgentStreamIdentity & {
   sequence: number;
 };
 
-type AgentStreamThinkingDeltaProjection = AgentStreamIdentity & {
+type AgentStreamTransientDeltaProjection = AgentStreamIdentity &
+  (
+    | { kind?: "thinking"; sequence: number }
+    | { kind: "progress"; progressSnapshot: string; sequence: number }
+  );
+
+type StoredAgentPublicProgressDraft = AgentStreamIdentity & {
   sequence: number;
-  thinkingSnapshot: string;
+  progress: string;
+  expiresAtMs: number;
 };
 
 type AgentStreamCursor = AgentStreamIdentity & {
@@ -70,6 +80,7 @@ type AgentStreamTerminalGuard = {
   streamId: string;
   lastSequence: number;
   expiresAtMs: number;
+  stoppedReply?: SpaceAgentStreamSnapshot;
 };
 
 type StoredAgentToolActivity = {
@@ -113,6 +124,7 @@ export type AgentStreamProjectionInvalidRecord = {
   recordKind:
     | "active_stream"
     | "cursor"
+    | "public_progress_draft"
     | "published_working_details"
     | "terminal_guard"
     | "working_details_draft";
@@ -156,7 +168,7 @@ export type ApplyAgentStreamPartResult =
       lastSequence: number;
     };
 
-export type ApplyAgentStreamThinkingDeltaResult =
+export type ApplyAgentStreamTransientDeltaResult =
   | {
       status: "accepted";
       lastSequence: number;
@@ -221,11 +233,11 @@ export async function applyAgentStreamDelta(input: {
   });
 }
 
-export async function applyAgentStreamThinkingDelta(input: {
+export async function applyAgentStreamTransientDelta(input: {
   storage: AgentStreamProjectionStorage;
-  delta: AgentStreamThinkingDeltaProjection;
+  delta: AgentStreamTransientDeltaProjection;
   nowMs: number;
-}): Promise<ApplyAgentStreamThinkingDeltaResult> {
+}): Promise<ApplyAgentStreamTransientDeltaResult> {
   return await input.storage.transaction(async (transaction) => {
     const advanced = await advanceAgentStreamSequence({
       event: input.delta,
@@ -234,6 +246,23 @@ export async function applyAgentStreamThinkingDelta(input: {
     });
     if (advanced.status !== "accepted") {
       return advanced;
+    }
+    if (input.delta.kind === "progress") {
+      const progress = input.delta.progressSnapshot.slice(
+        -MAX_PERSISTED_PUBLIC_PROGRESS_CHARS
+      );
+      await transaction.put(buildPublicProgressDraftKey(input.delta.streamId), {
+        v: input.delta.v,
+        spaceId: input.delta.spaceId,
+        streamId: input.delta.streamId,
+        sequence: input.delta.sequence,
+        profileId: input.delta.profileId,
+        triggerMessageId: input.delta.triggerMessageId,
+        replyThreadRootSignalId: input.delta.replyThreadRootSignalId,
+        dispatchId: input.delta.dispatchId,
+        progress,
+        expiresAtMs: input.nowMs + AGENT_STREAM_PROJECTION_RETENTION_MS,
+      } satisfies StoredAgentPublicProgressDraft);
     }
     return {
       status: "accepted",
@@ -285,6 +314,7 @@ export async function closeAgentStreamProjection(input: {
     const cursorKey = buildActiveStreamCursorKey(input.streamId);
     const terminalKey = buildTerminalGuardKey(input.streamId);
     const workingDetailsDraftKey = buildWorkingDetailsDraftKey(input.streamId);
+    const publicProgressDraftKey = buildPublicProgressDraftKey(input.streamId);
     const [storedSnapshot, storedCursor, storedGuard, storedWorkingDetails] =
       await Promise.all([
         transaction.get<unknown>(activeKey),
@@ -306,6 +336,11 @@ export async function closeAgentStreamProjection(input: {
       streamId: input.streamId,
       lastSequence,
       expiresAtMs: input.nowMs + AGENT_STREAM_PROJECTION_RETENTION_MS,
+      stoppedReply: resolveStoppedReplySnapshot(
+        terminal,
+        snapshot,
+        storedGuard
+      ),
     };
     await transaction.put(terminalKey, terminalGuard);
     if (terminal.kind === "final_message" && storedWorkingDetails) {
@@ -336,6 +371,7 @@ export async function closeAgentStreamProjection(input: {
     if (storedWorkingDetails) {
       await transaction.delete(workingDetailsDraftKey);
     }
+    await transaction.delete(publicProgressDraftKey);
     if (cursor) {
       await transaction.delete([activeKey, cursorKey]);
       return {
@@ -365,6 +401,64 @@ export async function closeAgentStreamProjection(input: {
       terminal,
     };
   });
+}
+
+function resolveStoppedReplySnapshot(
+  terminal: SpaceAgentStreamTerminal,
+  snapshot: SpaceAgentStreamSnapshot | null,
+  guard: AgentStreamTerminalGuard | undefined
+): SpaceAgentStreamSnapshot | undefined {
+  if (terminal.kind !== "stopped") {
+    return undefined;
+  }
+  return snapshot ?? guard?.stoppedReply;
+}
+
+export async function attachStoppedReplyText(input: {
+  signal: SignalEnvelope;
+  storage: AgentStreamProjectionStorage;
+  nowMs: number;
+}): Promise<SignalEnvelope> {
+  const { signal } = input;
+  if (
+    signal.type !== "signal.system_notice" ||
+    signal.data.noticeType !== "wake_stopped"
+  ) {
+    return signal;
+  }
+  const { stoppedReplyText: _callerText, ...notice } = signal;
+  const data = notice.data;
+  const [active, guards] = await Promise.all([
+    input.storage.list<unknown>({ prefix: ACTIVE_STREAM_STORAGE_PREFIX }),
+    input.storage.list<AgentStreamTerminalGuard>({
+      prefix: TERMINAL_GUARD_STORAGE_PREFIX,
+    }),
+  ]);
+  const candidates = [
+    ...active.values(),
+    ...[...guards.values()]
+      .filter((guard) => guard.expiresAtMs > input.nowMs)
+      .map((guard) => guard.stoppedReply),
+  ].flatMap((value) => {
+    const parsed = spaceAgentStreamSnapshotSchema.safeParse(value);
+    return parsed.success &&
+      parsed.data.expiresAtMs > input.nowMs &&
+      parsed.data.spaceId === signal.spaceId &&
+      parsed.data.dispatchId === data.dispatchId &&
+      parsed.data.profileId === data.actorProfileId &&
+      (!data.replyTo || parsed.data.triggerMessageId === data.replyTo.signalId)
+      ? [parsed.data]
+      : [];
+  });
+  const snapshot = candidates.sort(
+    (left, right) => right.updatedAtMs - left.updatedAtMs
+  )[0];
+  return {
+    ...notice,
+    ...(snapshot?.textSnapshot
+      ? { stoppedReplyText: snapshot.textSnapshot }
+      : {}),
+  };
 }
 
 export async function readAgentWorkingDetailsForSignal(input: {
@@ -432,6 +526,37 @@ export async function readAgentActivityForFinalReply(input: {
   });
 }
 
+async function readAgentPublicProgressForFinalReply(input: {
+  storage: AgentStreamProjectionStorage;
+  spaceId: string;
+  dispatchId: string;
+  profileId: string;
+  streamId: string;
+  nowMs: number;
+}): Promise<string | null> {
+  const key = buildPublicProgressDraftKey(input.streamId);
+  const stored = await input.storage.get<unknown>(key);
+  if (!stored) {
+    return null;
+  }
+  const draft = parseStoredAgentPublicProgressDraft(stored);
+  if (draft.expiresAtMs <= input.nowMs) {
+    await input.storage.delete(key);
+    return null;
+  }
+  if (
+    draft.streamId !== input.streamId ||
+    draft.spaceId !== input.spaceId ||
+    draft.dispatchId !== input.dispatchId ||
+    draft.profileId !== input.profileId
+  ) {
+    throw new Error(
+      "Agent public progress draft identity does not match the final reply."
+    );
+  }
+  return draft.progress || null;
+}
+
 export async function attachAgentActivityToFinalReply(input: {
   agentStreamId?: string;
   storage: AgentStreamProjectionStorage;
@@ -460,13 +585,24 @@ export async function attachAgentActivityToFinalReply(input: {
     streamId: input.agentStreamId,
     nowMs: input.nowMs,
   });
-  if (!agentActivity) {
+  const publicProgress = await readAgentPublicProgressForFinalReply({
+    storage: input.storage,
+    spaceId: signal.spaceId,
+    dispatchId,
+    profileId: signal.profile.profileId,
+    streamId: input.agentStreamId,
+    nowMs: input.nowMs,
+  });
+  if (!(agentActivity || publicProgress)) {
     return signal;
   }
-  const legacyAgentActivity = buildLegacyCompatibleAgentActivity(agentActivity);
+  const legacyAgentActivity = agentActivity
+    ? buildLegacyCompatibleAgentActivity(agentActivity)
+    : null;
   const {
     agentActivity: _existingAgentActivity,
     agentWorkSummary: _existingAgentWorkSummary,
+    agentPublicProgress: _existingAgentPublicProgress,
     ...existingMeta
   } = signal.data.meta;
   return {
@@ -476,7 +612,8 @@ export async function attachAgentActivityToFinalReply(input: {
       meta: {
         ...existingMeta,
         ...(legacyAgentActivity ? { agentActivity: legacyAgentActivity } : {}),
-        agentWorkSummary: agentActivity,
+        ...(agentActivity ? { agentWorkSummary: agentActivity } : {}),
+        ...(publicProgress ? { agentPublicProgress: publicProgress } : {}),
       },
     },
   };
@@ -604,6 +741,7 @@ export async function cleanupExpiredAgentStreamProjections(input: {
     cursors,
     terminalGuards,
     workingDetailsDrafts,
+    publicProgressDrafts,
     workingDetails,
   ] = await Promise.all([
     input.storage.list<unknown>({ prefix: ACTIVE_STREAM_STORAGE_PREFIX }),
@@ -615,6 +753,9 @@ export async function cleanupExpiredAgentStreamProjections(input: {
     }),
     input.storage.list<unknown>({
       prefix: WORKING_DETAILS_DRAFT_STORAGE_PREFIX,
+    }),
+    input.storage.list<unknown>({
+      prefix: PUBLIC_PROGRESS_DRAFT_STORAGE_PREFIX,
     }),
     input.storage.list<unknown>({ prefix: WORKING_DETAILS_STORAGE_PREFIX }),
   ]);
@@ -645,11 +786,18 @@ export async function cleanupExpiredAgentStreamProjections(input: {
       return details.expiresAtMs <= input.nowMs;
     })
     .map(([key]) => key);
+  const expiredPublicProgressDraftKeys = [...publicProgressDrafts]
+    .filter(
+      ([, value]) =>
+        parseStoredAgentPublicProgressDraft(value).expiresAtMs <= input.nowMs
+    )
+    .map(([key]) => key);
 
   const expiredActiveProjectionKeys = [
     ...expiredActiveKeys,
     ...expiredCursorKeys,
     ...expiredWorkingDetailsDraftKeys,
+    ...expiredPublicProgressDraftKeys,
   ];
   const expiredActiveStreamIds = new Set([
     ...expiredActiveKeys.map((key) =>
@@ -660,6 +808,9 @@ export async function cleanupExpiredAgentStreamProjections(input: {
     ),
     ...expiredWorkingDetailsDraftKeys.map((key) =>
       key.slice(WORKING_DETAILS_DRAFT_STORAGE_PREFIX.length)
+    ),
+    ...expiredPublicProgressDraftKeys.map((key) =>
+      key.slice(PUBLIC_PROGRESS_DRAFT_STORAGE_PREFIX.length)
     ),
   ]);
   if (expiredActiveProjectionKeys.length > 0) {
@@ -688,6 +839,7 @@ export async function readNextAgentStreamProjectionAlarmAtMs(
     cursors,
     terminalGuards,
     workingDetailsDrafts,
+    publicProgressDrafts,
     workingDetails,
   ] = await Promise.all([
     storage.list<unknown>({ prefix: ACTIVE_STREAM_STORAGE_PREFIX }),
@@ -696,6 +848,7 @@ export async function readNextAgentStreamProjectionAlarmAtMs(
       prefix: TERMINAL_GUARD_STORAGE_PREFIX,
     }),
     storage.list<unknown>({ prefix: WORKING_DETAILS_DRAFT_STORAGE_PREFIX }),
+    storage.list<unknown>({ prefix: PUBLIC_PROGRESS_DRAFT_STORAGE_PREFIX }),
     storage.list<unknown>({ prefix: WORKING_DETAILS_STORAGE_PREFIX }),
   ]);
   const invalidRecords: AgentStreamProjectionInvalidRecord[] = [];
@@ -723,6 +876,12 @@ export async function readNextAgentStreamProjectionAlarmAtMs(
     recordKind: "working_details_draft",
     records: workingDetailsDrafts,
   });
+  const validPublicProgressDrafts = parseStoredProjectionRecordMap({
+    invalidRecords,
+    parse: parseStoredAgentPublicProgressDraft,
+    recordKind: "public_progress_draft",
+    records: publicProgressDrafts,
+  });
   const validWorkingDetails = parseStoredProjectionRecordMap({
     invalidRecords,
     parse: parseStoredPublishedAgentWorkingDetails,
@@ -743,6 +902,9 @@ export async function readNextAgentStreamProjectionAlarmAtMs(
   }
   for (const terminalGuard of validTerminalGuards.values()) {
     nextAlarmAtMs = minTimestamp(nextAlarmAtMs, terminalGuard.expiresAtMs);
+  }
+  for (const draft of validPublicProgressDrafts.values()) {
+    nextAlarmAtMs = minTimestamp(nextAlarmAtMs, draft.expiresAtMs);
   }
   for (const details of validWorkingDetailsDrafts.values()) {
     nextAlarmAtMs = minTimestamp(nextAlarmAtMs, details.expiresAtMs);
@@ -820,6 +982,10 @@ function buildTerminalGuardKey(streamId: string): string {
 
 function buildWorkingDetailsDraftKey(streamId: string): string {
   return `${WORKING_DETAILS_DRAFT_STORAGE_PREFIX}${streamId}`;
+}
+
+function buildPublicProgressDraftKey(streamId: string): string {
+  return `${PUBLIC_PROGRESS_DRAFT_STORAGE_PREFIX}${streamId}`;
 }
 
 function buildWorkingDetailsKey(signalId: string): string {
@@ -1068,6 +1234,33 @@ function parseStoredAgentWorkingDetailsDraft(
     updatedAtMs: details.updatedAtMs,
     expiresAtMs: details.expiresAtMs,
   };
+}
+
+function parseStoredAgentPublicProgressDraft(
+  value: unknown
+): StoredAgentPublicProgressDraft {
+  if (!(value && typeof value === "object")) {
+    throw new Error("Stored Agent public progress must be an object.");
+  }
+  const draft = value as Partial<StoredAgentPublicProgressDraft>;
+  if (
+    draft.v !== 1 ||
+    [
+      draft.spaceId,
+      draft.streamId,
+      draft.profileId,
+      draft.triggerMessageId,
+      draft.dispatchId,
+    ].some((field) => typeof field !== "string" || field.trim().length === 0) ||
+    !isNonnegativeInteger(draft.sequence) ||
+    draft.sequence === 0 ||
+    typeof draft.progress !== "string" ||
+    draft.progress.length > MAX_PERSISTED_PUBLIC_PROGRESS_CHARS ||
+    !isNonnegativeInteger(draft.expiresAtMs)
+  ) {
+    throw new Error("Stored Agent public progress is invalid.");
+  }
+  return draft as StoredAgentPublicProgressDraft;
 }
 
 function resolveVisibleAgentTools(

@@ -15,7 +15,6 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
-import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
@@ -23,13 +22,11 @@ import {
 	AppModuleSidebarToggle,
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
-import type { SpaceLiveState } from "#/lib/spaces/timeline";
-import { ChatArchiveButton } from "./chat-archive-button";
+import { MessageSearchButton } from "#/components/search/message-search";
+import { ChatHeaderMenu } from "./chat-header-menu";
+import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
-import {
-	SpaceHeaderNavigationMenu,
-	type SpaceHeaderNavigationMenuItem,
-} from "./space-header-navigation-menu";
+import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceSettingsDialog } from "./space-settings-dialog";
@@ -50,8 +47,7 @@ export function SpaceWindowHeader(input: {
 	secondaryContentClassName?: string;
 	subtitleItems?: readonly SpaceWindowHeaderSubtitleItem[];
 	title: string;
-	// Rendered immediately after the title, kept shrink-0 so the live-status
-	// indicator stays pinned to the name while the title truncates.
+	titleControl?: ReactNode;
 	titleAdornment?: ReactNode;
 }) {
 	const readingHeader = useSpaceReadingHeader();
@@ -62,12 +58,14 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
+				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-1 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			data-has-leading-control={Boolean(input.leadingControl)}
+			data-slot="space-window-header"
 			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl || hasModuleSidebar ? (
@@ -81,22 +79,25 @@ export function SpaceWindowHeader(input: {
 			) : null}
 			<div
 				className={cn(
-					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
+					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden data-[has-title-control=true]:overflow-visible group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
 					!(input.leadingControl || hasModuleSidebar) &&
 						"col-span-2 col-start-1"
 				)}
+				data-has-title-control={Boolean(input.titleControl)}
 				data-slot="space-window-header-title"
 			>
-				<TooltipHint content={readingHeader ? input.title : undefined}>
-					<h1
-						className={cn(
-							"truncate font-medium text-lg",
-							readingHeader && "max-w-[28rem]"
-						)}
-					>
-						{input.title}
-					</h1>
-				</TooltipHint>
+				{input.titleControl ?? (
+					<TooltipHint content={readingHeader ? input.title : undefined}>
+						<h1
+							className={cn(
+								"truncate font-medium text-lg",
+								readingHeader && "max-w-[28rem]"
+							)}
+						>
+							{input.title}
+						</h1>
+					</TooltipHint>
+				)}
 				{input.titleAdornment ?? null}
 			</div>
 
@@ -122,7 +123,7 @@ export function SpaceWindowHeader(input: {
 				>
 					{input.navigation ? (
 						<div
-							className="motion-safe:group-data-[compact=true]/space-header:slide-in-from-bottom-2 flex h-full shrink-0 items-center group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1 motion-safe:group-data-[compact=true]/space-header:animate-in motion-safe:group-data-[compact=true]/space-header:duration-150"
+							className="-mx-2 flex h-full shrink-0 items-center px-2 group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1 group-data-[compact=true]/space-header:mx-0"
 							data-slot="space-window-header-navigation"
 						>
 							{input.navigation}
@@ -161,9 +162,36 @@ function resolveHeaderTitle(
 	return conversationTitle ?? (spaceName?.trim() || "Untitled space");
 }
 
+function ConversationHeaderMenu(input: {
+	profileId?: string;
+	spaceId: string;
+	isDirectMessage: boolean;
+	isCenterAgent?: boolean;
+	onOpenSettings: () => void;
+}) {
+	const ariaLabel = input.isCenterAgent ? "Center Agent menu" : "Chat menu";
+	if (input.isDirectMessage && input.profileId) {
+		return (
+			<ChatHeaderMenu
+				ariaLabel={ariaLabel}
+				onOpenConversationInformation={input.onOpenSettings}
+				spaceId={input.spaceId}
+			/>
+		);
+	}
+	return (
+		<SpaceHeaderNavigationMenu
+			ariaLabel={ariaLabel}
+			items={[]}
+			onOpenConversationInformation={input.onOpenSettings}
+		/>
+	);
+}
+
 export function SpaceHeader(input: {
 	conversationTitle?: string;
 	conversationTitleAction?: (title: string) => ReactNode;
+	conversationTitleControl?: (title: string) => ReactNode;
 	accessModeErrorMessage: string | null;
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
@@ -178,18 +206,8 @@ export function SpaceHeader(input: {
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
 	leaveSpaceErrorMessage: string | null;
-	// Realtime stream health for this browser's live connection. Drives the
-	// status dot pinned after the space name; defaults to "connected" so static
-	// surfaces (e.g. the public route) render a plain live dot.
-	liveErrorMessage?: string | null;
-	liveState?: SpaceLiveState;
-	isLoadingMessages?: boolean;
 	managementControl?: ReactNode;
-	menuItems?: readonly SpaceHeaderNavigationMenuItem[];
-	menuLabel?: string;
-	// Forces an immediate live-stream reconnect; wired to the manual retry control
-	// on the degraded status indicator.
-	onReconnectLiveUpdates?: () => void;
+	showChatSettingsMenu?: boolean;
 	renderFrame?: boolean;
 	membersControl?: ReactNode;
 	notificationControl?: ReactNode;
@@ -220,10 +238,7 @@ export function SpaceHeader(input: {
 		"main"
 	);
 	const [isConfirmingDraftClose, setIsConfirmingDraftClose] = useState(false);
-	const spaceName = resolveHeaderTitle(
-		input.conversationTitle,
-		input.status.name
-	);
+	const conversationNames = useConversationNames();
 	const sharingDraft = useSpaceSharingDraft({
 		accessMode: input.status.accessMode,
 		allowGuests: input.status.allowGuests,
@@ -236,6 +251,14 @@ export function SpaceHeader(input: {
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
+	const spaceName = resolveHeaderTitle(
+		input.conversationTitle ??
+			(isDirectMessage
+				? conversationNames?.names.get(input.status.spaceId)?.name
+				: undefined),
+		input.status.name
+	);
+	const showChatMenu = input.showChatSettingsMenu || isDirectMessage;
 	const handleDialogOpenChange = (
 		dialog: "settings" | "share",
 		open: boolean
@@ -270,12 +293,10 @@ export function SpaceHeader(input: {
 							</div>
 						) : null}
 						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
-						{isDirectMessage && input.currentProfileId ? (
-							<ChatArchiveButton
-								profileId={input.currentProfileId}
-								spaceId={input.status.spaceId}
-							/>
-						) : null}
+						<MessageSearchButton
+							profileId={input.currentProfileId}
+							spaceId={input.status.spaceId}
+						/>
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
@@ -305,14 +326,16 @@ export function SpaceHeader(input: {
 								visibility={input.status.organizationVisibility}
 							/>
 						)}
-						{input.menuItems ? (
-							<SpaceHeaderNavigationMenu
-								ariaLabel={input.menuLabel ?? "More options"}
-								items={input.menuItems}
-								onOpenConversationInformation={() => {
+						{showChatMenu ? (
+							<ConversationHeaderMenu
+								isCenterAgent={input.isCenterAgentDirectMessage}
+								isDirectMessage={isDirectMessage}
+								onOpenSettings={() => {
 									setSettingsInitialSection("general");
 									setActiveDialog("settings");
 								}}
+								profileId={input.currentProfileId}
+								spaceId={input.status.spaceId}
 							/>
 						) : null}
 						<SpaceSettingsDialog
@@ -363,7 +386,7 @@ export function SpaceHeader(input: {
 							}}
 							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
-							showTrigger={!input.menuItems}
+							showTrigger={!showChatMenu}
 							spaceId={input.status.spaceId}
 							visibility={input.status.organizationVisibility}
 						/>
@@ -402,7 +425,7 @@ export function SpaceHeader(input: {
 				</>
 			}
 			leadingControl={
-				isDirectMessage ? (
+				isDirectMessage && !input.isCenterAgentDirectMessage ? (
 					<SpaceHeaderIdentityIcon isDirectMessage />
 				) : undefined
 			}
@@ -415,16 +438,11 @@ export function SpaceHeader(input: {
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-					{input.conversationTitleAction?.(spaceName)}
+					{!input.conversationTitleControl &&
+						input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
 						: renderSpaceAccessModeHeaderLabel(input.status)}
-					<SpaceLiveStatusIndicator
-						isLoadingMessages={input.isLoadingMessages}
-						liveErrorMessage={input.liveErrorMessage ?? null}
-						liveState={input.liveState ?? "connected"}
-						onReconnectNow={input.onReconnectLiveUpdates}
-					/>
 					{input.directMessageOwnerVisibilityLabel ? (
 						<span className="inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-normal text-[10px] leading-none">
 							{input.directMessageOwnerVisibilityLabel}
@@ -432,6 +450,7 @@ export function SpaceHeader(input: {
 					) : null}
 				</span>
 			}
+			titleControl={input.conversationTitleControl?.(spaceName)}
 		/>
 	);
 }
@@ -500,109 +519,4 @@ function resolveSpaceAccessModeLabel(status: GetSpaceStatusResponse): string {
 		default:
 			return "Public";
 	}
-}
-
-// Label shown next to the amber dot while the live stream is reconnecting.
-// Exported so tests assert on the same literal the component renders.
-export const SPACE_LIVE_RECONNECTING_LABEL = "Reconnecting…";
-export const SPACE_LIVE_STALE_LABEL = "Syncing…";
-
-function resolveLiveStatusSrLabel(liveState: SpaceLiveState): string {
-	switch (liveState) {
-		case "degraded":
-			return "Live updates paused, reconnecting";
-		case "stale":
-			return "Live updates are syncing missed messages";
-		case "connecting":
-			return "Connecting to live updates";
-		default:
-			return "Live updates active";
-	}
-}
-
-export function SpaceLiveStatusIndicator(input: {
-	isLoadingMessages?: boolean;
-	liveErrorMessage: string | null;
-	liveState: SpaceLiveState;
-	onReconnectNow?: () => void;
-}) {
-	const isDegraded = input.liveState === "degraded";
-	const isStale = input.liveState === "stale";
-	const needsAttention = isDegraded || isStale;
-	const dotClassName = cn(
-		"status-dot",
-		resolveStatusToneIndicatorClassName("warning", "solid")
-	);
-	const srLabel =
-		!needsAttention && input.isLoadingMessages
-			? "Loading messages"
-			: resolveLiveStatusSrLabel(input.liveState);
-	// When degraded we expose a manual retry: don't make the user wait out the
-	// (possibly background-throttled) backoff timer.
-	const canRetry = isDegraded && input.onReconnectNow !== undefined;
-	const degradedTooltip = canRetry
-		? (input.liveErrorMessage ?? "Reconnecting… — click to reconnect now")
-		: (input.liveErrorMessage ?? srLabel);
-	const attentionTooltip = isDegraded
-		? degradedTooltip
-		: (input.liveErrorMessage ?? srLabel);
-
-	const indicatorBody = (
-		<>
-			<span aria-hidden="true" className={dotClassName} />
-			<span
-				aria-hidden="true"
-				className="font-normal text-amber-600 text-xs dark:text-amber-400"
-			>
-				{isDegraded ? SPACE_LIVE_RECONNECTING_LABEL : SPACE_LIVE_STALE_LABEL}
-			</span>
-		</>
-	);
-
-	return (
-		<>
-			{/* Always-present live region so screen readers hear status changes
-			    (e.g. going degraded) regardless of the interactive element below. */}
-			<output aria-live="polite" className="sr-only">
-				{srLabel}
-			</output>
-			{/* A healthy message stream is not Human presence or Agent readiness. */}
-			{needsAttention ? (
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							canRetry ? (
-								<button
-									aria-label="Reconnect live updates now"
-									className="flex shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-inherit"
-									data-testid="space-live-status"
-									onClick={input.onReconnectNow}
-									type="button"
-								>
-									{indicatorBody}
-								</button>
-							) : (
-								<span
-									className="flex shrink-0 items-center gap-1.5"
-									data-testid="space-live-status"
-								>
-									{indicatorBody}
-								</span>
-							)
-						}
-					/>
-					<TooltipContent side="bottom">{attentionTooltip}</TooltipContent>
-				</Tooltip>
-			) : null}
-			{!needsAttention && input.isLoadingMessages ? (
-				<span
-					className="flex shrink-0 items-center gap-1.5 text-muted-foreground text-xs"
-					data-testid="space-message-loading"
-				>
-					<span aria-hidden="true" className="status-dot bg-current" />
-					<span aria-hidden="true">Loading</span>
-				</span>
-			) : null}
-		</>
-	);
 }

@@ -1,4 +1,6 @@
+import type { SDKControlGetUsageResponse } from "@anthropic-ai/claude-agent-sdk";
 import type { AdapterProviderUsageLimit } from "@openmeld/adapter-core";
+import { createUnavailableProviderUsageLimits } from "@openmeld/adapter-core";
 
 const SECONDS_PER_MILLISECOND = 1000;
 
@@ -32,6 +34,92 @@ const WINDOW_DISPLAY_BY_TYPE = {
   SupportedClaudeRateLimitType,
   { key: string; label: string }
 >;
+
+// The SDK account endpoint reports percentages; stream events report fractions.
+// Keep these contracts separate to avoid turning 0.9% into 90%.
+export function projectClaudeCodeAccountUsageLimits(input: {
+  value: SDKControlGetUsageResponse;
+  observedAt: string;
+}): AdapterProviderUsageLimit[] {
+  if (input.value.rate_limits_available === false) {
+    return createUnavailableProviderUsageLimits(input.observedAt, undefined, {
+      reason: "not_applicable",
+    });
+  }
+  if (input.value.rate_limits_available !== true) {
+    return createUnavailableProviderUsageLimits(input.observedAt, undefined, {
+      reason: "not_reported",
+    });
+  }
+  const windows = input.value.rate_limits;
+  const limits: AdapterProviderUsageLimit[] = [];
+  const addWindow = (
+    key: string,
+    label: string,
+    window:
+      | { utilization: number | null; resets_at: string | null }
+      | null
+      | undefined
+  ) => {
+    if (
+      !window ||
+      limits.length >= 32 ||
+      limits.some((limit) => limit.key === key)
+    ) {
+      return;
+    }
+    const value = window.utilization;
+    const usedPercent =
+      typeof value === "number" &&
+      Number.isFinite(value) &&
+      value >= 0 &&
+      value <= 100
+        ? value
+        : null;
+    const resetMs = window.resets_at
+      ? Date.parse(window.resets_at)
+      : Number.NaN;
+    let status: AdapterProviderUsageLimit["status"] = "unavailable";
+    if (usedPercent !== null) {
+      status = usedPercent === 100 ? "exhausted" : "available";
+    }
+    limits.push({
+      key,
+      label,
+      observedAt: input.observedAt,
+      resetsAt: Number.isFinite(resetMs)
+        ? new Date(resetMs).toISOString()
+        : null,
+      usedPercent,
+      status,
+      ...(usedPercent === null ? { reason: "not_reported" as const } : {}),
+    });
+  };
+  for (const type of SUPPORTED_RATE_LIMIT_TYPES) {
+    const display = WINDOW_DISPLAY_BY_TYPE[type];
+    addWindow(display.key, display.label, windows?.[type]);
+  }
+  addWindow(
+    "claude-code:seven-day-oauth-apps",
+    "OAuth apps weekly usage limit",
+    windows?.seven_day_oauth_apps
+  );
+  for (const window of windows?.model_scoped ?? []) {
+    const name = window.display_name?.trim();
+    if (!name || name.length > 200) {
+      continue;
+    }
+    const key = `claude-code:seven-day-${encodeURIComponent(name.toLowerCase())}`;
+    if (key.length <= 256) {
+      addWindow(key, `${name} weekly usage limit`, window);
+    }
+  }
+  return limits.length > 0
+    ? limits
+    : createUnavailableProviderUsageLimits(input.observedAt, undefined, {
+        reason: "not_reported",
+      });
+}
 
 export function projectClaudeCodeUsageLimits(input: {
   event: unknown;

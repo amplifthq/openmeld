@@ -166,6 +166,8 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 				<SpaceProfileIcon
 					agentControllerRef={input.entry.agentControllerRef}
 					avatarImageUrl={input.entry.avatarUrl}
+					avatarModelId={input.entry.avatarModelId}
+					avatarStyle={input.entry.avatarStyle}
 					className="mt-0.5"
 					isCenterAgent={input.entry.profileId === input.centerAgentProfileId}
 					profileId={input.entry.profileId}
@@ -271,6 +273,11 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 			"wake_route.registration_expired" &&
 		rawDisplayedMemberTransientState === null;
 
+	const statusDetailIsInTooltip =
+		input.input.density === "compact" &&
+		(visualDisplayedMemberTransientState === "checking" ||
+			visualDisplayedMemberTransientState === "active_wake_in_progress" ||
+			visualEntry.presenceStatus === "checking_connection");
 	const primaryDetail =
 		input.input.variant === "compact"
 			? resolveCompactDetail(visualEntry, false)
@@ -298,7 +305,7 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 			: availabilityIndicatorTooltip,
 		canCheckAgentWakeAvailability,
 		displayedAgentRecoveryPlan,
-		primaryDetail,
+		primaryDetail: statusDetailIsInTooltip ? null : primaryDetail,
 		rawDisplayedMemberTransientState,
 		visualDisplayedMemberTransientState,
 		visualEntry,
@@ -446,6 +453,8 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 				<SpaceProfileIcon
 					agentControllerRef={input.entry.agentControllerRef}
 					avatarImageUrl={input.entry.avatarUrl}
+					avatarModelId={input.entry.avatarModelId}
+					avatarStyle={input.entry.avatarStyle}
 					className="mt-0.5"
 					profileId={input.entry.profileId}
 					profileKind={input.entry.profileKind}

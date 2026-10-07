@@ -8,6 +8,8 @@ import {
 	resetAccountScopedQueriesAfterAuthChange,
 } from "#/query/auth-boundary";
 import { isDesktopAppHref } from "../../../desktop/src/shared/navigation";
+import { forgetDesktopSession, readDesktopSession } from "./auth-boundary";
+import { desktopUsesMacControls } from "./chrome-platform";
 import { createDesktopNavigation } from "./navigation";
 import { getDesktopPlatform } from "./platform";
 import { DesktopTitlebarContext } from "./titlebar-context";
@@ -89,7 +91,8 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 		}
 		async function revalidateSession(
 			active: () => boolean,
-			refreshPreviousAccountId: string | null | undefined
+			refreshPreviousAccountId: string | null | undefined,
+			force: boolean
 		) {
 			if (!active()) {
 				return;
@@ -109,7 +112,11 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 				return;
 			}
 			await applySession(
-				await desktopBridge.session(),
+				await readDesktopSession({
+					bridge: desktopBridge,
+					queryClient,
+					revalidate: force || hasPendingSessionInvalidation,
+				}),
 				active,
 				hasPendingSessionInvalidation,
 				previousAccountId
@@ -122,8 +129,9 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 				pendingInvalidationPreviousAccountId = undefined;
 			}
 		}
-		const refresh = (sessionChanged = false) => {
+		const refresh = (sessionChanged = false, force = false) => {
 			if (sessionChanged) {
+				forgetDesktopSession(queryClient);
 				if (
 					sessionInvalidationRevision === handledSessionInvalidationRevision
 				) {
@@ -145,14 +153,14 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 			const current = ++revision;
 			const active = () => !disposed && current === revision;
 			prepared = prepared
-				.then(() => revalidateSession(active, refreshPreviousAccountId))
+				.then(() => revalidateSession(active, refreshPreviousAccountId, force))
 				.catch((error: unknown) => {
 					if (active()) {
 						console.error("Could not refresh Desktop sign-in.", error);
 					}
 				});
 		};
-		const onFocus = () => refresh();
+		const onFocus = () => refresh(false, true);
 		const unsubscribe = desktopBridge.onSessionChanged(() => refresh(true));
 		window.addEventListener("focus", onFocus);
 		return () => {
@@ -169,7 +177,10 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 	return (
 		<DesktopTitlebarContext.Provider value={titlebar}>
 			<DesktopUpdater />
-			<div className="desktop-window">
+			<div
+				className="desktop-window"
+				data-window-controls={desktopUsesMacControls() ? "mac" : "overlay"}
+			>
 				<div className="desktop-titlebar" ref={setTarget} />
 				<div className="desktop-content">{children}</div>
 			</div>

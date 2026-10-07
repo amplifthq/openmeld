@@ -1,4 +1,7 @@
-import type { NavigationAction } from "@openmeld/schemas";
+import type {
+  NavigationAction,
+  PluginChannelSourceProof,
+} from "@openmeld/schemas";
 import type {
   ChannelContext,
   MessageChannelConversationLocator,
@@ -7,7 +10,7 @@ import type {
   NormalizedMessageChannelEvent,
   SpaceMessageAttachment,
 } from "@openmeld/schemas/types";
-import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/d1/lark-platform-channel-connection-repo";
+import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 
 export type LarkPlatformMessageChannelProvider = Extract<
   MessageChannelProvider,
@@ -77,6 +80,13 @@ type MessageChannelAdapterTarget = {
 
 export type MessageChannelProviderAdapter = {
   provider: LarkPlatformMessageChannelProvider;
+  // Optional only for compatibility with older adapters. Continuation refuses
+  // to proceed if current source evidence cannot be read.
+  readPluginSourceProof?(input: {
+    connection: RemoteAgentLarkPlatformChannelConnectionRecord;
+    locator: MessageChannelConversationLocator;
+    messageId: string;
+  }): Promise<PluginChannelSourceProof | null>;
   publishFile(
     input: MessageChannelAdapterTarget & {
       bytes: Uint8Array;

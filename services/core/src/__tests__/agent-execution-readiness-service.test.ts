@@ -3,6 +3,7 @@ import {
   resolveAgentWakeAdmissionBlockReasonCode,
   resolveAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceSnapshot,
@@ -11,25 +12,29 @@ import type {
   LocalComponentsStatus,
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import { createAgentExecutionReadinessReads } from "../agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadinessForProfile as resolveCoreAgentExecutionReadinessForProfileWithoutOrganizationFixture } from "../agent-execution/application/agent-execution-readiness-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as readinessImpactRepo from "../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
-import { readFreshAgentExecutionReadinessImpactForBinding } from "../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
+import * as readinessImpactRepo from "../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
+import { readFreshAgentExecutionReadinessImpactForBinding } from "../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as providerAccessEvidenceRepo from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
-import { readFreshProviderAccessEvidenceForBinding } from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
+import * as providerAccessEvidenceRepo from "../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
+import { readFreshProviderAccessEvidenceForBinding } from "../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as providerConversationProofRepo from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
-import { readFreshProviderConversationProofForBinding } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
+import * as providerConversationProofRepo from "../agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
+import { readFreshProviderConversationProofForBinding } from "../agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as localRuntimeExpectedRoutesService from "../agent-profile-binding/application/local-runtime-expected-routes-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as agentProfileBindingRepo from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import * as agentProfileBindingRepo from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
-} from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+} from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
+import { resolveCurrentAgentModelAvailability } from "../config/agent-model-availability";
+// biome-ignore lint/performance/noNamespaceImport: Spy on the reviewed catalog, not execution policy.
+import * as modelCatalogSource from "../config/model-catalog";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as daemonTransportClient from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import {
@@ -40,21 +45,21 @@ import type { CoreBindings } from "../lib/bindings";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as localComponentsUpdateProjection from "../local-components/update-projection";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as runtimeAgentControllerReportRepo from "../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
-import { readCurrentRuntimeAgentControllerReports } from "../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+import * as runtimeAgentControllerReportRepo from "../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
+import { readCurrentRuntimeAgentControllerReports } from "../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as runtimeRegistryRepo from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import * as runtimeRegistryRepo from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import {
   listOwnedDeviceExecutionTargetRecords,
   readRuntimeRegistryRecord,
   readRuntimeRegistryRecordByRuntimeId,
-} from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+} from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as currentDeviceDerivationRepo from "../start/infrastructure/d1/current-device-derivation-repo";
-import { resolveCurrentDeviceFromBindings } from "../start/infrastructure/d1/current-device-derivation-repo";
+import * as currentDeviceDerivationRepo from "../start/infrastructure/postgresql/current-device-derivation-repo";
+import { resolveCurrentDeviceFromBindings } from "../start/infrastructure/postgresql/current-device-derivation-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as ownedDeviceRegistryRepo from "../start/infrastructure/d1/owned-device-registry-repo";
-import { listOwnedDeviceRegistryRecords } from "../start/infrastructure/d1/owned-device-registry-repo";
+import * as ownedDeviceRegistryRepo from "../start/infrastructure/postgresql/owned-device-registry-repo";
+import { listOwnedDeviceRegistryRecords } from "../start/infrastructure/postgresql/owned-device-registry-repo";
 import { REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST } from "./local-components-release-manifest-fixture";
 
 const GENERATED_AT = "2026-05-13T00:00:00.000Z";
@@ -555,6 +560,7 @@ describe("Core Agent Execution Readiness", () => {
           reasonCodes: [
             "service.update_required",
             "service.version_not_reported",
+            "service.release_target_unavailable",
           ],
           source: "runtime_transport",
         },
@@ -1399,7 +1405,10 @@ describe("Core Agent Execution Readiness", () => {
     mockOnlineRoute("device-1");
     const binding = await readPrimaryAgentProfileBindingRecord({
       agentProfileId: profileId,
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       owner: { kind: "owner_account", id: "owner-1" },
     });
     if (!binding) {
@@ -1715,6 +1724,142 @@ describe("Core Agent Execution Readiness", () => {
     expect(listOwnedDeviceExecutionTargetRecords).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["announced", "chatgpt", false],
+    ["withdrawn", "chatgpt", true],
+    ["withdrawn", "apiKey", false],
+    ["withdrawn", undefined, false],
+  ] as const)("uses reviewed %s scope for %s at canonical Wake admission", async (status, authType, blocked) => {
+    const catalog = modelCatalogSource.readAuthoredModelCatalog();
+    const model = catalog.agentControllers.codex?.models.find(
+      (entry) => entry.id === "gpt-5.4"
+    );
+    if (!model) {
+      throw new Error("Fixture needs GPT-5.4");
+    }
+    model.retirement = {
+      status,
+      date: { value: "2000-01-01", kind: "on" },
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl: "https://example.com/official-notice",
+      verifiedAt: GENERATED_AT,
+    };
+    vi.spyOn(modelCatalogSource, "readAuthoredModelCatalog").mockReturnValue(
+      catalog
+    );
+    mockReadyBindingAndRuntime(
+      "agt_retirement",
+      "builtin:codex",
+      "existing-thread",
+      model.id
+    );
+    mockOnlineRoute("device-1");
+    const report = createRuntimeReportWithUsage(
+      createUsageLimit({ status: "available", usedPercent: 42 })
+    );
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
+      {
+        ...report,
+        agentControllerInterface: {
+          ...report.agentControllerInterface,
+          auth: {
+            status: "authenticated",
+            ...(authType ? { type: authType } : {}),
+          },
+        },
+      },
+    ]);
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId: "agt_retirement",
+            profileName: "Research",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId: "agt_retirement",
+    });
+    const reason = resolveAgentWakeAdmissionBlockReasonCode(
+      readiness.agentExecutionReadiness
+    );
+    if (blocked) {
+      expect(reason).toBe("model.retired");
+      expect(
+        resolveAgentWakeAvailability({
+          agentControllerRef: readiness.agentControllerRef,
+          agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+          readiness: readiness.agentExecutionReadiness,
+          wakeRouteStatus: readiness.wakeRouteStatus,
+        })
+      ).toMatchObject({
+        status: "unavailable_for_wake",
+        reasonCode: "model.retired",
+      });
+    } else {
+      expect(reason).toBeNull();
+      expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
+        "model.retired"
+      );
+    }
+  });
+
+  it("does not apply withdrawal using stale or another runtime's account evidence", () => {
+    const catalog = modelCatalogSource.readAuthoredModelCatalog();
+    const model = catalog.agentControllers.codex?.models.find(
+      (entry) => entry.id === "gpt-5.4"
+    );
+    if (!model) {
+      throw new Error("Fixture needs GPT-5.4");
+    }
+    model.retirement = {
+      status: "withdrawn",
+      date: null,
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl: "https://example.com/official-notice",
+      verifiedAt: GENERATED_AT,
+    };
+    const report = createRuntimeReportWithUsage(
+      createUsageLimit({ status: "available", usedPercent: 42 })
+    );
+    const currentReport = {
+      ...report,
+      agentControllerInterface: {
+        ...report.agentControllerInterface,
+        auth: { status: "authenticated" as const, type: "chatgpt" },
+      },
+    };
+    const input = {
+      catalog,
+      currentReport,
+      modelId: model.id,
+      agentControllerRef: "builtin:codex",
+      openMeldServiceRuntimeId: "runtime-1",
+      nowMs: GENERATED_AT_MS,
+    };
+    expect(resolveCurrentAgentModelAvailability(input)).toMatchObject({
+      available: false,
+      reasonCode: "model.retired",
+    });
+    expect(
+      resolveCurrentAgentModelAvailability({
+        ...input,
+        openMeldServiceRuntimeId: "other-runtime",
+      })
+    ).toEqual({ available: true });
+    expect(
+      resolveCurrentAgentModelAvailability({
+        ...input,
+        nowMs: report.expiresAtMs,
+      })
+    ).toEqual({ available: true });
+    expect(
+      resolveCurrentAgentModelAvailability({ ...input, modelId: null })
+    ).toEqual({ available: true });
+  });
+
   it("projects fresh exhausted Usage as unavailable Wakeability before a Wake", async () => {
     mockReadyBindingAndRuntime("agt_usage_exhausted", "builtin:codex");
     mockOnlineRoute("device-1");
@@ -1809,6 +1954,50 @@ describe("Core Agent Execution Readiness", () => {
     ).toBeNull();
   });
 
+  it("waits for a connected Service that temporarily closes admission without claiming the Agent is available", async () => {
+    const profileId = "agt_host_admission_paused";
+    mockReadyBindingAndRuntime(profileId);
+    const route = mockOnlineRoute("device-1");
+    vi.mocked(lookupRuntimeTransportRoute).mockReset();
+    vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce({
+      ...route,
+      acceptingDispatches: false,
+    });
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Temporarily Paused Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(readiness.agentExecutionReadiness.displayState).not.toBe("ready");
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("local_service.not_accepting_wakes");
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "checking",
+      reasonCode: "local_service.not_accepting_wakes",
+      status: "checking_connection",
+    });
+  });
+
   it("still blocks when the Controller readiness report itself has expired", async () => {
     const profileId = "agt_usage_expired";
     mockReadyBindingAndRuntime(profileId, "builtin:codex");
@@ -1895,11 +2084,19 @@ describe("Core Agent Execution Readiness", () => {
   });
 
   it("checks only the provider selected by an OpenCode binding", async () => {
+    const model = modelCatalogSource
+      .readAuthoredModelCatalog()
+      .agentControllers.opencode?.models.find(
+        (entry) => entry.id.startsWith("opencode-go/") && !entry.unavailable
+      );
+    if (!model) {
+      throw new Error("Fixture requires a cataloged OpenCode Go model");
+    }
     mockReadyBindingAndRuntime(
       "agt_opencode_provider_usage",
       "builtin:opencode",
       undefined,
-      "opencode-go/qwen3-coder"
+      model.id
     );
     mockOnlineRoute("device-1");
     const selectedProviderLimit = {
@@ -2432,7 +2629,7 @@ function createCoreEnv(input: {
     OPENMELD_AUTH_WORKER: {
       resolveProfileById: input.resolveProfileById,
     },
-    OPENMELD_DB: createAgentProfileOrganizationDb(),
+    OPENMELD_POSTGRESQL: createAgentProfileOrganizationBinding(),
     OPENMELD_SPACES: {} as DurableObjectNamespace,
   } as unknown as CoreBindings;
 }
@@ -2450,25 +2647,21 @@ function resolveCoreAgentExecutionReadinessForProfile(
   );
 }
 
-function createAgentProfileOrganizationDb(): D1Database {
-  return {
-    prepare: vi.fn((query: string) => {
-      if (!query.includes("FROM openmeld_profiles")) {
-        throw new Error(`Unexpected readiness test query: ${query}`);
-      }
-      return {
-        bind: vi.fn(() => ({
-          first: vi.fn().mockResolvedValue({
-            managed_role: null,
-            organization_id: TEST_ORGANIZATION_ID,
-            owner_user_id: "owner-1",
-            profile_kind: "agent",
-            profile_name: "Readiness Test Agent",
-          }),
-        })),
-      };
-    }),
-  } as unknown as D1Database;
+function createAgentProfileOrganizationBinding() {
+  return createProjectionPostgresBinding(({ text }) => {
+    if (!text.includes('FROM "openmeld"."openmeld_profiles"')) {
+      throw new Error(`Unexpected readiness test query: ${text}`);
+    }
+    return [
+      {
+        managed_role: null,
+        organization_id: TEST_ORGANIZATION_ID,
+        owner_user_id: "owner-1",
+        profile_kind: "agent",
+        profile_name: "Readiness Test Agent",
+      },
+    ];
+  });
 }
 
 function mockReadyBindingAndRuntime(
@@ -2494,7 +2687,7 @@ function mockReadyBindingAndRuntime(
     },
     reasonCode: null,
     openMeldServiceRuntimeId: "runtime-1",
-    ...(modelId ? { modelSelection: { modelId } } : {}),
+    ...(modelId ? { modelId } : {}),
     updatedAtMs: 1,
   });
   vi.mocked(readRuntimeRegistryRecordByRuntimeId).mockResolvedValue({

@@ -59,3 +59,4 @@ export type {
 } from "./types";
 export { buildSpaceUpdatesReadPath } from "./updates";
 export { postSpaceWakeStop } from "./wake-stop";
+export { postSpaceWorkHandoff } from "./work-handoff";

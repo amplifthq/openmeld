@@ -57,7 +57,8 @@ export function buildSpaceTaskSources(
 }
 
 export function SpaceComposerTaskMenu(input: {
-	supportsLocalFiles: boolean;
+	supportsCurrentFolder: boolean;
+	requiresProjectContainer: boolean;
 	targetProfileId: string;
 	disabled: boolean;
 	sources: readonly SpaceTaskSource[];
@@ -82,7 +83,19 @@ export function SpaceComposerTaskMenu(input: {
 			selection && selection.mode !== "resume"
 				? selection
 				: { mode: "new" as const };
-		choose({ ...next, access, workspace }, input.choice?.label ?? "New task");
+		let label = input.choice?.label ?? "New task";
+		if (next.mode === "new") {
+			if (access === "space_context") {
+				label = "New Space-only task";
+			} else if (access === "workspace" && workspace === "isolated") {
+				label = "Isolated project task";
+			} else if (access === "read_only") {
+				label = "Read current folder";
+			} else {
+				label = "Work in current folder";
+			}
+		}
+		choose({ ...next, access, workspace }, label);
 	};
 	return (
 		<DropdownMenu>
@@ -119,8 +132,7 @@ export function SpaceComposerTaskMenu(input: {
 					New task
 				</FluidDropdownMenuItem>
 				<p className="px-2 py-1 text-muted-foreground text-xs">
-					Independent tasks can run together, up to{" "}
-					{AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent.
+					{`New tasks keep the Agent's tools and permissions. Up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} tasks can run together; tasks writing to the same folder wait for each other.`}
 				</p>
 				{sources.length > 0 ? (
 					<>
@@ -166,41 +178,45 @@ export function SpaceComposerTaskMenu(input: {
 				{selection?.mode !== "resume" ? (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuGroup>
-							<DropdownMenuLabel>Task files</DropdownMenuLabel>
-							<FluidDropdownMenuItem
-								index={2}
-								onClick={() => changeAccess("space_context", "isolated")}
-							>
-								Space context only
-							</FluidDropdownMenuItem>
-							<FluidDropdownMenuItem
-								disabled={!input.supportsLocalFiles}
-								index={3}
-								onClick={() => changeAccess("workspace", "isolated")}
-							>
-								Independent project worktree · Codex
-							</FluidDropdownMenuItem>
-							<FluidDropdownMenuItem
-								disabled={!input.supportsLocalFiles}
-								index={4}
-								onClick={() => changeAccess("read_only", "current")}
-							>
-								Read current folder · Codex
-							</FluidDropdownMenuItem>
-							<FluidDropdownMenuItem
-								disabled={!input.supportsLocalFiles}
-								index={5}
-								onClick={() => changeAccess("workspace", "current")}
-							>
-								Work in current folder · Codex
-							</FluidDropdownMenuItem>
-							<p className="px-2 py-1 text-muted-foreground text-xs">
-								Project worktrees start from the connected repository's current
-								commit. Unsaved changes and local configuration are not copied.
-								Current-folder work waits for conflicting local tasks.
-							</p>
-						</DropdownMenuGroup>
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger>Limit task access</DropdownMenuSubTrigger>
+							<FluidDropdownMenuSubContent className="w-80 max-w-[calc(100vw-2rem)]">
+								<FluidDropdownMenuItem
+									index={0}
+									onClick={() => changeAccess("space_context", "isolated")}
+								>
+									Space context only
+								</FluidDropdownMenuItem>
+								<FluidDropdownMenuItem
+									index={1}
+									onClick={() => changeAccess("workspace", "isolated")}
+								>
+									Isolated project worktree
+								</FluidDropdownMenuItem>
+								<FluidDropdownMenuItem
+									disabled={!input.supportsCurrentFolder}
+									index={2}
+									onClick={() => changeAccess("read_only", "current")}
+								>
+									Read current folder · Codex
+								</FluidDropdownMenuItem>
+								<FluidDropdownMenuItem
+									disabled={!input.supportsCurrentFolder}
+									index={3}
+									onClick={() => changeAccess("workspace", "current")}
+								>
+									Limit to current folder · Codex
+								</FluidDropdownMenuItem>
+								<p className="px-2 py-1 text-muted-foreground text-xs">
+									Project worktrees start from the connected repository's
+									current commit. Unsaved changes and local configuration are
+									not copied.
+									{input.requiresProjectContainer
+										? " Only isolated Claude project tasks need Docker or Podman."
+										: " Current-folder work waits for conflicting local tasks."}
+								</p>
+							</FluidDropdownMenuSubContent>
+						</DropdownMenuSub>
 					</>
 				) : null}
 			</FluidDropdownMenuContent>

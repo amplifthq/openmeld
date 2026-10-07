@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { SpaceApi } from "@openmeld/api-client";
+import {
+  dispatchSpaceReadResultPageSchema,
+  dispatchSpaceReadResultSchema,
+  signalTextEnvelopeSchema,
+} from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenMeldProfile } from "../src/config/openmeld-profiles-api";
 import { DISPATCH_OWNED_RUNTIME_MODE } from "../src/runtime/dispatch-runtime-env";
@@ -11,15 +16,25 @@ import {
   createDispatchSpaceActionContext,
   readDispatchSpaceActionRecord,
 } from "../src/runtime/dispatch-space-action-context";
-import { createSpaceActionMcpServer } from "../src/space/action-mcp-server";
-import { readDispatchSpaceHistory } from "../src/space/dispatch-history-read";
+import {
+  createDispatchSpaceTools,
+  createSpaceActionMcpServer,
+} from "../src/space/action-mcp-server";
+import {
+  readDispatchSpaceEvidence,
+  readDispatchSpaceHistory,
+  readDispatchSpaceThreadEvidence,
+} from "../src/space/dispatch-history-read";
 
-const { listSignals, requireProfile } = vi.hoisted(() => ({
-  listSignals: vi.fn<SpaceApi["listSignals"]>(),
-  requireProfile: vi.fn(),
-}));
+const { listSignals, requireProfile, getThread, listThreadSignals } =
+  vi.hoisted(() => ({
+    getThread: vi.fn<SpaceApi["getThread"]>(),
+    listThreadSignals: vi.fn<SpaceApi["listThreadSignals"]>(),
+    listSignals: vi.fn<SpaceApi["listSignals"]>(),
+    requireProfile: vi.fn(),
+  }));
 vi.mock("../src/space/cli-space-api", () => ({
-  createCliSpaceApi: () => ({ listSignals }),
+  createCliSpaceApi: () => ({ listSignals, getThread, listThreadSignals }),
 }));
 vi.mock("../src/config/resolve-openmeld-profile", () => ({
   requireOpenMeldProfile: requireProfile,
@@ -112,6 +127,53 @@ function setup(ttlMs = 60_000) {
 }
 
 describe("dispatch Space history reader", () => {
+  it("pins a named thread and reauthorizes a continuation before disclosing any bytes", async () => {
+    setup();
+    const threadSignal = signalTextEnvelopeSchema.parse(signal);
+    const thread = {
+      threadId: "thr_11111111-1111-4111-8111-111111111111",
+      spaceId: signal.spaceId,
+      rootSignalId: signal.id,
+      createdByProfileId: signal.profile.profileId,
+      createdAt: new Date(1).toISOString(),
+      updatedAt: new Date(2).toISOString(),
+    };
+    getThread
+      .mockReset()
+      .mockResolvedValue({ thread, rootSignal: threadSignal });
+    listThreadSignals.mockReset().mockResolvedValue({
+      signals: [threadSignal],
+      placements: [
+        {
+          threadId: thread.threadId,
+          signalId: signal.id,
+          placement: "root",
+          createdAt: thread.createdAt,
+        },
+      ],
+    });
+    const result = await readDispatchSpaceThreadEvidence({
+      threadId: thread.threadId,
+    });
+    expect(result.messages[0]?.content.text).toBe(signal.data.text);
+    getThread.mockRejectedValueOnce(new Error("space.access_revoked"));
+    await expect(
+      readDispatchSpaceThreadEvidence({
+        threadId: thread.threadId,
+        version: result.sourceRef.version,
+        offset: 1,
+      })
+    ).rejects.toThrow("access_revoked");
+    expect(listThreadSignals).toHaveBeenCalledTimes(1);
+    getThread.mockResolvedValueOnce({
+      thread: { ...thread, spaceId: "other-space" },
+      rootSignal: threadSignal,
+    });
+    await expect(
+      readDispatchSpaceThreadEvidence({ threadId: thread.threadId })
+    ).rejects.toThrow("source_mismatch");
+  });
+
   it("reads a fixed current-Wake window through MCP as the current Agent without finalizing", async () => {
     const { context } = setup();
     const [clientTransport, serverTransport] =
@@ -128,14 +190,16 @@ describe("dispatch Space history reader", () => {
         catalog.tools.find((tool) => tool.name === "read_history")?.outputSchema
       ).toMatchObject({
         type: "object",
-        properties: { signals: { type: "array", maxItems: 21 } },
+        properties: { result: { type: "object" }, page: { type: "object" } },
       });
       const result = await client.callTool({
         name: "read_history",
         arguments: {},
       });
       expect(result.isError).not.toBe(true);
-      expect(result.structuredContent).toMatchObject({
+      expect(
+        dispatchSpaceReadResultSchema.parse(result.structuredContent).result
+      ).toMatchObject({
         spaceId: context.spaceId,
         sourceSignalId: context.sourceEventId,
         beforeCount: 20,
@@ -173,6 +237,240 @@ describe("dispatch Space history reader", () => {
       await client.close();
       await server.close();
     }
+  });
+
+  it.each([
+    "native",
+    "mcp",
+  ] as const)("reads an entire large history through %s tools without a local file", async (carrier) => {
+    const { context, contextPath } = setup();
+    const text = `${'Repository review: 中文 😀 \\"\n'.repeat(3000)}End of history. Next note. End of history.`;
+    listSignals.mockResolvedValue({
+      signals: [
+        {
+          ...signal,
+          data: {
+            ...signal.data,
+            text,
+            messageEnvelope: { ...signal.data.messageEnvelope, text },
+          },
+        },
+      ],
+      nextCursor: null,
+    });
+    const native = createDispatchSpaceTools();
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "paged-history-test", version: "1" });
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+    const call = async (name: string, args: Record<string, unknown>) =>
+      carrier === "native"
+        ? native.call(name, args)
+        : client.callTool({ name, arguments: args });
+    try {
+      const first = await call("read_history", {});
+      expect(first.isError).not.toBe(true);
+      const page = dispatchSpaceReadResultPageSchema.parse(
+        dispatchSpaceReadResultSchema.parse(first.structuredContent).page
+      );
+      expect(page?.resultId).toBeTruthy();
+      let reconstructed = page.text;
+      let nextOffset = page.nextOffset;
+      let pages = 1;
+      while (nextOffset !== null) {
+        const response = await call("read_result", {
+          resultId: page.resultId,
+          offset: nextOffset,
+        });
+        expect(response.isError).not.toBe(true);
+        expect(Buffer.byteLength(JSON.stringify(response))).toBeLessThan(
+          24 * 1024
+        );
+        const next = dispatchSpaceReadResultPageSchema.parse(
+          dispatchSpaceReadResultSchema.parse(response.structuredContent).page
+        );
+        reconstructed += next.text;
+        nextOffset = next.nextOffset;
+        pages += 1;
+      }
+      expect(JSON.parse(reconstructed).signals[0].data.text).toBe(text);
+      expect(listSignals).toHaveBeenCalledTimes(pages);
+      const found = await call("read_result", {
+        resultId: page.resultId,
+        offset: 0,
+        query: "End of history.",
+      });
+      const search = dispatchSpaceReadResultSchema.parse(
+        found.structuredContent
+      ).search;
+      expect(search?.matches).toHaveLength(2);
+      expect(search?.matches[0]?.matchOffset).toBeGreaterThan(8 * 1024);
+      expect(search?.matches[0]?.excerpt.text).toContain("End of history.");
+      expect(search?.matches[0]?.excerpt.text).not.toContain("�");
+      expect(Buffer.byteLength(JSON.stringify(found))).toBeLessThan(16 * 1024);
+      const repeated = await call("read_result", {
+        resultId: page.resultId,
+        offset: search?.nextOffset,
+        query: "End of history.",
+      });
+      const second = dispatchSpaceReadResultSchema.parse(
+        repeated.structuredContent
+      ).search;
+      // The captured history envelope contains both data.text and envelope.text.
+      expect(second?.matches).toHaveLength(2);
+      expect(second?.matches[0]?.matchOffset).toBeGreaterThan(
+        search?.matches[1]?.matchOffset ?? 0
+      );
+      expect(second?.matches[0]?.excerpt.text).toContain("End of history.");
+      expect(second?.nextOffset).toBeNull();
+      const absent = await call("read_result", {
+        resultId: page.resultId,
+        offset: 0,
+        query: "Not in this source",
+      });
+      expect(
+        dispatchSpaceReadResultSchema.parse(absent.structuredContent).search
+          ?.matches
+      ).toEqual([]);
+      expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+      const replay = await call("read_result", {
+        resultId: page.resultId,
+        offset: 0,
+      });
+      expect(replay.structuredContent).toEqual(first.structuredContent);
+      const foreign = createDispatchSpaceTools();
+      expect(
+        (
+          await foreign.call("read_result", {
+            resultId: page.resultId,
+            offset: 0,
+            query: "End of history.",
+          })
+        ).isError
+      ).toBe(true);
+      foreign.close();
+      const stored = JSON.parse(readFileSync(contextPath, "utf8"));
+      writeFileSync(
+        contextPath,
+        JSON.stringify({ ...stored, expiresAtMs: Date.now() - 1 })
+      );
+      const expired = await call("read_result", {
+        resultId: page.resultId,
+        offset: 0,
+        query: "End of history.",
+      });
+      expect(expired.isError).toBe(true);
+      expect(JSON.stringify(expired)).not.toContain("Repository review:");
+    } finally {
+      native.close();
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it.each([
+    "revoked",
+    "changed",
+  ])("rechecks source access and version before a cached page when %s", async (change) => {
+    setup();
+    const secret = "Synthetic private continuation ".repeat(1000);
+    listSignals.mockResolvedValue({
+      signals: [
+        {
+          ...signal,
+          data: {
+            ...signal.data,
+            text: secret,
+            messageEnvelope: { ...signal.data.messageEnvelope, text: secret },
+          },
+        },
+      ],
+      nextCursor: null,
+    });
+    const tools = createDispatchSpaceTools();
+    try {
+      const first = await tools.call("read_history", {});
+      const page = dispatchSpaceReadResultPageSchema.parse(
+        dispatchSpaceReadResultSchema.parse(first.structuredContent).page
+      );
+      if (change === "revoked") {
+        listSignals.mockRejectedValue(new Error("space.access_denied"));
+      } else {
+        listSignals.mockResolvedValue({ signals: [signal], nextCursor: null });
+      }
+      const next = await tools.call("read_result", {
+        resultId: page.resultId,
+        offset: page.nextOffset,
+        query: "Synthetic private continuation",
+      });
+      expect(next.isError).toBe(true);
+      expect(JSON.stringify(next)).not.toContain(
+        "Synthetic private continuation"
+      );
+      expect(listSignals).toHaveBeenCalledTimes(2);
+    } finally {
+      tools.close();
+    }
+  });
+
+  it("reads a selected message in fixed-version pages and never substitutes changed or neighboring text", async () => {
+    setup();
+    const text = "😀".repeat(4500);
+    const selected = {
+      ...signal,
+      data: {
+        ...signal.data,
+        text,
+        messageEnvelope: { ...signal.data.messageEnvelope, text },
+      },
+    };
+    listSignals.mockResolvedValue({ signals: [selected], nextCursor: null });
+    const first = await readDispatchSpaceEvidence({
+      sourceSignalId: signal.id,
+    });
+    const second = await readDispatchSpaceEvidence({
+      sourceSignalId: signal.id,
+      version: first.message.sourceRef.version,
+      offset: first.nextOffset ?? 0,
+    });
+    expect(first.message.content.text + second.message.content.text).toBe(text);
+    expect(second.nextOffset).toBeNull();
+    expect(listSignals).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        query: {
+          aroundSignalId: signal.id,
+          beforeCount: 0,
+          afterCount: 0,
+          kinds: ["text"],
+        },
+      })
+    );
+    listSignals.mockResolvedValue({ signals: [signal], nextCursor: null });
+    await expect(
+      readDispatchSpaceEvidence({
+        sourceSignalId: signal.id,
+        version: first.message.sourceRef.version,
+      })
+    ).rejects.toThrow("evidence_version_unavailable");
+    listSignals.mockResolvedValue({
+      signals: [{ ...selected, id: "neighbor" }],
+      nextCursor: null,
+    });
+    await expect(
+      readDispatchSpaceEvidence({ sourceSignalId: signal.id })
+    ).rejects.toThrow("evidence_unavailable");
+    listSignals.mockRejectedValue(new Error("space.access_denied"));
+    await expect(
+      readDispatchSpaceEvidence({
+        sourceSignalId: signal.id,
+        version: first.message.sourceRef.version,
+        offset: 4000,
+      })
+    ).rejects.toThrow("space.access_denied");
   });
 
   it.each([

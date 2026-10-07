@@ -7,24 +7,18 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	accountSidebarQueryKey,
+	accountSidebarQueryOptions,
+} from "#/query/account/sidebar-preferences";
 
-export function useSidebarPreferences(
-	profileId: string,
-	organizationId: string
-) {
+export function useSidebarPreferences(organizationId: string) {
+	const { currentUserId } = useAppOrganization();
 	const client = useQueryClient();
-	const queryKey = ["account-sidebar", profileId, organizationId];
+	const queryKey = accountSidebarQueryKey(currentUserId, organizationId);
 	const query = useQuery({
-		queryKey,
-		queryFn: () =>
-			createUnscopedWebOpenMeldApiFoundation().requestJson({
-				url: `/v1/account/sidebar?organizationId=${encodeURIComponent(organizationId)}`,
-				method: "GET",
-				operation: "account.sidebar.read",
-				schema: accountSidebarResponseSchema,
-				invalidMessage: "OpenMeld couldn't read your sidebar settings.",
-			}),
-		staleTime: 30_000,
+		...accountSidebarQueryOptions(currentUserId, organizationId),
 		refetchOnWindowFocus: () =>
 			client.isMutating({ mutationKey: queryKey }) === 0,
 	});
@@ -107,6 +101,7 @@ export function useSidebarPreferences(
 		},
 		disabled: !query.data || mutation.isPending,
 		isError: query.isError,
+		isFetching: query.isFetching,
 		retry: query.refetch,
 	};
 }

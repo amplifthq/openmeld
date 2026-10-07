@@ -5,6 +5,7 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
 	BookOpenTextIcon,
 	BuildingsIcon,
@@ -26,7 +27,8 @@ import { useSyncExternalStore } from "react";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
 import { formatCenterAgentInteractionClient } from "#/lib/organizations/center-agent-interaction-source";
 import { centerAgentAuditJournalQueryOptions } from "#/query/organizations/center-agent";
-import type { DirectoryAgentProfile } from "./center-agent-profile-presentation";
+
+type DirectoryAgentIdentity = { profileId: string; profileName: string };
 
 type DirectoryMember = OrganizationDirectoryResponse["members"][number];
 type CenterAgentAuditEntry =
@@ -92,11 +94,11 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	create_space: { icon: BuildingsIcon, label: "Created Space" },
 	draft_org_document: {
 		icon: BookOpenTextIcon,
-		label: "Drafted organization document",
+		label: "Drafted Team knowledge file",
 	},
 	move_org_document: {
 		icon: FolderOpenIcon,
-		label: "Moved organization document",
+		label: "Moved Team knowledge file",
 	},
 	designate_remote_center_agent: {
 		icon: RobotIcon,
@@ -130,7 +132,7 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	},
 	read_org_documents: {
 		icon: BookOpenTextIcon,
-		label: "Read organization documents",
+		label: "Read Team knowledge files",
 	},
 	rename_org_document_folder: {
 		icon: FolderOpenIcon,
@@ -150,7 +152,7 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	delete_routine: { icon: XCircleIcon, label: "Deleted Routine" },
 	save_org_document: {
 		icon: BookOpenTextIcon,
-		label: "Saved organization document",
+		label: "Saved Team knowledge file",
 	},
 	pause_center_agent: {
 		icon: PauseCircleIcon,
@@ -199,7 +201,7 @@ export function CenterAgentAuditJournalPanel(input: {
 	enabled: boolean;
 	members: readonly DirectoryMember[];
 	organizationId: string;
-	profiles: readonly DirectoryAgentProfile[];
+	profiles: readonly DirectoryAgentIdentity[];
 }) {
 	const canShowBrowserTimeZone = useSyncExternalStore(
 		subscribeToBrowserEnvironment,
@@ -214,7 +216,9 @@ export function CenterAgentAuditJournalPanel(input: {
 	);
 
 	if (auditQuery.isPending) {
-		return <CenterAgentInlineState label="Loading Center Agent audit log." />;
+		return (
+			<SkeletonRows className="p-5" label="Loading Center Agent audit log" />
+		);
 	}
 	if (auditQuery.isError) {
 		return (
@@ -278,7 +282,7 @@ function CenterAgentAuditJournalItem(input: {
 	canShowBrowserTimeZone: boolean;
 	entry: CenterAgentAuditEntry;
 	members: readonly DirectoryMember[];
-	profiles: readonly DirectoryAgentProfile[];
+	profiles: readonly DirectoryAgentIdentity[];
 }) {
 	const presentation = resolveCenterAgentActionPresentation(input.entry);
 	const Icon = presentation.icon;
@@ -443,12 +447,6 @@ function CenterAgentErrorState(input: {
 	);
 }
 
-function CenterAgentInlineState(input: { label: string }) {
-	return (
-		<div className="px-5 py-4 text-muted-foreground text-sm">{input.label}</div>
-	);
-}
-
 function resolveAuditActorName(input: {
 	actorProfileId: string;
 	members: readonly DirectoryMember[];
@@ -461,7 +459,7 @@ function resolveAuditActorName(input: {
 
 function resolveAuditResourceName(input: {
 	entry: CenterAgentAuditEntry;
-	profiles: readonly DirectoryAgentProfile[];
+	profiles: readonly DirectoryAgentIdentity[];
 }): string | null {
 	const resource = input.entry.resource;
 	if (!resource) {

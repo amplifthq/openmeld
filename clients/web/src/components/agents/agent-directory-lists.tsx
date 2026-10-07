@@ -1,4 +1,5 @@
 import { Button } from "@openmeld/ui/components/button";
+import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { CenterAgentItem } from "#/components/directory/center-agent-item";
@@ -15,6 +16,7 @@ import {
 	AgentList,
 	AgentListControls,
 	AgentListFilterChips,
+	type AgentListView,
 	DEFAULT_AGENT_LIST_VIEW,
 } from "./agent-list";
 import {
@@ -23,8 +25,14 @@ import {
 	matchesAgentListItem,
 	sortAgentOwnerGroups,
 } from "./agent-list-model";
+import type { AgentCardSelection } from "./agent-list-selection";
 import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 import type { AgentProfilesWorkspaceProps } from "./agent-profiles-workspace";
+
+const DIRECTORY_AGENT_VIEW: AgentListView = {
+	...DEFAULT_AGENT_LIST_VIEW,
+	grouping: "controller-provider",
+};
 
 export function AgentDirectoryLists({
 	input,
@@ -32,9 +40,11 @@ export function AgentDirectoryLists({
 	input: AgentProfilesWorkspaceProps;
 }) {
 	const { currentOrganization } = useAppOrganization();
+	const viewPreferenceKey = (personId: string) =>
+		`openmeld.agents.presentation:${input.currentUserId}:${currentOrganization.id}:${personId}`;
 	const previewReady = useAgentSidebarPreviewReady();
 	const [search, setSearch] = useState("");
-	const [view, setView] = useState(DEFAULT_AGENT_LIST_VIEW);
+	const [view, setView] = useState<AgentListView>(DIRECTORY_AGENT_VIEW);
 	const items = useMemo(
 		() =>
 			input.profiles.map((profile) => {
@@ -65,7 +75,11 @@ export function AgentDirectoryLists({
 			previewReady,
 		]
 	);
-	const renderCard = (item: AgentListItem, index: number) => (
+	const renderCard = (
+		item: AgentListItem,
+		index: number,
+		selection?: AgentCardSelection
+	) => (
 		<AgentProfileSidebarItem
 			agentControllerRef={
 				input.agentControllerRefByProfileId?.get(
@@ -94,6 +108,7 @@ export function AgentDirectoryLists({
 				input.readinessPendingProfileIds?.has(item.profile.openMeldProfileId) ??
 				false
 			}
+			selection={selection}
 			variant="card"
 		/>
 	);
@@ -132,7 +147,7 @@ export function AgentDirectoryLists({
 			["creating", "pending", "approved", "failed"].includes(request.status)
 	);
 	const toolbar = (
-		<div className="flex h-16 items-center justify-between gap-3">
+		<div className="flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
 			<p className="shrink-0 text-muted-foreground text-xs">
 				{totalCount} {totalCount === 1 ? "Agent" : "Agents"}
 			</p>
@@ -141,7 +156,12 @@ export function AgentDirectoryLists({
 					Task activity unavailable.
 				</output>
 			)}
-			<div className="flex min-w-0 items-center gap-1">
+			<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
+				<AgentListFilterChips
+					defaults={DIRECTORY_AGENT_VIEW}
+					onChange={setView}
+					value={view}
+				/>
 				<DirectorySearch
 					label={input.person ? "Search Agents" : "Search people or Agents"}
 					onChange={setSearch}
@@ -150,6 +170,7 @@ export function AgentDirectoryLists({
 				<AgentListControls
 					items={centerItem ? [centerItem, ...items] : items}
 					onChange={setView}
+					resetValue={DIRECTORY_AGENT_VIEW}
 					value={view}
 				/>
 			</div>
@@ -159,15 +180,18 @@ export function AgentDirectoryLists({
 		return (
 			<div className="space-y-3">
 				{toolbar}
-				<AgentListFilterChips onChange={setView} value={view} />
 				<AgentList
 					defaults={view}
 					emptyAction={create}
 					hideControls
 					items={items}
 					label={`${input.person.name}’s Agents`}
+					onDelete={
+						input.canCreateAgent !== false ? input.onDeleteProfiles : undefined
+					}
 					renderCard={renderCard}
 					search={search}
+					viewPreferenceKey={viewPreferenceKey(input.person.id)}
 				/>
 			</div>
 		);
@@ -183,12 +207,10 @@ export function AgentDirectoryLists({
 	);
 	const visibleGroups = groups.filter(
 		(group) =>
+			group.ownerUserId === input.currentUserId ||
 			group.items.some((item) =>
 				matchesAgentListItem(item, view.filters, search)
-			) ||
-			(!search &&
-				group.items.length === 0 &&
-				group.ownerUserId === input.currentUserId)
+			)
 	);
 	return (
 		<div
@@ -197,12 +219,7 @@ export function AgentDirectoryLists({
 			id="team-directory-panel-1"
 			role="tabpanel"
 		>
-			<div>
-				{toolbar}
-				<div className="pb-4 empty:hidden">
-					<AgentListFilterChips onChange={setView} value={view} />
-				</div>
-			</div>
+			<div>{toolbar}</div>
 			{showCenter && (
 				<section aria-label={currentOrganization.name} className="space-y-3">
 					<h2 className="font-medium text-sm">{currentOrganization.name}</h2>
@@ -234,12 +251,13 @@ export function AgentDirectoryLists({
 			) : null}
 			{visibleGroups.map((group) => (
 				<AgentList
+					collapsible
 					defaults={view}
 					emptyAction={
 						group.ownerUserId === input.currentUserId ? create : undefined
 					}
 					heading={
-						<div className="flex min-w-0 items-center gap-2">
+						<div className="flex min-w-0 flex-wrap items-center gap-2">
 							<DitherProfileAvatar
 								avatarImageUrl={group.member.user.image}
 								profileId={
@@ -249,7 +267,7 @@ export function AgentDirectoryLists({
 								profileName={group.name}
 								size={28}
 							/>
-							<h2 className="truncate font-medium text-sm">
+							<h2 className="m-0 flex items-center truncate font-medium text-sm leading-none">
 								<Link
 									to={buildOrganizationPersonPath({
 										orgSlug: currentOrganization.slug,
@@ -264,17 +282,23 @@ export function AgentDirectoryLists({
 									<span className="ml-1 text-muted-foreground">(you)</span>
 								)}
 							</h2>
-							<span className="text-muted-foreground text-xs">
+							<span className="text-muted-foreground text-xs leading-none">
 								{group.items.length}
 							</span>
 							{group.ownerUserId === input.currentUserId &&
-								input.pendingRequestCount > 0 && (
+								input.isOrganizationContext && (
 									<Button
 										onClick={() => input.onViewChange("requests")}
 										size="sm"
-										variant="ghost"
+										variant="secondary"
 									>
-										Finish setup ({input.pendingRequestCount})
+										<ClockCounterClockwiseIcon />
+										Creation history
+										{input.creationAttentionCount > 0 && (
+											<span className="rounded-full bg-muted px-1.5 text-xs">
+												Needs attention: {input.creationAttentionCount}
+											</span>
+										)}
 									</Button>
 								)}
 						</div>
@@ -282,23 +306,23 @@ export function AgentDirectoryLists({
 					items={group.items}
 					key={group.ownerUserId}
 					label={`${group.name}’s Agents`}
+					onDelete={
+						group.ownerUserId === input.currentUserId
+							? input.onDeleteProfiles
+							: undefined
+					}
 					renderCard={renderCard}
 					search={search}
+					viewPreferenceKey={viewPreferenceKey(
+						group.member.humanProfile?.profileId ??
+							`member:${group.member.memberId}`
+					)}
 				/>
 			))}
 			{visibleGroups.length === 0 && !showCenter && (
 				<p className="text-muted-foreground text-sm">
 					No Agents match. Try another search or clear filters.
 				</p>
-			)}
-			{input.isOrganizationContext && (
-				<Button
-					onClick={() => input.onViewChange("requests")}
-					size="sm"
-					variant="ghost"
-				>
-					Creation history
-				</Button>
 			)}
 		</div>
 	);

@@ -1,9 +1,14 @@
 import {
+  resolveInstalledAntigravityLaunchCandidates,
+  verifyAntigravityLaunchContract,
+} from "@openmeld/adapter-antigravity";
+import {
   resolveInstalledClaudeCodeLaunchCandidates,
   verifyClaudeCodeLaunchContract,
 } from "@openmeld/adapter-claude-code";
 import {
   isCodexHostApplicationCommandPath,
+  refreshCodexPersistedLaunchContract,
   resolveInstalledCodexLaunchCandidates,
   verifyCodexLaunchContract,
 } from "@openmeld/adapter-codex";
@@ -116,6 +121,29 @@ export const EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES = {
 
 const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
   {
+    adapterId: "antigravity",
+    agentId: "antigravity",
+    capabilities: {
+      approvals: false,
+      cancel: true,
+      interrupt: true,
+      modelSelection: true,
+      nativeEventStream: true,
+      permissionModes: true,
+      structuredUserInput: false,
+    },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
+    installResolver: {
+      resolveInstalledLaunchCandidates:
+        resolveInstalledAntigravityLaunchCandidates,
+      verifyLaunchContract: verifyAntigravityLaunchContract,
+    },
+    nativeInterface: "local-cli",
+    usageLimitSupport: resolveAgentControllerUsageLimitSupport(
+      "builtin:antigravity"
+    ),
+  },
+  {
     adapterId: "claude-code",
     agentId: "claude-code",
     capabilities: {
@@ -123,9 +151,9 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       cancel: true,
       interrupt: true,
       modelSelection: true,
-      nativeEventStream: false,
+      nativeEventStream: true,
       permissionModes: true,
-      structuredUserInput: false,
+      structuredUserInput: true,
     },
     conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
@@ -159,7 +187,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       modelSelection: true,
       nativeEventStream: true,
       permissionModes: true,
-      structuredUserInput: false,
+      structuredUserInput: true,
     },
     conversationOccupancy: {
       contractVersion: 1,
@@ -167,6 +195,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     },
     installResolver: {
       resolveInstalledLaunchCandidates: resolveInstalledCodexLaunchCandidates,
+      refreshPersistedLaunchContract: refreshCodexPersistedLaunchContract,
       verifyLaunchContract: verifyCodexLaunchContract,
     },
     nativeInterface: "codex-app-server",
@@ -195,13 +224,13 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     adapterId: "cursor",
     agentId: "cursor",
     capabilities: {
-      approvals: false,
+      approvals: true,
       cancel: true,
       interrupt: true,
       modelSelection: true,
       nativeEventStream: true,
       permissionModes: true,
-      structuredUserInput: false,
+      structuredUserInput: true,
     },
     conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
@@ -261,13 +290,13 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     adapterId: "opencode",
     agentId: "opencode",
     capabilities: {
-      approvals: false,
+      approvals: true,
       cancel: false,
       interrupt: true,
       modelSelection: true,
-      nativeEventStream: false,
-      permissionModes: false,
-      structuredUserInput: false,
+      nativeEventStream: true,
+      permissionModes: true,
+      structuredUserInput: true,
     },
     conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {

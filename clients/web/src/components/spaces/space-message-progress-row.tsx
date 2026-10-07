@@ -5,6 +5,8 @@ import { SPACE_MESSAGE_SURFACE_WIDTH_CLASS } from "./space-message-bubble-style"
 export function SpaceMessageProgressRow(input: {
 	align?: "start" | "end";
 	children: ReactNode;
+	compact?: boolean;
+	fill?: boolean;
 	control?: ReactNode;
 	slot: string;
 	testId?: string;
@@ -15,7 +17,8 @@ export function SpaceMessageProgressRow(input: {
 	return (
 		<div
 			className={cn(
-				"flex w-full min-w-0 gap-3",
+				"flex w-full min-w-0",
+				input.compact ? "gap-2" : "gap-3",
 				isEndAligned ? "justify-end" : "justify-start",
 				input.verticalAlign === "start" ? "items-start" : "items-center",
 				SPACE_MESSAGE_SURFACE_WIDTH_CLASS
@@ -26,7 +29,8 @@ export function SpaceMessageProgressRow(input: {
 		>
 			<div
 				className={cn(
-					"min-w-0 flex-[0_1_auto]",
+					"min-w-0",
+					input.fill ? "flex-1" : "flex-[0_1_auto]",
 					isEndAligned ? "flex justify-end text-right" : null
 				)}
 				data-align={input.align ?? "start"}
@@ -34,16 +38,19 @@ export function SpaceMessageProgressRow(input: {
 			>
 				{input.children}
 			</div>
-			<div
-				className={cn(
-					"flex min-h-6 w-20 shrink-0 items-center",
-					isEndAligned ? "justify-end" : "justify-start"
-				)}
-				data-slot="space-message-progress-control"
-				data-testid="space-message-progress-control-slot"
-			>
-				{input.control}
-			</div>
+			{input.control != null || !input.compact ? (
+				<div
+					className={cn(
+						"flex min-h-6 shrink-0 items-center",
+						input.compact ? null : "w-20",
+						isEndAligned ? "justify-end" : "justify-start"
+					)}
+					data-slot="space-message-progress-control"
+					data-testid="space-message-progress-control-slot"
+				>
+					{input.control}
+				</div>
+			) : null}
 		</div>
 	);
 }

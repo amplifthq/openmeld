@@ -1,15 +1,19 @@
 import * as z from "zod/v4";
 import { serviceControlCapabilitiesSchema } from "../../service-account-admission";
 import { localProjectControlConnectionSchema } from "../daemon/local-project-control";
+import { sessionHistoryPageSchema } from "../daemon/session-history";
 import { agentActivitySnapshotResponseSchema } from "../http/agent-activity";
 import { agentActivitySessionInventoryResponseSchema } from "../http/agent-activity-sessions";
 import {
+  centerAgentRoutineSchema,
   createCenterAgentRoutineResponseSchema,
   deleteCenterAgentRoutineResponseSchema,
   listCenterAgentRoutineRunsResponseSchema,
   listCenterAgentRoutinesResponseSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
+  routineManagementSchema,
   updateCenterAgentRoutineResponseSchema,
 } from "../http/center-agent-routines";
 import {
@@ -26,6 +30,7 @@ import {
   getOrganizationSkillResponseSchema,
   listOrganizationSkillsResponseSchema,
   ORGANIZATION_SKILL_FILE_LIMIT,
+  organizationSkillGitHubRepositoryPreviewSchema,
   organizationSkillReleaseSummarySchema,
   organizationSkillSummarySchema,
 } from "../http/organization-skills";
@@ -336,6 +341,11 @@ export const cliJsonAgentActivitySessionsEnvelopeSchema =
     agentActivitySessionInventoryResponseSchema.shape
   );
 
+const cliJsonAgentActivityHistoryEnvelopeSchema = defineStrictSuccessEnvelope(
+  "activity.history",
+  sessionHistoryPageSchema.shape
+);
+
 const cliJsonAgentActivityIntegrationStatusSchema = z.strictObject({
   claude: z.boolean(),
   codex: z.boolean(),
@@ -425,7 +435,13 @@ export const cliJsonAgentActivityContextEnvelopeSchema =
 
 export const cliJsonRoutinesListEnvelopeSchema = defineStrictSuccessEnvelope(
   "routines.list",
-  listCenterAgentRoutinesResponseSchema.shape
+  {
+    ...listCenterAgentRoutinesResponseSchema.shape,
+    routines: z.array(
+      z.union([routineManagementSchema, centerAgentRoutineSchema])
+    ),
+    executors: listRoutineManagementResponseSchema.shape.executors.optional(),
+  }
 );
 
 export const cliJsonRoutinesCreateEnvelopeSchema = defineStrictSuccessEnvelope(
@@ -438,7 +454,7 @@ export const cliJsonRoutinesCreateEnvelopeSchema = defineStrictSuccessEnvelope(
 // than introducing a CLI-owned Routine DTO.
 export const cliJsonRoutinesShowEnvelopeSchema = defineStrictSuccessEnvelope(
   "routines.show",
-  createCenterAgentRoutineResponseSchema.shape
+  { routine: z.union([routineManagementSchema, centerAgentRoutineSchema]) }
 );
 
 export const cliJsonRoutinesUpdateEnvelopeSchema = defineStrictSuccessEnvelope(
@@ -545,6 +561,59 @@ export const cliJsonSkillsListEnvelopeSchema = defineStrictSuccessEnvelope(
   "skills.list",
   listOrganizationSkillsResponseSchema.shape
 );
+export const cliJsonSkillsScanEnvelopeSchema = defineStrictSuccessEnvelope(
+  "skills.scan",
+  {
+    organizationId: organizationSkillSummarySchema.shape.organizationId,
+    preview: organizationSkillGitHubRepositoryPreviewSchema,
+  }
+);
+
+const skillAddFields = {
+  commitSha: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .optional(),
+  files: z.array(
+    z.strictObject({ path: z.string(), size: z.number().int().nonnegative() })
+  ),
+  name: z.string().min(1),
+  organizationId: organizationSkillSummarySchema.shape.organizationId,
+  warnings: z.array(z.string()),
+};
+
+export const cliJsonSkillsAddPreviewEnvelopeSchema =
+  defineStrictSuccessEnvelope("skills.add.preview", skillAddFields);
+
+export const cliJsonSkillsAddEnvelopeSchema = defineStrictSuccessEnvelope(
+  "skills.add",
+  {
+    ...skillAddFields,
+    releaseId: organizationSkillReleaseSummarySchema.shape.id,
+    skillId: organizationSkillSummarySchema.shape.id,
+  }
+);
+
+export const cliJsonSkillsAddAllEnvelopeSchema = defineStrictSuccessEnvelope(
+  "skills.add.all",
+  {
+    commitSha: z.string().regex(/^[a-f0-9]{40}$/),
+    operationId: z.string().min(1),
+    organizationId: organizationSkillSummarySchema.shape.organizationId,
+    repository: z.url(),
+    retrySource: z.url(),
+    results: z.array(
+      z.strictObject({
+        error: z.string().optional(),
+        path: z.string(),
+        releaseId: organizationSkillReleaseSummarySchema.shape.id.optional(),
+        skillId: organizationSkillSummarySchema.shape.id.optional(),
+        status: z.enum(["pending", "installed", "skipped", "failed"]),
+        url: z.url(),
+      })
+    ),
+  }
+);
 
 export const cliJsonSkillsShowEnvelopeSchema = defineStrictSuccessEnvelope(
   "skills.show",
@@ -646,6 +715,7 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonProjectsConnectionsRemoveEnvelopeSchema,
   cliJsonAgentActivityReadEnvelopeSchema,
   cliJsonAgentActivitySessionsEnvelopeSchema,
+  cliJsonAgentActivityHistoryEnvelopeSchema,
   cliJsonAgentActivityInstallEnvelopeSchema,
   cliJsonAgentActivityUninstallEnvelopeSchema,
   cliJsonAgentActivityStatusEnvelopeSchema,
@@ -669,6 +739,10 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonOrganizationInviteLinkCreateEnvelopeSchema,
   cliJsonOrganizationInviteLinkRevokeEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
+  cliJsonSkillsScanEnvelopeSchema,
+  cliJsonSkillsAddPreviewEnvelopeSchema,
+  cliJsonSkillsAddEnvelopeSchema,
+  cliJsonSkillsAddAllEnvelopeSchema,
   cliJsonSkillsShowEnvelopeSchema,
   cliJsonSkillsLoadEnvelopeSchema,
 ]);
@@ -708,6 +782,7 @@ export const CLI_JSON_OUTPUT_TYPES = [
   "projects.connections.remove",
   "activity.read",
   "activity.sessions",
+  "activity.history",
   "activity.install",
   "activity.uninstall",
   "activity.status",
@@ -731,6 +806,7 @@ export const CLI_JSON_OUTPUT_TYPES = [
   "organization.invite_link.create",
   "organization.invite_link.revoke",
   "skills.list",
+  "skills.scan",
   "skills.show",
   "skills.load",
 ] as const satisfies readonly CliJsonOutputType[];

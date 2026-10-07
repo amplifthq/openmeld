@@ -4,6 +4,7 @@ import {
 	createOpenMeldApiClient,
 	createSpaceApi,
 	OpenMeldApiClientHttpError,
+	readOrUpdateSpaceInputQueue,
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
 import {
@@ -47,6 +48,8 @@ import {
 import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const JORDAN_OPTION_NAME = /Jordan/;
+
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
 const composerDraftRead = vi.hoisted(() => ({
@@ -56,6 +59,9 @@ const composerDraftRead = vi.hoisted(() => ({
 const composerDiscoveryWait = vi.hoisted(() => ({
 	task: null as Promise<void> | null,
 	onEntered: null as (() => void) | null,
+}));
+const wakeProgressFixture = vi.hoisted(() => ({
+	presentationEpoch: null as string | null,
 }));
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	isComposerFileDraftRetired: () => false,
@@ -106,13 +112,9 @@ import { AppOrganizationProvider } from "#/lib/organizations/organization-contex
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
+import { setSpaceWakeProgressPresentationItems } from "#/query/spaces/active-wake-progress";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
-import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
-import {
-	SPACE_LIVE_RECONNECTING_LABEL,
-	SPACE_LIVE_STALE_LABEL,
-} from "./space-header";
 import {
 	SpaceWakeProgressVisibleProjectionProvider,
 	useSpaceWakeProgressVisibleProjection,
@@ -313,6 +315,7 @@ vi.mock("@openmeld/api-client", async () => {
 		...actual,
 		createDirectMessageApi: (...args: unknown[]) =>
 			createDirectMessageApiMock(...args),
+		readOrUpdateSpaceInputQueue: vi.fn(async () => ({ items: [] })),
 	};
 });
 
@@ -329,6 +332,7 @@ vi.mock("@tanstack/react-query", async () => {
 	// mocked download API, including the optimistic local-preview phase.
 	const usesRealQuery = (queryKey: unknown) =>
 		isWakeProgressPresentationQuery(queryKey) ||
+		(Array.isArray(queryKey) && queryKey[0] === "space-input-queue") ||
 		(Array.isArray(queryKey) && queryKey[0] === "space-link-previews") ||
 		(Array.isArray(queryKey) &&
 			queryKey[0] === "spaces" &&
@@ -352,6 +356,15 @@ vi.mock("@tanstack/react-query", async () => {
 							queryKey: ["test", "mocked-query", options.queryKey ?? null],
 						}) as Parameters<typeof actual.useQuery>[0]
 			);
+			if (
+				isWakeProgressPresentationQuery(options.queryKey) &&
+				actualQuery.data &&
+				typeof actualQuery.data === "object" &&
+				"epoch" in actualQuery.data &&
+				typeof actualQuery.data.epoch === "string"
+			) {
+				wakeProgressFixture.presentationEpoch = actualQuery.data.epoch;
+			}
 			const queryMock = useQueryMock;
 			if (options.queryKey?.[0] === "message-notification-preferences") {
 				return createQueryResult({ isPending: true });
@@ -382,6 +395,9 @@ vi.mock("@tanstack/react-query", async () => {
 				) as (queryKey: readonly unknown[], update: unknown) => unknown;
 				return new Proxy(mockedQueryClient, {
 					get(target, property, receiver) {
+						if (property === "getQueryCache") {
+							return actualQueryClient.getQueryCache.bind(actualQueryClient);
+						}
 						if (!(property in target)) {
 							const actualValue = Reflect.get(actualQueryClient, property);
 							return typeof actualValue === "function"
@@ -436,11 +452,8 @@ vi.mock("@tanstack/react-router", () => ({
 	},
 }));
 
-vi.mock("#/lib/spaces/api", () => ({
-	createOrganizationScopedWebSpaceApi: (...args: unknown[]) => ({
-		...createWebSpaceApiMock(...args),
-	}),
-	createUnscopedWebSpaceApi: (...args: unknown[]) => ({
+vi.mock("#/lib/spaces/api", () => {
+	const createTestSpaceApi = (...args: unknown[]) => ({
 		getActiveWakeProgress: async () => ({
 			items: [],
 			query: {
@@ -448,9 +461,27 @@ vi.mock("#/lib/spaces/api", () => ({
 				targetProfileId: null,
 			},
 		}),
+		getUpdates: async () => ({ signals: [] }),
+		getWakeProgress: async () => ({
+			items: [],
+			query: {
+				clientMessageId: "client-message-1",
+				spaceId: "space-123",
+				targetProfileId: null,
+			},
+		}),
+		listSignalEnvelopes: async () => ({
+			envelopes: [],
+			nextCursor: null,
+		}),
+		listThreads: async () => ({ previews: [], threads: [] }),
 		...createWebSpaceApiMock(...args),
-	}),
-}));
+	});
+	return {
+		createOrganizationScopedWebSpaceApi: createTestSpaceApi,
+		createUnscopedWebSpaceApi: createTestSpaceApi,
+	};
+});
 
 vi.mock("#/lib/spaces/image-attachment", () => ({
 	prepareSpaceImageAttachment: (...args: unknown[]) =>
@@ -624,14 +655,13 @@ const REVIEWER_OPTION_NAME = /Reviewer/;
 const RUNNER_OPTION_NAME = /Runner/;
 const SCOUT_OPTION_NAME = /Scout/;
 const WATCHER_OPTION_NAME = /Watcher/;
-const DIAGNOSTIC_REPORT_POINTER_COPY =
-	/The report sends message IDs and system trace pointers, not the message text\./;
+const DIAGNOSTIC_REPORT_POINTER_COPY = /Message text is not included\./;
 const LOCAL_SETUP_PREFERENCE_TEXT = /Local setup preference/;
 const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const RECENT_ACTIVITY_TS = Date.now();
 const TEST_FILE_EXTENSION_PATTERN = /\.[^.]+$/u;
-const THREAD_REPLY_LINK_PATTERN = /^Open reply from /;
+const THREAD_REPLY_PREVIEW_PATTERN = /^Open reply from .*:/;
 const MESSAGE_DETAILS_ACTION_NAME_PATTERN =
 	/^(?:Message details$|View error details:)/;
 const SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
@@ -712,14 +742,17 @@ function renderSpaceLanding(
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
 				<AppOrganizationProvider scope={organizationScope}>
-					<SpaceEntryConfirmationContext
-						value={{
-							confirmed: input.entryConfirmed ?? true,
-							ensureConfirmed: input.ensureEntryConfirmed ?? (async () => true),
-						}}
-					>
-						{ui}
-					</SpaceEntryConfirmationContext>
+					<StartFlowStateProvider storageScope="test-storage-scope">
+						<SpaceEntryConfirmationContext
+							value={{
+								confirmed: input.entryConfirmed ?? true,
+								ensureConfirmed:
+									input.ensureEntryConfirmed ?? (async () => true),
+							}}
+						>
+							{ui}
+						</SpaceEntryConfirmationContext>
+					</StartFlowStateProvider>
 				</AppOrganizationProvider>
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
@@ -856,6 +889,7 @@ function buildLocalRuntimeCacheInvalidations(
 
 describe("SpaceLanding", () => {
 	beforeEach(() => {
+		wakeProgressFixture.presentationEpoch = null;
 		composerDraftRead.task = null;
 		composerDraftRead.error = null;
 		composerDiscoveryWait.task = null;
@@ -882,7 +916,23 @@ describe("SpaceLanding", () => {
 			getQueryCache: () => ({ subscribe: () => () => undefined }),
 			getQueryState: vi.fn(() => undefined),
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
-			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			fetchQuery: vi.fn(
+				async (options: {
+					queryFn?: (context: { signal: AbortSignal }) => unknown;
+					queryKey?: readonly unknown[];
+				}) => {
+					if (
+						options.queryKey?.[0] === "spaces" &&
+						options.queryKey[1] === "updates" &&
+						options.queryFn
+					) {
+						return await options.queryFn({
+							signal: new AbortController().signal,
+						});
+					}
+					return undefined;
+				}
+			),
 			getQueryData: vi.fn(() => undefined),
 			getQueriesData: vi.fn(() => []),
 			invalidateQueries: vi.fn().mockResolvedValue(undefined),
@@ -940,6 +990,7 @@ describe("SpaceLanding", () => {
 		toastMock.success.mockReset();
 		toastMock.warning.mockReset();
 		window.localStorage.clear();
+		window.sessionStorage.clear();
 		FakeWebSocket.reset();
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: vi.fn().mockResolvedValue({
@@ -969,7 +1020,10 @@ describe("SpaceLanding", () => {
 				leftProfileId: DEFAULT_SPACE_PROFILE_ID,
 				status: "left",
 			}),
-			listSignalEnvelopes: vi.fn(),
+			listSignalEnvelopes: vi.fn().mockResolvedValue({
+				envelopes: [],
+				nextCursor: null,
+			}),
 			postNormalMessage: vi.fn(),
 		});
 		useLocalAgentRecoveryControllerMock.mockReset().mockReturnValue({
@@ -1036,6 +1090,7 @@ describe("SpaceLanding", () => {
 	});
 
 	it("renders an active Center Agent stream in the first bootstrap-backed frame", () => {
+		vi.spyOn(Date, "now").mockReturnValue(RECENT_ACTIVITY_TS);
 		mockSpaceQueries({
 			activeAgentStreams: [
 				createActiveAgentStreamSnapshot("Restored from bootstrap"),
@@ -1072,6 +1127,7 @@ describe("SpaceLanding", () => {
 	});
 
 	it("renders the canonical Center Agent conversation and composer in the compact presentation", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(RECENT_ACTIVITY_TS);
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				id: "signal-compact-message",
@@ -1789,12 +1845,12 @@ describe("SpaceLanding", () => {
 
 		expect(upsertProfileSpaceHistoryMock).not.toHaveBeenCalled();
 		expect(FakeWebSocket.instances).toHaveLength(0);
-		const composer = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
-		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"Join as Mira to participate in this Space."
-		);
+		expect(
+			screen.queryByRole("textbox", { name: "Message this space" })
+		).toBeNull();
+		expect(
+			screen.getByText("Join as Mira to participate in this Space.")
+		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Join as Mira" }));
 
 		await waitFor(() => {
@@ -2018,7 +2074,8 @@ describe("SpaceLanding", () => {
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
-				expect.objectContaining(invalidation)
+				expect.objectContaining(invalidation),
+				{ cancelRefetch: false }
 			);
 		}
 	});
@@ -2287,7 +2344,8 @@ describe("SpaceLanding", () => {
 		).toBeLessThan(membersRefetchMock.mock.invocationCallOrder[0] ?? 0);
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
-				expect.objectContaining(invalidation)
+				expect.objectContaining(invalidation),
+				{ cancelRefetch: false }
 			);
 		}
 
@@ -2418,7 +2476,10 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
 	});
 
-	it("keeps a cold-start draft available and carries it into the confirmed Space", async () => {
+	it.each([
+		false,
+		true,
+	])("keeps the same editor and draft when a cold Space finishes loading (Center Agent: %s)", async (isCenterAgentDirectMessage) => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
@@ -2441,19 +2502,12 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		const rendered = renderSpaceLanding();
-		const loadingComposer = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
+		const rendered = renderSpaceLanding({ isCenterAgentDirectMessage });
+		const loadingComposer = screen.getByRole("textbox");
 		expect(loadingComposer).toBeInstanceOf(HTMLDivElement);
 		expect(loadingComposer.getAttribute("contenteditable")).toBe("true");
 		expect(document.querySelector('textarea[name="space-message"]')).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: "Choose files to send" })
-		).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: "Mention a member" })
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Add" })).toBeTruthy();
 		loadingComposer.focus();
 		await setComposerValue(loadingComposer, "Draft from the first frame");
 		expect(
@@ -2462,9 +2516,24 @@ describe("SpaceLanding", () => {
 					name: "Send message",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(true);
-		fireEvent.keyDown(loadingComposer, { key: "Enter" });
+		).toBe(false);
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
+
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({ isPending: true }),
+			history: createQueryResult({ isPending: true }),
+		});
+		rendered.rerender(
+			<SpaceLanding
+				isCenterAgentDirectMessage={isCenterAgentDirectMessage}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		expect(screen.getByRole("textbox")).toBe(loadingComposer);
+		expect(loadingComposer.getAttribute("contenteditable")).toBe("true");
 
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -2482,6 +2551,7 @@ describe("SpaceLanding", () => {
 		});
 		rendered.rerender(
 			<SpaceLanding
+				isCenterAgentDirectMessage={isCenterAgentDirectMessage}
 				orgSlug="acme"
 				profileId={DEFAULT_SPACE_PROFILE_ID}
 				spaceId="space-123"
@@ -2489,9 +2559,8 @@ describe("SpaceLanding", () => {
 		);
 
 		await waitFor(() => {
-			const confirmedComposer = screen.getByRole("textbox", {
-				name: "Message this space",
-			});
+			const confirmedComposer = screen.getByRole("textbox");
+			expect(confirmedComposer).toBe(loadingComposer);
 			expect(readComposerValue(confirmedComposer)).toBe(
 				"Draft from the first frame"
 			);
@@ -2602,8 +2671,10 @@ describe("SpaceLanding", () => {
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(false);
-		const membersButton = screen.getByRole("button", { name: "Members" });
-		expect(membersButton.textContent).toBe("");
+		const membersButton = screen.getByRole("button", {
+			name: MEMBERS_TOGGLE_BUTTON_NAME,
+		});
+		expect(membersButton.textContent).toBe("2");
 		fireEvent.click(membersButton);
 		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
 		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
@@ -2867,8 +2938,9 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Message details" })
+			await screen.findByRole("button", { name: "More actions" })
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		expect(createDiagnosticReportMock).not.toHaveBeenCalled();
 		expect(
@@ -2921,7 +2993,7 @@ describe("SpaceLanding", () => {
 		).not.toContain("Agent answer text must stay out of diagnostics.");
 	});
 
-	it("keeps browser notification controls out of the Space surface", () => {
+	it("shows the conversation notification control in the Space surface", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -2943,8 +3015,8 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 
 		expect(
-			screen.queryByRole("button", { name: NOTIFICATIONS_BUTTON_NAME_PATTERN })
-		).toBeNull();
+			screen.getByRole("button", { name: NOTIFICATIONS_BUTTON_NAME_PATTERN })
+		).toBeTruthy();
 	});
 
 	it("shows the current speaking profile beside the composer send action", async () => {
@@ -2999,13 +3071,9 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		fireEvent.click(profileControl);
 		const profileListbox = await screen.findByRole("listbox");
-		const profileMenuPositioningFrame =
-			profileListbox.parentElement?.parentElement;
-
-		expect(profileMenuPositioningFrame?.style.bottom).not.toBe("");
-		expect(profileMenuPositioningFrame?.style.right).not.toBe("");
-		expect(profileMenuPositioningFrame?.style.left).toBe("");
-		expect(profileMenuPositioningFrame?.style.top).toBe("");
+		expect(
+			within(profileListbox).getByRole("option", { name: JORDAN_OPTION_NAME })
+		).toBeTruthy();
 		expect(screen.queryByText("1 other profile also joined")).toBeNull();
 		expect(screen.queryByText("+ 1 profile")).toBeNull();
 	});
@@ -3050,7 +3118,9 @@ describe("SpaceLanding", () => {
 			leftProfileId: DEFAULT_SPACE_PROFILE_ID,
 			status: "left",
 		});
+		const cancelQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
+		const removeQueriesMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			getUpdates: vi.fn().mockResolvedValue({
 				signals: [],
@@ -3060,7 +3130,9 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		useQueryClientMock.mockReturnValue({
+			cancelQueries: cancelQueriesMock,
 			invalidateQueries: invalidateQueriesMock,
+			removeQueries: removeQueriesMock,
 			setQueryData: vi.fn(),
 		});
 		mockSpaceQueries({
@@ -3142,6 +3214,13 @@ describe("SpaceLanding", () => {
 			});
 		});
 		expect(toastMock.success).toHaveBeenCalledWith("You left this Space.");
+		expect(cancelQueriesMock).toHaveBeenCalledWith(
+			{ queryKey: ["space-files", "space-123"] },
+			{ revert: false }
+		);
+		expect(removeQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["space-files", "space-123"],
+		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],
 		});
@@ -3207,7 +3286,9 @@ describe("SpaceLanding", () => {
 			}
 		);
 		const deleteSpaceMock = vi.fn(() => pendingDelete);
+		const cancelQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
+		const removeQueriesMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: deleteSpaceMock,
 			getUpdates: vi.fn().mockResolvedValue({
@@ -3217,11 +3298,12 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		useQueryClientMock.mockReturnValue({
-			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			cancelQueries: cancelQueriesMock,
 			getQueriesData: vi.fn(() => []),
 			getQueryData: vi.fn(() => undefined),
 			getQueryState: vi.fn(() => undefined),
 			invalidateQueries: invalidateQueriesMock,
+			removeQueries: removeQueriesMock,
 			getQueryCache: () => ({ subscribe: () => () => undefined }),
 			setQueriesData: vi.fn(),
 			setQueryData: vi.fn(),
@@ -3257,9 +3339,7 @@ describe("SpaceLanding", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
 
 		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Space settings" })
-			).toBeNull();
+			expect(deleteSpaceMock).toHaveBeenCalledOnce();
 		});
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
@@ -3268,6 +3348,7 @@ describe("SpaceLanding", () => {
 			});
 		});
 		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
+		expect(removeQueriesMock).not.toHaveBeenCalled();
 		finishDelete({ deleted: true, spaceId: "space-123" });
 		await waitFor(() => {
 			expect(removeDeletedSpaceFromAccountHistoryMock).toHaveBeenCalledWith({
@@ -3275,6 +3356,13 @@ describe("SpaceLanding", () => {
 				reason: "deleted_space",
 				spaceId: "space-123",
 			});
+		});
+		expect(cancelQueriesMock).toHaveBeenCalledWith(
+			{ queryKey: ["space-files", "space-123"] },
+			{ revert: false }
+		);
+		expect(removeQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["space-files", "space-123"],
 		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],
@@ -3466,6 +3554,7 @@ describe("SpaceLanding", () => {
 				spaceId: "space-123",
 				afterSignalId: "sig-seed-agent-live",
 				limit: 50,
+				signal: expect.any(AbortSignal),
 			});
 		});
 		expect(
@@ -3473,7 +3562,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("keeps transient dispatch activity out of the transcript and shows source Wake progress under the message", () => {
+	it("keeps historical dispatch activity out of the transcript without reviving a Wake", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -3519,6 +3608,25 @@ describe("SpaceLanding", () => {
 								profileName: "OpenMeld System",
 							},
 						}),
+						createTextSignal({
+							id: "sig-replying",
+							text: "@runner is replying...",
+							ts: RECENT_ACTIVITY_TS + 2,
+							meta: {
+								dispatchId: "dispatch-1",
+								purpose: AGENT_REPLYING_PURPOSE,
+								sourceClientMessageId: "client-message-1",
+								sourceEventId: "sig-user",
+								targetMentionLabel: "runner",
+								targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+								transient: true,
+							},
+							profile: {
+								kind: "system",
+								profileId: "openmeld-system",
+								profileName: "OpenMeld System",
+							},
+						}),
 					],
 					nextCursor: null,
 				},
@@ -3532,14 +3640,7 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
-		// Active Wake progress stays at the conversation tail while its source remains visible.
-		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
-		expect(sourceMessageGroup).not.toBeNull();
-		const thinkingIndicator = screen.getByTestId(
-			"space-wake-thinking-indicator"
-		);
-		expect(thinkingIndicator.textContent).toContain("Wake sent to runner");
-		expect(thinkingIndicator.textContent).not.toContain("Wake is queued");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 		expect(screen.queryByText("Starting Wake for @runner...")).toBeNull();
 		expect(screen.queryByText("OpenMeld System")).toBeNull();
 	});
@@ -3633,7 +3734,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain("runner is working");
+			expect(thinkingIndicator.textContent).toContain("runner · Working…");
 		});
 	});
 
@@ -3688,7 +3789,12 @@ describe("SpaceLanding", () => {
 		mockSpaceQueries({
 			activeWakeProgressSummary: createQueryResult({
 				isSuccess: true,
-				data: activeWakeProgressSummary,
+				data: {
+					...activeWakeProgressSummary,
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+				},
 			}),
 			status: createQueryResult({
 				isSuccess: true,
@@ -3742,7 +3848,7 @@ describe("SpaceLanding", () => {
 		const thinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(thinkingIndicator.textContent).toContain("runner is working");
+		expect(thinkingIndicator.textContent).toContain("runner · Working…");
 
 		await act(async () => {
 			resolveDetailedWakeProgress({
@@ -3756,7 +3862,10 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("sends a Center Agent correction to the visible running response when the initial summary is empty", async () => {
+	it.each([
+		"Center",
+		"Local",
+	] as const)("queues text during a confirmed %s response without publishing or steering it", async (controller) => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -3775,13 +3884,12 @@ describe("SpaceLanding", () => {
 			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
 			updatedAtMs: RECENT_ACTIVITY_TS + 10,
 		});
-		queryClient.setQueryData(
-			spaceQueryKeys.wakeProgressPresentation(
-				"space-123",
-				DEFAULT_SPACE_PROFILE_ID
-			),
-			[item]
-		);
+		setSpaceWakeProgressPresentationItems({
+			items: [item],
+			openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+			queryClient,
+			spaceId: "space-123",
+		});
 		useQueryClientMock.mockReturnValue(queryClient);
 		const postNormalMessage = vi.fn().mockResolvedValue(
 			createTextSignal({
@@ -3802,11 +3910,26 @@ describe("SpaceLanding", () => {
 			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
 		});
 		mockSpaceQueries({
-			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			centerAgentProfileId:
+				controller === "Center" ? DEFAULT_AGENT_PROFILE_ID : null,
+			activeWakeProgressSummary: createQueryResult({
+				isSuccess: true,
+				isFetchedAfterMount: true,
+				data: {
+					items: [item],
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+					query: { spaceId: "space-123", targetProfileId: null },
+				},
+			}),
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot(),
+				data: createMembersSnapshot({
+					defaultAgentControllerRef:
+						controller === "Center" ? "hosted:center-agent" : "builtin:codex",
+				}),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -3822,45 +3945,56 @@ describe("SpaceLanding", () => {
 				},
 			}),
 		});
-		renderSpaceLanding({ queryClient, isCenterAgentDirectMessage: true });
-		await setComposerValue(
-			screen.getByRole("textbox", { name: "Message Center Agent" }),
-			"Only North America."
-		);
+		renderSpaceLanding({
+			queryClient,
+			isCenterAgentDirectMessage: controller === "Center",
+		});
+		await setComposerValue(screen.getByRole("textbox"), "Only North America.");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() =>
-			expect(postNormalMessage).toHaveBeenCalledWith(
+			expect(readOrUpdateSpaceInputQueue).toHaveBeenCalledWith(
+				expect.anything(),
 				expect.objectContaining({
-					meta: expect.objectContaining({
-						centerAgentExecutionInput: {
+					spaceId: "space-123",
+					mutation: expect.objectContaining({
+						action: "enqueue",
+						text: "Only North America.",
+						target: {
 							dispatchId: "original-dispatch",
 							targetProfileId: DEFAULT_AGENT_PROFILE_ID,
 						},
 					}),
-					messageEnvelope: expect.objectContaining({ activationTargets: [] }),
 				})
+			)
+		);
+		expect(postNormalMessage).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(screen.getByRole("textbox").textContent).not.toContain(
+				"Only North America."
 			)
 		);
 	});
 
-	it("clears a cached Sending to agent row when Core confirms that no Wake is active", async () => {
+	it.each([
+		"request_sent",
+		"running",
+	] as const)("does not present cached %s progress as current before Core confirms it", async (phase) => {
 		const queryClient = createTestQueryClient();
 		const cachedItem = createWakeProgressItem({
 			clientMessageId: "client-message-stale",
 			dispatchId: "dispatch-stale",
-			phase: "request_sent",
+			phase,
 			sourceSignalId: "sig-user-stale",
 			targetLabel: "@runner",
 			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
 			updatedAtMs: RECENT_ACTIVITY_TS + 10,
 		});
-		queryClient.setQueryData(
-			spaceQueryKeys.wakeProgressPresentation(
-				"space-123",
-				DEFAULT_SPACE_PROFILE_ID
-			),
-			[cachedItem]
-		);
+		setSpaceWakeProgressPresentationItems({
+			items: [cachedItem],
+			openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+			queryClient,
+			spaceId: "space-123",
+		});
 		useQueryClientMock.mockReturnValue(queryClient);
 		let resolveActiveWakeProgress!: (value: {
 			items: never[];
@@ -3888,6 +4022,18 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			activeWakeProgressSummary: createQueryResult({
+				isSuccess: true,
+				isFetching: true,
+				isFetchedAfterMount: false,
+				data: {
+					items: [cachedItem],
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+					query: { spaceId: "space-123", targetProfileId: null },
+				},
+			}),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -3909,7 +4055,7 @@ describe("SpaceLanding", () => {
 							},
 							meta: { clientMessageId: "client-message-stale" },
 							text: "@runner(wake) status check",
-							ts: RECENT_ACTIVITY_TS - 6 * 60 * 1000,
+							ts: RECENT_ACTIVITY_TS - 12 * 60 * 60 * 1000,
 						}),
 					],
 					nextCursor: null,
@@ -3919,9 +4065,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding({ queryClient });
 
-		expect(
-			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("Wake sent to runner");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 
 		await act(async () => {
 			resolveActiveWakeProgress({
@@ -4025,9 +4169,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain(
-				"runner · Posting reply…"
-			);
+			expect(thinkingIndicator.textContent).toContain("runner · Replying…");
 		});
 	});
 
@@ -4384,25 +4526,24 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain("runner is working");
+			expect(thinkingIndicator.textContent).toContain("runner · Working…");
 		});
 	});
 
-	it("restores cached active Wake progress immediately after switching away from and back to a Space", async () => {
+	it("does not restore unconfirmed cached Wake progress after switching away from and back to a Space", async () => {
+		const cachedItem = {
+			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
+			message: "@runner is working on Felix's MacBook Pro Codex...",
+			phase: "running" as const,
+			sourceSignalId: "sig-user",
+			targetLabel: "@runner",
+			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			terminal: false,
+			updatedAtMs: RECENT_ACTIVITY_TS + 10,
+		};
 		const getWakeProgressMock = vi.fn().mockResolvedValue({
-			items: [
-				{
-					clientMessageId: "client-message-1",
-					dispatchId: "dispatch-1",
-					message: "@runner is working on Felix's MacBook Pro Codex...",
-					phase: "running",
-					sourceSignalId: "sig-user",
-					targetLabel: "@runner",
-					targetProfileId: DEFAULT_AGENT_PROFILE_ID,
-					terminal: false,
-					updatedAtMs: RECENT_ACTIVITY_TS + 10,
-				},
-			],
+			items: [cachedItem],
 			query: {
 				clientMessageId: "client-message-1",
 				spaceId: "space-123",
@@ -4417,6 +4558,14 @@ describe("SpaceLanding", () => {
 			leaveSpace: vi.fn(),
 			listSignalEnvelopes: vi.fn(),
 			postNormalMessage: vi.fn(),
+		});
+		const queryClient = createTestQueryClient();
+		useQueryClientMock.mockReturnValue(queryClient);
+		setSpaceWakeProgressPresentationItems({
+			items: [cachedItem],
+			openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+			queryClient,
+			spaceId: "space-123",
 		});
 		const statusResultsBySpaceId = new Map([
 			[
@@ -4485,6 +4634,7 @@ describe("SpaceLanding", () => {
 		const threadsResult = createQueryResult({
 			isSuccess: true,
 			data: {
+				previews: [],
 				threads: [],
 			},
 		});
@@ -4684,7 +4834,7 @@ describe("SpaceLanding", () => {
 			}
 		);
 
-		const view = renderSpaceLanding();
+		const view = renderSpaceLanding({ queryClient });
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
@@ -4700,11 +4850,7 @@ describe("SpaceLanding", () => {
 				timeoutMs: 15_000,
 			});
 		});
-		await waitFor(() => {
-			expect(
-				screen.getByTestId("space-wake-thinking-indicator").textContent
-			).toContain("runner is working");
-		});
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 
 		view.rerender(
 			<SpaceLanding
@@ -4731,9 +4877,7 @@ describe("SpaceLanding", () => {
 			/>
 		);
 
-		expect(
-			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("runner is working");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 	});
 
 	it("does not show expired terminal Wake progress returned during history recovery", async () => {
@@ -5140,7 +5284,8 @@ describe("SpaceLanding", () => {
 		});
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
-				expect.objectContaining(invalidation)
+				expect.objectContaining(invalidation),
+				{ cancelRefetch: false }
 			);
 		}
 		expect(refreshAllMock).toHaveBeenCalledTimes(1);
@@ -5733,7 +5878,7 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Add your first agent")).toBeNull();
 		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
@@ -5795,17 +5940,20 @@ describe("SpaceLanding", () => {
 				.getByText("View only")
 				.closest('[data-slot="space-window-header-title"]')
 		).not.toBeNull();
-		const composer = screen.getByRole("textbox", {
-			name: "Message Runner",
-		});
-		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"Alice is chatting with your agent, Runner. Join this conversation to send messages."
-		);
+		expect(
+			screen.queryByRole("textbox", { name: "Message Runner" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Add People or Agents" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
 		expect(
 			screen.getByText("Join the conversation to send the first message.")
 		).toBeTruthy();
 		const joinButtons = screen.getAllByRole("button", {
-			name: "Join conversation first",
+			name: "Join conversation",
 		});
 		expect(joinButtons).toHaveLength(2);
 		const composerSection = document.querySelector(
@@ -5816,7 +5964,7 @@ describe("SpaceLanding", () => {
 			within(composerSection as HTMLElement).queryByText(
 				"Alice is chatting with your agent, Runner. Join this conversation to send messages."
 			)
-		).toBeNull();
+		).not.toBeNull();
 		expect(
 			within(composerSection as HTMLElement).queryByRole("button", {
 				name: "Send message",
@@ -5824,7 +5972,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		fireEvent.click(
 			within(composerSection as HTMLElement).getByRole("button", {
-				name: "Join conversation first",
+				name: "Join conversation",
 			})
 		);
 		expect(
@@ -5887,7 +6035,7 @@ describe("SpaceLanding", () => {
 
 		expect(screen.getByText("Mira can view")).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
@@ -6036,7 +6184,7 @@ describe("SpaceLanding", () => {
 
 		fireEvent.click(
 			screen.getAllByRole("button", {
-				name: "Join conversation first",
+				name: "Join conversation",
 			})[0] as Element
 		);
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
@@ -6138,6 +6286,37 @@ describe("SpaceLanding", () => {
 		mockSpaceQueries({
 			status: createQueryResult({ isSuccess: true, data: status }),
 			members: createQueryResult({ isSuccess: true, data: members }),
+			organizationDirectory: {
+				agentProfiles: [
+					{
+						agentControllerRef: addedAgent.agentControllerRef,
+						createdAt: addedAgent.createdAt,
+						isCenterAgent: false,
+						lastUsedAt: null,
+						ownerName: addedAgent.ownerName ?? undefined,
+						ownerUserId: addedAgent.ownerUserId,
+						profileHandle: addedAgent.mentionAlias ?? "runner",
+						profileId: addedAgent.profileId,
+						profileName: addedAgent.profileName,
+						status: "active",
+					},
+				],
+				members: [
+					{
+						avatarImageUrl: null,
+						humanProfile: {
+							profileHandle: "mira",
+							profileId: DEFAULT_SPACE_PROFILE_ID,
+							profileName: "Mira",
+							status: "active",
+						},
+						lastActiveAt: "2026-09-10T08:00:00.000Z",
+						memberName: "Mira",
+						userId: "user-mira",
+					},
+				],
+				organizationId: "org-acme",
+			},
 			history: createQueryResult({
 				isSuccess: true,
 				data: { envelopes: [], nextCursor: null },
@@ -6194,7 +6373,7 @@ describe("SpaceLanding", () => {
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
 		fireEvent.click(
-			screen.getByRole("checkbox", { name: addedAgent.profileName })
+			await screen.findByRole("checkbox", { name: addedAgent.profileName })
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
@@ -6374,7 +6553,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
@@ -8197,7 +8376,8 @@ describe("SpaceLanding", () => {
 		});
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
-				expect.objectContaining(invalidation)
+				expect.objectContaining(invalidation),
+				{ cancelRefetch: false }
 			);
 		}
 		expect(refreshAllMock).toHaveBeenCalledTimes(1);
@@ -8829,7 +9009,8 @@ describe("SpaceLanding", () => {
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
-				expect.objectContaining(invalidation)
+				expect.objectContaining(invalidation),
+				{ cancelRefetch: false }
 			);
 		}
 		expect(statusRefetchMock).toHaveBeenCalledTimes(1);
@@ -9654,7 +9835,9 @@ describe("SpaceLanding", () => {
 		const targetList = await openComposerMemberPicker();
 		expect(targetList.className).toContain("z-500");
 		expect(targetList.className).toContain("max-h-[288px]");
-		expect(targetList.className).toContain("overflow-y-auto");
+		expect(
+			targetList.querySelector('[data-slot="scroll-area-viewport"]')
+		).not.toBeNull();
 		expect(within(targetList).getByText("Agents")).toBeTruthy();
 		expect(within(targetList).getByText("People")).toBeTruthy();
 		expect(within(targetList).getByText("Runner")).toBeTruthy();
@@ -9754,7 +9937,9 @@ describe("SpaceLanding", () => {
 
 		const targetList = await openComposerMemberPicker();
 		expect(targetList.className).toContain("max-h-[288px]");
-		expect(targetList.className).toContain("overflow-y-auto");
+		expect(
+			targetList.querySelector('[data-slot="scroll-area-viewport"]')
+		).not.toBeNull();
 		expect(within(targetList).getByText("Scroll Agent 18")).toBeTruthy();
 		expect(within(targetList).getAllByRole("option").length).toBeGreaterThan(
 			18
@@ -9820,23 +10005,32 @@ describe("SpaceLanding", () => {
 			defaultAgentExecutionReadiness:
 				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
 		}) as SpaceMembersSnapshot;
+		const initialMembersSnapshot =
+			createMembersSnapshot() as SpaceMembersSnapshot;
 		const membersResult = createQueryResult({
 			isSuccess: true,
-			data: createMembersSnapshot(),
+			data: initialMembersSnapshot,
 		});
 		const setQueryDataMock = vi.fn(
-			(queryKey: readonly unknown[], snapshot: unknown) => {
+			(queryKey: readonly unknown[], update: unknown) => {
 				if (
 					JSON.stringify(queryKey) ===
-						JSON.stringify(
-							spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
-						) &&
-					typeof snapshot === "object" &&
-					snapshot !== null &&
-					"humans" in snapshot &&
-					"agents" in snapshot
+					JSON.stringify(
+						spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
+					)
 				) {
-					Object.assign(membersResult, { data: snapshot });
+					const snapshot =
+						typeof update === "function"
+							? (update as (current: unknown) => unknown)(membersResult.data)
+							: update;
+					if (
+						typeof snapshot === "object" &&
+						snapshot !== null &&
+						"humans" in snapshot &&
+						"agents" in snapshot
+					) {
+						Object.assign(membersResult, { data: snapshot });
+					}
 				}
 			}
 		);
@@ -9896,10 +10090,11 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		expect(readComposerValue(textarea)).toBe("");
 		expect(textarea.getAttribute("contenteditable")).toBe("true");
-		expect(setQueryDataMock).toHaveBeenCalledWith(
-			spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
-			currentMembersSnapshot
-		);
+		expect(membersResult.data).toBe(initialMembersSnapshot);
+		expect(membersResult.data).not.toBe(currentMembersSnapshot);
+		expect(
+			initialMembersSnapshot.agents[0]?.agentWakeAvailability?.status
+		).toBe("available_for_wake");
 		await setComposerValue(textarea, "My new draft");
 		readSpaceMembersMock.mockResolvedValue(createMembersSnapshot());
 		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -10384,6 +10579,7 @@ describe("SpaceLanding", () => {
 				spaceId: "space-123",
 				afterSignalId: "sig-seed",
 				limit: 50,
+				signal: expect.any(AbortSignal),
 			});
 			expect(screen.getAllByText("Tail update").length).toBeGreaterThan(0);
 		});
@@ -10421,6 +10617,33 @@ describe("SpaceLanding", () => {
 				nextCursor: null,
 			},
 			refetch: historyRefetchMock,
+		});
+		const activeWakeProgressSummaryResult = createQueryResult({
+			isSuccess: true,
+			data: {
+				items: [],
+				get presentationEpoch() {
+					return wakeProgressFixture.presentationEpoch;
+				},
+				query: {
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			},
+		});
+		const threadsResult = createQueryResult({
+			isSuccess: true,
+			data: { previews: [], threads: [] },
+		});
+		const threadSignalsResult = createQueryResult({
+			isSuccess: true,
+			data: { signals: [] },
+		});
+		let bootstrapResult = createSpaceBootstrapQueryResult({
+			history: historyResult,
+			members: membersResult,
+			status: statusResult,
+			threads: threadsResult,
 		});
 		useQueryMock.mockImplementation(
 			(options: { queryKey: readonly unknown[] }) => {
@@ -10489,16 +10712,7 @@ describe("SpaceLanding", () => {
 						DEFAULT_SPACE_PROFILE_ID,
 					])
 				) {
-					return createQueryResult({
-						isSuccess: true,
-						data: {
-							items: [],
-							query: {
-								spaceId: "space-123",
-								targetProfileId: null,
-							},
-						},
-					});
+					return activeWakeProgressSummaryResult;
 				}
 				if (
 					queryKey ===
@@ -10509,17 +10723,7 @@ describe("SpaceLanding", () => {
 						DEFAULT_SPACE_PROFILE_ID,
 					])
 				) {
-					return createSpaceBootstrapQueryResult({
-						history: historyResult,
-						members: membersResult,
-						status: statusResult,
-						threads: createQueryResult({
-							isSuccess: true,
-							data: {
-								threads: [],
-							},
-						}),
-					});
+					return bootstrapResult;
 				}
 				if (
 					queryKey ===
@@ -10563,12 +10767,7 @@ describe("SpaceLanding", () => {
 						DEFAULT_SPACE_PROFILE_ID,
 					])
 				) {
-					return createQueryResult({
-						isSuccess: true,
-						data: {
-							threads: [],
-						},
-					});
+					return threadsResult;
 				}
 				if (
 					Array.isArray(options.queryKey) &&
@@ -10577,12 +10776,7 @@ describe("SpaceLanding", () => {
 					options.queryKey[2] === "space-123" &&
 					options.queryKey[4] === DEFAULT_SPACE_PROFILE_ID
 				) {
-					return createQueryResult({
-						isSuccess: true,
-						data: {
-							signals: [],
-						},
-					});
+					return threadSignalsResult;
 				}
 				if (
 					Array.isArray(options.queryKey) &&
@@ -10638,6 +10832,12 @@ describe("SpaceLanding", () => {
 				nextCursor: null,
 			},
 			refetch: historyRefetchMock,
+		});
+		bootstrapResult = createSpaceBootstrapQueryResult({
+			history: historyResult,
+			members: membersResult,
+			status: statusResult,
+			threads: threadsResult,
 		});
 
 		rerender(
@@ -10804,7 +11004,14 @@ describe("SpaceLanding", () => {
 							{
 								threadId: "thr_11111111-1111-4111-8111-111111111111",
 								replyCount: 7,
-								placements: [],
+								placements: [
+									{
+										createdAt: "2026-09-14T00:00:01.000Z",
+										placement: "thread",
+										signalId: "saved-reply",
+										threadId: "thr_11111111-1111-4111-8111-111111111111",
+									},
+								],
 								signals: [
 									createTextSignal({
 										id: "saved-reply",
@@ -10835,7 +11042,7 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 		expect(
 			within(
-				screen.getByRole("link", { name: THREAD_REPLY_LINK_PATTERN })
+				screen.getByRole("button", { name: THREAD_REPLY_PREVIEW_PATTERN })
 			).getByText("Saved reply preview")
 		).toBeTruthy();
 		expect(
@@ -11180,13 +11387,7 @@ describe("SpaceLanding", () => {
 			{ button: 0, detail: 1 }
 		);
 
-		await waitFor(() => {
-			expect(scrollToMock).toHaveBeenCalledWith({
-				behavior: "instant",
-				top: 960,
-			});
-		});
-		expect(conversationHistory.scrollTop).toBe(640);
+		await waitFor(() => expect(conversationHistory.scrollTop).toBe(640));
 		await waitFor(() => {
 			expect(
 				screen
@@ -11360,7 +11561,8 @@ describe("SpaceLanding", () => {
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
-				expect.objectContaining(invalidation)
+				expect.objectContaining(invalidation),
+				{ cancelRefetch: false }
 			);
 		}
 		for (const invalidation of buildLocalRuntimeCacheInvalidations()) {
@@ -11428,11 +11630,6 @@ describe("SpaceLanding", () => {
 		await flushPromiseQueue();
 
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
-		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
-			expect(invalidateQueriesMock).toHaveBeenCalledWith(
-				expect.objectContaining(invalidation)
-			);
-		}
 		expect(statusRefetchMock).toHaveBeenCalledTimes(1);
 		expect(membersRefetchMock).toHaveBeenCalledTimes(1);
 		expect(refreshAllMock).not.toHaveBeenCalled();
@@ -11495,11 +11692,6 @@ describe("SpaceLanding", () => {
 		await flushPromiseQueue();
 
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
-		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
-			expect(invalidateQueriesMock).toHaveBeenCalledWith(
-				expect.objectContaining(invalidation)
-			);
-		}
 		for (const invalidation of buildLocalRuntimeCacheInvalidations()) {
 			expect(invalidateQueriesMock).not.toHaveBeenCalledWith(
 				expect.objectContaining(invalidation)
@@ -11579,7 +11771,8 @@ describe("SpaceLanding", () => {
 					"org-acme"
 				),
 				refetchType: "active",
-			})
+			}),
+			{ cancelRefetch: false }
 		);
 		for (const invalidation of buildLocalRuntimeCacheInvalidations()) {
 			expect(invalidateQueriesMock).not.toHaveBeenCalledWith(
@@ -12265,7 +12458,8 @@ describe("SpaceLanding", () => {
 					"org-acme"
 				),
 				refetchType: "active",
-			})
+			}),
+			{ cancelRefetch: false }
 		);
 	});
 
@@ -12359,7 +12553,8 @@ describe("SpaceLanding", () => {
 					"org-acme"
 				),
 				refetchType: "active",
-			})
+			}),
+			{ cancelRefetch: false }
 		);
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		for (const invalidation of buildLocalRuntimeCacheInvalidations()) {
@@ -12369,7 +12564,7 @@ describe("SpaceLanding", () => {
 		}
 	});
 
-	it("retries shared cache refresh once after a transient final outcome freshness failure", async () => {
+	it("leaves shared cache retry ownership to TanStack Query", async () => {
 		vi.useFakeTimers();
 		const warnMock = vi
 			.spyOn(console, "warn")
@@ -12458,9 +12653,10 @@ describe("SpaceLanding", () => {
 			expect.objectContaining({
 				attempt: 1,
 				error: "query cache unavailable",
+				maxAttempts: 1,
 				signalId: "sig-final-shared-cache-retry",
 				step: "shared_caches",
-				willRetry: true,
+				willRetry: false,
 			})
 		);
 		expect(
@@ -12469,7 +12665,7 @@ describe("SpaceLanding", () => {
 					JSON.stringify(input.queryKey) ===
 					JSON.stringify(readinessCachePrefix)
 			)
-		).toHaveLength(2);
+		).toHaveLength(1);
 		expect(statusRefetchMock).toHaveBeenCalledTimes(1);
 		expect(membersRefetchMock).toHaveBeenCalledTimes(1);
 		expect(refreshAllMock).not.toHaveBeenCalled();
@@ -12646,7 +12842,8 @@ describe("SpaceLanding", () => {
 					"org-acme"
 				),
 				refetchType: "active",
-			})
+			}),
+			{ cancelRefetch: false }
 		);
 		for (const invalidation of buildLocalRuntimeCacheInvalidations()) {
 			expect(invalidateQueriesMock).not.toHaveBeenCalledWith(
@@ -13010,7 +13207,8 @@ describe("SpaceLanding", () => {
 		expect(membersRefetchMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("degrades on websocket server error frames", async () => {
+	it("delays freshness feedback for websocket server errors", async () => {
+		vi.useFakeTimers();
 		createWebSpaceApiMock.mockReturnValue({
 			getUpdates: vi.fn().mockResolvedValue({
 				signals: [],
@@ -13038,9 +13236,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		await waitFor(() => {
-			expect(FakeWebSocket.instances).toHaveLength(1);
-		});
+		expect(FakeWebSocket.instances).toHaveLength(1);
 
 		await act(async () => {
 			await FakeWebSocket.instances[0]?.emitOpen();
@@ -13052,11 +13248,17 @@ describe("SpaceLanding", () => {
 			);
 		});
 
-		await waitFor(() => {
-			expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
-			expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
-			expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
 		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
 	});
 
 	it("automatically reconnects after websocket close with a fresh tail catch-up", async () => {
@@ -13109,9 +13311,10 @@ describe("SpaceLanding", () => {
 		});
 
 		// Within the grace window a dropped stream stays quiet — no status flip.
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
-		expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		expect(screen.queryByTestId("space-live-status")).toBeNull();
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1000);
@@ -13119,24 +13322,37 @@ describe("SpaceLanding", () => {
 
 		expect(FakeWebSocket.instances).toHaveLength(2);
 		// Reconnect fired but the grace window has not elapsed — still quiet.
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		expect(screen.queryByTestId("space-live-status")).toBeNull();
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
 
-		// Grace elapsed without recovery — the degraded status now surfaces.
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		// Internal recovery stays quiet until the presentation grace elapses.
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		await act(async () => {
 			await FakeWebSocket.instances[1]?.emitOpen();
 		});
 
 		expect(getUpdatesMock).toHaveBeenCalledTimes(1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
-	it("uses only persisted live frames as reconnect catch-up anchors", async () => {
+	it("reconnects from the last authoritative history/updates cursor despite newer live frames", async () => {
 		vi.useFakeTimers();
 		const getUpdatesMock = vi.fn().mockResolvedValue({
 			signals: [],
@@ -13182,6 +13398,7 @@ describe("SpaceLanding", () => {
 			spaceId: "space-123",
 			afterSignalId: "sig-seed",
 			limit: 50,
+			signal: expect.any(AbortSignal),
 		});
 		getUpdatesMock.mockClear();
 
@@ -13224,6 +13441,7 @@ describe("SpaceLanding", () => {
 			);
 			await FakeWebSocket.instances[0]?.emitClose(1011, "upstream_error");
 		});
+		expect(screen.getByText("Persisted live message")).toBeTruthy();
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1000);
 		});
@@ -13237,8 +13455,9 @@ describe("SpaceLanding", () => {
 		expect(getUpdatesMock).toHaveBeenCalledTimes(1);
 		expect(getUpdatesMock).toHaveBeenLastCalledWith({
 			spaceId: "space-123",
-			afterSignalId: "sig-live-persisted",
+			afterSignalId: "sig-seed",
 			limit: 50,
+			signal: expect.any(AbortSignal),
 		});
 		expect(getUpdatesMock).not.toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -13323,12 +13542,28 @@ describe("SpaceLanding", () => {
 		// No reconnect and no recovered tail message: the open socket stays live,
 		// while freshness is honestly marked as stale until a retry succeeds.
 		expect(FakeWebSocket.instances).toHaveLength(1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
-		expect(screen.getByText(SPACE_LIVE_STALE_LABEL)).toBeTruthy();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 		expect(screen.queryByText("Recovered tail message")).toBeNull();
+		getUpdatesMock.mockResolvedValue({ signals: [] });
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+			await Promise.resolve();
+		});
+		expect(FakeWebSocket.instances).toHaveLength(1);
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
-	it("reconnects immediately when the live status indicator is clicked", async () => {
+	it("retries from the freshness notice without claiming recovery", async () => {
 		vi.useFakeTimers();
 		const getUpdatesMock = vi.fn().mockResolvedValue({ signals: [] });
 		createWebSpaceApiMock.mockReturnValue({
@@ -13366,19 +13601,30 @@ describe("SpaceLanding", () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		const socketsBeforeRetry = FakeWebSocket.instances.length;
 		await act(async () => {
-			fireEvent.click(
-				screen.getByRole("button", { name: "Reconnect live updates now" })
-			);
+			fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 			await Promise.resolve();
 		});
 
 		// A fresh socket opens right away — no waiting out the backoff timer.
 		expect(FakeWebSocket.instances.length).toBe(socketsBeforeRetry + 1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
+		await act(async () => {
+			await FakeWebSocket.instances.at(-1)?.emitOpen();
+		});
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
 	it("reconnects immediately when the tab returns to the foreground while degraded", async () => {
@@ -13419,7 +13665,12 @@ describe("SpaceLanding", () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		const socketsBeforeForeground = FakeWebSocket.instances.length;
 		await act(async () => {
@@ -13525,7 +13776,6 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(createWebSpaceApiMock).toHaveBeenCalledWith({
-				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
@@ -13642,7 +13892,11 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("stages a selected image and publishes it as a Space File only on Send", async () => {
+	it.each([
+		"http-first",
+		"live-first",
+		"live-accepted-http-error",
+	] as const)("keeps the selected image and open viewer through %s acknowledgement", async (acknowledgement) => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class implements IntersectionObserver {
@@ -13701,18 +13955,30 @@ describe("SpaceLanding", () => {
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
+		let rejectPost: ((error: Error) => void) | null = null;
 		const postNormalMessageMock = vi.fn().mockImplementation(
 			() =>
-				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
+				new Promise<ReturnType<typeof createTextSignal>>((resolve, reject) => {
 					resolvePost = resolve;
+					rejectPost = reject;
 				})
 		);
+		let liveSnapshot: ReturnType<typeof createTextSignal> | undefined;
 		createWebSpaceApiMock.mockReturnValue({
 			discardComposerUpload: discardComposerUploadMock,
 			downloadFileContent: downloadFileContentMock,
 			postNormalMessage: postNormalMessageMock,
 			publishComposerUpload: publishComposerUploadMock,
 			stageComposerUpload: stageComposerUploadMock,
+			getUpdates: vi.fn(() =>
+				Promise.resolve({ signals: liveSnapshot ? [liveSnapshot] : [] })
+			),
+			listSignalEnvelopes: vi.fn(() =>
+				Promise.resolve({
+					envelopes: liveSnapshot ? [liveSnapshot] : [],
+					nextCursor: null,
+				})
+			),
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -13729,7 +13995,9 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		const queryClient = createTestQueryClient();
+		useQueryClientMock.mockReturnValue(queryClient);
+		renderSpaceLanding({ queryClient });
 		fireEvent.change(screen.getByLabelText("Choose files to send"), {
 			target: {
 				files: [new File(["source"], "picnic.png", { type: "image/png" })],
@@ -13738,7 +14006,6 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(createWebSpaceApiMock).toHaveBeenCalledWith({
-				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
 			expect(stageComposerUploadMock).toHaveBeenCalledWith({
@@ -13763,7 +14030,6 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(createWebSpaceApiMock).toHaveBeenCalledWith({
-				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
@@ -13791,29 +14057,60 @@ describe("SpaceLanding", () => {
 			"blob:source-image-preview"
 		);
 
+		if (!optimisticImage) {
+			throw new Error("Expected the optimistic original.");
+		}
+		const originalFrame = optimisticImage.closest("[data-image-frame]");
+		const originalStyle = originalFrame?.getAttribute("style");
+		fireEvent.click(screen.getByRole("button", { name: "Open picnic.png" }));
+		const originalViewer = screen.getByRole("dialog", { name: "picnic.png" });
+		const published = createTextSignal({
+			files: [messageFile],
+			id: "sig-image-message",
+			text: "Photos from the picnic",
+			ts: Date.now(),
+			meta: postNormalMessageMock.mock.calls[0]?.[0].meta,
+		});
+		liveSnapshot = published;
+		const emitLive = async () => {
+			await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+			await act(async () => {
+				await FakeWebSocket.instances[0]?.emitOpen();
+				await FakeWebSocket.instances[0]?.emitMessage(
+					JSON.stringify(published)
+				);
+			});
+		};
+		if (acknowledgement !== "http-first") {
+			await emitLive();
+		}
 		await act(async () => {
-			resolvePost?.(
-				createTextSignal({
-					files: [messageFile],
-					id: "sig-image-message",
-					text: "Photos from the picnic",
-				})
-			);
+			if (acknowledgement === "live-accepted-http-error") {
+				rejectPost?.(
+					new Error("The HTTP response was lost after live acceptance.")
+				);
+			} else {
+				resolvePost?.(published);
+			}
 			await Promise.resolve();
 		});
-
+		if (acknowledgement === "http-first") {
+			await emitLive();
+		}
 		await waitFor(() => {
-			expect(
-				document.querySelector('img[src="blob:converted-image-preview"]')
-			).not.toBeNull();
+			expect(screen.getByRole("dialog", { name: "picnic.png" })).toBe(
+				originalViewer
+			);
+			expect(originalFrame?.querySelector("img")).toBe(optimisticImage);
+			expect(optimisticImage.isConnected).toBe(true);
+			expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 		});
-		expect(downloadFileContentMock).toHaveBeenCalledWith({
-			fileId: descriptor.id,
-			revision: 1,
-			signal: expect.any(AbortSignal),
-			spaceId: "space-123",
-		});
-		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+		expect(originalFrame?.getAttribute("style")).toBe(originalStyle);
+		expect(optimisticImage.getAttribute("src")).toBe(
+			"blob:source-image-preview"
+		);
+		expect(downloadFileContentMock).not.toHaveBeenCalled();
+		expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(
 			"blob:source-image-preview"
 		);
 		expect(discardComposerUploadMock).not.toHaveBeenCalled();
@@ -13945,8 +14242,8 @@ describe("SpaceLanding", () => {
 		);
 		expect(within(log).queryByText("Open in Files")).toBeNull();
 		expect(
-			within(log).getByRole("button", { name: "Copy message" })
-		).toHaveProperty("disabled", true);
+			within(log).queryByRole("button", { name: "Copy message" })
+		).toBeNull();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		await waitFor(() => expect(releasePublication).toBeDefined());
 		await act(async () => releasePublication?.());
@@ -14030,7 +14327,13 @@ describe("SpaceLanding", () => {
 
 		await screen.findByText("The Space does not belong to this Organization.");
 		await screen.findByRole("group", { name: "Files to send" });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Attachment error: broken.png" })
+		);
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
+		fireEvent.keyDown(document.activeElement ?? document.body, {
+			key: "Escape",
+		});
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
 			"Text can still be sent"
@@ -14903,18 +15206,15 @@ describe("SpaceLanding", () => {
 		expect(
 			await screen.findByText("The message could not be sent.")
 		).toBeTruthy();
-		expect(
-			readComposerValue(
-				screen.getByRole("textbox", {
-					name: "Message this space",
-				})
-			)
-		).toBe("");
+		expect(readComposerValue(screen.getByRole("textbox"))).toBe("");
 		expect(screen.getByText("Keep this draft")).toBeTruthy();
 		expect(onConsumed).toHaveBeenCalledTimes(1);
 	});
 
-	it("shows local Wake progress immediately for Direct Message automatic Wake", async () => {
+	it.each([
+		OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+		"ordinary_private_space",
+	])("shows local Wake progress immediately for automatic Wake in %s", async (spacePurpose) => {
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -14932,7 +15232,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: {
 					...createSpaceStatus(),
-					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+					spacePurpose,
 				},
 			}),
 			members: createQueryResult({
@@ -14971,15 +15271,14 @@ describe("SpaceLanding", () => {
 			.getByText("DM hello")
 			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
+		expect(sourceMessage?.textContent).not.toContain("Wake");
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
 		const wakeThinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(wakeThinkingIndicator.textContent).toContain(
-			"Starting Wake for runner…"
-		);
+		expect(wakeThinkingIndicator.textContent).toContain("runner · Working…");
 
 		await act(async () => {
 			resolvePost?.(
@@ -15746,6 +16045,8 @@ describe("SpaceLanding", () => {
 	});
 
 	it("sends picker-authored bare mentions with a structured message envelope and reorders recent mentions after success", async () => {
+		const queryClient = createTestQueryClient();
+		useQueryClientMock.mockReturnValue(queryClient);
 		const watcherProfileId = "agt_33333333-3333-3333-3333-333333333333";
 		const membersSnapshot = createMembersSnapshot({
 			extraAgents: [
@@ -15804,7 +16105,7 @@ describe("SpaceLanding", () => {
 		});
 		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 
-		renderSpaceLanding();
+		renderSpaceLanding({ queryClient });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -15854,7 +16155,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(wakeThinkingIndicator.textContent).toContain("Wake sent to watcher");
+		expect(wakeThinkingIndicator.textContent).toContain("watcher · Working…");
 		fireEvent.click(wakeThinkingIndicator);
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })
@@ -15997,7 +16298,10 @@ describe("SpaceLanding", () => {
 			'[data-signal-id="sig-inbox-target"]'
 		);
 		expect(target?.getAttribute("data-highlighted")).toBe("true");
-		expect(target?.className).toContain("motion-reduce:transition-none");
+		expect(
+			target?.querySelector('[data-slot="space-message-text-surface"]')
+				?.className
+		).toContain("motion-reduce:transition-none");
 		expect(
 			screen.getByRole("log", { name: "Conversation history" }).scrollTop
 		).toBe(480);
@@ -16170,8 +16474,8 @@ describe("SpaceLanding", () => {
 		expect(
 			await screen.findByText(
 				failure === "missing"
-					? "This message is no longer available."
-					: "The connection was interrupted. Try again."
+					? "This message is no longer available in this conversation. Showing the latest messages."
+					: "Couldn’t load this part of the conversation. Try again."
 			)
 		).toBeTruthy();
 	});
@@ -16222,6 +16526,14 @@ describe("SpaceLanding", () => {
 			initialFocusThreadRootSignalId: rootSignal.id,
 		});
 		if (bootstrapPending) {
+			const pendingPanel = screen.getByRole("complementary", {
+				name: "Thread",
+			});
+			expect(within(pendingPanel).getByText("Loading messages…")).toBeTruthy();
+			expect(within(pendingPanel).queryByText("Exact linked reply")).toBeNull();
+			expect(
+				within(pendingPanel).getByRole("button", { name: "Close thread" })
+			).toBeTruthy();
 			expect(
 				useQueryMock.mock.calls.some(
 					([options]) =>
@@ -16303,7 +16615,10 @@ describe("SpaceLanding", () => {
 				`[data-signal-id="${replySignal.id}"]`
 			);
 			expect(target?.getAttribute("data-highlighted")).toBe("true");
-			expect(target?.className).toContain("motion-reduce:transition-none");
+			expect(
+				target?.querySelector('[data-slot="space-message-text-surface"]')
+					?.className
+			).toContain("motion-reduce:transition-none");
 		});
 		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
 			replySignal.id
@@ -16521,12 +16836,14 @@ describe("SpaceLanding", () => {
 		expect(actionRow).not.toBeNull();
 		const actionScope = within(actionRow as HTMLElement);
 
-		const messageDetailsButton = actionScope.getByRole("button", {
-			name: "Message details",
+		const moreActionsButton = actionScope.getByRole("button", {
+			name: "More actions",
 		});
-		expect(messageDetailsButton.getAttribute("data-slot")).toBe(
-			"tooltip-trigger"
-		);
+		expect(moreActionsButton.getAttribute("data-slot")).toBe("tooltip-trigger");
+		fireEvent.click(moreActionsButton);
+		expect(
+			screen.getByRole("menuitem", { name: "Message details" })
+		).toBeTruthy();
 
 		const replyButton = actionScope.getByRole("button", { name: "Reply" });
 		expect(replyButton.getAttribute("data-slot")).toBe("tooltip-trigger");
@@ -16645,8 +16962,8 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Can someone check the privacy page?")
 		).toBeTruthy();
-		const previews = screen.getAllByRole("link", {
-			name: THREAD_REPLY_LINK_PATTERN,
+		const previews = screen.getAllByRole("button", {
+			name: THREAD_REPLY_PREVIEW_PATTERN,
 		});
 		expect(previews).toHaveLength(2);
 		expect(
@@ -16748,6 +17065,15 @@ describe("SpaceLanding", () => {
 			name: "Thread",
 		});
 		expect(restoredPanel).toBeTruthy();
+		fireEvent.click(
+			within(restoredPanel).getByRole("button", { name: "Go to message" })
+		);
+		await waitFor(() => {
+			expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+				rootSignal.id
+			);
+		});
+		expect(screen.getByRole("complementary", { name: "Thread" })).toBeTruthy();
 
 		fireEvent.click(
 			within(restoredPanel).getByRole("button", { name: "Close thread" })
@@ -17006,7 +17332,7 @@ describe("SpaceLanding", () => {
 		expect(within(runnerActivity).queryByText("OpenMeld")).toBeNull();
 		expect(
 			within(runnerActivity).getByRole("button", {
-				name: "Show reply in Messages",
+				name: "Go to message",
 			})
 		).toBeTruthy();
 		expect(useQueryMock).toHaveBeenCalledWith(
@@ -17036,9 +17362,10 @@ describe("SpaceLanding", () => {
 
 		fireEvent.click(
 			within(finalReplyRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: "More actions",
 			})
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })
@@ -17280,18 +17607,25 @@ describe("SpaceLanding", () => {
 				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
 		}) as SpaceMembersSnapshot;
 		const setQueryDataMock = vi.fn(
-			(queryKey: readonly unknown[], snapshot: unknown) => {
+			(queryKey: readonly unknown[], update: unknown) => {
 				if (
 					JSON.stringify(queryKey) ===
-						JSON.stringify(
-							spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
-						) &&
-					typeof snapshot === "object" &&
-					snapshot !== null &&
-					"humans" in snapshot &&
-					"agents" in snapshot
+					JSON.stringify(
+						spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
+					)
 				) {
-					Object.assign(membersResult, { data: snapshot });
+					const snapshot =
+						typeof update === "function"
+							? (update as (current: unknown) => unknown)(membersResult.data)
+							: update;
+					if (
+						typeof snapshot === "object" &&
+						snapshot !== null &&
+						"humans" in snapshot &&
+						"agents" in snapshot
+					) {
+						Object.assign(membersResult, { data: snapshot });
+					}
 				}
 			}
 		);
@@ -17365,23 +17699,21 @@ describe("SpaceLanding", () => {
 			throw new Error("Expected the Agent Direct Message thread Composer.");
 		}
 		expect(threadComposer.textContent).not.toContain(DEFAULT_AGENT_PROFILE_ID);
+		expect(
+			within(threadComposer as HTMLElement).getByRole("alert").textContent
+		).toBe(expectedErrorMessage);
 		if (failureKind === "blocked") {
-			expect(membersResult.data).toBe(currentMembersSnapshot);
-			expect(setQueryDataMock).toHaveBeenCalledWith(
-				spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
-				currentMembersSnapshot
-			);
-			expect(
-				within(threadComposer as HTMLElement).getByRole("link", {
-					name: "Choose local agent",
-				})
-			).toBeTruthy();
+			expect(expectedErrorMessage).toContain("Connect a local agent");
 		} else {
-			expect(membersResult.data).toBe(initialMembersSnapshot);
 			expect(
 				within(threadComposer as HTMLElement).queryByRole("link")
 			).toBeNull();
 		}
+		expect(membersResult.data).toBe(initialMembersSnapshot);
+		expect(membersResult.data).not.toBe(currentMembersSnapshot);
+		expect(
+			initialMembersSnapshot.agents[0]?.agentWakeAvailability?.status
+		).toBe("available_for_wake");
 	});
 
 	it("submits Diagnostic Reports from thread messages", async () => {
@@ -17507,8 +17839,9 @@ describe("SpaceLanding", () => {
 			within(threadPanel).queryByRole("button", { name: "Report issue" })
 		).toBeNull();
 		fireEvent.click(
-			within(threadPanel).getByRole("button", { name: "Message details" })
+			within(threadPanel).getByRole("button", { name: "More actions" })
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		expect(createDiagnosticReportMock).not.toHaveBeenCalled();
 		expect(
@@ -19054,19 +19387,20 @@ function mockSpaceQueries(input: {
 				options.queryKey[1] === "active-wake-progress-summary" &&
 				options.queryKey[3] === profileId
 			) {
-				return (
-					input.activeWakeProgressSummary ??
-					createQueryResult({
-						isSuccess: true,
-						data: {
-							items: [],
-							query: {
-								spaceId: querySpaceId,
-								targetProfileId: null,
-							},
+				if (input.activeWakeProgressSummary) {
+					return input.activeWakeProgressSummary;
+				}
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						items: [],
+						presentationEpoch: wakeProgressFixture.presentationEpoch,
+						query: {
+							spaceId: querySpaceId,
+							targetProfileId: null,
 						},
-					})
-				);
+					},
+				});
 			}
 			if (
 				isExpectedSpace &&
@@ -19489,6 +19823,7 @@ function readComposerValue(composerElement: HTMLElement): string {
 
 function createSpaceBootstrapQueryResult(input: {
 	activeAgentStreams?: readonly SpaceAgentStreamSnapshot[];
+	dataUpdatedAt?: number;
 	status: Record<string, unknown>;
 	members: Record<string, unknown>;
 	history: Record<string, unknown>;
@@ -19508,6 +19843,7 @@ function createSpaceBootstrapQueryResult(input: {
 		});
 	}
 	return createQueryResult({
+		dataUpdatedAt: input.dataUpdatedAt ?? Date.now(),
 		isSuccess: true,
 		data: {
 			...(input.activeAgentStreams === undefined
@@ -19618,9 +19954,6 @@ function createOrganizationDirectoryFixture(input: {
 				profileHandle: "center-agent",
 				profileId: input.centerAgentProfileId,
 				profileName: "Center Agent",
-				readiness: buildRemoteCenterAgentReadiness("available", {
-					agentProfileId: input.centerAgentProfileId,
-				}),
 				status: "active",
 			},
 		],
@@ -19747,6 +20080,16 @@ function resolveOrganizationSpacesQueryResult(queryKey: readonly unknown[]) {
 function resolveSpaceInboxUnreadTargetsQueryResult(
 	queryKey: readonly unknown[]
 ) {
+	if (queryKey[0] === "inbox" && queryKey[2] === "space-summary") {
+		return createQueryResult({
+			isSuccess: true,
+			data: {
+				organizationId: String(queryKey[1] ?? ""),
+				spaces: [],
+				totalUnreadCount: 0,
+			},
+		});
+	}
 	return queryKey[0] === "inbox" && queryKey[2] === "space-unread-targets"
 		? createQueryResult({
 				isSuccess: true,

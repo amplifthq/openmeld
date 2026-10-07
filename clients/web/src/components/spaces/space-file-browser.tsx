@@ -4,20 +4,27 @@ import type { SpaceApi } from "@openmeld/api-client";
 import { isSpaceFileTextEditable } from "@openmeld/schemas";
 import type {
 	SpaceFileBreadcrumb,
+	SpaceFileDescriptor,
 	SpaceFileEntry,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
+	ContextMenu,
+	ContextMenuTrigger,
+} from "@openmeld/ui/components/context-menu";
+import {
+	DropdownMenuSeparator as ContextMenuSeparator,
 	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import {
+	FluidDropdownMenuContent as ContextMenuContent,
+	FluidDropdownMenuItem as ContextMenuItem,
 	FluidDropdownMenuContent,
+	FluidDropdownMenuGroup,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
@@ -26,6 +33,8 @@ import {
 	ArrowClockwiseIcon,
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
+	ChatCircleIcon,
+	CopyIcon,
 	DotsThreeIcon,
 	FileIcon,
 	FileTextIcon,
@@ -42,19 +51,37 @@ import {
 } from "@phosphor-icons/react";
 import {
 	type DragEvent,
+	lazy,
+	type ReactNode,
 	type RefObject,
+	Suspense,
 	useEffect,
 	useRef,
 	useState,
 } from "react";
+import { ReadPausedState } from "#/components/app/read-paused-state";
+import type { FileSystemItem } from "#/components/extend/file-system";
+import { mayShowCachedReadData } from "#/lib/query-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	formatFileSize,
 	formatShortDate,
 	resolveSpaceFileErrorMessage,
 } from "./space-file-utils";
+import { SpaceFilesSkeleton } from "./space-panel-skeletons";
 import { useSpaceFilePinAction } from "./space-pins";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
+
+const FileSystem = lazy(() =>
+	import("#/components/extend/file-system").then((module) => ({
+		default: module.FileSystem,
+	}))
+);
+
+function DelayedSpaceFilesSkeleton() {
+	return useDelayedPending(true) ? <SpaceFilesSkeleton /> : null;
+}
 
 export function SpaceFileBrowser(input: {
 	actionError: string | null;
@@ -66,23 +93,30 @@ export function SpaceFileBrowser(input: {
 	error: unknown;
 	fileInputRef: RefObject<HTMLInputElement | null>;
 	isPending: boolean;
+	isPaused: boolean;
 	loaded: boolean;
 	onDismissError: () => void;
 	onMove: (entry: SpaceFileEntry) => void;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	onNewFolder: () => void;
-	onNewMarkdownFile: () => void;
+	onHandOff?: () => void;
+	onNewTextFile: (kind: "markdown" | "text" | "csv") => void;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onOpenBreadcrumb: (folderId: string | null, name: string) => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRestore: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
+	onToggleShowChatUploads: () => void;
 	onTrash: (entry: SpaceFileEntry) => void;
 	onUploadFiles: (files: readonly File[]) => Promise<void>;
+	showChatUploads: boolean;
 	spaceId: string;
 	view: "active" | "trash";
 	onViewChange: (view: "active" | "trash") => void;
 }) {
 	const [fileDragDepth, setFileDragDepth] = useState(0);
+	const showCachedReadError =
+		input.loaded && input.error && mayShowCachedReadData(input.error);
 	const acceptingDrop = input.canWrite && input.view === "active";
 	const fileDragActive = acceptingDrop && fileDragDepth > 0;
 	const enterFileDrag = (event: DragEvent<HTMLElement>) => {
@@ -109,6 +143,132 @@ export function SpaceFileBrowser(input: {
 			.onUploadFiles(Array.from(event.dataTransfer.files))
 			.catch(() => undefined);
 	};
+	const toolbarStart =
+		input.view === "active" ? (
+			<div className="flex min-w-0 flex-wrap items-center gap-1.5">
+				{input.loaded && !input.canWrite ? (
+					<Badge variant="outline">View only</Badge>
+				) : null}
+				{input.canWrite ? (
+					<>
+						<input
+							className="hidden"
+							multiple
+							onChange={(event) => {
+								const files = Array.from(event.currentTarget.files ?? []);
+								event.currentTarget.value = "";
+								input.onUploadFiles(files).catch(() => undefined);
+							}}
+							ref={input.fileInputRef}
+							type="file"
+						/>
+						<Button
+							disabled={input.busy}
+							onClick={() => input.fileInputRef.current?.click()}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							<UploadSimpleIcon aria-hidden="true" />
+							Upload
+						</Button>
+						{input.onHandOff ? (
+							<Button
+								disabled={input.busy}
+								onClick={input.onHandOff}
+								size="sm"
+								variant="outline"
+							>
+								Send to agent
+							</Button>
+						) : null}
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={<Button disabled={input.busy} size="sm" />}
+							>
+								<PlusIcon aria-hidden="true" />
+								New
+							</DropdownMenuTrigger>
+							<FluidDropdownMenuContent align="start">
+								<FluidDropdownMenuItem
+									index={0}
+									onClick={() => input.onNewTextFile("markdown")}
+								>
+									<FileTextIcon aria-hidden="true" />
+									Markdown file
+								</FluidDropdownMenuItem>
+								<FluidDropdownMenuItem
+									index={1}
+									onClick={() => input.onNewTextFile("text")}
+								>
+									<FileTextIcon aria-hidden="true" />
+									Text file
+								</FluidDropdownMenuItem>
+								<FluidDropdownMenuItem
+									index={2}
+									onClick={() => input.onNewTextFile("csv")}
+								>
+									<FileTextIcon aria-hidden="true" />
+									CSV file
+								</FluidDropdownMenuItem>
+								<FluidDropdownMenuItem index={3} onClick={input.onNewFolder}>
+									<FolderPlusIcon aria-hidden="true" />
+									Folder
+								</FluidDropdownMenuItem>
+								<DropdownMenuSeparator />
+								<FluidDropdownMenuItem
+									index={4}
+									onClick={() => input.fileInputRef.current?.click()}
+								>
+									<UploadSimpleIcon aria-hidden="true" />
+									Upload file…
+								</FluidDropdownMenuItem>
+							</FluidDropdownMenuContent>
+						</DropdownMenu>
+					</>
+				) : null}
+				<ShowChatUploadsToggle
+					onToggle={input.onToggleShowChatUploads}
+					showChatUploads={input.showChatUploads}
+				/>
+				{input.canWrite ? (
+					<Button
+						onClick={() => input.onViewChange("trash")}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						<TrashIcon aria-hidden="true" />
+						Trash
+					</Button>
+				) : null}
+			</div>
+		) : null;
+	const browserContent = (
+		<SpaceFileBrowserContent
+			api={input.api}
+			canWrite={input.canWrite}
+			entries={input.entries}
+			error={showCachedReadError ? null : input.error}
+			isPaused={input.isPaused}
+			isPending={input.isPending}
+			onCopy={input.onCopy}
+			onMove={input.onMove}
+			onNewFolder={input.onNewFolder}
+			onNewTextFile={input.onNewTextFile}
+			onOpen={input.onOpen}
+			onRename={input.onRename}
+			onRestore={input.onRestore}
+			onRetry={input.onRetry}
+			onShowRegularFiles={input.onToggleShowChatUploads}
+			onTrash={input.onTrash}
+			onUpload={() => input.fileInputRef.current?.click()}
+			showChatUploads={input.showChatUploads}
+			spaceId={input.spaceId}
+			toolbarStart={toolbarStart}
+			view={input.view}
+		/>
+	);
 	return (
 		// biome-ignore lint/a11y/noNoninteractiveElementInteractions: the Files surface is a mouse drop target; the Upload button provides the keyboard equivalent.
 		<section
@@ -152,96 +312,37 @@ export function SpaceFileBrowser(input: {
 										className="size-3.5 shrink-0 text-muted-foreground"
 									/>
 								) : null}
-								<button
-									className={cn(
-										"max-w-48 truncate rounded-sm px-1.5 py-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-										index === input.breadcrumbs.length - 1 &&
-											"font-medium text-foreground"
-									)}
-									onClick={() => input.onOpenBreadcrumb(crumb.id, crumb.name)}
-									type="button"
-								>
-									{crumb.name}
-								</button>
+								{index === input.breadcrumbs.length - 1 ? (
+									<span className="max-w-48 truncate font-medium text-foreground">
+										{crumb.name}
+									</span>
+								) : (
+									<button
+										className="max-w-48 truncate rounded-sm px-1.5 py-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										onClick={() => input.onOpenBreadcrumb(crumb.id, crumb.name)}
+										type="button"
+									>
+										{crumb.name}
+									</button>
+								)}
 							</span>
 						))}
 					</div>
 					<p className="mt-1 text-muted-foreground text-xs">
-						{input.view === "trash"
-							? "Restore files you still need."
-							: "Shared with the people and agents in this Space."}
+						{resolveFilesSubtitle(input)}
 					</p>
 				</div>
-				<div className="flex items-center gap-2">
-					{input.loaded && !input.canWrite ? (
-						<Badge variant="outline">View only</Badge>
-					) : null}
-					{input.canWrite && input.view === "active" ? (
-						<>
-							<input
-								className="hidden"
-								multiple={true}
-								onChange={(event) => {
-									const files = Array.from(event.currentTarget.files ?? []);
-									event.currentTarget.value = "";
-									input.onUploadFiles(files).catch(() => undefined);
-								}}
-								ref={input.fileInputRef}
-								type="file"
-							/>
-							<Button
-								disabled={input.busy}
-								onClick={() => input.fileInputRef.current?.click()}
-								size="sm"
-								type="button"
-								variant="outline"
-							>
-								<UploadSimpleIcon aria-hidden="true" />
-								Upload
-							</Button>
-							<DropdownMenu>
-								<DropdownMenuTrigger
-									render={<Button disabled={input.busy} size="sm" />}
-								>
-									<PlusIcon aria-hidden="true" />
-									New
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end">
-									<DropdownMenuItem onClick={input.onNewMarkdownFile}>
-										<FileTextIcon aria-hidden="true" />
-										Markdown file
-									</DropdownMenuItem>
-									<DropdownMenuItem onClick={input.onNewFolder}>
-										<FolderPlusIcon aria-hidden="true" />
-										Folder
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
-						</>
-					) : null}
-					{input.canWrite && input.view === "active" ? (
-						<Button
-							onClick={() => input.onViewChange("trash")}
-							size="sm"
-							type="button"
-							variant="ghost"
-						>
-							<TrashIcon aria-hidden="true" />
-							Trash
-						</Button>
-					) : null}
-					{input.view === "trash" ? (
-						<Button
-							onClick={() => input.onViewChange("active")}
-							size="sm"
-							type="button"
-							variant="outline"
-						>
-							<ArrowCounterClockwiseIcon aria-hidden="true" />
-							Back to Files
-						</Button>
-					) : null}
-				</div>
+				{input.view === "trash" ? (
+					<Button
+						onClick={() => input.onViewChange("active")}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						<ArrowCounterClockwiseIcon aria-hidden="true" />
+						Back to Files
+					</Button>
+				) : null}
 			</div>
 			{input.actionError ? (
 				<div
@@ -259,87 +360,76 @@ export function SpaceFileBrowser(input: {
 					</Button>
 				</div>
 			) : null}
-			<ScrollArea
-				className="min-h-0 flex-1"
-				contentClassName="p-5"
-				orientation="vertical"
-			>
-				<SpaceFileBrowserContent
-					api={input.api}
-					canWrite={input.canWrite}
-					entries={input.entries}
-					error={input.error}
-					isPending={input.isPending}
-					onMove={input.onMove}
-					onOpen={input.onOpen}
-					onRename={input.onRename}
-					onRestore={input.onRestore}
-					onRetry={input.onRetry}
-					onTrash={input.onTrash}
-					spaceId={input.spaceId}
-					view={input.view}
-				/>
-			</ScrollArea>
+			{showCachedReadError ? (
+				<output className="flex flex-wrap items-center justify-between gap-3 border-border/70 border-b bg-card/35 px-5 py-3 text-sm">
+					<span>Couldn't refresh Files. Showing the last loaded list.</span>
+					<Button onClick={input.onRetry} size="sm" variant="outline">
+						Retry
+					</Button>
+				</output>
+			) : null}
+			{input.view === "active" ? (
+				<div className="min-h-0 flex-1 p-5">{browserContent}</div>
+			) : (
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName="p-5"
+					orientation="vertical"
+				>
+					{browserContent}
+				</ScrollArea>
+			)}
 		</section>
 	);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This boundary keeps the active Finder and Trash on their existing permission and error paths.
 function SpaceFileBrowserContent(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	canWrite: boolean;
 	entries: readonly SpaceFileEntry[];
 	error: unknown;
 	isPending: boolean;
+	isPaused: boolean;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onMove: (entry: SpaceFileEntry) => void;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
+	onNewFolder: () => void;
+	onNewTextFile: (kind: "markdown" | "text" | "csv") => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
+	onShowRegularFiles: () => void;
 	onRestore: (entry: SpaceFileEntry) => void;
 	onTrash: (entry: SpaceFileEntry) => void;
+	onUpload: () => void;
+	showChatUploads: boolean;
 	spaceId: string;
+	toolbarStart: ReactNode;
 	view: "active" | "trash";
 }) {
+	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [mounted, setMounted] = useState(false);
+	useEffect(() => setMounted(true), []);
+	const selectedEntry = input.entries.find((entry) => entry.id === selectedId);
+	const showPending = useDelayedPending(input.isPending && !input.isPaused);
+	let pendingEmptyContent: ReactNode;
 	if (input.isPending) {
-		return (
-			<output
-				aria-busy="true"
-				aria-label="Loading files"
-				className="grid gap-2"
-			>
-				<Skeleton className="h-14 w-full rounded-md" />
-				<Skeleton className="h-14 w-full rounded-md" />
-				<Skeleton className="h-14 w-full rounded-md" />
-			</output>
+		pendingEmptyContent = input.isPaused ? (
+			<ReadPausedState subject="Files" />
+		) : (
+			<div className="min-h-64" />
 		);
 	}
-	if (input.error) {
-		return (
-			<div
-				className="flex min-h-64 flex-col items-center justify-center rounded-md border border-destructive/40 bg-destructive/5 px-6 text-center"
-				role="alert"
-			>
-				<WarningCircleIcon
-					aria-hidden="true"
-					className="size-7 text-destructive"
-				/>
-				<h2 className="mt-3 font-medium">Files couldn’t be loaded</h2>
-				<p className="mt-1 max-w-md text-muted-foreground text-sm">
-					{resolveSpaceFileErrorMessage(input.error)}
-				</p>
-				<Button
-					className="mt-4"
-					onClick={input.onRetry}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					<ArrowClockwiseIcon aria-hidden="true" />
-					Try again
-				</Button>
-			</div>
-		);
+	if (input.isPending && input.view === "trash") {
+		if (input.isPaused) {
+			return <ReadPausedState subject="Files" />;
+		}
+		return showPending ? <SpaceFilesSkeleton /> : null;
 	}
-	if (input.entries.length === 0) {
+	if (input.error && input.view === "trash") {
+		return <SpaceFilesLoadError error={input.error} onRetry={input.onRetry} />;
+	}
+	if (input.entries.length === 0 && input.view === "trash") {
 		const description = resolveEmptyStateDescription({
 			canWrite: input.canWrite,
 			view: input.view,
@@ -368,6 +458,154 @@ function SpaceFileBrowserContent(input: {
 			</div>
 		);
 	}
+	if (input.view === "active") {
+		const items: FileSystemItem[] = input.entries.map((entry) =>
+			entry.kind === "folder"
+				? {
+						kind: "folder",
+						path: `${entry.name}/`,
+						name: entry.name,
+						createdAt: entry.createdAt,
+						updatedAt: entry.updatedAt,
+					}
+				: {
+						kind: "file",
+						path: entry.name,
+						name: entry.name,
+						badge:
+							input.showChatUploads && entry.origin === "chat_upload"
+								? "Chat upload"
+								: undefined,
+						contentType: entry.latestRevision.mimeType,
+						size: entry.latestRevision.sizeBytes,
+						createdAt: entry.createdAt,
+						updatedAt: entry.updatedAt,
+					}
+		);
+		const entriesByPath = new Map(
+			items.map((item, index) => [item.path, input.entries[index]])
+		);
+		return (
+			<ContextMenu>
+				<ContextMenuTrigger
+					className="block"
+					onContextMenuCapture={(event) => {
+						if (!(event.target as Element).closest('[role="option"]')) {
+							setSelectedId(null);
+						}
+					}}
+				>
+					{mounted ? (
+						<Suspense fallback={<DelayedSpaceFilesSkeleton />}>
+							<FileSystem
+								className="h-[min(65vh,48rem)] min-h-96"
+								embedded
+								emptyContent={pendingEmptyContent}
+								errorContent={
+									input.error ? (
+										<SpaceFilesLoadError
+											error={input.error}
+											onRetry={input.onRetry}
+											onShowRegularFiles={
+												input.showChatUploads
+													? input.onShowRegularFiles
+													: undefined
+											}
+										/>
+									) : undefined
+								}
+								isLoading={input.isPending && !input.isPaused && showPending}
+								items={items}
+								onEntryContextMenu={(item) =>
+									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
+								}
+								onFileOpen={(file) => {
+									const entry = entriesByPath.get(file.path);
+									if (entry) {
+										input.onOpen(entry);
+									}
+								}}
+								onFolderOpen={(folder) => {
+									const entry = entriesByPath.get(folder.path);
+									if (entry) {
+										input.onOpen(entry);
+									}
+								}}
+								onSelectionChange={(item) => {
+									setSelectedId(
+										item ? (entriesByPath.get(item.path)?.id ?? null) : null
+									);
+								}}
+								renderFilePreview={(file) => {
+									const entry = entriesByPath.get(file.path);
+									return entry?.kind === "file" &&
+										entry.latestRevision.mimeType.startsWith("image/") ? (
+										<SpaceFileImageThumbnail
+											api={input.api}
+											entry={entry}
+											spaceId={input.spaceId}
+										/>
+									) : null;
+								}}
+								title="Files"
+								toolbarStart={input.toolbarStart}
+							/>
+						</Suspense>
+					) : (
+						<DelayedSpaceFilesSkeleton />
+					)}
+				</ContextMenuTrigger>
+				{selectedEntry || input.canWrite ? (
+					<ContextMenuContent className="min-w-44 p-1">
+						{selectedEntry ? (
+							<SpaceFileContextActions
+								canWrite={input.canWrite}
+								entry={selectedEntry}
+								onCopy={input.onCopy}
+								onMove={() => input.onMove(selectedEntry)}
+								onOpen={() => input.onOpen(selectedEntry)}
+								onRename={() => input.onRename(selectedEntry)}
+								onTrash={() => input.onTrash(selectedEntry)}
+							/>
+						) : (
+							<>
+								<ContextMenuItem index={0} onClick={input.onNewFolder}>
+									<FolderPlusIcon aria-hidden="true" />
+									New folder
+								</ContextMenuItem>
+								<ContextMenuItem
+									index={1}
+									onClick={() => input.onNewTextFile("markdown")}
+								>
+									<FileTextIcon aria-hidden="true" />
+									New Markdown file
+								</ContextMenuItem>
+								<ContextMenuItem
+									index={2}
+									onClick={() => input.onNewTextFile("text")}
+								>
+									<FileTextIcon aria-hidden="true" />
+									New text file
+								</ContextMenuItem>
+								<ContextMenuItem
+									index={3}
+									onClick={() => input.onNewTextFile("csv")}
+								>
+									<FileTextIcon aria-hidden="true" />
+									New CSV file
+								</ContextMenuItem>
+								<ContextMenuSeparator />
+								<ContextMenuItem index={4} onClick={input.onUpload}>
+									<UploadSimpleIcon aria-hidden="true" />
+									Upload file…
+								</ContextMenuItem>
+							</>
+						)}
+					</ContextMenuContent>
+				) : null}
+			</ContextMenu>
+		);
+	}
 
 	return (
 		<div className="overflow-hidden rounded-md border border-border/70">
@@ -381,72 +619,170 @@ function SpaceFileBrowserContent(input: {
 			</div>
 			<ul className="divide-y divide-border/70">
 				{input.entries.map((entry) => (
-					<li
-						className="group/entry grid grid-cols-[minmax(0,1fr)_9rem_8rem_2rem] items-center gap-3 px-2 py-1.5 hover:bg-muted/35 max-sm:grid-cols-[minmax(0,1fr)_2rem]"
+					<FluidContextMenu
 						key={entry.id}
+						target={
+							<li className="group/entry grid grid-cols-[minmax(0,1fr)_9rem_8rem_2rem] items-center gap-3 px-2 py-1.5 hover:bg-muted/35 max-sm:grid-cols-[minmax(0,1fr)_2rem]">
+								{input.view === "active" ? (
+									<button
+										className="flex min-w-0 items-center gap-3 rounded-sm px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										onClick={() => input.onOpen(entry)}
+										type="button"
+									>
+										<SpaceFileEntryVisual
+											api={input.api}
+											entry={entry}
+											previewImages={true}
+											spaceId={input.spaceId}
+										/>
+										<span className="min-w-0">
+											<span className="flex min-w-0 items-center gap-1.5">
+												<span className="block truncate font-medium text-sm">
+													{entry.name}
+												</span>
+												{input.showChatUploads &&
+												entry.kind === "file" &&
+												entry.origin === "chat_upload" ? (
+													<Badge className="shrink-0" variant="outline">
+														Chat upload
+													</Badge>
+												) : null}
+											</span>
+											<span className="block truncate text-muted-foreground text-xs sm:hidden">
+												{entry.kind === "folder"
+													? "Folder"
+													: formatFileSize(entry.latestRevision.sizeBytes)}
+											</span>
+										</span>
+									</button>
+								) : (
+									<div className="flex min-w-0 items-center gap-3 px-2 py-1.5">
+										<SpaceFileEntryVisual
+											api={input.api}
+											entry={entry}
+											previewImages={false}
+											spaceId={input.spaceId}
+										/>
+										<span className="min-w-0">
+											<span className="block truncate font-medium text-sm">
+												{entry.name}
+											</span>
+											<span className="block truncate text-muted-foreground text-xs">
+												Deleted by{" "}
+												{entry.trashedBy?.displayName ?? "a Space member"}
+											</span>
+										</span>
+									</div>
+								)}
+								<span className="truncate text-muted-foreground text-xs max-sm:hidden">
+									{formatShortDate(entry.trashedAt ?? entry.updatedAt)}
+								</span>
+								<span className="text-muted-foreground text-xs max-sm:hidden">
+									{entry.kind === "folder"
+										? "—"
+										: formatFileSize(entry.latestRevision.sizeBytes)}
+								</span>
+								<EntryRowAction
+									canWrite={input.canWrite}
+									entry={entry}
+									onCopy={input.onCopy}
+									onMove={() => input.onMove(entry)}
+									onOpen={() => input.onOpen(entry)}
+									onRename={() => input.onRename(entry)}
+									onRestore={() => input.onRestore(entry)}
+									onTrash={() => input.onTrash(entry)}
+									view={input.view}
+								/>
+							</li>
+						}
 					>
-						{input.view === "active" ? (
-							<button
-								className="flex min-w-0 items-center gap-3 rounded-sm px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-								onClick={() => input.onOpen(entry)}
-								type="button"
-							>
-								<SpaceFileEntryVisual
-									api={input.api}
-									entry={entry}
-									previewImages={true}
-									spaceId={input.spaceId}
-								/>
-								<span className="min-w-0">
-									<span className="block truncate font-medium text-sm">
-										{entry.name}
-									</span>
-									<span className="block truncate text-muted-foreground text-xs sm:hidden">
-										{entry.kind === "folder"
-											? "Folder"
-											: formatFileSize(entry.latestRevision.sizeBytes)}
-									</span>
-								</span>
-							</button>
+						{input.view === "trash" ? (
+							<ContextMenuItem index={0} onClick={() => input.onRestore(entry)}>
+								<ArrowCounterClockwiseIcon aria-hidden="true" /> Restore
+							</ContextMenuItem>
 						) : (
-							<div className="flex min-w-0 items-center gap-3 px-2 py-1.5">
-								<SpaceFileEntryVisual
-									api={input.api}
-									entry={entry}
-									previewImages={false}
-									spaceId={input.spaceId}
-								/>
-								<span className="min-w-0">
-									<span className="block truncate font-medium text-sm">
-										{entry.name}
-									</span>
-									<span className="block truncate text-muted-foreground text-xs">
-										Deleted by{" "}
-										{entry.trashedBy?.displayName ?? "a Space member"}
-									</span>
-								</span>
-							</div>
+							<SpaceFileContextActions
+								canWrite={input.canWrite}
+								entry={entry}
+								onCopy={input.onCopy}
+								onMove={() => input.onMove(entry)}
+								onOpen={() => input.onOpen(entry)}
+								onRename={() => input.onRename(entry)}
+								onTrash={() => input.onTrash(entry)}
+							/>
 						)}
-						<span className="truncate text-muted-foreground text-xs max-sm:hidden">
-							{formatShortDate(entry.trashedAt ?? entry.updatedAt)}
-						</span>
-						<span className="text-muted-foreground text-xs max-sm:hidden">
-							{entry.kind === "folder"
-								? "—"
-								: formatFileSize(entry.latestRevision.sizeBytes)}
-						</span>
-						<EntryRowAction
-							canWrite={input.canWrite}
-							entry={entry}
-							onMove={() => input.onMove(entry)}
-							onRename={() => input.onRename(entry)}
-							onRestore={() => input.onRestore(entry)}
-							onTrash={() => input.onTrash(entry)}
-							view={input.view}
-						/>
-					</li>
+					</FluidContextMenu>
 				))}
 			</ul>
+		</div>
+	);
+}
+
+function ShowChatUploadsToggle(input: {
+	onToggle: () => void;
+	showChatUploads: boolean;
+}) {
+	return (
+		<Button
+			aria-pressed={input.showChatUploads}
+			onClick={input.onToggle}
+			size="sm"
+			type="button"
+			variant={input.showChatUploads ? "secondary" : "ghost"}
+		>
+			<ChatCircleIcon aria-hidden="true" />
+			{input.showChatUploads ? "Hide chat files" : "Include chat files"}
+		</Button>
+	);
+}
+
+function resolveFilesSubtitle(input: {
+	showChatUploads: boolean;
+	view: "active" | "trash";
+}): string {
+	if (input.view === "trash") {
+		return "Restore files you still need.";
+	}
+	if (input.showChatUploads) {
+		return "Files in this Space, including files sent in chat.";
+	}
+	return "Files in this Space. Files sent in chat are hidden by default.";
+}
+
+function SpaceFilesLoadError(input: {
+	error: unknown;
+	onRetry: () => void;
+	onShowRegularFiles?: () => void;
+}) {
+	return (
+		<div
+			className="flex min-h-64 flex-col items-center justify-center rounded-md border border-destructive/40 bg-destructive/5 px-6 text-center"
+			role="alert"
+		>
+			<WarningCircleIcon
+				aria-hidden="true"
+				className="size-7 text-destructive"
+			/>
+			<h2 className="mt-3 font-medium">Files couldn’t be loaded</h2>
+			<p className="mt-1 max-w-md text-muted-foreground text-sm">
+				{resolveSpaceFileErrorMessage(input.error)}
+			</p>
+			<div className="mt-4 flex flex-wrap justify-center gap-2">
+				{input.onShowRegularFiles ? (
+					<Button onClick={input.onShowRegularFiles} size="sm" type="button">
+						Show regular files
+					</Button>
+				) : null}
+				<Button
+					onClick={input.onRetry}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					<ArrowClockwiseIcon aria-hidden="true" />
+					Try again
+				</Button>
+			</div>
 		</div>
 	);
 }
@@ -464,6 +800,8 @@ function resolveEmptyStateDescription(input: {
 }
 
 function EntryRowAction(input: {
+	onOpen: () => void;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	canWrite: boolean;
 	entry: SpaceFileEntry;
 	onMove: () => void;
@@ -491,7 +829,9 @@ function EntryRowAction(input: {
 	return (
 		<EntryActions
 			entry={input.entry}
+			onCopy={input.onCopy}
 			onMove={input.onMove}
+			onOpen={input.onOpen}
 			onRename={input.onRename}
 			onTrash={input.onTrash}
 		/>
@@ -502,15 +842,97 @@ function isFileDrag(event: DragEvent<HTMLElement>): boolean {
 	return Array.from(event.dataTransfer.types).includes("Files");
 }
 
-function EntryActions(input: {
+function SpaceFileContextActions(input: {
+	canWrite: boolean;
 	entry: SpaceFileEntry;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	onMove: () => void;
+	onOpen: () => void;
 	onRename: () => void;
 	onTrash: () => void;
 }) {
 	const pin = useSpaceFilePinAction(
 		input.entry.kind === "file" ? input.entry.id : undefined
 	);
+	const file = input.entry.kind === "file" ? input.entry : null;
+	return (
+		<>
+			<FluidDropdownMenuGroup>
+				<ContextMenuItem index={5} onClick={input.onOpen}>
+					Open
+				</ContextMenuItem>
+			</FluidDropdownMenuGroup>
+			{file && input.onCopy ? (
+				<>
+					<ContextMenuSeparator />
+					<FluidDropdownMenuGroup>
+						<ContextMenuItem
+							index={6}
+							onClick={() => input.onCopy?.(file, "team")}
+						>
+							<CopyIcon aria-hidden="true" />
+							Copy to Team files…
+						</ContextMenuItem>
+						<ContextMenuItem
+							index={7}
+							onClick={() => input.onCopy?.(file, "my")}
+						>
+							<CopyIcon aria-hidden="true" />
+							Copy to My files…
+						</ContextMenuItem>
+					</FluidDropdownMenuGroup>
+				</>
+			) : null}
+			{input.canWrite ? (
+				<>
+					<FluidDropdownMenuGroup>
+						{pin ? (
+							<ContextMenuItem
+								disabled={pin.disabled}
+								index={8}
+								onClick={pin.onSelect}
+							>
+								<PushPinIcon aria-hidden="true" />
+								{pin.label}
+							</ContextMenuItem>
+						) : null}
+					</FluidDropdownMenuGroup>
+					<ContextMenuSeparator />
+					<FluidDropdownMenuGroup>
+						<ContextMenuItem index={9} onClick={input.onRename}>
+							<PencilSimpleIcon aria-hidden="true" />
+							Rename
+						</ContextMenuItem>
+						<ContextMenuItem index={10} onClick={input.onMove}>
+							<FolderOpenIcon aria-hidden="true" />
+							Move to folder…
+						</ContextMenuItem>
+					</FluidDropdownMenuGroup>
+					<ContextMenuSeparator />
+					<FluidDropdownMenuGroup>
+						<ContextMenuItem
+							index={11}
+							onClick={input.onTrash}
+							variant="destructive"
+						>
+							<TrashIcon aria-hidden="true" />
+							Move to Trash
+						</ContextMenuItem>
+					</FluidDropdownMenuGroup>
+				</>
+			) : null}
+		</>
+	);
+}
+
+function EntryActions(input: {
+	onOpen: () => void;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
+	entry: SpaceFileEntry;
+	onMove: () => void;
+	onRename: () => void;
+	onTrash: () => void;
+}) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -529,33 +951,7 @@ function EntryActions(input: {
 				align="end"
 				className="[&_[data-slot=dropdown-menu-item]]:w-full"
 			>
-				{pin ? (
-					<FluidDropdownMenuItem
-						disabled={pin.disabled}
-						index={0}
-						onClick={pin.onSelect}
-					>
-						<PushPinIcon aria-hidden="true" />
-						{pin.label}
-					</FluidDropdownMenuItem>
-				) : null}
-				<FluidDropdownMenuItem index={1} onClick={input.onRename}>
-					<PencilSimpleIcon aria-hidden="true" />
-					Rename
-				</FluidDropdownMenuItem>
-				<FluidDropdownMenuItem index={2} onClick={input.onMove}>
-					<FolderOpenIcon aria-hidden="true" />
-					Move to folder…
-				</FluidDropdownMenuItem>
-				<DropdownMenuSeparator />
-				<FluidDropdownMenuItem
-					className="text-destructive focus:text-destructive"
-					index={3}
-					onClick={input.onTrash}
-				>
-					<TrashIcon aria-hidden="true" />
-					Move to Trash
-				</FluidDropdownMenuItem>
+				<SpaceFileContextActions {...input} canWrite />
 			</FluidDropdownMenuContent>
 		</DropdownMenu>
 	);

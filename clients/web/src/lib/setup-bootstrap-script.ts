@@ -1,5 +1,16 @@
-import { getSetupFlowCopy } from "@openmeld/start";
+import {
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+	OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+	WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
+} from "@openmeld/schemas";
+import {
+	getSetupFlowCopy,
+	OPENMELD_NODE_ENGINE_RANGE,
+	OPENMELD_SETUP_SCRIPT_END_MARKER,
+	OPENMELD_SUPPORTED_NODE_MAJORS,
+} from "@openmeld/start";
 import { isLocalWebOrigin } from "./local-web-origin.ts";
+import { buildWindowsBinaryBootstrap } from "./setup-bootstrap-windows-binary.ts";
 
 const OPENMELD_SETUP_PACKAGE_NAME = "openmeld";
 const OPENMELD_SETUP_PACKAGE_SPEC = `${OPENMELD_SETUP_PACKAGE_NAME}@latest`;
@@ -10,10 +21,16 @@ const OPENMELD_SETUP_PREPARE_COMMAND_HINT =
 	"Use this setup script only with an OpenMeld Web setup command. It must include --start-session, either --device-code or --ott, and either --view human or --view agent.";
 const OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE =
 	"Downloading OpenMeld CLI (first run may take up to a minute)...";
-const DEFAULT_MIN_NODE_MAJOR_VERSION = 20;
 const DEFAULT_LOCAL_CLI_BINARY_MANIFEST_URL =
 	"http://127.0.0.1:3197/cli/manifest.json";
-const OPENMELD_STAGING_HOSTNAME = "staging.openmeld.ai";
+const OPENMELD_STAGING_ORIGINS = new Set([
+	"https://staging.openmeld.ai",
+	"https://app.staging.openmeld.ai",
+]);
+const MACOS_CLI_CODE_IDENTIFIER =
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier;
+const MACOS_CLI_TEAM_IDENTIFIER =
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier;
 
 export type OpenMeldSetupBootstrapLane = "prod" | "dev-local" | "canary";
 type OpenMeldSetupBootstrapPlatform = "posix" | "windows";
@@ -26,7 +43,6 @@ type OpenMeldSetupBootstrapScriptConfig = {
 	distribution?: OpenMeldSetupDistribution;
 	gatewayUrl?: string;
 	lane: OpenMeldSetupBootstrapLane;
-	minNodeMajorVersion?: number;
 };
 
 type ResolveOpenMeldSetupBootstrapScriptConfigInput = {
@@ -121,13 +137,6 @@ export function resolveOpenMeldSetupBootstrapScriptConfig(
 			statusCode: 400,
 		};
 	}
-	if (distribution === "binary" && input.platform === "windows") {
-		return {
-			body: "OpenMeld binary setup is not available for Windows yet. Use ?dist=npm.",
-			status: "error",
-			statusCode: 400,
-		};
-	}
 	const binaryManifestUrlOverride = normalizeOptionalString(
 		input.binaryManifestUrl
 	);
@@ -158,19 +167,20 @@ export function buildOpenMeldSetupBootstrapScript(
 ): string {
 	const laneConfig = LANE_CONFIG[input.lane];
 	const setupCopy = getSetupFlowCopy("setup");
-	const minNodeMajorVersion =
-		input.minNodeMajorVersion ?? DEFAULT_MIN_NODE_MAJOR_VERSION;
+	const supportedNodeRange = OPENMELD_NODE_ENGINE_RANGE;
 	const distribution =
 		input.distribution ?? resolveDefaultSetupDistribution(input.lane);
 	const binaryManifestUrl =
 		input.binaryManifestUrl ?? "https://openmeld.ai/cli/manifest.json";
 
 	return `#!/bin/sh
+# Keep setup in one top-level shell compound. A truncated stream without the
+# final fi cannot start installation when this script is piped to sh.
+if :; then
 set -u
 
 OPENMELD_SETUP_PACKAGE_NAME=${shellSingleQuote(OPENMELD_SETUP_PACKAGE_NAME)}
 OPENMELD_SETUP_PACKAGE_SPEC=${shellSingleQuote(OPENMELD_SETUP_PACKAGE_SPEC)}
-OPENMELD_SETUP_MIN_NODE_MAJOR_VERSION=${shellSingleQuote(String(minNodeMajorVersion))}
 OPENMELD_SETUP_ENV_PRESET=${shellSingleQuote(laneConfig.envPreset)}
 OPENMELD_SETUP_USER_FACING_COMMAND=${shellSingleQuote(laneConfig.userFacingCommand)}
 OPENMELD_SETUP_DISTRIBUTION=${shellSingleQuote(distribution)}
@@ -188,7 +198,7 @@ OPENMELD_SETUP_GLOBAL_CLI_READY=0
 OPENMELD_SETUP_GLOBAL_CLI_UPDATE_AFTER_SETUP=0
 OPENMELD_SETUP_GLOBAL_CLI_UPDATE_VERSION=""
 # Stdin source for a child OpenMeld invocation. Defaults to /dev/null so the
-# piped install script (curl ... | sh) is never consumed by a child command.
+# downloaded install script is never consumed by a child command.
 # The interactive CLI run re-points this at /dev/tty when a terminal is
 # available so setup can prompt (e.g. which local agent runs the Assistant),
 # rustup-style, without ever inheriting the pipe as stdin.
@@ -260,28 +270,27 @@ validate_setup_args() {
 
 ensure_node_runtime() {
   if ! command_exists node; then
-    say "OpenMeld setup needs Node.js ${minNodeMajorVersion} or newer."
+    say "OpenMeld setup requires Node.js ${supportedNodeRange}."
     if command_exists brew && confirm "Install Node.js with Homebrew now?"; then
-      brew install node < /dev/null || die "Homebrew could not install Node.js. Install Node.js ${minNodeMajorVersion} or newer, then run this setup command again."
+      brew install node < /dev/null || die "Homebrew could not install Node.js. Install a supported release (${supportedNodeRange}), then run this setup command again."
     else
-      die "Install Node.js ${minNodeMajorVersion} or newer, then run this setup command again."
+      die "Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
     fi
   fi
 
-  OPENMELD_SETUP_NODE_MAJOR="$(node -p "Number(process.versions.node.split('.')[0])" < /dev/null 2>/dev/null || printf '0')"
-  case "$OPENMELD_SETUP_NODE_MAJOR" in
-    ''|*[!0-9]*) OPENMELD_SETUP_NODE_MAJOR=0 ;;
-  esac
-  if [ "$OPENMELD_SETUP_NODE_MAJOR" -lt "$OPENMELD_SETUP_MIN_NODE_MAJOR_VERSION" ]; then
+  if ! node_runtime_supported; then
     say "OpenMeld setup found Node.js $(node --version < /dev/null 2>/dev/null || printf 'unknown')."
-    if command_exists brew && confirm "Upgrade Node.js with Homebrew now?"; then
-      brew upgrade node < /dev/null || brew install node < /dev/null || die "Homebrew could not upgrade Node.js. Install Node.js ${minNodeMajorVersion} or newer, then run this setup command again."
-    else
-      die "Upgrade Node.js to ${minNodeMajorVersion} or newer, then run this setup command again."
-    fi
+    die "Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
   fi
 
-  command_exists npm || die "OpenMeld setup needs npm. Install Node.js ${minNodeMajorVersion} or newer from nodejs.org, then run this setup command again."
+  command_exists npm || die "OpenMeld setup needs npm. Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+}
+
+node_runtime_supported() {
+  case "$(node -p "Number(process.versions.node.split('.')[0])" < /dev/null 2>/dev/null)" in
+    ${OPENMELD_SUPPORTED_NODE_MAJORS.join("|")}) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 run_clean_openmeld_env() {
@@ -335,6 +344,12 @@ run_interactive_openmeld_cli() {
 
 explain_package_acquisition_failure() {
   OPENMELD_SETUP_PACKAGE_OUTPUT="$1"
+  if printf '%s\\n' "$OPENMELD_SETUP_PACKAGE_OUTPUT" | grep -E 'Unsupported URL Type "(catalog|workspace):"' >/dev/null 2>&1; then
+    say "npm found a dependency reference that cannot be installed outside its development workspace."
+    say "Share the package version and npm error with OpenMeld support, removing device codes and credentials first."
+    say "Retry with a fresh setup command after the corrected CLI release is available. Reinstalling Node.js or resetting OpenMeld does not fix this dependency error."
+    return 0
+  fi
   if printf '%s\n' "$OPENMELD_SETUP_PACKAGE_OUTPUT" | grep -E '(connect (EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT) (127\\.0\\.0\\.1|localhost)|reason: connect (EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT) (127\\.0\\.0\\.1|localhost))' >/dev/null 2>&1; then
     say "OpenMeld could not download the latest CLI because npm is trying to use a local proxy that is not reachable."
     say "Next: start the local proxy app or turn off the npm proxy setting, then run this setup command again."
@@ -419,7 +434,7 @@ resolve_binary_platform() {
   OPENMELD_SETUP_UNAME_MACHINE="$(uname -m 2>/dev/null || true)"
   case "$OPENMELD_SETUP_UNAME_SYSTEM:$OPENMELD_SETUP_UNAME_MACHINE" in
     Darwin:arm64) printf 'darwin-arm64' ;;
-    *) die "OpenMeld binary setup currently supports Apple silicon Macs. Use ?dist=npm for this computer." ;;
+    *) die "OpenMeld binary setup supports Apple silicon Macs. For other computers, install a supported Node.js version and use npm setup (?dist=npm)." ;;
   esac
 }
 
@@ -469,10 +484,10 @@ download_file_with_retry() {
   while [ "$OPENMELD_SETUP_DOWNLOAD_ATTEMPT" -le 3 ]; do
     rm -f "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"
     if [ "$OPENMELD_SETUP_DOWNLOAD_SHOW_PROGRESS" = "1" ] && { [ -t 2 ]; } 2>/dev/null; then
-      if curl -fL --progress-bar "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+      if download_file_with_curl -fL --progress-bar --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
         return 0
       fi
-    elif curl -fsSL "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+    elif download_file_with_curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
       return 0
     fi
 
@@ -485,6 +500,14 @@ download_file_with_retry() {
   done
 
   return 1
+}
+
+download_file_with_curl() {
+  if [ "$OPENMELD_SETUP_ENV_PRESET" = "dev-local" ]; then
+    curl "$@"
+  else
+    curl --proto '=https' --proto-redir '=https' "$@"
+  fi
 }
 
 cleanup_binary_download() {
@@ -507,13 +530,14 @@ install_downloaded_binary_self() {
 verify_binary_code_signature() {
   OPENMELD_SETUP_SIGNATURE_PATH="$1"
   if [ -z "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
+    [ "$OPENMELD_SETUP_ENV_PRESET" = "dev-local" ] || die "OpenMeld CLI binary manifest is missing a verified signing identity."
     return 0
   fi
   [ -x /usr/bin/codesign ] || die "OpenMeld needs macOS codesign to verify the downloaded CLI."
-  /usr/bin/codesign --verify --strict --verbose=2 "$OPENMELD_SETUP_SIGNATURE_PATH" >/dev/null 2>&1 || die "OpenMeld CLI did not pass Apple code signature verification."
+  /usr/bin/codesign --verify --strict --verbose=2 ${shellSingleQuote(`-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`)} "$OPENMELD_SETUP_SIGNATURE_PATH" >/dev/null 2>&1 || die "OpenMeld CLI did not pass Apple Developer ID signature verification."
   OPENMELD_SETUP_SIGNATURE_DETAILS="$(/usr/bin/codesign --display --verbose=4 "$OPENMELD_SETUP_SIGNATURE_PATH" 2>&1)" || die "OpenMeld could not inspect the CLI code signature."
-  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "Identifier=$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong identifier."
-  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "TeamIdentifier=$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong Apple team."
+  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -Fx "Identifier=$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong identifier."
+  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -Fx "TeamIdentifier=$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong Apple team."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "Authority=Developer ID Application:" >/dev/null || die "OpenMeld CLI is not signed with an Apple Developer ID Application certificate."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -E 'flags=.*runtime' >/dev/null || die "OpenMeld CLI code signature is missing the hardened runtime."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -E '^Timestamp=' >/dev/null || die "OpenMeld CLI code signature is missing a trusted timestamp."
@@ -564,9 +588,9 @@ install_binary_openmeld() {
   [ -n "$OPENMELD_SETUP_BINARY_URL" ] || die "OpenMeld CLI binary manifest is missing the download URL."
   [ -n "$OPENMELD_SETUP_BINARY_SHA256" ] || die "OpenMeld CLI binary manifest is missing the sha256."
   [ -n "$OPENMELD_SETUP_BINARY_SIZE_BYTES" ] || die "OpenMeld CLI binary manifest is missing the size."
-  if [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
-    [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" ] || die "OpenMeld CLI binary manifest is missing the code identifier."
-    [ -n "$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ] || die "OpenMeld CLI binary manifest is missing the Apple team identifier."
+  if [ "$OPENMELD_SETUP_ENV_PRESET" != "dev-local" ] || [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
+    [ "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" = ${shellSingleQuote(MACOS_CLI_CODE_IDENTIFIER)} ] || die "OpenMeld CLI binary manifest has an unexpected code identifier."
+    [ "$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" = ${shellSingleQuote(MACOS_CLI_TEAM_IDENTIFIER)} ] || die "OpenMeld CLI binary manifest has an unexpected Apple team."
   fi
 
   OPENMELD_SETUP_BINARY_HAS_ARCHIVE=0
@@ -823,6 +847,7 @@ if [ "$OPENMELD_SETUP_DISTRIBUTION" = "npm" ]; then
   maybe_queue_old_global_openmeld_update_after_setup
   maybe_run_global_openmeld_update_after_setup
 fi
+fi ${OPENMELD_SETUP_SCRIPT_END_MARKER}
 `;
 }
 
@@ -831,10 +856,25 @@ export function buildOpenMeldSetupBootstrapPowerShellScript(
 ): string {
 	const laneConfig = LANE_CONFIG[input.lane];
 	const setupCopy = getSetupFlowCopy("setup");
-	const minNodeMajorVersion =
-		input.minNodeMajorVersion ?? DEFAULT_MIN_NODE_MAJOR_VERSION;
+	const supportedNodeRange = OPENMELD_NODE_ENGINE_RANGE;
 	const distribution =
 		input.distribution ?? resolveDefaultSetupDistribution(input.lane);
+	if (distribution === "binary") {
+		return buildWindowsBinaryBootstrap({
+			internalPreview: input.lane === "prod",
+			manifestUrl:
+				input.lane === "prod"
+					? WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
+					: (input.binaryManifestUrl ??
+						"https://openmeld.ai/cli/manifest.json"),
+			envPreset: laneConfig.envPreset,
+			userFacingCommand: laneConfig.userFacingCommand,
+			openMeldHome: input.openMeldHome ?? "",
+			gatewayUrl: input.gatewayUrl ?? "",
+			authUrl: input.authUrl ?? "",
+			progressMessage: setupCopy.cliBootstrapRunStatus,
+		});
+	}
 
 	return `param(
   [Parameter(ValueFromRemainingArguments = $true)]
@@ -845,7 +885,7 @@ $ErrorActionPreference = 'Stop'
 
 $OpenMeldSetupPackageName = ${powerShellString(OPENMELD_SETUP_PACKAGE_NAME)}
 $OpenMeldSetupPackageSpec = ${powerShellString(OPENMELD_SETUP_PACKAGE_SPEC)}
-$OpenMeldSetupMinNodeMajorVersion = ${minNodeMajorVersion}
+$OpenMeldSetupSupportedNodeMajors = @(${OPENMELD_SUPPORTED_NODE_MAJORS.join(", ")})
 $OpenMeldSetupEnvPreset = ${powerShellString(laneConfig.envPreset)}
 $OpenMeldSetupUserFacingCommand = ${powerShellString(laneConfig.userFacingCommand)}
 $OpenMeldSetupDistribution = ${powerShellString(distribution)}
@@ -876,6 +916,13 @@ function Test-CommandExists {
 function Show-PackageAcquisitionFailure {
   param([string]$OutputText)
 
+  if ($OutputText -match 'Unsupported URL Type "(catalog|workspace):"') {
+    Say 'npm found a dependency reference that cannot be installed outside its development workspace.'
+    Say 'Share the package version and npm error with OpenMeld support, removing device codes and credentials first.'
+    Say 'Retry with a fresh setup command after the corrected CLI release is available. Reinstalling Node.js or resetting OpenMeld does not fix this dependency error.'
+    return
+  }
+
   if ($OutputText -match '(connect (EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT) (127\\.0\\.0\\.1|localhost)|reason: connect (EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT) (127\\.0\\.0\\.1|localhost))') {
     Say 'OpenMeld could not download the latest CLI because npm is trying to use a local proxy that is not reachable.'
     Say 'Next: start the local proxy app or turn off the npm proxy setting, then run this setup command again.'
@@ -896,6 +943,11 @@ function Show-PackageAcquisitionFailure {
 }
 
 function Show-PackageAcquisitionProbeFailure {
+  # Windows PowerShell 5.1 turns redirected native stderr into ErrorRecords.
+  # Diagnose the native exit code, not the presence of warnings on stderr.
+  $ErrorActionPreference = 'Continue'
+  $PSNativeCommandUseErrorActionPreference = $false
+  $global:LASTEXITCODE = 1
   # The OpenMeld CLI just ran attached to the console (buffering its output would
   # hide the live setup progress), so there is no transcript to inspect.
   # Re-run package acquisition alone to classify npm download failures; a
@@ -946,19 +998,19 @@ function Validate-SetupArgs {
 
 function Ensure-NodeRuntime {
   if (-not (Test-CommandExists 'node')) {
-    Die 'Install Node.js ${minNodeMajorVersion} or newer from nodejs.org, then run this setup command again.'
+    Die 'Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again.'
   }
 
   $nodeMajorText = (& node -p "Number(process.versions.node.split('.')[0])" 2>$null)
   $nodeMajor = 0
   [void][int]::TryParse([string]$nodeMajorText, [ref]$nodeMajor)
-  if ($nodeMajor -lt $OpenMeldSetupMinNodeMajorVersion) {
+  if ($OpenMeldSetupSupportedNodeMajors -notcontains $nodeMajor) {
     $nodeVersion = (& node --version 2>$null)
-    Die "OpenMeld setup found Node.js $nodeVersion. Upgrade Node.js to ${minNodeMajorVersion} or newer, then run this setup command again."
+    Die "OpenMeld setup found Node.js $nodeVersion. Install a supported release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
   }
 
   if (-not (Test-CommandExists 'npm')) {
-    Die 'OpenMeld setup needs npm. Install Node.js ${minNodeMajorVersion} or newer from nodejs.org, then run this setup command again.'
+    Die 'OpenMeld setup needs npm. Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again.'
   }
 }
 
@@ -1012,8 +1064,16 @@ function Invoke-CleanOpenMeldEnv {
     if ($ExplainPackageAcquisitionFailure) {
       # Run attached to the console so the CLI's live setup progress renders;
       # capturing output here would buffer it until the CLI exits.
-      & $Executable @Arguments
-      $commandExitCode = $LASTEXITCODE
+      $previousErrorActionPreference = $ErrorActionPreference
+      try {
+        $ErrorActionPreference = 'Continue'
+        $PSNativeCommandUseErrorActionPreference = $false
+        $global:LASTEXITCODE = 1
+        & $Executable @Arguments
+        $commandExitCode = $LASTEXITCODE
+      } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+      }
       if ($commandExitCode -ne 0) {
         Show-PackageAcquisitionProbeFailure
         exit $commandExitCode
@@ -1240,11 +1300,8 @@ function buildSetupBinaryManifestUrl(
 function isOfficialStagingRequest(requestUrl: URL, webAppUrl: string): boolean {
 	const configuredWebAppUrl = new URL(webAppUrl);
 	return (
-		requestUrl.protocol === "https:" &&
-		configuredWebAppUrl.protocol === "https:" &&
-		requestUrl.hostname === OPENMELD_STAGING_HOSTNAME &&
-		configuredWebAppUrl.hostname === OPENMELD_STAGING_HOSTNAME &&
-		requestUrl.origin === configuredWebAppUrl.origin
+		OPENMELD_STAGING_ORIGINS.has(requestUrl.origin) &&
+		OPENMELD_STAGING_ORIGINS.has(configuredWebAppUrl.origin)
 	);
 }
 

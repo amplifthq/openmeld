@@ -12,8 +12,10 @@ import type {
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportAgentProfileOperationalContextsResponse,
+  RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse,
   RuntimeTransportAgentProfileWorkRecoveryReadResponse,
 } from "@openmeld/schemas/types";
+import { EXECUTION_TARGET_MUTATION_LEASE_MS } from "../../strategy-constants";
 import {
   type AgentProfileContextMigration,
   isAgentProfileContextMigration,
@@ -72,6 +74,7 @@ import {
   hasRuntimeCoordinatorDurableLocalProgress,
   isRuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord,
   isRuntimeCoordinatorHeadLifecycleRecord,
+  isRuntimeCoordinatorLocalAttemptWithdrawn,
   isRuntimeCoordinatorRunCommandState,
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_MODEL_VERSION,
   RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
@@ -111,7 +114,6 @@ const EXECUTION_INDEX_REPAIR_PAGE_SIZE = 128;
 const EXECUTION_INDEX_INLINE_REPAIR_STEPS = 3;
 const EXECUTION_INDEX_REPAIR_RETRY_BASE_MS = 5000;
 const EXECUTION_INDEX_REPAIR_RETRY_MAX_MS = 5 * 60_000;
-const EXECUTION_TARGET_MUTATION_LEASE_MS = 5 * 60_000;
 const DURABLE_OBJECT_STORAGE_GET_MAX_KEYS = 128;
 const DURABLE_OBJECT_STORAGE_GET_MAX_CONCURRENCY = 4;
 const MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND = 128;
@@ -819,11 +821,49 @@ export async function readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmissio
     interruptedClientMessageId:
       head.targetWakeLifecycleIdentity.clientMessageId,
     interruptedDispatchId: head.primaryDispatchId,
+    interruptedLocalAttempt: await resolveInterruptedLocalAttemptState({
+      head,
+      storage: input.storage,
+    }),
     interruptedSourceSignalId: head.targetWakeLifecycleIdentity.sourceSignalId,
     interruptedTargetWakeLifecycleId: head.targetWakeLifecycleId,
     spaceId: head.targetWakeLifecycleIdentity.spaceId,
     status: "available",
   };
+}
+
+/**
+ * Answers whether the attempt a continuation would replace is out of the way.
+ *
+ * Core's own terminal decision is not the answer. A stale-evidence terminal is
+ * a decision made from missing evidence, so the local Agent can still be queued
+ * on the conversation this work was waiting for; letting a replacement start on
+ * that basis is what allows two attempts at the same instruction. A head that
+ * never linked an execution never reached the computer at all, which is the one
+ * case where nothing has to be withdrawn.
+ */
+async function resolveInterruptedLocalAttemptState(input: {
+  head: RuntimeCoordinatorHeadLifecycleRecord;
+  storage: Pick<DurableObjectStorage, "get">;
+}): Promise<"awaiting_withdrawal" | "not_started" | "withdrawn"> {
+  const executionId = input.head.runtimeCoordinatorExecutionId;
+  if (!executionId) {
+    return "not_started";
+  }
+  const rawCommandState = await input.storage.get<unknown>(
+    buildRuntimeCoordinatorRunCommandStateStorageKey(executionId)
+  );
+  if (rawCommandState === undefined) {
+    // The delivery record is how an attempt is known at all. Without it Core
+    // cannot say the computer ever accepted one, and it must not invent proof.
+    return "awaiting_withdrawal";
+  }
+  if (!isRuntimeCoordinatorRunCommandState(rawCommandState)) {
+    return "awaiting_withdrawal";
+  }
+  return isRuntimeCoordinatorLocalAttemptWithdrawn(rawCommandState)
+    ? "withdrawn"
+    : "awaiting_withdrawal";
 }
 
 type AgentProfileOperationalContext =
@@ -1652,9 +1692,9 @@ export async function markRuntimeCoordinatorAgentProfileWorkControllerConversati
  * Answers whether Core still sees this dispatch blocked on a native
  * conversation another app owns.
  *
- * The stale-progress watchdog cannot tell an occupied wait from a lost computer
- * on its own: both look like a run with one piece of lifecycle evidence and no
- * refresh. The occupancy flag the adapter reported is the discriminator, and it
+ * Occupied keepalives prove liveness but do not advance the progress baseline.
+ * The occupancy flag the adapter reported distinguishes that blocked wait from
+ * an ordinary execution stall, and it
  * lives in the admission record in Durable Object storage, which is the only
  * authority on in-flight execution.
  */
@@ -1763,6 +1803,22 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
   });
 }
 
+/**
+ * What authorizing a continuation tells its caller.
+ *
+ * `interruptedExecution` is the Coordinator's own stop target for the work the
+ * continuation replaces. It is internal control state, so the caller must act
+ * on it and then answer the public RPC with the contract's fields alone; the
+ * shared authorize response is a strict object that carries only `status`.
+ */
+export type RuntimeCoordinatorAgentProfileWorkContinuationAuthorization = {
+  interruptedExecution?: {
+    dispatchId: string;
+    runtimeCoordinatorExecutionId: string;
+  } | null;
+  status: RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse["status"];
+};
+
 export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(input: {
   continuationClientMessageId: string;
   currentAgentControllerRef: string;
@@ -1775,13 +1831,7 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
   targetProfileId: string;
-}): Promise<{
-  interruptedExecution?: {
-    dispatchId: string;
-    runtimeCoordinatorExecutionId: string;
-  } | null;
-  status: "authorized" | "needs_attention" | "not_pending" | "unavailable";
-}> {
+}): Promise<RuntimeCoordinatorAgentProfileWorkContinuationAuthorization> {
   const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
   const readyIndex = await ensureExecutionIndexReady({
     nowMs: input.nowMs,
@@ -2199,6 +2249,7 @@ export async function markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAtt
 }
 
 export async function approveRuntimeCoordinatorAgentProfileWorkQueue(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
   nowMs: number;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
@@ -2233,7 +2284,11 @@ export async function approveRuntimeCoordinatorAgentProfileWorkQueue(input: {
     if (!admission || admission.targetProfileId !== input.targetProfileId) {
       return { pendingPromotion: null, status: "not_pending" as const };
     }
-    if (admission.recoveryGate?.status !== "awaiting_owner_approval") {
+    if (
+      admission.recoveryGate?.status !== "awaiting_owner_approval" ||
+      admission.recoveryGate.interruptedWork.targetWakeLifecycleId !==
+        input.expectedInterruptedTargetWakeLifecycleId
+    ) {
       return { pendingPromotion: null, status: "not_pending" as const };
     }
     const approvedRecoveryGate = admission.recoveryGate;
@@ -2510,6 +2565,17 @@ function resolveContextMigrationAdmission(input: {
   return { plan: input.plan, reasonCode };
 }
 
+function shouldStartIndependentClaudeContext(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  record: RuntimeCoordinatorHeadLifecycleRecord;
+}): boolean {
+  return (
+    (input.admission.admissionMode ?? "parallel") === "parallel" &&
+    input.record.acceptedDispatchSnapshot?.controllerSnapshot
+      .agentControllerRef === "builtin:claude-code"
+  );
+}
+
 async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(input: {
   resolveContextMigrationCapability?: (
     record: RuntimeCoordinatorHeadLifecycleRecord
@@ -2568,6 +2634,10 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
   try {
     contextPlan = await prepareExecutionContextAssignment({
       contextModeActive,
+      startIndependentClaudeContext: shouldStartIndependentClaudeContext({
+        admission,
+        record: input.record,
+      }),
       legacyAssociation:
         admission.contextMigration?.legacyAssociation ?? undefined,
       authorizedContinuationSourceWakeId:

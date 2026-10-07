@@ -1,3 +1,4 @@
+import type { QueryClient } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
 	createRootRoute,
@@ -13,7 +14,11 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import { organizationDocumentQueryKeys } from "#/query/organizations/organization-documents";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 import { OrganizationDocumentDetailPage } from "./organization-document-detail-page";
 
 const getCurrentOrganizationDocumentMock = vi.hoisted(() => vi.fn());
@@ -112,6 +117,9 @@ describe("OrganizationDocumentDetailPage", () => {
 
 		// The pending draft opens read-only in the editor surface while the
 		// approved content stays untouched behind the view toggle.
+		expect(
+			await screen.findByRole("heading", { name: "Team Brief" })
+		).toBeTruthy();
 		const draftEditor = (await screen.findByLabelText(
 			"Center Agent draft content"
 		)) as HTMLTextAreaElement;
@@ -302,6 +310,33 @@ describe("OrganizationDocumentDetailPage", () => {
 		);
 	});
 
+	it("keeps unsaved edits visible when a background document refresh fails", async () => {
+		getCurrentOrganizationDocumentMock
+			.mockResolvedValueOnce(response())
+			.mockRejectedValue(new Error("Temporary read failure"));
+		const queryClient = createTestQueryClient();
+		renderPage(queryClient);
+
+		const editor = (await screen.findByLabelText(
+			"Document content"
+		)) as HTMLTextAreaElement;
+		fireEvent.change(editor, { target: { value: "An unsaved human edit" } });
+		await queryClient.invalidateQueries({
+			queryKey: organizationDocumentQueryKeys.detail("org-acme", "document-1"),
+		});
+
+		await screen.findByText(
+			"Couldn't refresh this document. Your edits are still here.",
+			{},
+			{ timeout: 4000 }
+		);
+		expect(screen.getByLabelText("Document content")).toBe(editor);
+		expect(editor.value).toBe("An unsaved human edit");
+		expect(
+			screen.getByRole("button", { name: "Save approved content" })
+		).toBeTruthy();
+	});
+
 	it("returns to the folder that contains the document", async () => {
 		getCurrentOrganizationDocumentMock.mockResolvedValue(
 			response({ folderId: "folder-1" })
@@ -309,7 +344,7 @@ describe("OrganizationDocumentDetailPage", () => {
 		renderPage();
 
 		const backLink = await screen.findByRole("link", {
-			name: "Back to Documents",
+			name: "Back to Team Knowledge",
 		});
 		expect(backLink.getAttribute("href")).toContain("folder=folder-1");
 		expect(backLink.className).toContain("max-lg:min-h-11");
@@ -337,7 +372,7 @@ function response(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function renderPage() {
+function renderPage(queryClient?: QueryClient) {
 	const rootRoute = createRootRoute();
 	const route = createRoute({
 		component: () => <OrganizationDocumentDetailPage documentId="document-1" />,
@@ -351,7 +386,7 @@ function renderPage() {
 		routeTree: rootRoute.addChildren([route]),
 	});
 	return render(
-		<TestQueryClientProvider>
+		<TestQueryClientProvider queryClient={queryClient}>
 			<RouterProvider router={router} />
 		</TestQueryClientProvider>
 	);

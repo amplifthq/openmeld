@@ -2,7 +2,11 @@ import type {
   CenterAgentInboxSummaryResponse,
   DismissInboxItemResponse,
   GetInboxItemResponse,
+  InboxFeedQuery,
+  InboxFeedResponse,
   InboxMessageNotificationPreferencesResponse,
+  InboxNotificationObservationsQuery,
+  InboxNotificationObservationsResponse,
   InboxNotificationPreferencesResponse,
   InboxPresentation,
   InboxSummaryResponse,
@@ -12,6 +16,10 @@ import type {
   MarkCenterAgentInboxReadThroughResponse,
   MarkInboxItemReadResponse,
   MarkSpaceInboxReadThroughResponse,
+  MutateInboxFeedBody,
+  MutateInboxFeedResponse,
+  MutateSpaceInboxReadBody,
+  MutateSpaceInboxReadResponse,
   OpenMeldRequestContext,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
@@ -26,6 +34,18 @@ export type InboxRequestInput = {
 };
 
 export type InboxApi = {
+  mutateSpaceRead: (
+    input: InboxRequestInput & { body: MutateSpaceInboxReadBody }
+  ) => Promise<MutateSpaceInboxReadResponse>;
+  observeNotifications: (
+    input?: InboxRequestInput & InboxNotificationObservationsQuery
+  ) => Promise<InboxNotificationObservationsResponse>;
+  feed: (
+    input?: InboxRequestInput & InboxFeedQuery
+  ) => Promise<InboxFeedResponse>;
+  mutateFeed: (
+    input: InboxRequestInput & MutateInboxFeedBody
+  ) => Promise<MutateInboxFeedResponse>;
   getMessageNotificationPreferences: (
     input?: InboxRequestInput & { spaceId?: string }
   ) => Promise<InboxMessageNotificationPreferencesResponse>;
@@ -47,7 +67,7 @@ export type InboxApi = {
     input?: InboxRequestInput
   ) => Promise<SpaceInboxSummaryResponse>;
   spaceUnreadTargets: (
-    input: InboxRequestInput & { spaceId: string }
+    input: InboxRequestInput & { spaceId: string; includeItemIds?: boolean }
   ) => Promise<SpaceInboxUnreadTargetsResponse>;
   markSpaceReadThrough: (
     input: InboxRequestInput & {

@@ -11,6 +11,11 @@ import type {
   AdapterRuntimeEvent,
   AdapterToolActivityEvent,
 } from "@openmeld/adapter-core";
+import { DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV } from "@openmeld/adapter-core";
+import {
+  renderTaskKnowledgeIndex,
+  TASK_KNOWLEDGE_GUIDANCE,
+} from "@openmeld/agent-runtime";
 import type { RuntimeTaskResult } from "@openmeld/local-execution";
 import {
   appendLedgerHistoryEntry,
@@ -77,7 +82,6 @@ import type {
 import { resolveSpacePublicationRequirement } from "@openmeld/space-mesh";
 import { recordOpenMeldCreatedLocalAgentSession } from "../../agent-activity/session-inventory-origin-store";
 import { resolveBuiltinAgentControllerDefinition } from "../../agents/builtin-agent-controller-definitions";
-import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
 import { emitDaemonDispatchJournalEvent } from "../../local-service/dispatch/daemon-dispatch-journal";
 import {
@@ -94,13 +98,22 @@ import {
   type DispatchSpaceActionRecord,
   type DispatchSpaceActionRecordReadResult,
   OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV,
+  readDispatchSpaceActionContextForReceiptFromEnv,
   readDispatchSpaceActionRecord,
   supersedeDispatchSpaceActionRecordForReconsideration,
 } from "../../runtime/dispatch-space-action-context";
+import { startDispatchSpaceProgressRelay } from "../../runtime/dispatch-space-progress-relay";
 import type { Presenter } from "../../runtime/presenter/types";
-import { fetchSpaceMeta } from "../../space/meta-api";
-import type { WsClient } from "../../transport/ws";
+import {
+  createDispatchSpaceTools,
+  type DispatchPublicProgressResult,
+} from "../../space/action-mcp-server";
+import { readTaskKnowledge } from "../../space/dispatch-knowledge-read";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
+import {
+  resolveRecoveredLedgerConversation,
+  resolveWorkingFolderRecovery,
+} from "../continuation/working-folder-recovery";
 import {
   emitRunLine,
   normalizeOptionalText,
@@ -108,14 +121,20 @@ import {
 } from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
+  DaemonFrameSink,
   DaemonProfileRouteConfig,
   InflightDispatchMeta,
   LedgerPaths,
 } from "../core/types";
 import { DaemonServiceRunError } from "../core/types";
+import {
+  type ClaudeProjectContainerRuntime,
+  prepareClaudeProjectContainer,
+} from "../file-access/claude-project-container";
 import { resolveComputerFileAccessAdmission } from "../file-access/computer-file-access-admission";
 import { applyComputerFileAccessAwareness } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
+import { prepareDispatchWorkHandoff } from "../file-access/dispatch-work-handoff";
 import { probeAgentControllerUsageObservationAuth } from "../inventory/agent-controller-interface";
 import { recordRuntimeProviderUsageLimits } from "../inventory/runtime-provider-usage-limits";
 import {
@@ -130,6 +149,7 @@ import {
   readDispatchAgentReplyObservation,
 } from "./dispatch-agent-reply-observation";
 import { settleAgentReplyProposals } from "./dispatch-agent-reply-settlement";
+import { createDispatchAiUsageCollector } from "./dispatch-ai-usage";
 import {
   type DispatchImageAttachmentPreparation,
   downloadDispatchImageAttachment,
@@ -220,6 +240,7 @@ import {
   resolveDispatchMentionSourceContext,
 } from "./parse-dispatch-task";
 import { buildDispatchPromptTrace } from "./prompt-trace";
+import { createDispatchPublicProgressReporter } from "./public-progress-stream";
 import {
   createReasoningStream,
   routeReasoningEvents,
@@ -231,6 +252,7 @@ import {
   sendDispatchLifecycleFrame,
   sendDispatchPreviewEndFrame,
   sendDispatchPreviewFrame,
+  sendDispatchProgressFrame,
   sendDispatchReasoningFrame,
   sendDispatchRuntimeEvidenceFrame,
   sendDispatchToolActivityFrame,
@@ -280,7 +302,7 @@ export function enqueueDispatchDeliverFrame(input: {
   requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   // OPENMELD_SERVICE_THIN_CORE: RuntimeCoordinator task intake.
   // The daemon may accept, queue, and execute a token-backed local task, then
@@ -866,7 +888,7 @@ export async function handleDispatchDeliverFrame(input: {
   requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): Promise<LocalExecutionSlotTaskResult> {
   const { currentSocketRef } = input;
   emitDispatchLocalPhaseJournalEvent({
@@ -1008,11 +1030,46 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig?.agentControllerPermissionMode ?? null,
     dispatchId: parsedTask.dispatchId,
     runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+    attemptId: parsedTask.attemptId,
+    runtimeCoordinatorRunId: parsedTask.executionTokenEcho.runId,
     targetProfileId: parsedTask.targetProfileId,
     taskId: parsedTask.taskId,
   });
   const runtimeStartedAtMs = Date.now();
   let agentToolActivitySequence = 0;
+  const reportPublicProgress = createDispatchPublicProgressReporter({
+    publish: (progressSnapshot) => {
+      const socket = currentSocketRef.socket;
+      if (!socket || (socket.bufferedAmount ?? 0) > 64 * 1024) {
+        return false;
+      }
+      sendDispatchProgressFrame({
+        socket,
+        progressSnapshot,
+        observedAtMs: Date.now(),
+        sequence: ++agentToolActivitySequence,
+        attemptId: parsedTask.attemptId,
+        dispatchId: parsedTask.dispatchId,
+        daemonSessionId: input.daemonSessionId,
+        connectionGeneration: resolveCurrentConnectionGeneration({
+          currentSocketRef,
+          fallbackConnectionGeneration:
+            input.deliverRequest.connectionGeneration,
+        }),
+        executionIdentityEcho: toRuntimeTransportRuntimeEvidenceIdentityEcho(
+          input.deliverRequest
+        ),
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        sourceSignalId: parsedTask.sourceEventId,
+        spaceId: parsedTask.spaceId,
+        targetProfileId: parsedTask.targetProfileId,
+        taskId: parsedTask.taskId,
+      });
+      return true;
+    },
+  });
   let firstReasoningMs: number | undefined;
   const sendReasoning = (
     thinkingSnapshot: string,
@@ -1112,18 +1169,21 @@ export async function handleDispatchDeliverFrame(input: {
   let dispatchSpaceActionContext: DispatchSpaceActionContext | null = null;
   let nativeQuiescence: Promise<void> | undefined;
   let workspaceUse: ExecutionContextWorkspaceUse | null = null;
+  let claudeProjectRuntime: ClaudeProjectContainerRuntime | null = null;
   const workspaceProcesses = new Map<number | null, boolean>();
   const observeWorkspaceProcess = (event: AdapterRuntimeEvent) =>
     observeExecutionContextWorkspaceProcess(workspaceProcesses, event);
   let completedTurnId: string | null = null;
   let completedTurnConversationId: string | null = null;
   let completedNativeResult: RuntimeTaskResult | null = null;
+  const aiUsage = createDispatchAiUsageCollector();
   let executionContextCompletion: ExecutionContextCompletion | undefined;
   const invalidStateStrategy = executionContextLedgerPolicy(
     parsedTask.executionContext
   );
 
   try {
+    await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
     dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
       controllerSnapshot: input.deliverRequest.payload.controllerSnapshot,
       defaultProjectId: parsedTask.defaultProjectId,
@@ -1137,6 +1197,20 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig,
       targetProfileId: parsedTask.targetProfileId,
     });
+    const folderRecovery = await resolveWorkingFolderRecovery({
+      agentControllerRef: parsedTask.agentControllerRef,
+      nativeSessionId: parsedTask.agentControllerConversationId,
+      hasExecutionContext: Boolean(parsedTask.executionContext),
+      workingDirectory: dispatchRuntimeContext.providerRuntimeWorkingDirectory,
+      policy: await readComputerFileAccessPolicy(
+        input.computerFileAccessStorePath
+      ),
+      onInteractionRequest,
+    });
+    dispatchRuntimeContext = {
+      providerRuntimeWorkingDirectory: folderRecovery.workingDirectory,
+    };
+    await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
     const skillPreflight = await ensureDispatchControllerOpenMeldSkill({
       agentControllerRef: parsedTask.agentControllerRef,
     });
@@ -1171,11 +1245,22 @@ export async function handleDispatchDeliverFrame(input: {
       currentWorkingDirectory: originalWorkingDirectory,
       computerFileAccessStorePath: input.computerFileAccessStorePath,
     });
+    const handoffWorkingDirectory = await prepareDispatchWorkHandoff({
+      task: parsedTask,
+      ownerUserId: input.profileOwnerUserId,
+      workingDirectory: taskWorkspace.workingDirectory,
+    });
     effectiveRuntimeContext = {
-      providerRuntimeWorkingDirectory: taskWorkspace.workingDirectory,
+      providerRuntimeWorkingDirectory: handoffWorkingDirectory,
     };
     runtimePreparation.effectiveRuntimeContext = effectiveRuntimeContext;
+    claudeProjectRuntime = await prepareDispatchClaudeProjectContainer({
+      parsedTask,
+      taskWorkspace,
+      workingDirectory: handoffWorkingDirectory,
+    });
     computerFileAccessBoundary = await resolveDispatchComputerFileAccess({
+      claudeProjectRuntime,
       computerFileAccessStorePath: input.computerFileAccessStorePath,
       onInteractionRequest,
       parsedTask,
@@ -1222,9 +1307,12 @@ export async function handleDispatchDeliverFrame(input: {
     });
     const spaceActionRuntimeContext = createDispatchSpaceActionRuntimeContext({
       bootstrapContext,
+      claudeProjectRuntime,
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
       parsedTask,
       runtimePreparation,
       sendTargetReference,
+      taskWorkspace,
     });
     dispatchSpaceActionContext =
       spaceActionRuntimeContext.dispatchSpaceActionContext;
@@ -1257,15 +1345,25 @@ export async function handleDispatchDeliverFrame(input: {
       ),
     });
     contextLookupKey = dispatchLedgerContext.contextLookupKey;
-    currentExecutionState = dispatchLedgerContext.currentExecutionState;
-    existingContextId = dispatchLedgerContext.existingContextId;
+    const recoveredConversation = resolveRecoveredLedgerConversation({
+      startNewConversation: folderRecovery.startNewConversation,
+      bindingConversationId: parsedTask.agentControllerConversationId,
+      currentExecutionState: dispatchLedgerContext.currentExecutionState,
+      existingContextId: dispatchLedgerContext.existingContextId,
+    });
+    currentExecutionState = recoveredConversation.currentExecutionState;
+    existingContextId = recoveredConversation.existingContextId;
     effectiveAgentControllerConversationId =
       resolveEffectiveAgentControllerConversationId({
-        agentControllerConversationId: parsedTask.agentControllerConversationId,
+        agentControllerConversationId:
+          recoveredConversation.bindingConversationId,
         existingContextId,
       });
     workspaceUse = await markExecutionContextWorkspaceInUse({
+      attemptId: parsedTask.attemptId,
       context: parsedTask.executionContext,
+      containerRuntime: claudeProjectRuntime,
+      dispatchId: parsedTask.dispatchId,
       ledgerRootPath: input.ledgerPaths.rootDirPath,
     });
     runtimeEnvOverrides = {
@@ -1630,7 +1728,8 @@ export async function handleDispatchDeliverFrame(input: {
         result: "accepted",
       });
     };
-    const onNativeTurnStarted = () => {
+    const onNativeTurnStarted = async () => {
+      await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
       completedTurnId = null;
       completedTurnConversationId = null;
       executionContextCompletion = undefined;
@@ -1638,6 +1737,7 @@ export async function handleDispatchDeliverFrame(input: {
     };
     const onNativeTurnCompleted = (result: RuntimeTaskResult) => {
       completedNativeResult = result;
+      aiUsage.observe(result.resultPayload.telemetry);
     };
     const onRuntimeEvent = routeReasoningEvents(observeReasoning, (event) => {
       observeWorkspaceProcess(event);
@@ -1787,6 +1887,7 @@ export async function handleDispatchDeliverFrame(input: {
         onInteractionRequest,
         onNativeTurnStarted,
         onNativeTurnCompleted,
+        onPublicProgress: reportPublicProgress,
         onRuntimeEvent,
         onPreview: (preview) => {
           emitDispatchPreviewFrame({
@@ -1983,9 +2084,9 @@ export async function handleDispatchDeliverFrame(input: {
       agentControllerConversationOverride ?? null;
     const buildCurrentResultPayload =
       async (): Promise<OpenMeldDaemonTaskResultPayload> => {
-        if (parsedTask.executionContext) {
-          await controllerTurnCompletion;
-        }
+        // A recorded CLI reply is a proposal, not the native turn's completion.
+        // Its final usage belongs in the same durable result submission.
+        await controllerTurnCompletion;
         const currentContextDelta =
           resolveDispatchContextDeltaFromRuntimeResult(
             runtimeResult.dispatchResult
@@ -2032,7 +2133,7 @@ export async function handleDispatchDeliverFrame(input: {
           observedAgentControllerConversation,
           plannedAgentControllerConversation,
         });
-        return {
+        return aiUsage.apply({
           ...resolveDispatchResultPayload({
             attemptId: parsedTask.attemptId,
             contextDelta: currentContextDelta,
@@ -2058,7 +2159,7 @@ export async function handleDispatchDeliverFrame(input: {
           }),
           executionContextId: parsedTask.executionContext?.id,
           executionContextCompletion,
-        };
+        });
       };
     resultPayload = await buildCurrentResultPayload();
     const replySettlement = await settleAgentReplyProposals({
@@ -2214,6 +2315,7 @@ export async function handleDispatchDeliverFrame(input: {
       ledgerRootPath: input.ledgerPaths.rootDirPath,
       workspaceProcesses,
       presenter: input.presenter,
+      reportPublicProgress,
     });
     reasoningStream.dispose();
     currentSocketRef.reasoningPreferenceListeners?.delete(clearReasoning);
@@ -2224,11 +2326,11 @@ export async function handleDispatchDeliverFrame(input: {
     pendingAgentInteractionRegistry.removeTask(parsedTask.taskId);
   }
 
-  resultPayload = {
+  resultPayload = aiUsage.apply({
     ...resultPayload,
     executionContextId: parsedTask.executionContext?.id,
     executionContextCompletion,
-  };
+  });
 
   emitDispatchRuntimeEvidenceTransition({
     currentSocketRef,
@@ -2611,6 +2713,10 @@ async function loadDispatchLedgerContext(input: {
 }
 
 type DispatchBootstrapContext = {
+  organizationSkillReleases: NonNullable<
+    DispatchSpaceActionContext["organizationSkillReleases"]
+  >;
+  taskKnowledgeIndex: string;
   bootstrapTemplateFacts: BootstrapTemplateFacts;
   cliEntry: string | null;
   mentionSourceMentionLabel: string | null;
@@ -2625,21 +2731,6 @@ type DispatchBootstrapContext = {
   targetProfileRole: string | null;
 };
 
-type DispatchSpaceMetaLoadResult =
-  | {
-      status: "loaded";
-      spaceGuide: string | null;
-      spaceName: string | null;
-      spacePurpose: string | null;
-    }
-  | {
-      status: "failed";
-      errorMessage: string;
-      spaceGuide: null;
-      spaceName: null;
-      spacePurpose: null;
-    };
-
 async function resolveDispatchBootstrapContext(input: {
   onPhase?: (
     phase: DispatchBootstrapContextPhase,
@@ -2653,7 +2744,7 @@ async function resolveDispatchBootstrapContext(input: {
     spaceOwnerProfileId,
     targetProfileContext,
     mentionSourceContext,
-    spaceMetaContext,
+    knowledge,
   ] = await Promise.all([
     resolveBootstrapSpaceOwnerProfileId({
       spaceId: input.parsedTask.spaceId,
@@ -2670,12 +2761,37 @@ async function resolveDispatchBootstrapContext(input: {
       mentionSourceProfileId: input.parsedTask.mentionSourceProfileId,
       preferredMentionLabel: input.parsedTask.mentionSourceProfileMentionLabel,
     }),
-    resolveDispatchSpaceMetaContext({
-      parsedTask: input.parsedTask,
-      profileOwnerName: input.profileOwnerName,
-      profileOwnerUserId: input.profileOwnerUserId,
-    }),
+    readTaskKnowledge({
+      spaceId: input.parsedTask.spaceId,
+      targetProfileId: input.parsedTask.targetProfileId,
+      ...(input.parsedTask.spacePassword
+        ? { spacePassword: input.parsedTask.spacePassword }
+        : {}),
+      ...(input.parsedTask.workHandoff
+        ? { skillSelections: input.parsedTask.workHandoff.skills }
+        : {}),
+      onRead: (read) => input.onPhase?.("bootstrap_read_completed", read),
+    })
+      .then((result) => ({ ...result, errorMessage: null }))
+      .catch((error: unknown) => ({
+        documents: null,
+        skills: input.parsedTask.workHandoff?.skills ?? null,
+        spaceMeta: null,
+        errorMessage: toErrorMessage(error),
+      })),
   ]);
+  const organizationSkillReleases = knowledge.skills;
+  const taskKnowledgeIndex = renderTaskKnowledgeIndex({
+    documents: knowledge.documents,
+    skills: organizationSkillReleases,
+    readHint:
+      "Use read_documents without documentId for the full directory, or with documentId for the current approved body. Use read_skills without name for all selected Skills, including omitted entries, or with name for the pinned instructions and resources. Handoff Skills use the existing task materializer. Never replace a selected release with latest or install knowledge into global Skills or repository AGENTS.md.",
+  });
+  const spaceMetaContext = {
+    spaceGuide: normalizeOptionalText(knowledge.spaceMeta?.guide),
+    spaceName: normalizeOptionalText(knowledge.spaceMeta?.name),
+    spacePurpose: normalizeOptionalText(knowledge.spaceMeta?.purpose),
+  };
   input.onPhase?.("bootstrap_context_ready", {
     mentionSourceMentionLabelPresent:
       mentionSourceContext.mentionSourceMentionLabel !== null,
@@ -2683,11 +2799,8 @@ async function resolveDispatchBootstrapContext(input: {
       mentionSourceContext.mentionSourceProfileName !== null,
     source: "dispatch_bootstrap_context",
     spaceGuidePresent: spaceMetaContext.spaceGuide !== null,
-    spaceMetaError:
-      spaceMetaContext.status === "failed"
-        ? spaceMetaContext.errorMessage
-        : null,
-    spaceMetaStatus: spaceMetaContext.status,
+    spaceMetaError: knowledge.errorMessage,
+    spaceMetaStatus: knowledge.spaceMeta ? "loaded" : "failed",
     spaceNamePresent: spaceMetaContext.spaceName !== null,
     spaceOwnerProfilePresent: spaceOwnerProfileId !== null,
     spacePurposePresent: spaceMetaContext.spacePurpose !== null,
@@ -2738,6 +2851,8 @@ async function resolveDispatchBootstrapContext(input: {
 
   return {
     bootstrapTemplateFacts,
+    taskKnowledgeIndex,
+    organizationSkillReleases: organizationSkillReleases ?? [],
     cliEntry,
     mentionSourceMentionLabel:
       mentionSourceContext.mentionSourceMentionLabel ?? null,
@@ -2753,52 +2868,6 @@ async function resolveDispatchBootstrapContext(input: {
   };
 }
 
-async function resolveDispatchSpaceMetaContext(input: {
-  parsedTask: ParsedDispatchTask;
-  profileOwnerName: string | null;
-  profileOwnerUserId: string;
-}): Promise<DispatchSpaceMetaLoadResult> {
-  try {
-    const baseUrl = await resolveBaseUrl();
-    const requestContext = buildOpenMeldRequestContextFromProfileIdentity({
-      profileIdentity: {
-        openMeldProfileId: input.parsedTask.targetProfileId,
-        profileKind: "agent",
-        ownerUserId: input.profileOwnerUserId,
-        ...(input.profileOwnerName
-          ? { ownerName: input.profileOwnerName }
-          : {}),
-        profileName:
-          input.parsedTask.targetProfileName ??
-          input.parsedTask.targetProfileMentionLabel ??
-          input.parsedTask.targetProfileId,
-      },
-    });
-    const meta = await fetchSpaceMeta({
-      baseUrl,
-      requestContext,
-      space: input.parsedTask.spaceId,
-      ...(input.parsedTask.spacePassword
-        ? { password: input.parsedTask.spacePassword }
-        : {}),
-    });
-    return {
-      status: "loaded",
-      spaceGuide: normalizeOptionalText(meta.guide),
-      spaceName: normalizeOptionalText(meta.name),
-      spacePurpose: normalizeOptionalText(meta.purpose),
-    };
-  } catch (error) {
-    return {
-      status: "failed",
-      errorMessage: toErrorMessage(error),
-      spaceGuide: null,
-      spaceName: null,
-      spacePurpose: null,
-    };
-  }
-}
-
 function buildDispatchRuntimePrompt(input: {
   bootstrapContext: DispatchBootstrapContext;
   imageAttachmentPreparation: DispatchImageAttachmentPreparation;
@@ -2810,7 +2879,9 @@ function buildDispatchRuntimePrompt(input: {
   taskWorkspace?: ExecutionContextWorkspace;
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
+    executionContextAccess: input.parsedTask.executionContext?.access,
     callerContext: input.parsedTask.callerContext,
+    requesterIsAgentOwner: input.parsedTask.requesterIsAgentOwner,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
       input.parsedTask.targetProfileIsCenterAgent,
@@ -2827,18 +2898,20 @@ function buildDispatchRuntimePrompt(input: {
     organizationProtectedInformation:
       input.parsedTask.organizationProtectedInformation,
     workingLanguage: input.parsedTask.workingLanguage,
-    prompt: input.taskWorkspace?.baseCommit
-      ? `${input.parsedTask.prompt}\n\nOpenMeld task workspace: ${JSON.stringify(
-          {
-            projectId: input.parsedTask.defaultProjectId,
-            repositoryName: input.taskWorkspace.sourceWorkingDirectory
-              ? basename(input.taskWorkspace.sourceWorkingDirectory)
-              : null,
-            workingDirectory: input.taskWorkspace.workingDirectory,
-            baseCommit: input.taskWorkspace.baseCommit,
-          }
-        )}\nThis task uses an independent Git worktree with private Git metadata. The starting commit is frozen. Uncommitted and ignored source files were not copied. Make changes in this task worktree; the original checkout is not the task's working directory. Refer to the task and commit in public replies without disclosing private local paths.`
-      : input.parsedTask.prompt,
+    prompt: `${input.bootstrapContext.taskKnowledgeIndex}\n\n${TASK_KNOWLEDGE_GUIDANCE}\n\n${
+      input.taskWorkspace?.baseCommit
+        ? `${input.parsedTask.prompt}\n\nOpenMeld task workspace: ${JSON.stringify(
+            {
+              projectId: input.parsedTask.defaultProjectId,
+              repositoryName: input.taskWorkspace.sourceWorkingDirectory
+                ? basename(input.taskWorkspace.sourceWorkingDirectory)
+                : null,
+              workingDirectory: input.taskWorkspace.workingDirectory,
+              baseCommit: input.taskWorkspace.baseCommit,
+            }
+          )}\nThis task uses an independent Git worktree with private Git metadata. The starting commit is frozen. Uncommitted and ignored source files were not copied. Make changes in this task worktree; the original checkout is not the task's working directory. Refer to the task and commit in public replies without disclosing private local paths.`
+        : input.parsedTask.prompt
+    }`,
     recipientExplicitlyAddressedByActivationTargets:
       input.parsedTask.recipientExplicitlyAddressedByActivationTargets,
     sourceSignalId: input.parsedTask.sourceEventId,
@@ -2886,12 +2959,54 @@ async function prepareDispatchTaskWorkspace(input: {
   return { workingDirectory, boundaryRoot: workingDirectory };
 }
 
+async function prepareDispatchClaudeProjectContainer(input: {
+  parsedTask: ParsedDispatchTask;
+  taskWorkspace: ExecutionContextWorkspace;
+  workingDirectory: string;
+}): Promise<ClaudeProjectContainerRuntime | null> {
+  const context = input.parsedTask.executionContext;
+  if (
+    input.parsedTask.agentControllerRef !== "builtin:claude-code" ||
+    context?.permissionSource === "agent_settings" ||
+    context?.access !== "workspace" ||
+    context.workspace !== "isolated"
+  ) {
+    return null;
+  }
+  try {
+    return await prepareClaudeProjectContainer({
+      boundaryRoot: input.taskWorkspace.boundaryRoot,
+      contextId: context.id,
+      workspacePath: input.workingDirectory,
+    });
+  } catch (error) {
+    const code =
+      error instanceof Error && error.message.startsWith("claude_project.")
+        ? error.message.split(":")[0]
+        : "claude_project.isolation_unverified";
+    let message =
+      "OpenMeld could not verify this task's project container isolation. Check Docker or Podman and try again.";
+    if (code === "claude_project.container_runtime_unavailable") {
+      message =
+        "Start Docker or Podman with a Linux container engine on this computer, then try this project task again.";
+    } else if (code === "claude_project.image_unavailable") {
+      message =
+        "Docker or Podman could not prepare the task image. Check the container engine and try again.";
+    }
+    throw new DaemonServiceRunError({
+      code: code ?? "claude_project.isolation_unverified",
+      message,
+    });
+  }
+}
+
 async function releaseDispatchTaskWorkspace(input: {
   workspaceUse: ExecutionContextWorkspaceUse | null;
   parsedTask: ParsedDispatchTask;
   ledgerRootPath: string;
   workspaceProcesses: Map<number | null, boolean>;
   presenter: Presenter;
+  reportPublicProgress: (update: string) => unknown;
 }): Promise<void> {
   const context = input.parsedTask.executionContext;
   if (!(input.workspaceUse && context)) {
@@ -2908,6 +3023,32 @@ async function releaseDispatchTaskWorkspace(input: {
         Boolean
       ),
     });
+    const audit = released.gitConfigAudit;
+    if (
+      audit &&
+      (audit.restoredSettings ||
+        audit.declaredHookInstallers ||
+        audit.unverifiedHookSettings)
+    ) {
+      const notes = [
+        ...(audit.restoredSettings
+          ? [
+              "OpenMeld restored Git settings changed by this task that could run commands or redirect the repository. Branch, remote, user, and submodule settings were kept.",
+            ]
+          : []),
+        ...(audit.declaredHookInstallers
+          ? [
+              "The repository's declared Git hook installer changed its hooks path. OpenMeld kept this setting.",
+            ]
+          : []),
+        ...(audit.unverifiedHookSettings
+          ? [
+              "This task changed the Git hooks path. OpenMeld kept it, but could not verify a repository-declared installer. Review it before running Git outside this task.",
+            ]
+          : []),
+      ];
+      input.reportPublicProgress(notes.join("\n\n"));
+    }
     emitRunLine({
       presenter: input.presenter,
       code: `daemon.run.workspace_${released.status}`,
@@ -2918,6 +3059,9 @@ async function releaseDispatchTaskWorkspace(input: {
       payload: { contextId: context.id, ...released },
     });
   } catch (error) {
+    input.reportPublicProgress(
+      "OpenMeld could not finish checking or cleaning up this task's workspace. The workspace was kept for review."
+    );
     emitRunLine({
       presenter: input.presenter,
       code: "daemon.run.workspace_retained",
@@ -2939,6 +3083,7 @@ function observeExecutionContextWorkspaceProcess(
 }
 
 async function resolveDispatchComputerFileAccess(input: {
+  claudeProjectRuntime: ClaudeProjectContainerRuntime | null;
   computerFileAccessStorePath: string;
   onInteractionRequest: AdapterInteractionCallback;
   parsedTask: ParsedDispatchTask;
@@ -2954,11 +3099,22 @@ async function resolveDispatchComputerFileAccess(input: {
   const verifier =
     input.runtimeControllerSupport.localAdapterEntry.adapter
       .verifyComputerFileAccessBoundary;
-  if (input.parsedTask.executionContext) {
+  if (
+    input.parsedTask.executionContext &&
+    input.parsedTask.executionContext.permissionSource !== "agent_settings"
+  ) {
     const context = input.parsedTask.executionContext;
     if (
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
       context.access === "space_context"
+    ) {
+      return null;
+    }
+    if (
+      input.parsedTask.agentControllerRef === "builtin:claude-code" &&
+      context.access === "workspace" &&
+      context.workspace === "isolated" &&
+      input.claudeProjectRuntime
     ) {
       return null;
     }
@@ -2977,6 +3133,7 @@ async function resolveDispatchComputerFileAccess(input: {
       workingDirectory,
       policy,
       taskWorkspace: input.taskWorkspace,
+      workingCopyId: input.parsedTask.workingCopyId,
     });
     const verification = await verifier({
       boundary,
@@ -2988,7 +3145,14 @@ async function resolveDispatchComputerFileAccess(input: {
       transportMode: input.parsedTask.transportMode,
     });
     if (!verification.supported) {
-      throw new Error("execution_context.file_access_unverified");
+      throw new Error(
+        verification.reasonCode ===
+          "computer.file_access.controller_unsupported" &&
+          input.routeConfig?.agentControllerPermissionMode ===
+            "codex:customConfig"
+          ? "execution_context.custom_config_file_access_unverified"
+          : "execution_context.file_access_unverified"
+      );
     }
     return boundary;
   }
@@ -3016,7 +3180,7 @@ async function resolveDispatchComputerFileAccess(input: {
                 input.runtimePreparation.effectiveRuntimeContext
                   .providerRuntimeWorkingDirectory,
             });
-            return verification.supported;
+            return verification;
           },
         }
       : {}),
@@ -3039,14 +3203,33 @@ async function resolveDispatchComputerFileAccess(input: {
 
 function createDispatchSpaceActionRuntimeContext(input: {
   bootstrapContext: DispatchBootstrapContext;
+  claudeProjectRuntime: ClaudeProjectContainerRuntime | null;
+  ledgerRootPath: string;
   parsedTask: ParsedDispatchTask;
   runtimePreparation: DispatchRuntimePreparation;
   sendTargetReference: DispatchSendTargetReferenceLoadResult;
+  taskWorkspace: ExecutionContextWorkspace;
 }): {
   dispatchSpaceActionContext: DispatchSpaceActionContext;
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    executionTokenEcho: input.parsedTask.executionTokenEcho,
+    organizationSkillReleases: input.bootstrapContext.organizationSkillReleases,
+    ...(input.claudeProjectRuntime && input.parsedTask.executionContext
+      ? {
+          projectShell: {
+            boundaryRoot: input.taskWorkspace.boundaryRoot,
+            executionContextId: input.parsedTask.executionContext.id,
+            ledgerRootPath: input.ledgerRootPath,
+            workspacePath:
+              input.runtimePreparation.effectiveRuntimeContext
+                .providerRuntimeWorkingDirectory,
+            runtime: input.claudeProjectRuntime,
+          },
+        }
+      : {}),
+    workingCopyId: input.parsedTask.workingCopyId,
     attemptId: input.parsedTask.attemptId,
     dispatchId: input.parsedTask.dispatchId,
     env: process.env,
@@ -3712,7 +3895,7 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   agentReplyObservationCursor?: string | null;
@@ -3804,7 +3987,10 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
           prompt,
           routeConfig: input.routeConfig,
           runtimeContext: input.runtimeContext,
-          runtimeEnvOverrides: input.runtimeEnvOverrides,
+          runtimeEnvOverrides: {
+            ...input.runtimeEnvOverrides,
+            [DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV]: "1",
+          },
           runtimeControllerSupport: input.runtimeControllerSupport,
           streamingModeOverride: "final",
           agentControllerConversationOverride:
@@ -3955,7 +4141,7 @@ async function coordinateConcurrentAgentReply(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   agentReplyObservationCursor?: string | null;
@@ -4441,24 +4627,6 @@ async function maybeRepairStructuredSpaceAction(input: {
     },
   });
 
-  const skillRepair = await ensureDispatchControllerOpenMeldSkill({
-    agentControllerRef: input.parsedTask.agentControllerRef,
-  });
-  emitRunLine({
-    presenter: input.presenter,
-    code: "daemon.run.dispatch_controller_skill_repair_checked",
-    text: `OpenMeld skill repair checked for task ${input.parsedTask.taskId}`,
-    payload: {
-      agentControllerRef: input.parsedTask.agentControllerRef,
-      agentId: skillRepair.agentId,
-      dispatchId: input.parsedTask.dispatchId,
-      ...(skillRepair.reason ? { reason: skillRepair.reason } : {}),
-      status: skillRepair.status,
-      targetProfileId: input.parsedTask.targetProfileId,
-      taskId: input.parsedTask.taskId,
-    },
-  });
-
   if (!input.runControllerRepair) {
     return {
       finalFailureDiagnostics: resolveStructuredActionFailureDiagnostics({
@@ -4650,7 +4818,7 @@ function maybeRejectDispatchPreflight(input: {
   parsedTask: ReturnType<typeof parseDispatchTask>;
   ledgerPaths: LedgerPaths;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   const staleLeaseResult = maybeRejectStaleLease({
     activeLeaseEpoch: input.activeLeaseEpoch,
@@ -4773,7 +4941,7 @@ type DispatchRuntimeRoute = NonNullable<
 type DispatchRuntimeTask = Parameters<typeof runRuntimeTask>[0]["task"];
 
 async function runDispatchRuntimeExecution(input: {
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
   contextId: string | null;
@@ -4783,6 +4951,9 @@ async function runDispatchRuntimeExecution(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
+  onPublicProgress?: (
+    update: string
+  ) => DispatchPublicProgressResult | Promise<DispatchPublicProgressResult>;
   onPreview?: Parameters<typeof runRuntimeTask>[0]["onPreview"];
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   parsedTask: ParsedDispatchTask;
@@ -4795,45 +4966,70 @@ async function runDispatchRuntimeExecution(input: {
   streamingModeOverride?: DispatchRuntimeRoute["streamingMode"];
   agentControllerConversationOverride?: AgentControllerConversationRef | null;
 }): Promise<Awaited<ReturnType<typeof runRuntimeTask>>> {
-  input.onNativeTurnStarted();
-  const result = await runRuntimeTask({
-    ...(input.parsedTask.executionContext ||
-    input.agentControllerConversationOverride
-      ? {
-          agentContextOverride: {
-            agentControllerConversationId: input.contextId,
-            agentControllerConversationOverride:
-              input.agentControllerConversationOverride ?? null,
-          },
-        }
-      : {}),
-    io: input.io,
-    ...(input.onInteractionRequest
-      ? { onInteractionRequest: input.onInteractionRequest }
-      : {}),
-    ...(input.onPreview ? { onPreview: input.onPreview } : {}),
-    ...(input.onRuntimeEvent ? { onRuntimeEvent: input.onRuntimeEvent } : {}),
-    paths: input.ledgerPaths,
-    route: buildDispatchRuntimeRoute({
-      contextId: input.contextId,
-      envOverrides: input.runtimeEnvOverrides,
-      parsedTask: input.parsedTask,
-      routeConfig: input.routeConfig,
-      runtimeControllerSupport: input.runtimeControllerSupport,
-      streamingMode:
-        input.streamingModeOverride ?? input.parsedTask.streamingMode,
-    }),
-    task: buildDispatchRuntimeTask({
-      computerFileAccessBoundary: input.computerFileAccessBoundary,
-      executionMode: input.executionMode,
-      instructionPrompt: input.instructionPrompt,
-      parsedTask: input.parsedTask,
-      prompt: input.prompt,
-      runtimeContext: input.runtimeContext,
-    }),
+  const route = buildDispatchRuntimeRoute({
+    contextId: input.contextId,
+    envOverrides: input.runtimeEnvOverrides,
+    parsedTask: input.parsedTask,
+    routeConfig: input.routeConfig,
+    runtimeControllerSupport: input.runtimeControllerSupport,
+    streamingMode:
+      input.streamingModeOverride ?? input.parsedTask.streamingMode,
   });
-  input.onNativeTurnCompleted(result);
-  return result;
+  const dispatchRuntimeEnv = { ...process.env, ...route.env };
+  const spaceActionTools = route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+    ? createDispatchSpaceTools({
+        env: dispatchRuntimeEnv,
+        ...(input.onPublicProgress
+          ? { reportProgress: input.onPublicProgress }
+          : {}),
+      })
+    : undefined;
+  const progressRelay =
+    input.onPublicProgress &&
+    route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+      ? startDispatchSpaceProgressRelay({
+          context:
+            readDispatchSpaceActionContextForReceiptFromEnv(dispatchRuntimeEnv),
+          contextPath: route.env[
+            OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV
+          ] as string,
+          reportProgress: input.onPublicProgress,
+        })
+      : null;
+  try {
+    await input.onNativeTurnStarted();
+    const result = await runRuntimeTask({
+      spaceActionTools,
+      // Admission/continuation already selected the conversation. An explicit
+      // null means start fresh, not permission to restore a retained ledger ID.
+      agentContextOverride: {
+        agentControllerConversationId: input.contextId,
+        agentControllerConversationOverride:
+          input.agentControllerConversationOverride ?? null,
+      },
+      io: input.io,
+      ...(input.onInteractionRequest
+        ? { onInteractionRequest: input.onInteractionRequest }
+        : {}),
+      ...(input.onPreview ? { onPreview: input.onPreview } : {}),
+      ...(input.onRuntimeEvent ? { onRuntimeEvent: input.onRuntimeEvent } : {}),
+      paths: input.ledgerPaths,
+      route,
+      task: buildDispatchRuntimeTask({
+        computerFileAccessBoundary: input.computerFileAccessBoundary,
+        executionMode: input.executionMode,
+        instructionPrompt: input.instructionPrompt,
+        parsedTask: input.parsedTask,
+        prompt: input.prompt,
+        runtimeContext: input.runtimeContext,
+      }),
+    });
+    input.onNativeTurnCompleted(result);
+    return result;
+  } finally {
+    await progressRelay?.close();
+    spaceActionTools?.close();
+  }
 }
 
 function buildDispatchRuntimeRoute(input: {
@@ -4936,7 +5132,7 @@ function maybeRejectStaleLease(input: {
   ledgerPaths: LedgerPaths;
   parsedTask: ReturnType<typeof parseDispatchTask>;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (
     input.activeLeaseEpoch === undefined ||
@@ -4974,7 +5170,7 @@ function maybeRejectInvalidDispatchTask(input: {
   ledgerPaths: LedgerPaths;
   parsedTask: ReturnType<typeof parseDispatchTask>;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (input.parsedTask) {
     return null;
@@ -5010,7 +5206,7 @@ function resolveValidatedDispatchDeliveryInput(input: {
   localAdapterContainer: LocalDaemonAdapterContainer;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }):
   | {
       result: LocalExecutionSlotTaskResult;
@@ -5099,7 +5295,7 @@ function maybeRejectUnsupportedController(input: {
   runtimeControllerSupport: ReturnType<
     typeof resolveLocalRuntimeControllerSupport
   >;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (input.runtimeControllerSupport.supported) {
     return null;
@@ -5369,6 +5565,9 @@ async function requestDispatchAgentInteraction(input: {
   const requestedAtMs = Date.now();
   const interactionCandidate: AgentInteractionRequest = {
     ...input.request,
+    ...(input.request.kind === "permission"
+      ? { supportsPermissionModeUpdate: true }
+      : {}),
     v: AGENT_INTERACTION_SCHEMA_VERSION,
     interactionId: randomUUID(),
     requestedAtMs,

@@ -1,5 +1,6 @@
 "use client";
 
+import { BotAvatar } from "@openmeld/ui/components/bot-avatar";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { Switch } from "@openmeld/ui/components/switch";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
@@ -9,15 +10,23 @@ import {
 	type ShapeVariant,
 	useShapeContext,
 } from "@openmeld/ui/lib/shape-context";
-import { DesktopIcon, MoonIcon, SunDimIcon } from "@phosphor-icons/react";
-import { useTheme } from "next-themes";
 import {
-	type CSSProperties,
-	type ReactNode,
-	useState,
-	useSyncExternalStore,
-} from "react";
+	ChatCircleTextIcon,
+	TrayIcon,
+	UsersThreeIcon,
+} from "@phosphor-icons/react";
+import { type CSSProperties, useState, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { ThemeSelector } from "#/components/appearance/theme-selector";
+import {
+	BOT_MATERIAL_CHOICES,
+	useBotAvatarPreference,
+} from "#/lib/appearance/bot-avatar-preference";
+import {
+	SIDEBAR_DISPLAY_CHOICES,
+	type SidebarDisplay,
+	useSidebarDisplayPreference,
+} from "#/lib/appearance/sidebar-preference";
 import {
 	TOOLBAR_SHORTCUTS,
 	useToolbarPreference,
@@ -27,41 +36,14 @@ import {
 	type SpaceConversationLayout,
 	writeSpaceConversationLayoutPreference,
 } from "#/lib/spaces/conversation-layout-preference";
+import { useHistorySliderPreference } from "#/lib/spaces/history-slider-preference";
 import {
 	readSpaceSelfMessageAlignmentPreference,
 	type SpaceSelfMessageAlignment,
 	writeSpaceSelfMessageAlignmentPreference,
 } from "#/lib/spaces/self-message-alignment-preference";
 
-type ThemeChoice = {
-	description: string;
-	icon: ReactNode;
-	label: string;
-	value: "dark" | "light" | "system";
-};
-
 const PHONE_APPEARANCE_CHOICES_QUERY = "(max-width: 639px)";
-
-const THEME_CHOICES: readonly ThemeChoice[] = [
-	{
-		description: "Use the light appearance.",
-		icon: <SunDimIcon aria-hidden="true" className="size-4" />,
-		label: "Light",
-		value: "light",
-	},
-	{
-		description: "Use the dark appearance.",
-		icon: <MoonIcon aria-hidden="true" className="size-4" />,
-		label: "Dark",
-		value: "dark",
-	},
-	{
-		description: "Follow your operating system appearance.",
-		icon: <DesktopIcon aria-hidden="true" className="size-4" />,
-		label: "System",
-		value: "system",
-	},
-] as const;
 
 type ShapeChoice = {
 	description: string;
@@ -71,14 +53,14 @@ type ShapeChoice = {
 
 const SHAPE_CHOICES: readonly ShapeChoice[] = [
 	{
-		description: "Use sharp corners across controls and surfaces.",
-		label: "Square",
-		value: "square",
-	},
-	{
 		description: "Use medium-rounded corners across controls and surfaces.",
 		label: "Rounded",
 		value: "rounded",
+	},
+	{
+		description: "Use sharp corners across controls and surfaces.",
+		label: "Square",
+		value: "square",
 	},
 ] as const;
 
@@ -109,14 +91,14 @@ type SelfMessageAlignmentChoice = {
 
 const SELF_MESSAGE_ALIGNMENT_CHOICES: readonly SelfMessageAlignmentChoice[] = [
 	{
-		description: "Your messages appear on the right, with actions on the left.",
-		label: "Right",
-		value: "right",
-	},
-	{
 		description: "Your messages appear on the left, with actions on the right.",
 		label: "Left",
 		value: "left",
+	},
+	{
+		description: "Your messages appear on the right, with actions on the left.",
+		label: "Right",
+		value: "right",
 	},
 ] as const;
 
@@ -125,8 +107,10 @@ const getClientHydrationSnapshot = () => true;
 const getServerHydrationSnapshot = () => false;
 
 export function AppearanceSection() {
+	const sidebar = useSidebarDisplayPreference();
 	const toolbar = useToolbarPreference();
-	const { setTheme, theme } = useTheme();
+	const historySlider = useHistorySliderPreference();
+	const botAvatar = useBotAvatarPreference();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
 		? "vertical"
@@ -145,9 +129,6 @@ export function AppearanceSection() {
 			readSpaceSelfMessageAlignmentPreference()
 		);
 
-	const selectedIndex = mounted
-		? THEME_CHOICES.findIndex((choice) => choice.value === theme)
-		: -1;
 	const selectedConversationLayoutIndex = mounted
 		? CONVERSATION_LAYOUT_CHOICES.findIndex(
 				(choice) => choice.value === conversationLayout
@@ -176,32 +157,9 @@ export function AppearanceSection() {
 				id="appearance"
 			>
 				<SettingsRow
-					control={
-						<RadioGroup
-							aria-label="Theme"
-							className="w-full"
-							orientation={choiceOrientation}
-							selectedIndex={selectedIndex}
-						>
-							{THEME_CHOICES.map((choice, index) => (
-								<RadioItem
-									adornment={choice.icon}
-									className="min-w-0 flex-1 px-3 py-2.5"
-									description={choice.description}
-									index={index}
-									key={choice.value}
-									label={choice.label}
-									onSelect={() => {
-										setTheme(choice.value);
-									}}
-									selected={mounted && theme === choice.value}
-								/>
-							))}
-						</RadioGroup>
-					}
+					control={<ThemeSelector />}
 					description="This preference is saved in this browser."
 					label="Theme"
-					layout="stacked"
 					showDivider
 				/>
 				<SettingsRow
@@ -232,6 +190,43 @@ export function AppearanceSection() {
 					}
 					description="Applies across OpenMeld. Saved in this browser."
 					label="Corner style"
+					layout="stacked"
+					showDivider
+				/>
+				<SettingsRow
+					control={
+						<RadioGroup
+							aria-label="Sidebar display"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? SIDEBAR_DISPLAY_CHOICES.findIndex(
+											(choice) => choice.value === sidebar.display
+										)
+									: -1
+							}
+						>
+							{SIDEBAR_DISPLAY_CHOICES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex min-w-0 flex-col gap-2">
+											<span>{choice.description}</span>
+											<SidebarDisplayPreview display={choice.value} />
+										</span>
+									}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => sidebar.setDisplay(choice.value)}
+									selected={mounted && sidebar.display === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
+					description="Choose how the main navigation appears on larger screens. Saved in this browser."
+					label="Sidebar"
 					layout="stacked"
 					showDivider
 				/>
@@ -305,6 +300,20 @@ export function AppearanceSection() {
 				/>
 				<SettingsRow
 					control={
+						<Switch
+							aria-label="Show history slider"
+							checked={historySlider.enabled}
+							id="history-slider"
+							onCheckedChange={historySlider.setEnabled}
+						/>
+					}
+					description="Browse older messages in a Space. Saved in this browser."
+					label="History slider"
+					showDivider
+				/>
+				<SettingsRow
+					className="hidden lg:flex"
+					control={
 						<div className="flex flex-wrap items-center gap-x-8 gap-y-3">
 							{TOOLBAR_SHORTCUTS.map((item) => (
 								<label
@@ -329,8 +338,105 @@ export function AppearanceSection() {
 					label="Toolbar shortcuts"
 					layout="stacked"
 				/>
+				<SettingsRow
+					control={
+						<RadioGroup
+							aria-label="Bot avatar material"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? BOT_MATERIAL_CHOICES.findIndex(
+											(choice) => choice.value === botAvatar.shading
+										)
+									: -1
+							}
+						>
+							{BOT_MATERIAL_CHOICES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex min-w-0 flex-col gap-2">
+											<span>{choice.description}</span>
+											<span
+												aria-hidden="true"
+												className="flex h-24 items-center justify-center"
+											>
+												<BotAvatar
+													motionEnabled={botAvatar.motionEnabled}
+													shading={choice.value}
+													size={56}
+													type="clover"
+													working
+												/>
+											</span>
+										</span>
+									}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => botAvatar.setShading(choice.value)}
+									selected={mounted && botAvatar.shading === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
+					description="Choose a finish for Center Agent Bot avatars across the app. Saved in this browser."
+					label="Bot avatar material"
+					layout="stacked"
+					showDivider
+				/>
+				<SettingsRow
+					control={
+						<Switch
+							aria-label="Animate Bot avatars"
+							checked={botAvatar.motionEnabled}
+							onCheckedChange={botAvatar.setMotionEnabled}
+						/>
+					}
+					description="Animate Bot avatars while they work and when you interact with them. Saved in this browser."
+					label="Animate Bot avatars"
+				/>
 			</section>
 		</>
+	);
+}
+
+function SidebarDisplayPreview(input: { display: SidebarDisplay }) {
+	return (
+		<span
+			aria-hidden="true"
+			className="flex h-20 w-full overflow-hidden rounded-lg border border-border bg-background"
+			data-sidebar-display-preview={input.display}
+		>
+			<span
+				className={`flex shrink-0 flex-col items-center justify-center gap-1 bg-muted/60 py-1 ${input.display === "icons-only" ? "w-8" : "w-12"}`}
+			>
+				{[
+					{ icon: TrayIcon, label: "Inbox" },
+					{ icon: ChatCircleTextIcon, label: "Spaces" },
+					{ icon: UsersThreeIcon, label: "Team" },
+				].map(({ icon: Icon, label }) => (
+					<span className="flex flex-col items-center gap-0.5" key={label}>
+						<Icon className="size-3 text-muted-foreground" />
+						<span
+							className={
+								input.display === "icons-only"
+									? "hidden"
+									: "text-[6px] text-muted-foreground leading-none"
+							}
+						>
+							{label}
+						</span>
+					</span>
+				))}
+			</span>
+			<span className="flex min-w-0 flex-1 flex-col gap-2 p-3">
+				<span className="h-2 w-1/2 rounded-sm bg-muted-foreground/25" />
+				<span className="h-2 w-4/5 rounded-sm bg-muted-foreground/15" />
+				<span className="mt-auto h-4 rounded-md border border-border bg-muted/40" />
+			</span>
+		</span>
 	);
 }
 

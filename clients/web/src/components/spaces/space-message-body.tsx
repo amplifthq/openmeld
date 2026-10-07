@@ -3,30 +3,31 @@ import type { NavigationAction } from "@openmeld/schemas";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
-import { FileIcon, ImageIcon } from "@phosphor-icons/react";
 import { useReducedMotionConfig } from "framer-motion";
 import {
 	type ComponentProps,
+	lazy,
 	memo,
 	type ReactNode,
 	type Ref,
+	Suspense,
 	useCallback,
-	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
-import { toast } from "sonner";
 import { MessageResponse } from "#/components/ai/message-response";
 import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
-import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
-import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
-import { buildWebSpaceAttachmentDownloadPath } from "#/lib/spaces/web-space-attachment-path";
+import {
+	isStoppedSpaceReply,
+	type SpaceTimelineItem,
+} from "#/lib/spaces/timeline";
+import { resolveSpaceMessageStopFeedback } from "#/lib/spaces/wake-progress-presentation";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -34,10 +35,8 @@ import {
 } from "./center-agent-computer-setup-card";
 import { Marker, MarkerContent } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
-import { SpaceFileHtmlBadge } from "./space-file-html-badge";
-import { downloadUrlContent } from "./space-file-utils";
-import { SpaceImagePreview } from "./space-image-preview";
 import { SpaceInlineMessageEditor } from "./space-inline-message-editor";
+import { SpaceMessageAttachments } from "./space-message-attachments";
 import { collapseSpaceMessage } from "./space-message-collapse";
 import { useSpaceMessageEditing } from "./space-message-editing";
 import { SpaceMessageLinkPreviews } from "./space-message-link-previews";
@@ -61,15 +60,28 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
-import { useSpaceFileImageSource } from "./use-space-file-image-source";
+import { useSpaceWakeStopRequestStatuses } from "./space-wake-stop-control";
+import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
+
+const PluginConnectionMessageCard = lazy(async () => {
+	const module = await import(
+		"#/components/organizations/plugin-connection-message-card"
+	);
+	return { default: module.PluginConnectionMessageCard };
+});
 
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
 export const SPACE_RESPONSE_TRUNCATED_SUFFIX = `\n\n${SPACE_RESPONSE_TRUNCATED_MARKER}`;
+const HUMAN_MESSAGE_EXTRA_BLANK_LINES = /(?:\r?\n[ \t]*){3,}/;
+const HUMAN_MESSAGE_FENCE_START = /^ {0,3}(`{3,}|~{3,})/;
+const HUMAN_MESSAGE_FENCE_END = /^ {0,3}(?:`{3,}|~{3,})[ \t]*$/;
 
 type SpaceMessageBodyProps = {
 	className?: string;
+	/** Transcript owners render the same attachment strip outside the text surface. */
+	includeAttachments?: boolean;
 	computerSetupContext?: CenterAgentComputerSetupContext;
 	computerSetupSourceSignalId?: string;
 	containerClassName?: string;
@@ -81,6 +93,8 @@ type SpaceMessageBodyProps = {
 			Pick<
 				SpaceTimelineItem,
 				| "actorProfileKind"
+				| "systemNoticeType"
+				| "signalType"
 				| "id"
 				| "messageRevision"
 				| "deliveryState"
@@ -95,6 +109,10 @@ type SpaceMessageBodyProps = {
 				| "mentionTargetProfileIds"
 				| "spaceId"
 				| "wakeTargetProfileIds"
+				| "activeWakeProgress"
+				| "wakeClientMessageId"
+				| "clientMessageId"
+				| "wakeSourceSignalId"
 			>
 		>;
 	onOpenProfile?: (profileId: string) => void;
@@ -111,41 +129,89 @@ type SpaceMessageBodyProps = {
 
 function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
+	const pluginReply = usePluginConnectionReply({
+		final:
+			input.item.isAgentFinalReply === true &&
+			!isStoppedSpaceReply(input.item) &&
+			input.item.agentStreamState?.status !== "streaming",
+		organizationSlug: input.orgSlug,
+		text: input.item.text,
+	});
 	const shouldReduceMotion = useReducedMotionConfig();
 	const isStreaming = input.item.agentStreamState?.status === "streaming";
 	const displayedText = useSpaceStreamDisplayText({
 		enabled: isStreaming && shouldReduceMotion !== true,
 		streamId: input.item.agentStreamState?.streamId ?? null,
-		text: input.item.text,
+		text: pluginReply?.text ?? input.item.text,
 	});
 	const textProjection = useMemo(
 		() => splitServerTruncationMarker(displayedText),
 		[displayedText]
 	);
-	const collapsedText = useMemo(
+	const isMarkdown =
+		input.item.actorProfileKind === "agent" ||
+		input.item.isAgentFinalReply === true;
+	const visibleText = useMemo(
 		() =>
-			collapseSpaceMessage(
-				textProjection.visibleText,
-				input.item.actorProfileKind === "agent" ||
-					input.item.isAgentFinalReply === true
-			),
-		[
-			textProjection.visibleText,
-			input.item.actorProfileKind,
-			input.item.isAgentFinalReply,
-		]
+			isMarkdown
+				? textProjection.visibleText
+				: normalizeHumanMessageBlankLines(textProjection.visibleText),
+		[isMarkdown, textProjection.visibleText]
 	);
-	const shouldCollapse = collapsedText !== textProjection.visibleText;
+	const collapsedText = useMemo(
+		() => collapseSpaceMessage(visibleText, isMarkdown),
+		[visibleText, isMarkdown]
+	);
+	const shouldCollapse = collapsedText !== visibleText;
 	const renderedText =
-		shouldCollapse && !isExpanded ? collapsedText : textProjection.visibleText;
+		shouldCollapse && !isExpanded ? collapsedText : visibleText;
 	return {
 		isExpanded,
 		isStreaming,
+		pluginAction: pluginReply?.action,
 		renderedText,
 		setIsExpanded,
 		shouldCollapse,
 		textProjection,
 	};
+}
+
+function normalizeHumanMessageBlankLines(text: string): string {
+	if (!HUMAN_MESSAGE_EXTRA_BLANK_LINES.test(text)) {
+		return text;
+	}
+	const lines = text.replace(/\r\n?/g, "\n").split("\n");
+	const normalized: string[] = [];
+	let fencedWith: string | null = null;
+	let hasBlankLine = false;
+	for (const line of lines) {
+		if (!fencedWith && line.trim() === "") {
+			hasBlankLine = true;
+			continue;
+		}
+		if (hasBlankLine) {
+			normalized.push("");
+			hasBlankLine = false;
+		}
+		normalized.push(line);
+		const marker = line.match(HUMAN_MESSAGE_FENCE_START);
+		if (fencedWith) {
+			if (
+				marker &&
+				marker[1][0] === fencedWith[0] &&
+				marker[1].length >= fencedWith.length &&
+				HUMAN_MESSAGE_FENCE_END.test(line)
+			) {
+				fencedWith = null;
+			}
+		} else if (marker) {
+			fencedWith = marker[1];
+		}
+	}
+	if (hasBlankLine) {
+		normalized.push("");
+	}
+	return normalized.join("\n");
 }
 
 function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
@@ -220,7 +286,26 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	input: SpaceMessageBodyProps
 ) {
 	const editing = useSpaceMessageEditing();
-	const textPresentation = useSpaceMessageTextPresentation(input);
+	const nextTextPresentation = useSpaceMessageTextPresentation(input);
+	const lastPresentation = useRef({
+		id: input.item.id,
+		value: nextTextPresentation,
+	});
+	const stopRequested =
+		resolveSpaceMessageStopFeedback(
+			input.item,
+			useSpaceWakeStopRequestStatuses()
+		).length > 0;
+	const holdPartialReply =
+		input.item.agentStreamState &&
+		(stopRequested || input.item.agentStreamState.status === "stopped");
+	if (!holdPartialReply || lastPresentation.current.id !== input.item.id) {
+		lastPresentation.current = {
+			id: input.item.id,
+			value: nextTextPresentation,
+		};
+	}
+	const textPresentation = lastPresentation.current.value;
 	const bodyRef = useRef<HTMLDivElement | null>(null);
 	const [bodySize, setBodySize] = useState<{
 		width: number;
@@ -337,15 +422,20 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		input.item.isAgentFinalReply === true;
 	const navigationAction =
 		input.item.isAgentFinalReply === true
-			? input.item.navigationAction
+			? (input.item.navigationAction ?? text.pluginAction)
 			: undefined;
 	const navigationActionContent = renderSpaceMessageNavigationAction({
 		action: navigationAction,
+		sourceSignalId: input.item.id,
+		spaceId: input.item.spaceId,
+		organizationSlug: input.orgSlug,
 		computerSetupContext: input.computerSetupContext,
 		computerSetupSourceSignalId: input.computerSetupSourceSignalId,
 	});
-	const attachments = input.item.attachments ?? [];
-	const files = input.item.files ?? [];
+	const attachments =
+		input.includeAttachments === false ? [] : (input.item.attachments ?? []);
+	const files =
+		input.includeAttachments === false ? [] : (input.item.files ?? []);
 	const spaceApi = useMemo(() => {
 		const createApi = () =>
 			input.orgSlug
@@ -408,6 +498,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		body
 	);
 	const hasVisibleContent =
+		isStoppedSpaceReply(input.item) ||
 		addressedBody !== null ||
 		Boolean(navigationActionContent) ||
 		attachments.length > 0 ||
@@ -419,15 +510,30 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 
 	return (
 		<SpaceMessageBodyContent
-			api={spaceApi}
 			attachments={attachments}
-			body={addressedBody}
+			body={
+				<>
+					{addressedBody}
+					{isStoppedSpaceReply(input.item) ? (
+						<p
+							className="text-muted-foreground text-xs leading-5"
+							data-slot="stopped-reply-status"
+						>
+							(Request stopped)
+						</p>
+					) : null}
+				</>
+			}
 			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
-			edited={Boolean(input.item.editedAt)}
+			edited={
+				Boolean(input.item.editedAt) && input.includeAttachments !== false
+			}
 			files={files}
 			isExpanded={text.isExpanded}
 			linkPreviews={
+				input.item.signalType === "signal.text" &&
+				!isStoppedSpaceReply(input.item) &&
 				input.item.id &&
 				input.item.spaceId &&
 				input.item.deliveryState === "sent" &&
@@ -447,6 +553,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			navigationActionContent={navigationActionContent}
 			onOpenSpaceFile={input.onOpenSpaceFile}
 			onToggleExpanded={() => text.setIsExpanded((current) => !current)}
+			openMeldProfileId={input.openMeldProfileId}
 			organizationSlug={input.orgSlug}
 			serverTruncated={text.textProjection.serverTruncated}
 			shouldCollapse={text.shouldCollapse}
@@ -456,7 +563,6 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 });
 
 function SpaceMessageBodyContent(input: {
-	api: Pick<SpaceApi, "downloadFileContent">;
 	attachments: SpaceTimelineItem["attachments"];
 	body: ReactNode;
 	linkPreviews: ReactNode;
@@ -468,6 +574,7 @@ function SpaceMessageBodyContent(input: {
 	navigationActionContent: ReactNode;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	onToggleExpanded: () => void;
+	openMeldProfileId?: string;
 	organizationSlug?: string;
 	serverTruncated: boolean;
 	shouldCollapse: boolean;
@@ -477,6 +584,7 @@ function SpaceMessageBodyContent(input: {
 		<div
 			className={cn(
 				"flex min-w-0 max-w-full flex-col gap-2",
+				(input.files.length > 0 || input.attachments.length > 0) && "w-full",
 				input.containerClassName
 			)}
 			data-slot="space-message-body"
@@ -492,15 +600,11 @@ function SpaceMessageBodyContent(input: {
 			/>
 			{input.navigationActionContent}
 
-			<SpaceMessageAttachmentGrid
-				attachments={input.attachments}
-				organizationSlug={input.organizationSlug}
-				spaceId={input.spaceId}
-			/>
-			<SpaceMessageFileList
-				api={input.api}
-				files={input.files}
+			<SpaceMessageAttachments
+				item={{ attachments: input.attachments, files: input.files }}
 				onOpenSpaceFile={input.onOpenSpaceFile}
+				openMeldProfileId={input.openMeldProfileId}
+				organizationSlug={input.organizationSlug}
 				spaceId={input.spaceId}
 			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
@@ -597,11 +701,35 @@ function renderSpaceMessageTextContent(input: {
 
 function renderSpaceMessageNavigationAction(input: {
 	action: NavigationAction | null | undefined;
+	sourceSignalId: string | undefined;
+	spaceId: string | undefined;
+	organizationSlug: string | undefined;
 	computerSetupContext: CenterAgentComputerSetupContext | undefined;
 	computerSetupSourceSignalId: string | undefined;
 }): ReactNode {
 	if (!input.action) {
 		return null;
+	}
+	if (input.action.target.kind === "plugin_connection") {
+		return (
+			<Suspense
+				fallback={
+					<DesktopAwareLink href={input.action.url}>
+						{input.action.label}
+					</DesktopAwareLink>
+				}
+			>
+				<PluginConnectionMessageCard
+					action={{ ...input.action, target: input.action.target }}
+					continuation={
+						input.sourceSignalId && input.spaceId
+							? { sourceSignalId: input.sourceSignalId, spaceId: input.spaceId }
+							: undefined
+					}
+					organizationSlug={input.organizationSlug}
+				/>
+			</Suspense>
+		);
 	}
 	if (
 		input.computerSetupContext &&
@@ -633,280 +761,6 @@ function isComputerSetupNavigationAction(
 	action: NavigationAction
 ): action is NavigationAction & { target: ComputerSetupTarget } {
 	return action.target.kind === "computer_setup";
-}
-
-export function SpaceMessageAttachmentGrid(input: {
-	attachments: SpaceTimelineItem["attachments"];
-	organizationSlug?: string;
-	spaceId: string;
-}) {
-	if (input.attachments.length === 0) {
-		return null;
-	}
-
-	return (
-		<fieldset
-			aria-label={`${String(input.attachments.length)} attached ${
-				input.attachments.length === 1 ? "image" : "images"
-			}`}
-			className={cn(
-				"m-0 grid w-full max-w-2xl gap-1.5 border-0 p-0",
-				input.attachments.length === 1 ? "grid-cols-1" : "grid-cols-2"
-			)}
-		>
-			{input.attachments.map((attachment) => (
-				<SpaceMessageAttachmentImage
-					attachment={attachment}
-					isSingle={input.attachments.length === 1}
-					key={attachment.id}
-					organizationSlug={input.organizationSlug}
-					spaceId={input.spaceId}
-				/>
-			))}
-		</fieldset>
-	);
-}
-
-export function SpaceMessageFileList(input: {
-	api: Pick<SpaceApi, "downloadFileContent">;
-	files: NonNullable<SpaceTimelineItem["files"]>;
-	onOpenSpaceFile?: (fileId: string, revision: number) => void;
-	spaceId: string;
-}) {
-	if (input.files.length === 0) {
-		return null;
-	}
-	const imageFiles = input.files.filter((file) =>
-		file.mimeType.startsWith("image/")
-	);
-	const ordinaryFiles = input.files.filter(
-		(file) => !file.mimeType.startsWith("image/")
-	);
-
-	return (
-		<>
-			{imageFiles.length > 0 ? (
-				<fieldset
-					aria-label={`${String(imageFiles.length)} shared ${
-						imageFiles.length === 1 ? "image" : "images"
-					}`}
-					className={cn(
-						"m-0 grid w-full max-w-2xl gap-1.5 border-0 p-0",
-						imageFiles.length === 1 ? "grid-cols-1" : "grid-cols-2"
-					)}
-				>
-					{imageFiles.map((file) => (
-						<SpaceMessageFileImage
-							api={input.api}
-							file={file}
-							isSingle={imageFiles.length === 1}
-							key={`${file.fileId}:${String(file.revision)}`}
-							onOpenSpaceFile={file.isLocal ? undefined : input.onOpenSpaceFile}
-							spaceId={input.spaceId}
-						/>
-					))}
-				</fieldset>
-			) : null}
-			{ordinaryFiles.length > 0 ? (
-				<fieldset
-					aria-label="Shared files"
-					className="m-0 grid w-full max-w-2xl gap-2 border-0 p-0"
-				>
-					{ordinaryFiles.map((file) => (
-						<button
-							className="group flex min-w-0 items-center gap-3 rounded-md border border-border bg-background p-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
-							disabled={file.isLocal}
-							key={`${file.fileId}:${String(file.revision)}`}
-							onClick={() =>
-								input.onOpenSpaceFile?.(file.fileId, file.revision)
-							}
-							type="button"
-						>
-							<SpaceMessageFileIcon mimeType={file.mimeType} />
-							<div className="min-w-0 flex-1">
-								<p className="truncate font-medium text-sm">{file.name}</p>
-								<p className="mt-0.5 truncate text-muted-foreground text-xs">
-									{formatMessageFileSize(file.sizeBytes)}
-									{file.isLocal ? null : ` · Version ${file.revision}`}
-								</p>
-							</div>
-							<span className="shrink-0 text-muted-foreground text-xs group-hover:text-foreground">
-								{file.isLocal ? null : "Open in Files"}
-							</span>
-						</button>
-					))}
-				</fieldset>
-			) : null}
-		</>
-	);
-}
-
-function SpaceMessageFileIcon(input: { mimeType: string }) {
-	return (
-		<div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-border bg-muted text-muted-foreground">
-			{input.mimeType === "text/html" ? (
-				<SpaceFileHtmlBadge />
-			) : (
-				<FileIcon aria-hidden="true" className="size-5" />
-			)}
-		</div>
-	);
-}
-
-function SpaceMessageFileImage(input: {
-	api: Pick<SpaceApi, "downloadFileContent">;
-	file: NonNullable<SpaceTimelineItem["files"]>[number];
-	isSingle: boolean;
-	onOpenSpaceFile?: (fileId: string, revision: number) => void;
-	spaceId: string;
-}) {
-	const placeholder = useRef<HTMLOutputElement>(null);
-	const [visible, setVisible] = useState(false);
-	useEffect(() => {
-		const element = placeholder.current;
-		if (!element) {
-			return;
-		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((entry) => entry.isIntersecting)) {
-					setVisible(true);
-					observer.disconnect();
-				}
-			},
-			{ rootMargin: "100px" }
-		);
-		observer.observe(element);
-		return () => observer.disconnect();
-	}, []);
-	const [isBroken, setIsBroken] = useState(false);
-	const imageSource = useSpaceFileImageSource({
-		api: input.api,
-		enabled: visible,
-		fileId: input.file.fileId,
-		isLocal: input.file.isLocal,
-		localPreviewUrl: input.file.localPreviewUrl,
-		mimeType: input.file.mimeType,
-		revision: input.file.revision,
-		spaceId: input.spaceId,
-	});
-
-	if (imageSource.isLoading) {
-		return (
-			<output
-				aria-label={`Loading ${input.file.name}`}
-				className={cn(
-					"animate-pulse bg-muted motion-reduce:animate-none",
-					input.isSingle ? "h-48 w-72 max-w-full" : "aspect-square w-full"
-				)}
-				ref={placeholder}
-			/>
-		);
-	}
-	if (imageSource.error || isBroken || !imageSource.sourceUrl) {
-		return (
-			<button
-				className={cn(
-					"flex min-h-28 w-full flex-col items-center justify-center gap-2 border border-border bg-muted text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-					input.isSingle ? "max-h-[32rem]" : "aspect-square"
-				)}
-				onClick={() =>
-					input.onOpenSpaceFile?.(input.file.fileId, input.file.revision)
-				}
-				type="button"
-			>
-				<ImageIcon aria-hidden="true" className="size-6" />
-				<span className="px-4 text-center text-xs">Image unavailable</span>
-			</button>
-		);
-	}
-
-	return (
-		<SpaceImagePreview
-			altText={input.file.name}
-			focusedAction={
-				input.onOpenSpaceFile
-					? {
-							label: "Open in Files",
-							onSelect: () =>
-								input.onOpenSpaceFile?.(input.file.fileId, input.file.revision),
-						}
-					: undefined
-			}
-			imageSource={imageSource.sourceUrl}
-			isSingle={input.isSingle}
-			onError={() => setIsBroken(true)}
-		/>
-	);
-}
-
-function formatMessageFileSize(sizeBytes: number): string {
-	if (sizeBytes < 1024) {
-		return `${String(sizeBytes)} B`;
-	}
-	if (sizeBytes < 1024 * 1024) {
-		return `${(sizeBytes / 1024).toFixed(1)} KB`;
-	}
-	return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function SpaceMessageAttachmentImage(input: {
-	attachment: SpaceTimelineItem["attachments"][number];
-	isSingle: boolean;
-	organizationSlug?: string;
-	spaceId: string;
-}) {
-	const [isBroken, setIsBroken] = useState(false);
-	const downloadPath = buildWebSpaceAttachmentDownloadPath({
-		attachmentId: input.attachment.id,
-		organizationSlug: input.organizationSlug,
-		spaceId: input.spaceId,
-	});
-	const altText = input.attachment.fileName ?? "Attached image";
-	const imageSource = input.attachment.localPreviewUrl ?? downloadPath;
-
-	if (isBroken) {
-		return (
-			<div
-				className={cn(
-					"flex min-h-28 w-full items-center justify-center border border-border bg-muted",
-					input.isSingle ? "max-h-[32rem]" : "aspect-square"
-				)}
-			>
-				<span className="px-4 text-center text-muted-foreground text-xs">
-					Image unavailable
-				</span>
-			</div>
-		);
-	}
-
-	return (
-		<SpaceImagePreview
-			altText={altText}
-			focusedAction={
-				getDesktopPlatform()
-					? {
-							label: "Download original",
-							onSelect: () => {
-								downloadUrlContent(altText, downloadPath).catch(
-									(error: unknown) =>
-										toast.error(
-											error instanceof Error
-												? error.message
-												: "Could not download this image. Try again."
-										)
-								);
-							},
-						}
-					: { href: downloadPath, label: "Open original" }
-			}
-			height={input.attachment.height}
-			imageSource={imageSource}
-			isSingle={input.isSingle}
-			onError={() => setIsBroken(true)}
-			width={input.attachment.width}
-		/>
-	);
 }
 
 function splitServerTruncationMarker(text: string): {

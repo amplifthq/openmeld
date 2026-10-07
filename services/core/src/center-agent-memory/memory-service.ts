@@ -19,6 +19,7 @@ import {
   type RecallCenterAgentOrganizationMemoryInput,
   type RememberCenterAgentTurnInput,
 } from "./contract";
+import { interleaveMemoryScopes } from "./memory-selection";
 
 export type CenterAgentMemoryService = {
   deleteMemberMemory(input: {
@@ -50,7 +51,6 @@ export type CenterAgentMemoryService = {
     updatedByUserId: string;
   }): Promise<CenterAgentMemoryPolicy>;
 };
-
 export function createCenterAgentMemoryService(input: {
   adapter: CenterAgentMemoryAdapter;
   logger?: CenterAgentMemoryLogger;
@@ -66,6 +66,35 @@ export function createCenterAgentMemoryService(input: {
     input.recallTimeoutMs ?? CENTER_AGENT_MEMORY_RECALL_TIMEOUT_MS;
   const writeTimeoutMs =
     input.writeTimeoutMs ?? CENTER_AGENT_MEMORY_WRITE_TIMEOUT_MS;
+
+  async function recallRetained(
+    recallInput:
+      | RecallCenterAgentMemoryForTurnInput
+      | RecallCenterAgentOrganizationMemoryInput
+  ) {
+    const refs = await input.repository.readActiveSubjects(recallInput);
+    const results = await Promise.all(
+      refs.map((ref) =>
+        recallMemory({
+          adapter: input.adapter,
+          limit: CENTER_AGENT_MEMORY_MAX_ITEMS,
+          logger,
+          query: recallInput.query,
+          ref,
+          timeoutMs: recallTimeoutMs,
+        })
+      )
+    );
+    const currentRefs = await input.repository.readActiveSubjects(recallInput);
+    const currentResults = results.filter((_, index) =>
+      currentRefs.some(
+        (current) =>
+          current.subjectId === refs[index]?.subjectId &&
+          current.updatedAtMs === refs[index]?.updatedAtMs
+      )
+    );
+    return projectMemoryEnvelope(interleaveMemoryScopes(currentResults));
+  }
 
   return {
     async deleteMemberMemory(deleteInput) {
@@ -102,7 +131,6 @@ export function createCenterAgentMemoryService(input: {
         throw error;
       }
     },
-
     async deleteOrganizationMemory(deleteInput) {
       const ref = buildCenterAgentOrganizationMemoryRef({
         organizationId: deleteInput.organizationId,
@@ -132,77 +160,15 @@ export function createCenterAgentMemoryService(input: {
         throw error;
       }
     },
-
     async recallForTurn(recallInput) {
-      const policy = await input.repository.readPolicy(
-        recallInput.organizationId
-      );
-      const memberRef = await input.repository.upsertMemberSubject({
-        memberId: recallInput.speakerMember.memberId,
-        nowMs: nowMs(),
-        organizationId: recallInput.organizationId,
-        userId: recallInput.speakerMember.userId,
-      });
-
-      const recallTasks = [
-        recallMemory({
-          adapter: input.adapter,
-          limit: CENTER_AGENT_MEMORY_MAX_ITEMS,
-          logger,
-          query: recallInput.query,
-          ref: memberRef,
-          timeoutMs: recallTimeoutMs,
-        }),
-      ];
-
-      if (policy.organizationMemoryOptIn) {
-        const organizationRef =
-          await input.repository.upsertOrganizationSubject({
-            nowMs: nowMs(),
-            organizationId: recallInput.organizationId,
-          });
-        recallTasks.push(
-          recallMemory({
-            adapter: input.adapter,
-            limit: CENTER_AGENT_MEMORY_MAX_ITEMS,
-            logger,
-            query: recallInput.query,
-            ref: organizationRef,
-            timeoutMs: recallTimeoutMs,
-          })
-        );
-      }
-
-      const results = (await Promise.all(recallTasks)).flat();
-      return projectMemoryEnvelope(results);
+      return await recallRetained(recallInput);
     },
-
     async recallForOrganization(recallInput) {
-      const policy = await input.repository.readPolicy(
-        recallInput.organizationId
-      );
-      if (!policy.organizationMemoryOptIn) {
-        return projectMemoryEnvelope([]);
-      }
-      const organizationRef = await input.repository.upsertOrganizationSubject({
-        nowMs: nowMs(),
-        organizationId: recallInput.organizationId,
-      });
-      const results = await recallMemory({
-        adapter: input.adapter,
-        limit: CENTER_AGENT_MEMORY_MAX_ITEMS,
-        logger,
-        query: recallInput.query,
-        ref: organizationRef,
-        timeoutMs: recallTimeoutMs,
-      });
-      return projectMemoryEnvelope(results);
+      return await recallRetained(recallInput);
     },
-
     async readOrganizationMemoryPolicy(organizationId) {
       return await input.repository.readPolicy(organizationId);
     },
-
     async rememberFactForOrganization(factInput) {
       const policy = await input.repository.readPolicy(
         factInput.organizationId
@@ -233,8 +199,12 @@ export function createCenterAgentMemoryService(input: {
         "center_agent_memory.organization_write_timeout"
       );
     },
-
     async rememberTurn(rememberInput) {
+      // Shared conversations require an explicit organization save. Never
+      // reinterpret shared chatter as a private member episode.
+      if (rememberInput.interactionEnvironment !== "requester_private") {
+        return;
+      }
       const episode = {
         assistantMessage: rememberInput.assistantMessage,
         captureMethod: "automatic_turn" as const,
@@ -248,53 +218,23 @@ export function createCenterAgentMemoryService(input: {
         userMessage: rememberInput.userMessage,
       };
 
-      if (rememberInput.interactionEnvironment === "requester_private") {
-        const memberRef = await input.repository.upsertMemberSubject({
-          memberId: rememberInput.speakerMember.memberId,
-          nowMs: nowMs(),
-          organizationId: rememberInput.organizationId,
-          userId: rememberInput.speakerMember.userId,
-        });
-        await withTimeout(
-          input.adapter.ensureMemberUser(memberRef),
-          writeTimeoutMs,
-          "center_agent_memory.member_ensure_timeout"
-        );
-        await withTimeout(
-          input.adapter.addEpisode({ episode, ref: memberRef }),
-          writeTimeoutMs,
-          "center_agent_memory.member_write_timeout"
-        );
-        return;
-      }
-
-      if (rememberInput.interactionEnvironment === "externally_shared") {
-        return;
-      }
-
-      const policy = await input.repository.readPolicy(
-        rememberInput.organizationId
-      );
-      if (!policy.organizationMemoryOptIn) {
-        return;
-      }
-
-      const organizationRef = await input.repository.upsertOrganizationSubject({
+      const memberRef = await input.repository.upsertMemberSubject({
+        memberId: rememberInput.speakerMember.memberId,
         nowMs: nowMs(),
         organizationId: rememberInput.organizationId,
+        userId: rememberInput.speakerMember.userId,
       });
       await withTimeout(
-        input.adapter.ensureOrganizationGraph(organizationRef),
+        input.adapter.ensureMemberUser(memberRef),
         writeTimeoutMs,
-        "center_agent_memory.organization_ensure_timeout"
+        "center_agent_memory.member_ensure_timeout"
       );
       await withTimeout(
-        input.adapter.addEpisode({ episode, ref: organizationRef }),
+        input.adapter.addEpisode({ episode, ref: memberRef }),
         writeTimeoutMs,
-        "center_agent_memory.organization_write_timeout"
+        "center_agent_memory.member_write_timeout"
       );
     },
-
     async setOrganizationMemoryPolicy(policyInput) {
       return await input.repository.upsertPolicy({
         nowMs: nowMs(),
@@ -305,7 +245,6 @@ export function createCenterAgentMemoryService(input: {
     },
   };
 }
-
 async function recallMemory(input: {
   adapter: CenterAgentMemoryAdapter;
   limit: number;
@@ -333,26 +272,25 @@ async function recallMemory(input: {
     return [];
   }
 }
-
 function truncateMemorySearchQuery(query: string): string {
   const normalized = query.trim();
   if (normalized.length <= CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS) {
     return normalized;
   }
-  return `${normalized.slice(
-    0,
-    CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS - 3
-  )}...`;
+  return `${normalized.slice(0, CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS - 3)}...`;
 }
-
 function projectMemoryEnvelope(
   results: CenterAgentMemorySearchResult[]
 ): RecallCenterAgentMemoryForTurnResult {
   const items: RecallCenterAgentMemoryForTurnResult["items"] = [];
   let remainingChars = CENTER_AGENT_MEMORY_MAX_ENVELOPE_TEXT_CHARS;
-  let truncated = results.length > CENTER_AGENT_MEMORY_MAX_ITEMS;
+  const candidates = results.filter((result) =>
+    normalizeMemoryText(result.text)
+  );
+  const selected = candidates.slice(0, CENTER_AGENT_MEMORY_MAX_ITEMS);
+  let truncated = candidates.length > selected.length;
 
-  for (const result of results.slice(0, CENTER_AGENT_MEMORY_MAX_ITEMS)) {
+  for (const [index, result] of selected.entries()) {
     const normalizedFact = normalizeMemoryText(result.text);
     if (!normalizedFact) {
       continue;
@@ -364,33 +302,20 @@ function projectMemoryEnvelope(
     });
     const itemText = truncateMemoryText(
       normalizedText,
-      CENTER_AGENT_MEMORY_MAX_ITEM_TEXT_CHARS
+      Math.min(
+        CENTER_AGENT_MEMORY_MAX_ITEM_TEXT_CHARS,
+        Math.floor(remainingChars / (selected.length - index))
+      )
     );
     if (itemText.truncated) {
       truncated = true;
     }
     const text = itemText.text;
-    if (text.length > remainingChars) {
-      if (remainingChars <= 40) {
-        truncated = true;
-        break;
-      }
-      items.push(
-        buildMemoryEnvelopeItem({
-          result,
-          text: truncateMemoryText(text, remainingChars).text,
-        })
-      );
-      truncated = true;
-      break;
-    }
     items.push(buildMemoryEnvelopeItem({ result, text }));
     remainingChars -= text.length;
   }
-
   return { items, truncated };
 }
-
 function buildMemoryEnvelopeItem(input: {
   result: CenterAgentMemorySearchResult;
   text: string;
@@ -414,7 +339,6 @@ function buildMemoryEnvelopeItem(input: {
     text: input.text,
   };
 }
-
 function formatMemoryText(input: {
   captureMethod: CenterAgentMemorySearchResult["captureMethod"];
   occurredAtMs: number;
@@ -424,16 +348,17 @@ function formatMemoryText(input: {
     input.captureMethod === "explicit_save" ? " [Explicitly saved]" : "";
   return `[Recorded ${new Date(input.occurredAtMs).toISOString()}]${captureLabel} ${input.text}`;
 }
-
 function normalizeMemoryText(value: string): string | null {
   const normalized = value.trim().replace(/\s+/gu, " ");
   return normalized.length > 0 ? normalized : null;
 }
-
 function truncateMemoryText(
   text: string,
   maxChars: number
-): { text: string; truncated: boolean } {
+): {
+  text: string;
+  truncated: boolean;
+} {
   if (text.length <= maxChars) {
     return { text, truncated: false };
   }
@@ -442,7 +367,7 @@ function truncateMemoryText(
     truncated: true,
   };
 }
-
+export { withTimeout as withCenterAgentMemoryTimeout };
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -454,7 +379,6 @@ async function withTimeout<T>(
       reject(new Error(reasonCode));
     }, timeoutMs);
   });
-
   try {
     return await Promise.race([promise, timeoutPromise]);
   } finally {
@@ -463,7 +387,6 @@ async function withTimeout<T>(
     }
   }
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

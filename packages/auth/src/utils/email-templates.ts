@@ -5,6 +5,8 @@ import {
   magicLinkContent,
   type OrganizationInvitationEmailProps,
   organizationInvitationContent,
+  type PasswordResetEmailProps,
+  passwordResetContent,
   type SpaceInvitationEmailProps,
   spaceInvitationContent,
   urgentInboxContent,
@@ -26,6 +28,9 @@ export function buildVerificationEmailContent(
 }
 export function buildMagicLinkEmailContent(input: MagicLinkEmailHtmlInput) {
   return renderActionEmail(magicLinkContent(input));
+}
+export function buildPasswordResetEmailContent(input: PasswordResetEmailProps) {
+  return renderActionEmail(passwordResetContent(input));
 }
 export function buildOrganizationInvitationEmailContent(
   input: OrganizationInvitationEmailInput

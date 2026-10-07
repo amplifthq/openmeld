@@ -3,6 +3,7 @@ import {
   type AgentProfileBindingProfileOwnerValidationResult,
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
+  getAgentControllerModelCatalogId,
   parseAgentControllerRef,
   type RuntimeAgentControllerReport,
   type RuntimeLookupInput,
@@ -23,7 +24,9 @@ import type {
   ModelCatalog,
   OpenCodePermissionConfig,
 } from "@openmeld/schemas/types";
-import { readModelCatalog as readCoreModelCatalog } from "../../config/model-catalog";
+import { resolveCurrentAgentModelAvailability } from "../../config/agent-model-availability";
+import { readAuthoredModelCatalog as readCoreModelCatalog } from "../../config/model-catalog";
+import { assertAgentControllerPermissionModeReleased } from "../../local-components/runtime-contract-rollout";
 import type { AcceptedRuntimeAgentControllerReport } from "../../runtime-registry/application/runtime-agent-controller-report-service";
 import {
   lookupRuntime,
@@ -374,6 +377,9 @@ export async function ensurePrimaryAgentProfileBinding(input: {
 
   const modelSelectionPatch = resolveModelSelectionPatch({
     agentControllerRef: localEvidence.agentControllerRef,
+    currentReport: currentReport.report,
+    nowMs: input.nowMs,
+    openMeldServiceRuntimeId: localEvidence.openMeldServiceRuntimeId.value,
     modelId: input.modelId,
     readModelCatalog: input.readModelCatalog,
     reasoningLevel: input.reasoningLevel,
@@ -588,6 +594,7 @@ export async function updatePrimaryAgentProfileBindingAgentControllerCollaborati
 }
 
 export async function updatePrimaryAgentProfileBindingModelSelection(input: {
+  runtimeAgentControllerReportStore?: RuntimeAgentControllerReportReadStore;
   agentProfileId: string;
   bindingStore: AgentProfileBindingCommandStore;
   modelId: string;
@@ -620,8 +627,31 @@ export async function updatePrimaryAgentProfileBindingModelSelection(input: {
     return rejectWith(["agent_profile_binding.primary_missing"]);
   }
 
+  let currentReport: AcceptedRuntimeAgentControllerReport | null = null;
+  if (
+    input.runtimeAgentControllerReportStore &&
+    !isHostedAgentControllerRef(currentBinding.agentControllerRef)
+  ) {
+    const evidence = await readMatchingAgentControllerReport({
+      agentControllerRef: currentBinding.agentControllerRef,
+      openMeldServiceRuntimeId: createAuthorityOpenMeldServiceRuntimeId({
+        openMeldServiceRuntimeId: currentBinding.openMeldServiceRuntimeId,
+        source: "runtime_registry_authority",
+      }),
+      runtimeAgentControllerReportStore:
+        input.runtimeAgentControllerReportStore,
+    });
+    if (evidence.status === "rejected") {
+      return evidence.result;
+    }
+    currentReport = evidence.report;
+  }
+
   const modelSelectionPatch = resolveModelSelectionPatch({
     agentControllerRef: currentBinding.agentControllerRef,
+    currentReport,
+    nowMs: input.nowMs,
+    openMeldServiceRuntimeId: currentBinding.openMeldServiceRuntimeId,
     modelId: input.modelId,
     readModelCatalog: input.readModelCatalog,
     reasoningLevel: input.reasoningLevel,
@@ -713,6 +743,9 @@ function resolveSettingsWriteCommandResult(
 
 function resolveModelSelectionPatch(input: {
   agentControllerRef: string;
+  currentReport?: AcceptedRuntimeAgentControllerReport | null;
+  nowMs: number;
+  openMeldServiceRuntimeId?: string | null;
   modelId?: string | null;
   readModelCatalog?: () => ModelCatalog;
   reasoningLevel?: string | null;
@@ -728,13 +761,36 @@ function resolveModelSelectionPatch(input: {
     const parsedControllerRef = parseAgentControllerRef(
       input.agentControllerRef
     );
+    const catalog = (input.readModelCatalog ?? readCoreModelCatalog)();
     const controller = parsedControllerRef
-      ? (input.readModelCatalog ?? readCoreModelCatalog)().agentControllers[
-          parsedControllerRef.id
+      ? catalog.agentControllers[
+          getAgentControllerModelCatalogId(parsedControllerRef)
         ]
       : undefined;
+    const availability = resolveCurrentAgentModelAvailability({
+      ...input,
+      modelId,
+      catalog,
+    });
+    // Keep unknown-ID diagnostics intact; retirement is about a known model.
+    if (
+      !availability.available &&
+      controller?.models.some((model) => model.id === modelId)
+    ) {
+      throw new AgentProfileBindingModelSelectionValidationError({
+        code: "agent_profile_binding.model_not_supported",
+        message: availability.message,
+      });
+    }
     const supportedModels =
-      controller?.models.filter((model) => !model.unavailable) ?? [];
+      controller?.models.filter(
+        (model) =>
+          resolveCurrentAgentModelAvailability({
+            ...input,
+            modelId: model.id,
+            catalog,
+          }).available
+      ) ?? [];
     const selectedModel = supportedModels.find((model) => model.id === modelId);
     if (!selectedModel) {
       throw new AgentProfileBindingModelSelectionValidationError({
@@ -866,6 +922,7 @@ function resolveAgentControllerPermissionModePatch(input: {
       status: "rejected",
     };
   }
+  assertAgentControllerPermissionModeReleased(parsed.data);
   return {
     patch: {
       agentControllerPermissionMode: parsed.data,

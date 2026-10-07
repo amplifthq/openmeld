@@ -3,8 +3,10 @@ import { profileSchema } from "./profile";
 
 export const helloCapabilitiesSchema = z.object({
   agentReplyPlacement: z.boolean().optional(),
+  agentWorkOutcomes: z.boolean().optional(),
   liveSignalHistory: z.boolean().optional(),
   spaceMessageAddressing: z.boolean().optional(),
+  spaceImageGeometry: z.boolean().optional(),
 });
 
 export const helloSchema = z.object({

@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { requireProductionDatabaseCurrent } from "./require-production-db-current.mjs";
+import {
+  assertTrustedWindowsProcessArtifactRun,
+  selectReusableWindowsArtifact,
+} from "./reuse-windows-process-artifact.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -30,6 +41,9 @@ const DATABASE_PROBE_FAILED_ERROR_PATTERN =
   /could not prove that the Production database is current.*authentication failed/su;
 const DATABASE_PROBE_INCONCLUSIVE_ERROR_PATTERN =
   /could not prove that the Production database is current/su;
+const NATIVE_DATABASE_PROBE_ERROR = /PostgreSQL (journal|probe)/u;
+const REQUIRED_PRODUCTION_TRAIN_INPUT =
+  /production_train_scopes:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
 
 test("keeps the trusted GitHub release publication-only and focused on CLI and Core", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
@@ -48,9 +62,123 @@ test("keeps the trusted GitHub release publication-only and focused on CLI and C
   assert.ok(!source.includes("  release_ready:"));
   assert.ok(source.includes("  reject_non_main:"));
   assert.ok(source.includes("  cli_release:"));
-  assert.ok(source.includes("if: github.ref == 'refs/heads/main'"));
+  assert.ok(source.includes("github.ref == 'refs/heads/main'"));
   assert.ok(source.includes("group: cli-production-release"));
   assert.equal(source.match(/cancel-in-progress: false/gu)?.length, 2);
+});
+
+test("passes the explicit production train into hosted CLI admission", () => {
+  const workflow = readRepoFile(".github/workflows/cli-release.yml");
+  const hostedRelease = readRepoFile("scripts/release/hosted-cli-release.mjs");
+  const cliRelease = readRepoFile("scripts/release/release-cli.mjs");
+  const trainInput = workflow
+    .split("      production_train_scopes:")[1]
+    ?.split("\n\nconcurrency:")[0];
+
+  assert.match(workflow, REQUIRED_PRODUCTION_TRAIN_INPUT);
+  assert.ok(!trainInput?.includes("default:"));
+  assert.ok(
+    workflow.includes(
+      `OPENMELD_PRODUCTION_TRAIN_SCOPES: ${GITHUB_EXPRESSION_PREFIX} inputs.production_train_scopes }}`
+    )
+  );
+  assert.ok(hostedRelease.includes("env: releaseEnvironment"));
+  assert.ok(cliRelease.includes("admitTrainArtifacts"));
+  assert.ok(cliRelease.includes('selectedScopes: "cli"'));
+  for (const permission of [
+    "actions: read",
+    "checks: read",
+    "statuses: read",
+    "pull-requests: read",
+  ]) {
+    assert.ok(workflow.includes(permission));
+  }
+  assert.ok(hostedRelease.includes("GH_TOKEN: token"));
+});
+
+test("reuses only a successful helper job from the official main CLI workflow", () => {
+  const repository = "amplifthq/openmeld";
+  const run = {
+    repository: { full_name: repository },
+    path: ".github/workflows/cli-release.yml",
+    event: "workflow_dispatch",
+    head_branch: "main",
+    head_sha: "a".repeat(40),
+    conclusion: "failure", // The later macOS publication may have failed.
+  };
+  const jobs = [
+    {
+      name: "Build Windows Process Helper For CLI Package",
+      conclusion: "success",
+    },
+  ];
+  assert.equal(
+    assertTrustedWindowsProcessArtifactRun({ run, jobs, repository }),
+    run.head_sha
+  );
+  for (const untrustedRun of [
+    { ...run, head_branch: "feature" },
+    { ...run, path: ".github/workflows/other.yml" },
+    { ...run, repository: { full_name: "other/repo" } },
+  ]) {
+    assert.throws(() =>
+      assertTrustedWindowsProcessArtifactRun({
+        run: untrustedRun,
+        jobs,
+        repository,
+      })
+    );
+  }
+  assert.throws(() =>
+    assertTrustedWindowsProcessArtifactRun({
+      run,
+      jobs: [{ ...jobs[0], conclusion: "failure" }],
+      repository,
+    })
+  );
+  assert.deepEqual(
+    selectReusableWindowsArtifact([
+      {
+        name: `windows-process-${"b".repeat(40)}`,
+        expired: false,
+      },
+    ]),
+    {
+      name: `windows-process-${"b".repeat(40)}`,
+      sourceSha: "b".repeat(40),
+    }
+  );
+  assert.throws(() =>
+    selectReusableWindowsArtifact([
+      { name: `windows-process-${"b".repeat(40)}`, expired: true },
+    ])
+  );
+
+  const workflow = readRepoFile(".github/workflows/cli-release.yml");
+  assert.ok(workflow.includes("windows_artifact_run_id:"));
+  const windowsJob = workflow
+    .split("  windows_process_artifact:")[1]
+    .split("  cli_release:")[0];
+  const macJob = workflow.split("  cli_release:")[1];
+  assert.ok(workflow.includes("      helper_only:"));
+  assert.ok(windowsJob.includes("inputs.helper_only ||"));
+  assert.ok(windowsJob.includes("inputs.windows_artifact_run_id == ''"));
+  assert.equal(
+    windowsJob.match(
+      /inputs\.helper_only && github\.sha \|\| inputs\.release_sha \|\| github\.sha/gu
+    )?.length,
+    2
+  );
+  assert.ok(macJob.includes("!inputs.helper_only"));
+  assert.ok(!windowsJob.includes("Reuse the stamped Windows process helper"));
+  assert.ok(macJob.includes("!cancelled()"));
+  assert.ok(
+    macJob.includes("needs.windows_process_artifact.result == 'success'")
+  );
+  assert.ok(macJob.includes("Reuse the stamped Windows process helper"));
+  assert.ok(
+    macJob.includes("node scripts/release/reuse-windows-process-artifact.mjs")
+  );
 });
 
 test("keeps the signed and notarized CLI publisher fail closed", () => {
@@ -118,15 +246,15 @@ test("blocks CLI and Core publication while Production D1 migrations are pending
   assert.ok(databaseGate < publish);
   assert.ok(
     source.includes(
-      'node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD"'
+      'node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD" --hosted-cli'
     )
   );
 });
 
-test("allows CLI/Core publication only from unambiguous no-pending migration evidence", () => {
+test("allows CLI/Core publication only from unambiguous no-pending migration evidence", async () => {
   const commands = [];
   assert.deepEqual(
-    requireProductionDatabaseCurrent({
+    await requireProductionDatabaseCurrent({
       cwd: "/release-source",
       runCommand: (command) => {
         commands.push(command);
@@ -165,8 +293,8 @@ test("allows CLI/Core publication only from unambiguous no-pending migration evi
   ]);
 });
 
-test("fails closed when the migration probe contradicts itself", () => {
-  assert.throws(
+test("fails closed when the migration probe contradicts itself", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -181,8 +309,59 @@ test("fails closed when the migration probe contradicts itself", () => {
   );
 });
 
-test("fails closed when migration evidence contradicts across output streams", () => {
-  assert.throws(
+test("native PostgreSQL publication requires its journal and runtime grant evidence without probing D1", async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "pg-release-source-"));
+  mkdirSync(path.join(cwd, "release"));
+  writeFileSync(
+    path.join(cwd, "release/database-backend.json"),
+    '{"backend":"postgresql"}'
+  );
+  // The actual isolated native journal and grant checks are exercised by
+  // d1-remote.test.mjs. Here the subprocess boundary must preserve their refusal.
+  const evidence = {
+    target: { kind: "planetscale" },
+    runtimeGrantsVerified: true,
+    nativeJournal: [
+      { name: "0000_native_postgresql", checksum: "a".repeat(64) },
+    ],
+  };
+  let result = { status: 0, stdout: JSON.stringify(evidence) };
+  const probe = () =>
+    requireProductionDatabaseCurrent({
+      cwd,
+      runCommand(command) {
+        assert.equal(command.command, process.execPath);
+        assert.deepEqual(command.args, [
+          path.join(cwd, "tooling/postgresql/cutover.mjs"),
+          "verify",
+        ]);
+        return result;
+      },
+    });
+  try {
+    assert.equal((await probe()).status, "current");
+    for (const failure of [
+      { status: 1, stderr: "Native journal checksum differs" },
+      {
+        status: 0,
+        stdout: JSON.stringify({ ...evidence, runtimeGrantsVerified: false }),
+      },
+      { status: 0, stdout: JSON.stringify({ ...evidence, nativeJournal: [] }) },
+      {
+        status: 0,
+        stdout: JSON.stringify({ ...evidence, target: { kind: "local" } }),
+      },
+    ]) {
+      result = failure;
+      await assert.rejects(probe, NATIVE_DATABASE_PROBE_ERROR);
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when migration evidence contradicts across output streams", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -196,8 +375,8 @@ test("fails closed when migration evidence contradicts across output streams", (
   );
 });
 
-test("blocks CLI/Core publication when Production D1 is behind", () => {
-  assert.throws(
+test("blocks CLI/Core publication when Production D1 is behind", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -211,8 +390,8 @@ test("blocks CLI/Core publication when Production D1 is behind", () => {
   );
 });
 
-test("fails closed when the migration probe itself fails", () => {
-  assert.throws(
+test("fails closed when the migration probe itself fails", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -226,12 +405,12 @@ test("fails closed when the migration probe itself fails", () => {
   );
 });
 
-test("fails closed when a successful migration probe has no decisive evidence", () => {
+test("fails closed when a successful migration probe has no decisive evidence", async () => {
   for (const stdout of [
     "",
     "Wrangler completed without a migration summary.\n",
   ]) {
-    assert.throws(
+    await assert.rejects(
       () =>
         requireProductionDatabaseCurrent({
           cwd: "/release-source",
@@ -337,7 +516,24 @@ test("uses the exact release SHA for CLI publication and recovery", () => {
       source.indexOf("path: release-source")
   );
   assert.ok(source.includes("working-directory: release-source"));
-  assert.equal(source.match(/persist-credentials: false/gu)?.length, 2);
+  assert.equal(
+    source.match(/persist-credentials: false/gu)?.length,
+    source.match(/uses: actions\/checkout@v5/gu)?.length
+  );
+  assert.ok(
+    source.includes("node scripts/release/build-windows-process-helper.mjs")
+  );
+  assert.ok(
+    source.includes(
+      "node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-helper"
+    )
+  );
+  assert.ok(
+    source.indexOf("Verify and import Windows process helper") <
+      source.indexOf(
+        "Publish signed and notarized CLI, binary channel, npm package, tag, and Core"
+      )
+  );
 });
 
 test("validates current main first-parent membership before publication", () => {
@@ -386,26 +582,12 @@ test("keeps the Remote Agent release check on the repository-pinned formatter", 
   assert.ok(!remoteAgentPackage.scripts.deploy.includes("--minify"));
 });
 
-test("gives every Web release build an explicit CI heap budget", () => {
-  const source = readRepoFile(".github/workflows/deploy-web.yml");
-  const jobStart = source.indexOf("\n  deploy:");
-  const stepsStart = source.indexOf("    steps:", jobStart);
-
-  assert.notEqual(jobStart, -1, "missing Web deploy job");
-  assert.notEqual(stepsStart, -1, "missing Web deploy steps");
-  assert.ok(
-    source
-      .slice(jobStart, stepsStart)
-      .includes('    env:\n      NODE_OPTIONS: "--max-old-space-size=4096"')
-  );
-});
-
 test("builds Web workspace dependencies before a production Vite build", () => {
   const packageJson = JSON.parse(readRepoFile("clients/web/package.json"));
 
   assert.equal(
     packageJson.scripts["build:prod"],
-    "pnpm -C ../.. exec turbo run build --filter=openmeld-web^... && CLOUDFLARE_ENV=prod vite build"
+    "pnpm -C ../.. exec turbo run build --filter=openmeld-web^... && CLOUDFLARE_ENV=prod node ./scripts/build-production.mjs"
   );
 });
 

@@ -1,94 +1,194 @@
 import { defineSkill, type SkillDefinition } from "@flue/runtime";
 import {
-  organizationSkillRuntimeSnapshotResponseSchema,
-  stringifyOrganizationSkillBundleCanonicalJson,
+  organizationSkillRuntimeCatalogResponseSchema,
+  readOrganizationSkillRuntimeResourceResponseSchema,
 } from "@openmeld/schemas";
-import type {
-  OrganizationSkillFile,
-  OrganizationSkillRuntimeRelease,
-  OrganizationSkillRuntimeReleaseSelection,
-} from "@openmeld/schemas/types";
+import type { OrganizationSkillRuntimeReleaseSelection } from "@openmeld/schemas/types";
+import {
+  maxLength,
+  minLength,
+  optional,
+  parse,
+  pipe,
+  strictObject,
+  string,
+} from "valibot";
 import type {
   RemoteAgentCallbackContext,
   RemoteAgentCoreWorkerBinding,
 } from "../agent-core/callback-context";
 import { callCoreRpc } from "../agent-core/core-rpc";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
+import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 
-export async function materializeOrganizationSkillFlueSkills(input: {
+const readSkillResourceInputSchema = strictObject({
+  path: pipe(string(), minLength(1), maxLength(1024)),
+  skillName: pipe(string(), minLength(1), maxLength(64)),
+});
+
+const searchSkillCatalogInputSchema = strictObject({
+  query: optional(pipe(string(), maxLength(400))),
+});
+export function createOrganizationSkillCatalogTool(input: {
+  context: RemoteAgentCallbackContext;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+}): RemoteAgentToolDefinition {
+  return {
+    name: "openmeld_search_task_skills",
+    description:
+      "List or search the current task's frozen Skill releases, including entries omitted from the prompt. Returns metadata; activate a matching Skill to read its instructions. Uses current permissions and never substitutes latest.",
+    input: searchSkillCatalogInputSchema,
+    execute: async (payload) => {
+      const { query } = parse(searchSkillCatalogInputSchema, payload);
+      const response = await callCoreRpc(
+        input.coreWorker,
+        "readOrganizationSkillRuntimeCatalog",
+        {
+          context: buildRemoteAgentCoreContext(
+            input.context,
+            `task-skill-search:${input.context.submissionId}`
+          ),
+          releases: input.context.organizationSkillReleases ?? [],
+          skipUnavailableSelectedReleases: true,
+          ...(input.context.conversationIdentity?.kind === "personal_agent"
+            ? { preparationIdempotencyKey: input.context.idempotencyKey }
+            : {}),
+        },
+        (binding, request) =>
+          binding.readOrganizationSkillRuntimeCatalog?.(request)
+      );
+      const catalog =
+        organizationSkillRuntimeCatalogResponseSchema.parse(response);
+      if (catalog.organizationId !== input.context.organizationId) {
+        throw new Error("Skill catalog Organization changed.");
+      }
+      const needle = query?.trim().toLowerCase() ?? "";
+      return {
+        skills: catalog.releases
+          .filter((release) =>
+            `${release.portable.name} ${release.portable.description}`
+              .toLowerCase()
+              .includes(needle)
+          )
+          .map((release) => ({
+            name: release.portable.name,
+            description: release.portable.description,
+            releaseId: release.releaseId,
+            digest: release.digest,
+          })),
+      };
+    },
+  };
+}
+
+export function createOrganizationSkillResourceTool(input: {
+  context: RemoteAgentCallbackContext;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+}): RemoteAgentToolDefinition {
+  return {
+    name: "openmeld_read_skill_resource",
+    description:
+      "Read one resource from a Skill enabled for this Agent's current task. Pass the Skill name and exact relative resource path listed in its activated instructions. Reads the pinned version with current Team permissions.",
+    input: readSkillResourceInputSchema,
+    execute: async (payload) => {
+      const request = parse(readSkillResourceInputSchema, payload);
+      const release = input.context.organizationSkillReleases?.find(
+        (candidate) => candidate.name === request.skillName
+      );
+      if (!release) {
+        throw new Error("The selected Skill is not available in this task.");
+      }
+      const response = await callCoreRpc(
+        input.coreWorker,
+        "readOrganizationSkillRuntimeResource",
+        {
+          context: buildRemoteAgentCoreContext(
+            input.context,
+            `remote-agent-skill-resource:${input.context.submissionId}:${release.skillId}`
+          ),
+          path: request.path,
+          ...(input.context.conversationIdentity?.kind === "personal_agent"
+            ? { preparationIdempotencyKey: input.context.idempotencyKey }
+            : {}),
+          release,
+        },
+        (binding, rpcInput) =>
+          binding.readOrganizationSkillRuntimeResource?.(rpcInput)
+      );
+      return readOrganizationSkillRuntimeResourceResponseSchema.parse(response);
+    },
+  };
+}
+
+export function materializeOrganizationSkillFlueSkillsFromCatalog(input: {
+  allowUnavailableSelections?: boolean;
   expectedOrganizationId: string;
   selections: readonly OrganizationSkillRuntimeReleaseSelection[];
-  snapshot: unknown;
-}): Promise<SkillDefinition[]> {
-  const snapshot = organizationSkillRuntimeSnapshotResponseSchema.parse(
-    input.snapshot
+  catalog: unknown;
+}): SkillDefinition[] {
+  const catalog = organizationSkillRuntimeCatalogResponseSchema.parse(
+    input.catalog
   );
-  if (snapshot.organizationId !== input.expectedOrganizationId) {
+  if (
+    catalog.organizationId !== input.expectedOrganizationId ||
+    catalog.releases.length > input.selections.length ||
+    (!input.allowUnavailableSelections &&
+      catalog.releases.length !== input.selections.length)
+  ) {
     throw new Error(
-      "Organization Skill runtime snapshot belongs to another Organization."
+      "Organization Skill catalog does not match the admitted task."
     );
   }
-  if (snapshot.releases.length !== input.selections.length) {
+  const selectionsByIdentity = new Map(
+    input.selections.map((selection) => [
+      buildReleaseIdentity(selection),
+      selection,
+    ])
+  );
+  if (selectionsByIdentity.size !== input.selections.length) {
     throw new Error(
-      "Organization Skill runtime snapshot does not match the frozen release selection."
+      "Organization Skill selection contains a duplicate release."
     );
   }
-
-  const releasesByIdentity = new Map<string, OrganizationSkillRuntimeRelease>();
-  for (const release of snapshot.releases) {
-    const key = buildReleaseIdentity(release);
-    if (releasesByIdentity.has(key)) {
+  const seen = new Set<string>();
+  return catalog.releases.map((release) => {
+    const identity = buildReleaseIdentity(release);
+    const selection = selectionsByIdentity.get(identity);
+    if (
+      !selection ||
+      seen.has(identity) ||
+      release.digest !== selection.digest ||
+      release.portable.name !== selection.name
+    ) {
       throw new Error(
-        "Organization Skill runtime snapshot contains a duplicate release."
+        `Organization Skill release ${release.releaseId} does not match the admitted task.`
       );
     }
-    releasesByIdentity.set(key, release);
-  }
-
-  const skillNames = new Set<string>();
-  const skills: SkillDefinition[] = [];
-  for (const selection of input.selections) {
-    if (skillNames.has(selection.name)) {
-      throw new Error(
-        "Organization Skill runtime selection contains a duplicate Skill name."
-      );
-    }
-    skillNames.add(selection.name);
-
-    const release = releasesByIdentity.get(buildReleaseIdentity(selection));
-    if (!release) {
-      throw new Error(
-        `Organization Skill release ${selection.releaseId} is unavailable.`
-      );
-    }
-    if (release.digest !== selection.digest) {
-      throw new Error(
-        `Organization Skill release ${selection.releaseId} changed after admission.`
-      );
-    }
-    if (release.bundle.portable.name !== selection.name) {
-      throw new Error(
-        `Organization Skill release ${selection.releaseId} has a mismatched name.`
-      );
-    }
-    const actualDigest = await sha256Hex(
-      stringifyOrganizationSkillBundleCanonicalJson(release.bundle)
-    );
-    if (actualDigest !== selection.digest) {
-      throw new Error(
-        `Organization Skill release ${selection.releaseId} failed its integrity check.`
-      );
-    }
-
-    skills.push(defineSkill(buildFlueSkillDefinition(release, selection.name)));
-    releasesByIdentity.delete(buildReleaseIdentity(selection));
-  }
-  if (releasesByIdentity.size > 0) {
-    throw new Error(
-      "Organization Skill runtime snapshot contains an unexpected release."
-    );
-  }
-  return skills;
+    seen.add(identity);
+    const resources = release.files
+      .map((file) => `- ${file.path} (${file.mediaType}, ${file.size} bytes)`)
+      .join("\n");
+    return defineSkill({
+      name: selection.name,
+      description: release.portable.description.slice(
+        0,
+        Math.max(1, Math.floor(2000 / catalog.releases.length))
+      ),
+      instructions:
+        resources.length > 0
+          ? `${release.instructions}\n\nResources in this Skill version:\n${resources}\n\nRead a needed resource with openmeld_read_skill_resource using skillName="${selection.name}" and its exact path.`
+          : release.instructions,
+      ...(release.portable.compatibility
+        ? { compatibility: release.portable.compatibility }
+        : {}),
+      ...(release.portable.license
+        ? { license: release.portable.license }
+        : {}),
+      ...(Object.keys(release.portable.metadata).length > 0
+        ? { metadata: release.portable.metadata }
+        : {}),
+    });
+  });
 }
 
 export async function recordOrganizationSkillActivation(input: {
@@ -141,51 +241,9 @@ export async function recordOrganizationSkillActivation(input: {
   }
 }
 
-export function buildFlueSkillDefinition(
-  release: OrganizationSkillRuntimeRelease,
-  name: string
-): SkillDefinition {
-  const { portable } = release.bundle;
-  return {
-    ...(portable.compatibility
-      ? { compatibility: portable.compatibility }
-      : {}),
-    description: portable.description,
-    files: Object.fromEntries(
-      release.bundle.files.map((file) => [file.path, decodeSkillFile(file)])
-    ),
-    instructions: release.bundle.instructions,
-    ...(portable.license ? { license: portable.license } : {}),
-    // Flue 2.0.3 serializes an empty map as a bare YAML scalar, which its
-    // activation parser rejects. Omit optional metadata when there is none.
-    ...(Object.keys(portable.metadata).length > 0
-      ? { metadata: portable.metadata }
-      : {}),
-    name,
-  };
-}
-
-function decodeSkillFile(file: OrganizationSkillFile): string | Uint8Array {
-  if (file.encoding === "utf8") {
-    return file.content;
-  }
-  const decoded = atob(file.content);
-  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
-}
-
 function buildReleaseIdentity(input: {
   releaseId: string;
   skillId: string;
 }): string {
   return `${input.skillId}\0${input.releaseId}`;
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value)
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
 }

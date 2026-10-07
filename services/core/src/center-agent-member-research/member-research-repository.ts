@@ -1,10 +1,10 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildCenterAgentProfileReportComputerPath,
   centerAgentMemberResearchBatchSchema,
 } from "@openmeld/schemas";
 import type { CenterAgentMemberResearchBatch } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../rpc/errors";
-
 export type ResearchBatchRow = {
   created_at_ms: number;
   direct_message_space_id: string;
@@ -18,7 +18,6 @@ export type ResearchBatchRow = {
   status: "completed" | "queued" | "running";
   updated_at_ms: number;
 };
-
 export type ResearchTaskRow = {
   batch_id: string;
   created_at_ms: number;
@@ -31,46 +30,43 @@ export type ResearchTaskRow = {
   subject_display_name: string;
   subject_user_id: string;
 };
-
 export type ResearchSubject = {
   displayName: string;
   userId: string;
 };
-
 export type ResearchRequester = {
   displayName: string;
   memberId: string;
   profileId: string;
   userId: string;
 };
-
 export async function readResearchRequester(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileId: string;
   userId: string;
 }): Promise<ResearchRequester | null> {
   const row = await input.db
-    .prepare(
-      `
-        SELECT m.id AS member_id, p.profile_id, p.profile_name
-        FROM members m
-        INNER JOIN openmeld_profiles p
-          ON p.owner_user_id = m.user_id
-          AND p.profile_kind = 'human'
-          AND p.status = 'active'
-        WHERE m.organization_id = ?
-          AND m.user_id = ?
-          AND p.profile_id = ?
-        LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.userId, input.profileId)
-    .first<{
+    .query<{
       member_id: string;
       profile_id: string;
       profile_name: string;
-    }>();
+    }>({
+      text: `
+        SELECT m.id AS member_id, p.profile_id, p.profile_name
+        FROM "openmeld"."members" m
+        INNER JOIN "openmeld"."openmeld_profiles" p
+          ON p.owner_user_id = m.user_id
+          AND p.profile_kind = 'human'
+          AND p.status = 'active'
+        WHERE m.organization_id = $1
+          AND m.user_id = $2
+          AND p.profile_id = $3
+        LIMIT 1
+      `,
+      values: [input.organizationId, input.userId, input.profileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row
     ? {
         displayName: row.profile_name,
@@ -80,15 +76,14 @@ export async function readResearchRequester(input: {
       }
     : null;
 }
-
 export async function readResearchSubjects(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   subjectUserId?: string;
 }): Promise<ResearchSubject[]> {
-  const whereSubject = input.subjectUserId ? "AND m.user_id = ?" : "";
-  const statement = input.db.prepare(
-    `
+  const whereSubject = input.subjectUserId ? "AND m.user_id = $2" : "";
+  const statement = {
+    text: `
       SELECT
         m.user_id,
         COALESCE(
@@ -97,56 +92,66 @@ export async function readResearchSubjects(input: {
           NULLIF(trim(u.email), ''),
           m.user_id
         ) AS display_name
-      FROM members m
-      INNER JOIN users u ON u.id = m.user_id
-      LEFT JOIN openmeld_profiles p
+      FROM "openmeld"."members" m
+      INNER JOIN "openmeld"."users" u ON u.id = m.user_id
+      LEFT JOIN "openmeld"."openmeld_profiles" p
         ON p.owner_user_id = m.user_id
         AND p.profile_kind = 'human'
         AND p.is_default = 1
         AND p.status = 'active'
-      WHERE m.organization_id = ?
+      WHERE m.organization_id = $1
         ${whereSubject}
-      ORDER BY lower(display_name) ASC, m.user_id ASC
-    `
+      ORDER BY lower(COALESCE(NULLIF(trim(p.profile_name), ''), NULLIF(trim(u.name), ''), NULLIF(trim(u.email), ''), m.user_id)) ASC NULLS FIRST, m.user_id ASC NULLS FIRST
+    `,
+    values: [],
+  };
+  const result = await input.db.query<{
+    display_name: string;
+    user_id: string;
+  }>(
+    input.subjectUserId
+      ? {
+          ...statement,
+          values: [input.organizationId, input.subjectUserId],
+        }
+      : {
+          ...statement,
+          values: [input.organizationId],
+        }
   );
-  const result = await (input.subjectUserId
-    ? statement.bind(input.organizationId, input.subjectUserId)
-    : statement.bind(input.organizationId)
-  ).all<{ display_name: string; user_id: string }>();
-  return result.results.map((row) => ({
+  return result.rows.map((row) => ({
     displayName: row.display_name,
     userId: row.user_id,
   }));
 }
-
 export async function readActiveResearchBatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<ResearchBatchRow | null> {
   return await input.db
-    .prepare(
-      `
-        SELECT * FROM center_agent_member_research_batches
-        WHERE organization_id = ? AND status IN ('queued', 'running')
+    .query<ResearchBatchRow>({
+      text: `
+        SELECT * FROM "openmeld"."center_agent_member_research_batches"
+        WHERE organization_id = $1 AND status IN ('queued', 'running')
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<ResearchBatchRow>();
+      `,
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 export async function readStoredResearchBatch(input: {
   batchId: string;
-  db: D1Database;
+  db: PostgresDatabase;
 }): Promise<ResearchBatchRow | null> {
   return await input.db
-    .prepare("SELECT * FROM center_agent_member_research_batches WHERE id = ?")
-    .bind(input.batchId)
-    .first<ResearchBatchRow>();
+    .query<ResearchBatchRow>({
+      text: 'SELECT * FROM "openmeld"."center_agent_member_research_batches" WHERE id = $1',
+      values: [input.batchId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 export async function isCenterAgentMemberResearchDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   idempotencyKey: string;
   organizationId: string;
@@ -160,43 +165,42 @@ export async function isCenterAgentMemberResearchDelivery(input: {
     return false;
   }
   const task = await input.db
-    .prepare(
-      `
+    .query<{
+      1: number;
+    }>({
+      text: `
         SELECT 1
-        FROM center_agent_member_research_tasks task
-        INNER JOIN center_agent_member_research_batches batch
+        FROM "openmeld"."center_agent_member_research_tasks" task
+        INNER JOIN "openmeld"."center_agent_member_research_batches" batch
           ON batch.id = task.batch_id
-        WHERE task.id = ?
+        WHERE task.id = $1
           AND task.status = 'running'
-          AND batch.organization_id = ?
-          AND batch.direct_message_space_id = ?
+          AND batch.organization_id = $2
+          AND batch.direct_message_space_id = $3
         LIMIT 1
-      `
-    )
-    .bind(input.dispatchId, input.organizationId, input.spaceId)
-    .first<{ 1: number }>();
+      `,
+      values: [input.dispatchId, input.organizationId, input.spaceId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return Boolean(task);
 }
-
 export async function readResearchBatchById(input: {
   batchId: string;
-  db: D1Database;
+  db: PostgresDatabase;
 }): Promise<CenterAgentMemberResearchBatch | null> {
   const batch = await readStoredResearchBatch(input);
   if (!batch) {
     return null;
   }
-  const taskResult = await input.db
-    .prepare(
-      `
-        SELECT * FROM center_agent_member_research_tasks
-        WHERE batch_id = ?
-        ORDER BY position ASC
-      `
-    )
-    .bind(input.batchId)
-    .all<ResearchTaskRow>();
-  const tasks = taskResult.results;
+  const taskResult = await input.db.query<ResearchTaskRow>({
+    text: `
+        SELECT * FROM "openmeld"."center_agent_member_research_tasks"
+        WHERE batch_id = $1
+        ORDER BY position ASC NULLS FIRST
+      `,
+    values: [input.batchId],
+  });
+  const tasks = taskResult.rows;
   return centerAgentMemberResearchBatchSchema.parse({
     completedCount: tasks.filter((task) => task.status === "completed").length,
     createdAt: new Date(batch.created_at_ms).toISOString(),
@@ -225,9 +229,8 @@ export async function readResearchBatchById(input: {
     updatedAt: new Date(batch.updated_at_ms).toISOString(),
   });
 }
-
 export async function requireCenterAgentMemberResearchDraftTarget(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   documentId?: string;
   kind?: string;
   organizationId: string;
@@ -236,25 +239,27 @@ export async function requireCenterAgentMemberResearchDraftTarget(input: {
   taskId: string;
 }): Promise<void> {
   const task = await input.db
-    .prepare(
-      `
+    .query<{
+      subject_user_id: string;
+    }>({
+      text: `
         SELECT task.subject_user_id
-        FROM center_agent_member_research_tasks task
-        INNER JOIN center_agent_member_research_batches batch
+        FROM "openmeld"."center_agent_member_research_tasks" task
+        INNER JOIN "openmeld"."center_agent_member_research_batches" batch
           ON batch.id = task.batch_id
-        INNER JOIN openMeldRemoteAgent_native_delivery_ledger delivery
+        INNER JOIN "openmeld"."openMeldRemoteAgent_native_delivery_ledger" delivery
           ON delivery.idempotency_key = task.id
-        WHERE task.id = ?
+        WHERE task.id = $1
           AND task.status = 'running'
-          AND batch.organization_id = ?
+          AND batch.organization_id = $2
           AND delivery.organization_id = batch.organization_id
-          AND delivery.submission_id = ?
+          AND delivery.submission_id = $3
           AND delivery.status IN ('accepted', 'retry_observed')
         LIMIT 1
-      `
-    )
-    .bind(input.taskId, input.organizationId, input.submissionId)
-    .first<{ subject_user_id: string }>();
+      `,
+      values: [input.taskId, input.organizationId, input.submissionId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!task) {
     throw createCoreRpcHttpError({
       code: "center_agent_member_research.draft_task_mismatch",
@@ -276,9 +281,8 @@ export async function requireCenterAgentMemberResearchDraftTarget(input: {
     status: 409,
   });
 }
-
 export async function recordCenterAgentMemberResearchComputerFile(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   documentId: string;
   nowMs: number;
   organizationId: string;
@@ -286,51 +290,55 @@ export async function recordCenterAgentMemberResearchComputerFile(input: {
   subjectUserId: string;
   submissionId: string;
   taskId: string;
-}): Promise<{ documentId: string; path: string; taskId: string }> {
+}): Promise<{
+  documentId: string;
+  path: string;
+  taskId: string;
+}> {
   const document = await input.db
-    .prepare(
-      `
+    .query<{
+      profile_report_folder_name: string;
+      subject_user_id: string;
+      title: string;
+    }>({
+      text: `
         SELECT
           documents.subject_user_id,
           documents.title,
           person.name AS profile_report_folder_name
-        FROM organization_documents documents
-        INNER JOIN organization_document_folders person
+        FROM "openmeld"."organization_documents" documents
+        INNER JOIN "openmeld"."organization_document_folders" person
           ON person.id = documents.folder_id
          AND person.organization_id = documents.organization_id
-        INNER JOIN center_agent_member_research_tasks task
+        INNER JOIN "openmeld"."center_agent_member_research_tasks" task
           ON task.id = documents.last_member_research_task_id
-        INNER JOIN center_agent_member_research_batches batch
+        INNER JOIN "openmeld"."center_agent_member_research_batches" batch
           ON batch.id = task.batch_id
-        INNER JOIN openMeldRemoteAgent_native_delivery_ledger delivery
+        INNER JOIN "openmeld"."openMeldRemoteAgent_native_delivery_ledger" delivery
           ON delivery.idempotency_key = task.id
-        WHERE documents.id = ?
-          AND documents.organization_id = ?
+        WHERE documents.id = $1
+          AND documents.organization_id = $2
           AND documents.kind = 'member_profile'
-          AND documents.subject_user_id = ?
-          AND documents.last_member_research_task_id = ?
+          AND documents.subject_user_id = $3
+          AND documents.last_member_research_task_id = $4
           AND person.system_kind = 'profile_reports_person'
           AND person.subject_user_id = documents.subject_user_id
           AND task.status = 'running'
           AND batch.organization_id = documents.organization_id
           AND delivery.organization_id = batch.organization_id
-          AND delivery.submission_id = ?
+          AND delivery.submission_id = $5
           AND delivery.status IN ('accepted', 'retry_observed')
         LIMIT 1
-      `
-    )
-    .bind(
-      input.documentId,
-      input.organizationId,
-      input.subjectUserId,
-      input.taskId,
-      input.submissionId
-    )
-    .first<{
-      profile_report_folder_name: string;
-      subject_user_id: string;
-      title: string;
-    }>();
+      `,
+      values: [
+        input.documentId,
+        input.organizationId,
+        input.subjectUserId,
+        input.taskId,
+        input.submissionId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!document) {
     throw createCoreRpcHttpError({
       code: "center_agent_member_research.computer_file_target_mismatch",
@@ -352,20 +360,20 @@ export async function recordCenterAgentMemberResearchComputerFile(input: {
     });
   }
   const existing = await input.db
-    .prepare(
-      `
-        SELECT document_id, path, subject_user_id
-        FROM center_agent_member_research_computer_files
-        WHERE task_id = ?
-        LIMIT 1
-      `
-    )
-    .bind(input.taskId)
-    .first<{
+    .query<{
       document_id: string;
       path: string;
       subject_user_id: string;
-    }>();
+    }>({
+      text: `
+        SELECT document_id, path, subject_user_id
+        FROM "openmeld"."center_agent_member_research_computer_files"
+        WHERE task_id = $1
+        LIMIT 1
+      `,
+      values: [input.taskId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (existing) {
     if (
       existing.document_id !== input.documentId ||
@@ -385,27 +393,25 @@ export async function recordCenterAgentMemberResearchComputerFile(input: {
       taskId: input.taskId,
     };
   }
-  await input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_member_research_computer_files (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."center_agent_member_research_computer_files" (
           task_id,
           document_id,
           subject_user_id,
           path,
           created_at_ms
         )
-        VALUES (?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+    values: [
       input.taskId,
       input.documentId,
       input.subjectUserId,
       input.path,
-      input.nowMs
-    )
-    .run();
+      input.nowMs,
+    ],
+  });
   return {
     documentId: input.documentId,
     path: input.path,

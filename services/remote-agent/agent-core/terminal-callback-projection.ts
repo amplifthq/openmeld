@@ -36,14 +36,23 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
   requestId: string;
   usage?: RemoteAgentTurnUsage | null;
 }): RemoteAgentAssistantCompletionResult {
+  // New completions persist these existing callback fields in the same CAS
+  // as their execution owner. A losing observation cannot replace the winner's
+  // model/usage; legacy outcomes keep the prior caller-supplied behavior.
+  const modelId = input.outcome.completionMetadata
+    ? input.outcome.completionMetadata.modelId
+    : input.modelId;
+  const usage = input.outcome.completionMetadata
+    ? input.outcome.completionMetadata.usage
+    : input.usage;
   if (input.outcome.status === "checkpoint") {
     return {
       continuation: true,
       message: { parts: [] },
       requestId: input.requestId,
       status: "completed",
-      modelId: input.modelId,
-      usage: input.usage,
+      modelId,
+      usage,
     };
   }
   if (input.outcome.status === "completed") {
@@ -52,10 +61,10 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
       message: {
         parts: [{ text: input.outcome.completedText, type: "text" }],
       },
-      modelId: input.modelId,
+      modelId,
       requestId: input.requestId,
       status: "completed",
-      usage: input.usage,
+      usage,
     };
   }
   return {
@@ -64,10 +73,10 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
     failureDetail: input.outcome.failure.detail,
     failureReasonCode: input.outcome.failure.reasonCode,
     message: { parts: [] },
-    modelId: input.modelId,
+    modelId,
     requestId: input.requestId,
     status: input.outcome.status === "aborted" ? "aborted" : "error",
-    usage: input.usage,
+    usage,
   };
 }
 
@@ -153,6 +162,9 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
       result,
     };
   }
+  // Failed and stopped work can still have recorded model consumption.
+  // Preserve it before delivery using the same retry-stable owner timestamp.
+  await persistProjectedUsage({ ...input, context: existing });
   const projected = await handleRemoteAgentChatResponse({
     coreWorker: input.coreWorker,
     nowMs: () => input.nowMs,
@@ -164,6 +176,7 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
 
 async function persistProjectedUsage(input: {
   context: RemoteAgentCallbackContext;
+  outcome: RemoteAgentTerminalExecutionOutcome;
   storage: RemoteAgentStorage;
   nowMs: number;
 }): Promise<void> {
@@ -173,7 +186,9 @@ async function persistProjectedUsage(input: {
       buildRemoteAgentUsageRecord({
         context: input.context,
         modelId: input.context.modelId ?? null,
-        nowMs: input.nowMs,
+        // Retries are delivery attempts, not additional model consumption.
+        // Use the terminal owner's stable timestamp for the existing usage key.
+        nowMs: input.outcome.execution.completedAtMs ?? input.nowMs,
         usage: input.context.lastUsage,
       })
     );

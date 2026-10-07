@@ -1,8 +1,8 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AuthOrganizationContextSource,
   OpenMeldRequestedOrganizationSelector,
 } from "@openmeld/schemas/types";
-
 export type AuthenticatedOrganizationContext =
   | {
       ok: true;
@@ -14,9 +14,8 @@ export type AuthenticatedOrganizationContext =
       code: "organization.membership_required";
       message: string;
     };
-
 export async function resolveAuthenticatedOrganizationContext(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   requestedOrganization?: OpenMeldRequestedOrganizationSelector | null;
   sessionActiveOrganizationId: unknown;
   userId: string;
@@ -31,39 +30,45 @@ export async function resolveAuthenticatedOrganizationContext(input: {
       source: activeOrganizationId ? "session" : null,
     };
   }
-
   const row =
     "organizationId" in input.requestedOrganization
       ? await input.db
-          .prepare(
-            `
+          .query<{
+            organization_id: string;
+          }>({
+            text: `
             SELECT
               organizations.id AS organization_id
-            FROM members
-            INNER JOIN organizations
+            FROM "openmeld"."members"
+            INNER JOIN "openmeld"."organizations"
               ON organizations.id = members.organization_id
-            WHERE members.user_id = ?
-              AND organizations.id = ?
+            WHERE members.user_id = $1
+              AND organizations.id = $2
             LIMIT 1
-          `
-          )
-          .bind(input.userId, input.requestedOrganization.organizationId)
-          .first<{ organization_id: string }>()
+          `,
+            values: [input.userId, input.requestedOrganization.organizationId],
+          })
+          .then((result) => result.rows[0] ?? null)
       : await input.db
-          .prepare(
-            `
+          .query<{
+            organization_id: string;
+          }>({
+            text: `
             SELECT
               organizations.id AS organization_id
-            FROM members
-            INNER JOIN organizations
+            FROM "openmeld"."members"
+            INNER JOIN "openmeld"."organizations"
               ON organizations.id = members.organization_id
-            WHERE members.user_id = ?
-              AND organizations.slug = ?
+            WHERE members.user_id = $1
+              AND organizations.slug = $2
             LIMIT 1
-          `
-          )
-          .bind(input.userId, input.requestedOrganization.organizationSlug)
-          .first<{ organization_id: string }>();
+          `,
+            values: [
+              input.userId,
+              input.requestedOrganization.organizationSlug,
+            ],
+          })
+          .then((result) => result.rows[0] ?? null);
   const activeOrganizationId = normalizeOptionalText(row?.organization_id);
   if (!activeOrganizationId) {
     return {
@@ -78,7 +83,6 @@ export async function resolveAuthenticatedOrganizationContext(input: {
     source: "request",
   };
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;

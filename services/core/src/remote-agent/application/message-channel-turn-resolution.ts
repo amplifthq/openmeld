@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildOpenMeldOrganizationWebUrl } from "@openmeld/schemas";
 import type {
   AuthRpcResolveOrganizationAccountIdentityResult,
@@ -5,7 +6,7 @@ import type {
   ChannelContext,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
-import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   CenterAgentModelResolutionError,
   resolveCenterAgentModelRouteForBinding,
@@ -18,14 +19,13 @@ import { readOrganizationAccountIdentityProjection } from "../../organizations/o
 import {
   type RemoteAgentLarkPlatformChannelConnectionRecord,
   readRemoteAgentLarkPlatformChannelConnection,
-} from "../infrastructure/d1/lark-platform-channel-connection-repo";
+} from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   deleteRemoteAgentLarkPlatformIdentityLinkIfMatches,
   readRemoteAgentLarkPlatformIdentityLink,
-} from "../infrastructure/d1/lark-platform-identity-link-repo";
+} from "../infrastructure/postgresql/lark-platform-identity-link-repo";
 import { parseCoreOwnedRemoteAgentTurnEnvelope } from "./center-agent-context-scope";
 import type { LarkPlatformMessageChannelProvider } from "./message-channel-adapters";
-
 export type MessageChannelMemberIdentity = {
   humanProfileId: string | null;
   memberCount: number;
@@ -39,7 +39,6 @@ export type MessageChannelMemberIdentity = {
   userEmail: string;
   userId: string;
 };
-
 export type MessageChannelOrganizationIdentity = Pick<
   MessageChannelMemberIdentity,
   | "memberCount"
@@ -48,7 +47,6 @@ export type MessageChannelOrganizationIdentity = Pick<
   | "organizationPersonal"
   | "organizationSlug"
 >;
-
 export type MessageChannelTurnParticipant =
   | {
       kind: "anonymous_member";
@@ -66,7 +64,6 @@ export type MessageChannelTurnParticipant =
       kind: "member";
       member: MessageChannelMemberIdentity;
     };
-
 export type MessageChannelCenterAgentTarget = {
   agentProfileId: string;
   bindingId: string;
@@ -75,13 +72,11 @@ export type MessageChannelCenterAgentTarget = {
   profileHandle: string;
   profileName: string;
 };
-
 export type MessageChannelTurnTarget = {
   centerAgent: MessageChannelCenterAgentTarget;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   participant: MessageChannelTurnParticipant;
 };
-
 export type MessageChannelTurnTargetResolution =
   | {
       status: "resolved";
@@ -98,27 +93,26 @@ export type MessageChannelTurnTargetResolution =
       reasonCode: "message_channel.connection_unavailable";
       status: "rejected";
     };
-
 type OrganizationAccountIdentityProjection = Extract<
   AuthRpcResolveOrganizationAccountIdentityResult,
-  { ok: true }
+  {
+    ok: true;
+  }
 >;
-
 type MessageChannelCenterAgentProfileRow = {
   owner_user_id: string | null;
   profile_handle: string;
   profile_name: string;
 };
-
 export async function resolveMessageChannelTurnTarget(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
   connectionId: string;
-  identityDb: D1Database;
+  identityDb: PostgresDatabase;
   provider: LarkPlatformMessageChannelProvider;
   providerUserDisplayName?: string | null;
   providerUserId: string;
   providerUserTenantKey?: string | null;
-  stateDb: D1Database;
+  stateDb: PostgresDatabase;
 }): Promise<MessageChannelTurnTargetResolution> {
   const connection = await readRemoteAgentLarkPlatformChannelConnection({
     connectionId: input.connectionId,
@@ -134,7 +128,6 @@ export async function resolveMessageChannelTurnTarget(input: {
       status: "rejected",
     };
   }
-
   const [identityLink, organization, centerAgentResolution] = await Promise.all(
     [
       readRemoteAgentLarkPlatformIdentityLink({
@@ -229,13 +222,18 @@ export async function resolveMessageChannelTurnTarget(input: {
     target: { centerAgent, connection, participant },
   };
 }
-
-async function resolveMessageChannelCenterAgentTarget(input: {
-  db: D1Database;
+export async function resolveMessageChannelCenterAgentTarget(input: {
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<
-  | { status: "model_unavailable"; target: null }
-  | { status: "resolved"; target: MessageChannelCenterAgentTarget | null }
+  | {
+      status: "model_unavailable";
+      target: null;
+    }
+  | {
+      status: "resolved";
+      target: MessageChannelCenterAgentTarget | null;
+    }
 > {
   try {
     return {
@@ -253,7 +251,6 @@ async function resolveMessageChannelCenterAgentTarget(input: {
     return { status: "model_unavailable", target: null };
   }
 }
-
 export function buildMessageChannelTurnEnvelope(input: {
   centerAgent: MessageChannelCenterAgentTarget;
   channelContext: ChannelContext;
@@ -262,11 +259,15 @@ export function buildMessageChannelTurnEnvelope(input: {
   conversationName: string | null;
   resources?: Extract<
     RemoteAgentTurnEnvelope["trigger"],
-    { source: "message_channel" }
+    {
+      source: "message_channel";
+    }
   >["resources"];
   routineLocator?: Extract<
     RemoteAgentTurnEnvelope["trigger"],
-    { source: "message_channel" }
+    {
+      source: "message_channel";
+    }
   >["routineLocator"];
   isDirectMessage: boolean;
   participant: MessageChannelTurnParticipant;
@@ -357,7 +358,6 @@ export function buildMessageChannelTurnEnvelope(input: {
     channelContext: input.channelContext,
   });
 }
-
 async function readMessageChannelOrganizationIdentity(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
   organizationId: string;
@@ -376,7 +376,6 @@ async function readMessageChannelOrganizationIdentity(input: {
       }
     : null;
 }
-
 async function readMessageChannelMemberByUserId(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
   organizationId: string;
@@ -391,7 +390,6 @@ async function readMessageChannelMemberByUserId(input: {
     ? mapMessageChannelMemberIdentityProjection(projection)
     : null;
 }
-
 function mapMessageChannelMemberIdentityProjection(
   projection: OrganizationAccountIdentityProjection
 ): MessageChannelMemberIdentity | null {
@@ -414,9 +412,8 @@ function mapMessageChannelMemberIdentityProjection(
     userId: account.userId,
   };
 }
-
 async function readMessageChannelCenterAgentTarget(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<MessageChannelCenterAgentTarget | null> {
   const designation = await readCenterAgentDesignationRecord({
@@ -427,18 +424,18 @@ async function readMessageChannelCenterAgentTarget(input: {
     return null;
   }
   const profile = await input.db
-    .prepare(
-      `
+    .query<MessageChannelCenterAgentProfileRow>({
+      text: `
         SELECT owner_user_id, profile_name, profile_handle
-        FROM openmeld_profiles
-        WHERE profile_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
           AND profile_kind = 'agent'
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(designation.agentProfileId)
-    .first<MessageChannelCenterAgentProfileRow>();
+      `,
+      values: [designation.agentProfileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!profile) {
     return null;
   }
@@ -462,7 +459,6 @@ async function readMessageChannelCenterAgentTarget(input: {
     profileName: profile.profile_name,
   };
 }
-
 function normalizeOptionalText(
   value: string | null | undefined
 ): string | null {

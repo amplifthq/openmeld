@@ -8,25 +8,52 @@ import type {
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
 } from "@openmeld/schemas/types";
+import {
+	modelBrandName,
+	modelProviderBrandName,
+} from "#/components/models/model-brand";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
 
 export type AgentListSort = "recent" | "created" | "name";
-export type AgentListFacet = "controller" | "model";
+export type AgentListFacet =
+	| "type"
+	| "availability"
+	| "controller"
+	| "provider"
+	| "model";
 export type AgentListFilters = Record<AgentListFacet, string[]>;
-export type AgentListGrouping = "none" | "controller" | "model";
+export type AgentListGrouping =
+	| "none"
+	| "controller-provider"
+	| "controller"
+	| "provider"
+	| "model";
 export const EMPTY_AGENT_LIST_FILTERS: AgentListFilters = {
+	type: [],
+	availability: [],
 	controller: [],
+	provider: [],
 	model: [],
 };
-export const AGENT_LIST_FACETS = ["controller", "model"] as const;
+export const AGENT_LIST_FACETS = [
+	"type",
+	"availability",
+	"controller",
+	"provider",
+	"model",
+] as const;
 export type AgentListItem = {
 	profile: AuthProfileView;
 	lastTaskActivityAt: string | null;
 	availability: string;
 	type: string;
 	controller: string;
+	provider: string;
 	model: string;
+	modelBrand: string | null;
+	modelId?: string | null;
+	agentControllerRef: string | null;
 	searchText: string;
 };
 
@@ -86,6 +113,9 @@ export function buildAgentListItem(input: {
 	const controllerName = remote
 		? "Remote"
 		: formatLocalAgentDisplayName(controller?.id ?? "");
+	const modelBrand = remote
+		? modelProviderBrandName(model.modelId)
+		: modelBrandName(model.modelId, model.catalogModel?.displayName);
 	const item = {
 		profile: input.profile,
 		lastTaskActivityAt: input.lastTaskActivityAt ?? null,
@@ -99,6 +129,10 @@ export function buildAgentListItem(input: {
 		type: controller ? runtimeType : "Unknown type",
 		controller: controller ? controllerName : "Unknown Controller",
 		model: model.catalogModel?.displayName ?? model.modelId ?? "Unknown model",
+		modelBrand,
+		modelId: model.modelId,
+		provider: modelBrand ?? "Unknown provider",
+		agentControllerRef: ref,
 	};
 	return {
 		...item,
@@ -110,6 +144,8 @@ export function buildAgentListItem(input: {
 				item.type,
 				item.controller,
 				item.model,
+				model.modelId,
+				item.modelBrand,
 			].join(" ")
 		),
 	};
@@ -166,7 +202,15 @@ export function groupAgentListItems(
 ) {
 	const groups = new Map<string, AgentListItem[]>();
 	for (const item of items) {
-		const key = grouping === "none" ? "" : item[grouping];
+		let key = "";
+		if (grouping === "controller-provider") {
+			key =
+				item.type === "Remote Agent"
+					? `${item.provider} · Remote`
+					: item.controller;
+		} else if (grouping !== "none") {
+			key = item[grouping];
+		}
 		const group = groups.get(key) ?? [];
 		group.push(item);
 		groups.set(key, group);

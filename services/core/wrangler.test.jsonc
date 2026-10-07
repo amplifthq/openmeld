@@ -10,6 +10,7 @@
   "vars": {
     "CORS_ORIGINS": "https://gateway.openmeld.invalid",
     "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "false",
+    "OPENMELD_SKILL_FILE_BACKED_WRITES": "true",
     "OPENMELD_LARK_CHANNEL_ENABLED": "false",
     "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS": "",
     "OPENMELD_FEISHU_CHANNEL_ENABLED": "false",
@@ -32,6 +33,14 @@
         "class_name": "Space"
       },
       {
+        "name": "OPENMELD_FILE_ROOTS",
+        "class_name": "OrganizationFileRoot"
+      },
+      {
+        "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
+        "class_name": "AccountInvalidationHub"
+      },
+      {
         "name": "OPENMELD_RUNTIME_TRANSPORT",
         "class_name": "RuntimeTransportHub"
       },
@@ -45,15 +54,11 @@
       }
     ]
   },
-  "d1_databases": [
-    {
-      "binding": "OPENMELD_DB",
-      "database_name": "openmeld-db-test",
-      "database_id": "openmeld-db-test",
-      "migrations_dir": "../../packages/db/drizzle"
-    }
-  ],
   "r2_buckets": [
+    {
+      "binding": "OPENMELD_ACCOUNT_AVATARS",
+      "bucket_name": "openmeld-account-avatars-test"
+    },
     {
       "binding": "OPENMELD_SPACE_ATTACHMENTS",
       "bucket_name": "openmeld-space-attachments-test"
@@ -65,7 +70,7 @@
   ],
   // Intentionally keep queue bindings out of integration tests so space-api
   // suites avoid async queue side effects leaking across isolated-storage
-  // boundaries. Space mutation tests still need OPENMELD_DB because SpaceIndex is
+  // boundaries. Space mutation tests still need PostgreSQL because SpaceIndex is
   // now part of the mutation contract.
   "migrations": [
     {
@@ -91,6 +96,8 @@
         }
       ]
     },
-    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] }
+    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] },
+    { "tag": "v6", "new_sqlite_classes": ["AccountInvalidationHub"] },
+    { "tag": "v7", "new_sqlite_classes": ["OrganizationFileRoot"] }
   ]
 }

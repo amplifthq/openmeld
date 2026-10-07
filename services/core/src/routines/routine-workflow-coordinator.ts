@@ -1,8 +1,10 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CoreBindings } from "../lib/bindings";
-import { listPendingRoutineWorkflowRunIds } from "./routine-repository";
+import { claimRoutineWorkflowCheckBatch } from "./routine-repository";
 import {
   ROUTINE_WORKFLOW_ERROR_NAMES,
   ROUTINE_WORKFLOW_STEPS,
+  resolveRoutineWorkflowErrorName,
 } from "./routine-workflow-contract";
 import { emitRoutineWorkflowRuntimeEvidence } from "./routine-workflow-observability";
 
@@ -10,7 +12,6 @@ const ROUTINE_WORKFLOW_RETENTION = {
   errorRetention: "30 days",
   successRetention: "1 day",
 } as const satisfies NonNullable<WorkflowInstanceCreateOptions["retention"]>;
-
 export async function ensureRoutineRunWorkflowStarted(input: {
   env: CoreBindings;
   runId: string;
@@ -69,7 +70,8 @@ export async function ensureRoutineRunWorkflowStarted(input: {
     throw error;
   }
   if (existingStatus.status === "errored") {
-    const restart = resolveRoutineWorkflowRestart(existingStatus.error?.name);
+    const phase = resolveRoutineWorkflowErrorName(existingStatus.error);
+    const restart = resolveRoutineWorkflowRestart(phase ?? undefined);
     if (!restart) {
       emitRoutineWorkflowRuntimeEvidence(input.env, {
         errorName: existingStatus.error?.name ?? null,
@@ -96,7 +98,7 @@ export async function ensureRoutineRunWorkflowStarted(input: {
     }
     emitRoutineWorkflowRuntimeEvidence(input.env, {
       event: "instance_restarted",
-      reasonCode: `workflow.restarted.${existingStatus.error?.name ?? "unknown"}`,
+      reasonCode: `workflow.restarted.${phase}`,
       runId: input.runId,
       status: "succeeded",
     });
@@ -136,10 +138,9 @@ export async function ensureRoutineRunWorkflowStarted(input: {
     );
   }
 }
-
-function resolveRoutineWorkflowRestart(
-  errorName: string | undefined
-): { options?: WorkflowInstanceRestartOptions } | null {
+function resolveRoutineWorkflowRestart(errorName: string | undefined): {
+  options?: WorkflowInstanceRestartOptions;
+} | null {
   switch (errorName) {
     case ROUTINE_WORKFLOW_ERROR_NAMES.submission:
       return {};
@@ -163,25 +164,29 @@ function resolveRoutineWorkflowRestart(
       return null;
   }
 }
-
 function restartFromStep(name: string): WorkflowInstanceRestartOptions {
   return { from: { name, type: "do" } };
 }
-
 export async function retryPendingRoutineRunWorkflowStarts(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   limit?: number;
-}): Promise<{ errors: number; scanned: number; started: number }> {
-  const runIds = await listPendingRoutineWorkflowRunIds({
+  nowMs?: number;
+}): Promise<{
+  checked: number;
+  errors: number;
+  scanned: number;
+}> {
+  const runIds = await claimRoutineWorkflowCheckBatch({
     db: input.db,
     limit: input.limit ?? 50,
+    nowMs: input.nowMs ?? Date.now(),
   });
-  const summary = { errors: 0, scanned: runIds.length, started: 0 };
+  const summary = { checked: 0, errors: 0, scanned: runIds.length };
   for (const runId of runIds) {
     try {
       await ensureRoutineRunWorkflowStarted({ env: input.env, runId });
-      summary.started += 1;
+      summary.checked += 1;
     } catch (error) {
       summary.errors += 1;
       console.warn("[core.routine.workflow.start_retry_failed]", {
@@ -193,11 +198,9 @@ export async function retryPendingRoutineRunWorkflowStarts(input: {
   console.info("[core.routine.workflow.start_retry_completed]", summary);
   return summary;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
 function toErrorName(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }

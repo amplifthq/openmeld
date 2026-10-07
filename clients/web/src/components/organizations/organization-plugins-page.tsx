@@ -1,5 +1,10 @@
 "use client";
 
+import {
+	findPluginDefinition,
+	type PluginDefinition,
+	pluginFromProvider,
+} from "@openmeld/product-catalog/plugins";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
@@ -7,28 +12,58 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
+import { organizationPluginProviderCatalogQueryOptions } from "#/query/organizations/plugin-connections";
 import {
 	OrganizationPluginDetailPage,
 	OrganizationPluginNotFoundPage,
 } from "./organization-plugin-detail-page";
-import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
+import { PluginConnectionRequestPanel } from "./plugin-connection-request-panel";
 import { PluginScopeTabs } from "./plugin-scope-tabs";
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 export function OrganizationPluginsPage({
 	selectedService,
+	connectionRequestId,
 }: {
 	selectedService: string | null;
+	connectionRequestId?: string;
 }) {
 	const { currentOrganization } = useAppOrganization();
-	const selectedPlugin = selectedService
-		? findPluginDefinition(selectedService)
-		: null;
+	const catalog = useQuery(
+		organizationPluginProviderCatalogQueryOptions({
+			organizationId: currentOrganization.id,
+		})
+	);
+	const provider = catalog.data?.providers.find(
+		(item) => item.service === selectedService
+	);
+	const selectedPlugin = provider
+		? pluginFromProvider(provider)
+		: findPluginDefinition(selectedService ?? "");
+	if (selectedService && !selectedPlugin && catalog.isPending) {
+		return <output>Loading Plugin…</output>;
+	}
+	if (selectedService && !selectedPlugin && catalog.isError) {
+		return (
+			<p role="alert">
+				Unable to load this Plugin. Reload the page to try again.
+			</p>
+		);
+	}
 
 	if (selectedService && !selectedPlugin) {
 		return (
 			<OrganizationPluginNotFoundPage
 				organizationSlug={currentOrganization.slug}
+			/>
+		);
+	}
+
+	if (selectedService && connectionRequestId) {
+		return (
+			<PluginConnectionRequestPanel
+				requestId={connectionRequestId}
+				service={selectedService}
 			/>
 		);
 	}

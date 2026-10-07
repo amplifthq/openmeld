@@ -204,6 +204,31 @@ describe("SelectedComputerPanel detail composition", () => {
 		expect(screen.queryByText("Available for Wake")).toBeNull();
 	});
 
+	it("reconciles the viewed Computer independently of a slow account routing target", async () => {
+		const recovery = buildRecoveryStub({
+			readiness: buildConnectedReadiness("other-device"),
+		});
+		recovery.currentLocalRuntimeReplyReadinessQuery.isFetching = true;
+		recovery.currentLocalRuntimeReplyReadinessQuery.isFetchedAfterMount = false;
+		renderPanel({ recovery });
+		await waitFor(() =>
+			expect(openMeldServiceCardSpy).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					isReconcilingStatus: false,
+					currentLocalRuntimeReplyReadiness: expect.objectContaining({
+						currentTarget: expect.objectContaining({
+							deviceId: "device-office",
+							runtimeLane: "dev-local",
+						}),
+					}),
+				})
+			)
+		);
+		expect(localAgentsCardSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({ isReconcilingStatus: false })
+		);
+	});
+
 	it("requires an environment choice instead of using the default Binding when two environments exist", async () => {
 		const development = buildExecutionTarget("ready");
 		const production = {

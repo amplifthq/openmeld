@@ -9,6 +9,7 @@ import {
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
   DISPATCH_ACTIVITY_FAILED_PURPOSE,
   DISPATCH_ACTIVITY_RETRYING_PURPOSE,
+  REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE,
   REMOTE_AGENT_FAILURE_PURPOSE,
   resolveMappedPublicAgentFailureReason,
 } from "@openmeld/schemas";
@@ -62,6 +63,7 @@ export type WakeProgressDraft = Omit<
 > & {
   phase: WakeProgressPhase;
   message?: string;
+  runtimeKind?: "hosted" | "workstation";
   runtimeDeviceDisplayName?: string | null;
   terminal?: boolean;
 };
@@ -70,12 +72,14 @@ export function buildWakeProgressMessage(input: {
   phase: WakeProgressPhase;
   targetLabel: string;
   errorCode?: string | null;
+  runtimeKind?: "hosted" | "workstation";
   runtimeDeviceDisplayName?: string | null;
 }): string {
   const targetLabel = formatWakeTargetLabel(input.targetLabel);
-  const runtimeLocation = formatWakeProgressRuntimeLocation(
-    input.runtimeDeviceDisplayName
-  );
+  const runtimeLocation =
+    input.runtimeKind === "hosted"
+      ? ""
+      : ` ${formatWakeProgressRuntimeLocation(input.runtimeDeviceDisplayName)}`;
   switch (input.phase) {
     case "sending":
       return "Sending message...";
@@ -84,9 +88,15 @@ export function buildWakeProgressMessage(input: {
     case "queued":
       return `Wake for ${targetLabel} is queued.`;
     case "connecting":
-      return `Connecting to ${targetLabel} ${runtimeLocation}...`;
+      return `Connecting to ${targetLabel}${runtimeLocation}...`;
     case "running":
-      return `${targetLabel} is working ${runtimeLocation}...`;
+      if (
+        input.errorCode ===
+        REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE
+      ) {
+        return `OpenMeld cannot confirm the result for ${targetLabel}. Later work in this conversation may be waiting. Stop this request to release it once the Agent confirms that execution has ended. Do not resend the original request.`;
+      }
+      return `${targetLabel} is working${runtimeLocation}...`;
     case "writing":
       return `${targetLabel} started writing...`;
     case "publishing":
@@ -116,6 +126,7 @@ export function createWakeProgressItem(
   const {
     failureReasonCode,
     message,
+    runtimeKind,
     runtimeDeviceDisplayName,
     terminal: draftTerminal,
     ...itemDraft
@@ -129,7 +140,10 @@ export function createWakeProgressItem(
   const normalizedFailureReasonCode =
     draft.phase === "failed" ||
     draft.phase === "publication_unknown" ||
-    draft.phase === "publishing"
+    draft.phase === "publishing" ||
+    (draft.phase === "running" &&
+      failureReasonCode ===
+        REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE)
       ? normalizeOptionalText(failureReasonCode)
       : null;
   return {
@@ -140,6 +154,8 @@ export function createWakeProgressItem(
       message ??
       buildWakeProgressMessage({
         phase: draft.phase,
+        errorCode: normalizedFailureReasonCode,
+        runtimeKind,
         runtimeDeviceDisplayName,
         targetLabel: draft.targetLabel,
       }),
@@ -241,19 +257,43 @@ export function mergeWakeProgressItems(input: {
       continue;
     }
 
-    if (!existing || shouldReplaceWakeProgressItem({ existing, incoming })) {
-      if (existingEntry && key !== buildWakeProgressItemKey(incoming)) {
-        itemsByKey.delete(key);
-        itemsByKey.set(buildWakeProgressItemKey(incoming), incoming);
-      } else {
-        itemsByKey.set(key, incoming);
-      }
+    const lifecycle =
+      !existing || shouldReplaceWakeProgressItem({ existing, incoming })
+        ? incoming
+        : existing;
+    const next = mergeWakeReplyPlacement(lifecycle, existing, incoming);
+    if (existingEntry && key !== buildWakeProgressItemKey(next)) {
+      itemsByKey.delete(key);
     }
+    itemsByKey.set(buildWakeProgressItemKey(next), next);
   }
 
   return [...itemsByKey.values()].sort(
     (left, right) => left.updatedAtMs - right.updatedAtMs
   );
+}
+
+function mergeWakeReplyPlacement(
+  lifecycle: WakeProgressItem,
+  existing: WakeProgressItem | null,
+  incoming: WakeProgressItem
+): WakeProgressItem {
+  // Placement can change without a lifecycle transition. Preserve the newest
+  // Space-owned selection across out-of-order polling and stream updates.
+  const placement =
+    existing?.replyThreadRootSignalId !== undefined &&
+    (incoming.replyThreadRootSignalId === undefined ||
+      (existing.replyPlacementRevision ?? 0) >
+        (incoming.replyPlacementRevision ?? 0))
+      ? existing
+      : incoming;
+  return placement.replyThreadRootSignalId === undefined
+    ? lifecycle
+    : {
+        ...lifecycle,
+        replyThreadRootSignalId: placement.replyThreadRootSignalId,
+        replyPlacementRevision: placement.replyPlacementRevision,
+      };
 }
 
 export function applyWakeProgressSignals(input: {
@@ -273,9 +313,9 @@ export function applyWakeProgressSignals(input: {
     if (!nextItem) {
       continue;
     }
-    // Transient text updates presentation, not Core's viewer-scoped Stop policy.
-    // Keep only the exact active execution's projection; full snapshots still
-    // replace it normally, including an explicit revocation or missing field.
+    // Transient text updates presentation, not Core's viewer-scoped controls.
+    // Keep the exact active execution's interaction and Stop projection; full
+    // snapshots still replace them, including a revocation or missing field.
     if (
       signal.type === "signal.text" &&
       signal.data.meta?.transient === true &&
@@ -288,7 +328,10 @@ export function applyWakeProgressSignals(input: {
           item.targetProfileId === nextItem.targetProfileId &&
           isActiveWakeProgressItem(item)
       );
-      if (current && Object.hasOwn(current, "wakeStopEligibility")) {
+      if (current) {
+        nextItem.pendingInteraction = current.pendingInteraction;
+        nextItem.runtimeCoordinatorExecutionId =
+          current.runtimeCoordinatorExecutionId;
         nextItem.wakeStopEligibility = current.wakeStopEligibility;
       }
     }

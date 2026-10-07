@@ -1,0 +1,79 @@
+name: Claude project container
+
+on:
+  pull_request:
+    paths:
+      - clients/openmeld-cli/src/local-service/dispatch/execution-context-workspace.ts
+      - clients/openmeld-cli/src/local-service/file-access/claude-project-container.ts
+      - clients/openmeld-cli/src/runtime/dispatch-space-action-context.ts
+      - clients/openmeld-cli/src/space/action-mcp-server.ts
+      - clients/openmeld-cli/tests/claude-project-container*.ts
+      - runtime/adapters/claude-code/**
+      - services/core/src/runtime-transport/application/execution-context-authority.ts
+      - services/core/src/runtime-transport/application/agent-profile-execution-admission.ts
+      - packages/schemas/src/schemas/space-mesh/dispatch-project-shell.ts
+      - .github/workflows/claude-project-container.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-dotnet@v5
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: 10.0.401
+      - name: Build Windows process helper before CLI dependencies
+        if: runner.os == 'Windows'
+        run: node scripts/release/build-windows-process-helper.mjs
+      - name: Build local Service test dependencies
+        run: pnpm exec turbo run build --filter=openmeld^... --concurrency=1
+      - name: Verify container argv and local dispatch authority
+        run: pnpm -C clients/openmeld-cli exec vitest run --config vitest.config.ts tests/claude-project-container.test.ts
+      - run: pnpm -C clients/openmeld-cli exec vitest run --config vitest.config.ts tests/execution-context-workspace.test.ts -t "rejects a stale project shell"
+      - name: Verify Claude restricted tool configuration
+        run: node --test --test-name-pattern="project contexts keep restricted file tools" runtime/adapters/claude-code/test/space-action-tools.test.js
+
+  linux-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build Core and Service test dependencies
+        run: pnpm exec turbo run build --filter=@openmeld/core^... --filter=openmeld^... --concurrency=1
+      - uses: ./.github/actions/setup-postgresql
+      - name: Verify ordinary Claude native admissions and the sixth waiter
+        env:
+          WRANGLER_LOG_PATH: ${{ runner.temp }}/openmeld-wrangler-logs
+        run: pnpm pg:local run pnpm -C services/core exec vitest run --config vitest.config.ts tests/runtime-transport-runtime-coordinator-contract.test.ts -t "keeps independent ordinary Claude tasks native in parallel mode" --silent
+      - name: Pull the exact project image
+        run: docker pull node:24-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4
+      - name: Exercise real workspace mounts, MCP authority and concurrent commands
+        env:
+          OPENMELD_CLAUDE_CONTAINER_SMOKE: "1"
+        run: pnpm -C clients/openmeld-cli exec vitest run --config vitest.integration.config.ts tests/claude-project-container.integration.test.ts

@@ -1,4 +1,8 @@
-import { REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS,
+  CENTER_AGENT_RETAINED_MEMORY_QUERY_MAX_CHARS,
+  REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
+} from "@openmeld/schemas";
 import type {
   MessageChannelProvider,
   RemoteAgentTurnEnvelope,
@@ -9,8 +13,10 @@ export const CENTER_AGENT_MEMORY_PROVIDER = "zep_cloud" as const;
 export const CENTER_AGENT_ORGANIZATION_MEMORY_DEFAULT_ENABLED = true;
 export const CENTER_AGENT_MEMORY_RECALL_TIMEOUT_MS = 3000;
 export const CENTER_AGENT_MEMORY_WRITE_TIMEOUT_MS = 5000;
-export const CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS = 400;
-export const CENTER_AGENT_MEMORY_MAX_ITEMS = 6;
+export const CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS =
+  CENTER_AGENT_RETAINED_MEMORY_QUERY_MAX_CHARS;
+export const CENTER_AGENT_MEMORY_MAX_ITEMS =
+  CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS;
 export const CENTER_AGENT_MEMORY_MAX_ITEM_TEXT_CHARS =
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS;
 export const CENTER_AGENT_MEMORY_MAX_ENVELOPE_TEXT_CHARS = 1600;
@@ -76,6 +82,30 @@ export type CenterAgentMemorySearchResult = {
   text: string;
 };
 
+export type CenterAgentMemoryDetailedSearchItem = {
+  text: string;
+  subject: CenterAgentMemorySubjectKind;
+  sources: Omit<CenterAgentMemorySearchResult, "text" | "subject">[];
+};
+
+export type CenterAgentMemoryDetailedReader = {
+  searchDetailed(input: {
+    limit: number;
+    query: string;
+    ref: CenterAgentMemoryRef;
+  }): Promise<{
+    items: CenterAgentMemoryDetailedSearchItem[];
+    status: "complete" | "partial";
+  }>;
+};
+
+export type CenterAgentMemoryReadRepository = {
+  readActiveSubjects(input: {
+    organizationId: string;
+    speakerMember?: { memberId: string; userId: string };
+  }): Promise<(CenterAgentMemoryRef & { updatedAtMs: number })[]>;
+};
+
 export type CenterAgentMemoryAdapter = {
   addEpisode(input: {
     episode: CenterAgentMemoryEpisode;
@@ -94,7 +124,7 @@ export type CenterAgentMemoryAdapter = {
   }): Promise<CenterAgentMemorySearchResult[]>;
 };
 
-export type CenterAgentMemoryRepository = {
+export type CenterAgentMemoryRepository = CenterAgentMemoryReadRepository & {
   markMemberDeleted(input: {
     deletedAtMs: number;
     organizationId: string;

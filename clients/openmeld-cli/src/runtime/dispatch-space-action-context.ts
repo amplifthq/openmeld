@@ -7,15 +7,20 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
+  executionContextAssignmentSchema,
   openMeldSpaceEgressActionSchema,
+  organizationSkillRuntimeReleaseSelectionSchema,
+  runtimeCoordinatorExecutionTokenEchoSchema,
   spaceMemberDirectoryEntrySchema,
 } from "@openmeld/schemas";
 import type {
   DispatchSpaceActionClosedReasonCode,
+  DispatchSpaceActionReceipt,
   OpenMeldSpaceEgressAction,
+  OrganizationSkillRuntimeReleaseSelection,
   SpaceContract,
   SpaceMemberDirectoryEntry,
 } from "@openmeld/schemas/types";
@@ -46,6 +51,23 @@ export class DispatchSpaceActionClosedError extends Error {
   }
 }
 
+/** Use only at a boundary that has positively rejected this call before recording. */
+export class DispatchSpaceActionRejectedError extends Error {
+  readonly reasonCode: Extract<
+    DispatchSpaceActionReceipt,
+    { status: "rejected_before_recording" }
+  >["reasonCode"];
+
+  constructor(
+    reasonCode: DispatchSpaceActionRejectedError["reasonCode"],
+    message: string
+  ) {
+    super(message);
+    this.name = "DispatchSpaceActionRejectedError";
+    this.reasonCode = reasonCode;
+  }
+}
+
 const DISPATCH_SPACE_ACTION_CONTEXT_VERSION = 1 as const;
 const DISPATCH_SPACE_ACTION_RECORD_VERSION = 1 as const;
 const DEFAULT_CONTEXT_TTL_MS = 12 * 60 * 60 * 1000;
@@ -64,6 +86,22 @@ export type DispatchSpaceActionSendTargetReference =
     };
 
 export type DispatchSpaceActionContext = {
+  executionTokenEcho?: ReturnType<
+    typeof runtimeCoordinatorExecutionTokenEchoSchema.parse
+  >;
+  organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
+  projectShell?: {
+    boundaryRoot: string;
+    executionContextId: string;
+    ledgerRootPath: string;
+    workspacePath: string;
+    runtime: {
+      binary: string;
+      engineIdentity: string;
+      kind: "docker" | "podman";
+    };
+  };
+  workingCopyId?: string;
   version: typeof DISPATCH_SPACE_ACTION_CONTEXT_VERSION;
   actionRecordPath: string;
   attemptId: string;
@@ -106,6 +144,10 @@ export type DispatchSpaceActionRecordReadResult =
     };
 
 export function createDispatchSpaceActionContext(input: {
+  executionTokenEcho?: DispatchSpaceActionContext["executionTokenEcho"];
+  organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
+  projectShell?: DispatchSpaceActionContext["projectShell"];
+  workingCopyId?: string;
   attemptId: string;
   dispatchId: string;
   env?: Record<string, string | undefined>;
@@ -138,6 +180,18 @@ export function createDispatchSpaceActionContext(input: {
   const contextPath = join(contextDir, "context.json");
   const actionRecordPath = join(contextDir, "action.json");
   const context: DispatchSpaceActionContext = {
+    ...(input.executionTokenEcho
+      ? {
+          executionTokenEcho: runtimeCoordinatorExecutionTokenEchoSchema.parse(
+            input.executionTokenEcho
+          ),
+        }
+      : {}),
+    ...(input.organizationSkillReleases
+      ? { organizationSkillReleases: input.organizationSkillReleases }
+      : {}),
+    ...(input.projectShell ? { projectShell: input.projectShell } : {}),
+    ...(input.workingCopyId ? { workingCopyId: input.workingCopyId } : {}),
     version: DISPATCH_SPACE_ACTION_CONTEXT_VERSION,
     actionRecordPath,
     attemptId: input.attemptId,
@@ -205,10 +259,14 @@ export function writeDispatchSpaceActionRecord(input: {
 }): DispatchSpaceActionRecord {
   const parsedAction = openMeldSpaceEgressActionSchema.safeParse(input.action);
   if (!parsedAction.success) {
-    throw parsedAction.error;
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.invalid_input",
+      parsedAction.error.message
+    );
   }
   if (isSelfWakeSpaceAction(parsedAction.data, input.context.targetProfileId)) {
-    throw new Error(
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.invalid_input",
       "An Agent cannot Wake itself. To reply to the current message, omit wakeTargets (CLI: --wake) and submit the reply again. No action was recorded."
     );
   }
@@ -248,8 +306,9 @@ export function writeDispatchSpaceActionRecord(input: {
       ) {
         return existing.record;
       }
-      throw new Error(
-        "An OpenMeld Space Action has already been recorded for this dispatch. A Wake can only have one final Space action."
+      throw new DispatchSpaceActionRejectedError(
+        "space_action.already_recorded",
+        "An OpenMeld Space Action has already been recorded for this dispatch. A Wake can only have one final Space action. Recover its receipt with the exact original arguments; do not replace it with a different action."
       );
     }
     throw error;
@@ -322,7 +381,25 @@ function parseDispatchSpaceActionContext(
     record.sendTargetReference
   );
   return {
+    ...(record.projectShell
+      ? { projectShell: parseProjectShell(record.projectShell) }
+      : {}),
+    ...(record.executionTokenEcho
+      ? {
+          executionTokenEcho: runtimeCoordinatorExecutionTokenEchoSchema.parse(
+            record.executionTokenEcho
+          ),
+        }
+      : {}),
     version,
+    ...(record.organizationSkillReleases
+      ? {
+          organizationSkillReleases:
+            organizationSkillRuntimeReleaseSelectionSchema
+              .array()
+              .parse(record.organizationSkillReleases),
+        }
+      : {}),
     actionRecordPath: requiredString(
       record.actionRecordPath,
       "actionRecordPath"
@@ -341,6 +418,55 @@ function parseDispatchSpaceActionContext(
     spaceId: requiredString(record.spaceId, "spaceId"),
     targetProfileId: requiredString(record.targetProfileId, "targetProfileId"),
     taskId: requiredString(record.taskId, "taskId"),
+    ...(record.workingCopyId
+      ? { workingCopyId: requiredString(record.workingCopyId, "workingCopyId") }
+      : {}),
+  };
+}
+
+function parseProjectShell(
+  value: unknown
+): NonNullable<DispatchSpaceActionContext["projectShell"]> {
+  const record = toRecord(value, "OpenMeld project shell context");
+  const runtime = toRecord(record.runtime, "OpenMeld project shell runtime");
+  const kind = runtime.kind;
+  if (kind !== "docker" && kind !== "podman") {
+    throw new Error("OpenMeld project shell runtime is invalid.");
+  }
+  const executionContextId = requiredString(
+    record.executionContextId,
+    "executionContextId"
+  );
+  const workspacePath = requiredString(record.workspacePath, "workspacePath");
+  const boundaryRoot = requiredString(record.boundaryRoot, "boundaryRoot");
+  const ledgerRootPath = requiredString(
+    record.ledgerRootPath,
+    "ledgerRootPath"
+  );
+  const binary = requiredString(runtime.binary, "binary");
+  const validContextId =
+    executionContextAssignmentSchema.shape.id.safeParse(
+      executionContextId
+    ).success;
+  const validPaths = [
+    workspacePath,
+    boundaryRoot,
+    ledgerRootPath,
+    binary,
+  ].every(isAbsolute);
+  if (!(validContextId && validPaths)) {
+    throw new Error("OpenMeld project shell context is invalid.");
+  }
+  return {
+    boundaryRoot,
+    executionContextId,
+    ledgerRootPath,
+    workspacePath,
+    runtime: {
+      binary,
+      engineIdentity: requiredString(runtime.engineIdentity, "engineIdentity"),
+      kind,
+    },
   };
 }
 

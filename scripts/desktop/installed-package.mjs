@@ -1,9 +1,12 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { runOwnedCommand } from "../dev/owned-command.mjs";
+import { checkProductionArtifact } from "../release/production-artifact-check.mjs";
+import { buildInstalledPlatformPlan } from "./installed-platform.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
 import { stageDesktopRenderer } from "./private-package.mjs";
 import {
+  desktopInternalPreviewSource,
   desktopProductionSource,
   readDesktopSignedPackageMode,
 } from "./signed-package.ts";
@@ -15,22 +18,43 @@ const productionSource =
   signedMode === "production-preview"
     ? desktopProductionSource(process.env)
     : null;
+const internalPreviewSource =
+  signedMode === "internal-preview" ? desktopInternalPreviewSource() : null;
 const target = readInstalledDesktopTarget(process.env);
-if (!target || process.platform !== "darwin" || process.arch !== "arm64") {
-  throw new Error("Select an installed Desktop target on macOS Apple Silicon.");
+if (!target) {
+  throw new Error("Select a fixed installed Desktop target.");
+}
+const plan = buildInstalledPlatformPlan({
+  env: process.env,
+  target,
+  signedMode,
+});
+if (productionSource) {
+  await checkProductionArtifact({
+    root,
+    scope: "desktop",
+    sourceSha: productionSource.releaseSha,
+  });
 }
 const staged = stageDesktopRenderer(root, target);
-if (productionSource) {
+if (productionSource || internalPreviewSource) {
   writeFileSync(
     new URL(
-      "../../clients/desktop/dist/production-preview-source.json",
+      `../../clients/desktop/dist/${productionSource ? "production-preview" : "internal-preview"}-source.json`,
       import.meta.url
     ),
-    JSON.stringify({ ...productionSource, webBuild: staged.webBuild, target })
+    JSON.stringify({
+      ...(productionSource ?? internalPreviewSource),
+      webBuild: staged.webBuild,
+      target,
+      ...(plan.windows ? { windows: plan.windows } : {}),
+    })
   );
 }
 for (const args of [
-  ["--dir", "clients/desktop", "icons:generate"],
+  ...(plan.generateMacIcons
+    ? [["--dir", "clients/desktop", "icons:generate"]]
+    : []),
   ["--dir", "clients/desktop", "build"],
   [
     "--dir",
@@ -39,10 +63,7 @@ for (const args of [
     "electron-builder",
     "--config",
     "electron-builder.installed.config.mjs",
-    "--mac",
-    "dmg",
-    ...(signedMode === "production-preview" ? ["zip"] : []),
-    "--arm64",
+    ...plan.args,
     "--publish",
     "never",
   ],
@@ -54,7 +75,15 @@ for (const args of [
   }
   const code = await runOwnedCommand("pnpm", args, {
     cwd: root,
-    env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: "false" },
+    windowsJob: Boolean(plan.windows),
+    env: {
+      ...process.env,
+      ...(plan.generateMacIcons ||
+      !signedMode ||
+      signedMode === "internal-preview"
+        ? { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+        : {}),
+    },
   });
   if (code !== 0) {
     process.exitCode = code;

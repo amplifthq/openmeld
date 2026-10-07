@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
 import {
@@ -6,9 +7,8 @@ import {
 } from "../inbox/application/inbox-item-service";
 
 const INBOX_SOURCE_KIND = "system_attention_event" as const;
-
 export async function projectAgentProfileCreationRequestInbox(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   request: AgentProfileCreationRequest;
 }): Promise<void> {
@@ -39,9 +39,8 @@ export async function projectAgentProfileCreationRequestInbox(input: {
     nowMs: input.nowMs,
   });
 }
-
 export async function resolveAgentProfileCreationRequestInbox(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   request: AgentProfileCreationRequest;
 }): Promise<void> {
@@ -53,7 +52,6 @@ export async function resolveAgentProfileCreationRequestInbox(input: {
     sourceKind: INBOX_SOURCE_KIND,
   });
 }
-
 function buildRequestPreview(request: AgentProfileCreationRequest): string {
   switch (request.sessionStrategy) {
     case "new":

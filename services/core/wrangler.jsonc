@@ -58,6 +58,11 @@
   ],
   "r2_buckets": [
     {
+      "binding": "OPENMELD_ACCOUNT_AVATARS",
+      "bucket_name": "openmeld-organization-logos-preview",
+      "preview_bucket_name": "openmeld-organization-logos-preview"
+    },
+    {
       "binding": "OPENMELD_SPACE_ATTACHMENTS",
       "bucket_name": "openmeld-space-attachments-preview",
       "preview_bucket_name": "openmeld-space-attachments-preview"
@@ -72,9 +77,9 @@
     "OPENMELD_WORKER_ENVIRONMENT": "local",
     "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
     "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+    "OPENMELD_SKILL_FILE_BACKED_WRITES": "true",
     "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
     "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
-    "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
     "OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED": "false",
     "OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED": "true",
     "OPENMELD_LARK_CHANNEL_ENABLED": "true",
@@ -91,38 +96,17 @@
   "secrets": {
     "required": [
       "GITHUB_OPENMELD_API_TOKEN",
+      "GITHUB_OPENMELD_WEBHOOK_SECRET",
       "SLACK_OPENMELD_BOT_TOKEN",
       "SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
       "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
       "ZEP_OPENMELD_API_KEY"
     ]
   },
-  "d1_databases": [
+  "hyperdrive": [
     {
-      "binding": "OPENMELD_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
-      "migrations_dir": "../../packages/db/drizzle"
-    },
-    // Per-domain bindings, ALIASED to the OpenMeld production DB (single physical DB). The
-    // 4-way physical split was attempted and REVERTED 2026-06-14 (Felix); see
-    // physical-db-split.md "DIRECTION CHANGE". These stay aliased; do NOT flip them.
-    // Kept so the code stays split-ready: a future observability-only split would
-    // flip ONLY OPENMELD_WAKE_EVIDENCE_DB, not these.
-    {
-      "binding": "OPENMELD_LOCAL_STATE_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
-    },
-    {
-      "binding": "OPENMELD_WAKE_EVIDENCE_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
-    },
-    {
-      "binding": "OPENMELD_PROJECTIONS_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+      "binding": "OPENMELD_POSTGRESQL",
+      "id": "dba7d43fe644409c8e1cc24c5260f289"
     }
   ],
   "durable_objects": {
@@ -130,6 +114,14 @@
       {
         "name": "OPENMELD_SPACES",
         "class_name": "Space"
+      },
+      {
+        "name": "OPENMELD_FILE_ROOTS",
+        "class_name": "OrganizationFileRoot"
+      },
+      {
+        "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
+        "class_name": "AccountInvalidationHub"
       },
       {
         "name": "OPENMELD_RUNTIME_TRANSPORT",
@@ -146,6 +138,11 @@
     ]
   },
   "services": [
+    {
+      "binding": "OPENMELD_ACCOUNT_DELETION_GATEWAY",
+      "service": "openmeld-gateway",
+      "entrypoint": "AccountDeletionEntrypoint"
+    },
     {
       "binding": "OPENMELD_AUTH_WORKER",
       "service": "openmeld-auth"
@@ -205,7 +202,9 @@
         }
       ]
     },
-    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] }
+    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] },
+    { "tag": "v6", "new_sqlite_classes": ["AccountInvalidationHub"] },
+    { "tag": "v7", "new_sqlite_classes": ["OrganizationFileRoot"] }
   ],
   "env": {
     "stg": {
@@ -239,6 +238,11 @@
       ],
       "r2_buckets": [
         {
+          "binding": "OPENMELD_ACCOUNT_AVATARS",
+          "bucket_name": "openmeld-organization-logos-stg",
+          "preview_bucket_name": "openmeld-organization-logos-stg"
+        },
+        {
           "binding": "OPENMELD_SPACE_ATTACHMENTS",
           "bucket_name": "openmeld-space-attachments-stg",
           "preview_bucket_name": "openmeld-space-attachments-stg"
@@ -253,9 +257,9 @@
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
         "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+        "OPENMELD_SKILL_FILE_BACKED_WRITES": "true",
         "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
         "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
-        "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
         "OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED": "false",
         "OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED": "true",
         "OPENMELD_LARK_CHANNEL_ENABLED": "false",
@@ -266,7 +270,7 @@
         "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
         "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
         "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
-        "WEB_APP_URL": "https://staging.openmeld.ai",
+        "WEB_APP_URL": "https://app.staging.openmeld.ai",
         "CORS_ORIGINS": "https://gateway.staging.openmeld.ai"
       },
       "d1_databases": [
@@ -299,6 +303,14 @@
             "class_name": "Space"
           },
           {
+            "name": "OPENMELD_FILE_ROOTS",
+            "class_name": "OrganizationFileRoot"
+          },
+          {
+            "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
+            "class_name": "AccountInvalidationHub"
+          },
+          {
             "name": "OPENMELD_RUNTIME_TRANSPORT",
             "class_name": "RuntimeTransportHub"
           },
@@ -313,6 +325,11 @@
         ]
       },
       "services": [
+        {
+          "binding": "OPENMELD_ACCOUNT_DELETION_GATEWAY",
+          "service": "openmeld-gateway-stg",
+          "entrypoint": "AccountDeletionEntrypoint"
+        },
         {
           "binding": "OPENMELD_AUTH_WORKER",
           "service": "openmeld-auth-stg"
@@ -380,6 +397,11 @@
       ],
       "r2_buckets": [
         {
+          "binding": "OPENMELD_ACCOUNT_AVATARS",
+          "bucket_name": "openmeld-organization-logos-prod",
+          "preview_bucket_name": "openmeld-organization-logos-preview"
+        },
+        {
           "binding": "OPENMELD_SPACE_ATTACHMENTS",
           "bucket_name": "openmeld-space-attachments-prod",
           "preview_bucket_name": "openmeld-space-attachments-preview"
@@ -394,9 +416,9 @@
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
         "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+        "OPENMELD_SKILL_FILE_BACKED_WRITES": "true",
         "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
         "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
-        "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
         "OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED": "false",
         "OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED": "true",
         "OPENMELD_LARK_CHANNEL_ENABLED": "true",
@@ -407,44 +429,23 @@
         "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
         "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
         "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
-        "WEB_APP_URL": "https://openmeld.ai",
+        "WEB_APP_URL": "https://app.openmeld.ai",
         "CORS_ORIGINS": "https://gateway.openmeld.ai"
       },
       "secrets": {
         "required": [
           "GITHUB_OPENMELD_API_TOKEN",
+          "GITHUB_OPENMELD_WEBHOOK_SECRET",
           "SLACK_OPENMELD_BOT_TOKEN",
           "SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
           "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
           "ZEP_OPENMELD_API_KEY"
         ]
       },
-      "d1_databases": [
+      "hyperdrive": [
         {
-          "binding": "OPENMELD_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
-          "migrations_dir": "../../packages/db/drizzle"
-        },
-        // Per-domain bindings, ALIASED to the OpenMeld production DB (single physical DB). The
-        // 4-way physical split was attempted and REVERTED 2026-06-14 (Felix); see
-        // physical-db-split.md "DIRECTION CHANGE". These stay aliased; do NOT flip.
-        // Kept so the code stays split-ready: a future observability-only split
-        // would flip ONLY OPENMELD_WAKE_EVIDENCE_DB, not these.
-        {
-          "binding": "OPENMELD_LOCAL_STATE_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
-        },
-        {
-          "binding": "OPENMELD_WAKE_EVIDENCE_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
-        },
-        {
-          "binding": "OPENMELD_PROJECTIONS_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+          "binding": "OPENMELD_POSTGRESQL",
+          "id": "dba7d43fe644409c8e1cc24c5260f289"
         }
       ],
       "durable_objects": {
@@ -452,6 +453,14 @@
           {
             "name": "OPENMELD_SPACES",
             "class_name": "Space"
+          },
+          {
+            "name": "OPENMELD_FILE_ROOTS",
+            "class_name": "OrganizationFileRoot"
+          },
+          {
+            "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
+            "class_name": "AccountInvalidationHub"
           },
           {
             "name": "OPENMELD_RUNTIME_TRANSPORT",
@@ -468,6 +477,11 @@
         ]
       },
       "services": [
+        {
+          "binding": "OPENMELD_ACCOUNT_DELETION_GATEWAY",
+          "service": "openmeld-gateway-prod",
+          "entrypoint": "AccountDeletionEntrypoint"
+        },
         {
           "binding": "OPENMELD_AUTH_WORKER",
           "service": "openmeld-auth-prod"

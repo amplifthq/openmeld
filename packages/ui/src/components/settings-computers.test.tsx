@@ -8,8 +8,11 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { TooltipProvider } from "#components/tooltip";
 import {
+  SettingsComputerSummaryCardContent,
+  SettingsLocalAgentsCard,
   SettingsLocalAgentUsageDockItem,
   SettingsLocalAgentUsageLimits,
+  SettingsLocalAgentUsageReadout,
   SettingsLocalAgentUsageSummary,
 } from "./settings-computers";
 
@@ -23,10 +26,209 @@ const LOW_WEEKLY_USAGE_GAUGE_NAME =
 const STALE_USAGE_GAUGE_NAME = /Codex Last-known usage, 35% left, Stale/u;
 const USAGE_UNSUPPORTED_COPY = /Usage unsupported/u;
 const OPENCODE_GO_SUMMARY_NAME = /OpenCode Go usage, 12% left, Low/u;
+const LOCAL_AGENT_LOGO_TEST_ID = /^local-agent-logo-/u;
 
 afterEach(cleanup);
 
 describe("Settings Local Agent usage limits", () => {
+  it("caps computer agent previews at five and names the hidden agent on hover", async () => {
+    render(
+      <TooltipProvider>
+        <SettingsComputerSummaryCardContent
+          lastSeenLabel="Now"
+          localAgents={[
+            { agentId: "codex", displayName: "Codex" },
+            { agentId: "claude-code", displayName: "Claude Code" },
+            { agentId: "grok-build", displayName: "Grok Build" },
+            { agentId: "opencode", displayName: "OpenCode" },
+            { agentId: "antigravity", displayName: "Antigravity" },
+            { agentId: "cursor", displayName: "Cursor" },
+          ]}
+          name="My computer"
+          platformLabel="macOS"
+          status={null}
+        />
+      </TooltipProvider>
+    );
+
+    expect(screen.getAllByTestId(LOCAL_AGENT_LOGO_TEST_ID)).toHaveLength(5);
+    expect(screen.queryByTestId("local-agent-logo-cursor")).toBeNull();
+    const antigravity = screen.getByTestId(
+      "local-agent-logo-antigravity"
+    ).parentElement;
+    expect(antigravity).toBeTruthy();
+    fireEvent.pointerEnter(antigravity as HTMLElement, {
+      pointerType: "mouse",
+    });
+    fireEvent.mouseEnter(antigravity as HTMLElement);
+    fireEvent.mouseMove(antigravity as HTMLElement);
+    expect(
+      await screen.findByText("Antigravity · Also supports Cursor")
+    ).toBeTruthy();
+  });
+
+  it("distinguishes a pending local-agent inventory, a failed read, and a confirmed empty inventory", () => {
+    const props = { description: "Local agents on this computer", rows: [] };
+    const { rerender } = render(<SettingsLocalAgentsCard {...props} loading />);
+    expect(
+      screen.getByRole("status", { name: "Loading local agents" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("No supported agents on this computer yet.")
+    ).toBeNull();
+    rerender(
+      <SettingsLocalAgentsCard {...props} error="Connection unavailable" />
+    );
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Connection unavailable"
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      screen.queryByText("No supported agents on this computer yet.")
+    ).toBeNull();
+    rerender(<SettingsLocalAgentsCard {...props} />);
+    expect(
+      screen.getByText("No supported agents on this computer yet.")
+    ).toBeTruthy();
+  });
+
+  it("fits the existing donut into a readout without an editable action or a redundant Available badge", () => {
+    render(
+      <SettingsLocalAgentUsageReadout
+        agentName="Codex"
+        limits={[
+          {
+            key: "weekly",
+            label: "Weekly usage",
+            status: "available",
+            usedPercent: 75,
+            observedAt: "2026-08-20T07:50:00.000Z",
+            resetsAt: "2026-08-23T08:00:00.000Z",
+          },
+        ]}
+        nowMs={NOW_MS}
+      />
+    );
+    const meter = screen.getByRole("meter");
+    expect(meter.getAttribute("aria-valuenow")).toBe("25");
+    expect(meter.parentElement?.querySelectorAll("circle")).toHaveLength(2);
+    expect(
+      meter.parentElement
+        ?.querySelectorAll("circle")[1]
+        ?.getAttribute("stroke-dasharray")
+    ).toBe("25 100");
+    expect(screen.getByText("Resets in 3 days")).toBeTruthy();
+    expect(screen.getByText("Updated 10 minutes ago")).toBeTruthy();
+    expect(screen.queryByText("Available")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("keeps exhaustion foremost and makes every additional provider window inspectable", () => {
+    const base = {
+      observedAt: "2026-08-19T08:00:00.000Z",
+      resetsAt: "2026-08-20T07:00:00.000Z",
+    };
+    render(
+      <SettingsLocalAgentUsageReadout
+        agentName="OpenCode"
+        limits={[
+          {
+            ...base,
+            key: "weekly",
+            label: "Weekly",
+            provider: { id: "p1", displayName: "Provider One" },
+            status: "available",
+            usedPercent: 25,
+          },
+          {
+            ...base,
+            key: "monthly",
+            label: "Monthly",
+            provider: { id: "p2", displayName: "Provider Two" },
+            status: "stale",
+            usedPercent: 65,
+          },
+          {
+            ...base,
+            key: "daily",
+            label: "Daily",
+            provider: { id: "p3", displayName: "Provider Three" },
+            status: "exhausted",
+            usedPercent: 100,
+          },
+          {
+            ...base,
+            key: "unknown",
+            label: "Other usage",
+            status: "unsupported",
+            usedPercent: null,
+          },
+        ]}
+        nowMs={NOW_MS}
+      />
+    );
+    expect(screen.getAllByRole("meter")[0]?.getAttribute("aria-valuenow")).toBe(
+      "0"
+    );
+    expect(screen.getByText("Provider Three")).toBeTruthy();
+    const disclosure = screen
+      .getByText("View all 3 usage windows")
+      .closest("details");
+    expect(disclosure).toBeTruthy();
+    fireEvent.click(screen.getByText("View all 3 usage windows"));
+    expect(disclosure?.open).toBe(true);
+    expect(
+      within(disclosure as HTMLElement).getByText("Provider One")
+    ).toBeTruthy();
+    expect(
+      within(disclosure as HTMLElement).getByText("Last updated 1 day ago")
+    ).toBeTruthy();
+    expect(screen.getByText("Usage not supported")).toBeTruthy();
+    expect(screen.getAllByText("Reset time passed").length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    0, 100,
+  ])("preserves %i percent remaining without treating unknown capacity as zero", (remaining) => {
+    const { rerender } = render(
+      <SettingsLocalAgentUsageReadout
+        agentName="Codex"
+        limits={[
+          {
+            key: "q",
+            label: "Weekly",
+            status: "available",
+            usedPercent: 100 - remaining,
+            observedAt: "2026-08-20T08:00:00.000Z",
+            resetsAt: null,
+          },
+        ]}
+        nowMs={NOW_MS}
+      />
+    );
+    expect(screen.getByRole("meter").getAttribute("aria-valuenow")).toBe(
+      String(remaining)
+    );
+    rerender(
+      <SettingsLocalAgentUsageReadout
+        agentName="Codex"
+        limits={[
+          {
+            key: "q",
+            label: "Weekly",
+            status: "unavailable",
+            usedPercent: null,
+            observedAt: "2026-08-20T08:00:00.000Z",
+            resetsAt: null,
+          },
+        ]}
+        nowMs={NOW_MS}
+      />
+    );
+    expect(screen.queryByRole("meter")).toBeNull();
+    expect(screen.getByText("Usage not reported")).toBeTruthy();
+  });
+
   it("keeps dock quotas separate by computer and provider and preserves a logo without usage", async () => {
     const limit = {
       key: "weekly",
@@ -351,7 +553,7 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.getByText("Low")).toBeTruthy();
     expect(screen.getByText("Exhausted")).toBeTruthy();
     expect(screen.getByText("Stale")).toBeTruthy();
-    expect(screen.getByText("Usage temporarily unavailable")).toBeTruthy();
+    expect(screen.getByText("Usage not reported")).toBeTruthy();
     expect(screen.getByText("Usage not supported")).toBeTruthy();
     expect(screen.getAllByRole("progressbar")).toHaveLength(4);
     const availableGauge = screen.getByRole("progressbar", {

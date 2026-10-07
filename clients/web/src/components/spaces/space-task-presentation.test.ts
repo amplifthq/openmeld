@@ -1,4 +1,7 @@
-import { spaceTaskSchema } from "@openmeld/schemas/schemas";
+import {
+	describeLinkedGitHubIssueClosePrompt,
+	spaceTaskSchema,
+} from "@openmeld/schemas/schemas";
 import type { SpaceTask } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { describeSpaceTaskAttention } from "./space-task-presentation";
@@ -108,5 +111,30 @@ describe("describeSpaceTaskAttention", () => {
 		},
 	] as const)("$name", ({ expected, selfProfileId, task }) => {
 		expect(describeSpaceTaskAttention({ selfProfileId, task })).toBe(expected);
+	});
+});
+
+describe("describeLinkedGitHubIssueClosePrompt", () => {
+	it("asks to close still-open GitHub issues after the Task is closed", () => {
+		expect(
+			describeLinkedGitHubIssueClosePrompt(
+				createTask({
+					externalWorkItems: [
+						{
+							lastObservedAt: "2026-09-20T00:00:00.000Z",
+							lastObservedState: "open",
+							number: 1143,
+							owner: "amplifthq",
+							provider: "github",
+							repo: "openmeld",
+							url: "https://github.com/amplifthq/openmeld/issues/1143",
+						},
+					],
+					phase: "canceled",
+				})
+			)
+		).toBe(
+			"This Task is linked to GitHub issue amplifthq/openmeld#1143. Close that issue in GitHub if the work there is finished."
+		);
 	});
 });

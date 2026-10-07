@@ -1,7 +1,7 @@
 import type { NativeReplyPlacement } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveSpaceStub } from "../../rpc/space-ref";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 
 /** The source scope stays frozen in the delivery; Space owns output placement. */
 export async function resolveNativeDeliveryReplyPlacement(input: {
@@ -21,13 +21,6 @@ export async function resolveNativeDeliveryReplyPlacement(input: {
 }): Promise<NativeReplyPlacement | null> {
   const delivery = input.delivery;
   if (delivery.conversationKind !== "space" || delivery.routineRunId) {
-    return null;
-  }
-  const request = delivery.executionRecoverySubmitRequest;
-  if (
-    request?.v === 4 &&
-    request.conversationIdentity?.kind === "personal_agent"
-  ) {
     return null;
   }
   const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, delivery.spaceId);

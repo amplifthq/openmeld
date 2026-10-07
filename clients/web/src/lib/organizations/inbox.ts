@@ -1,5 +1,6 @@
 import {
 	createInboxApi,
+	isInboxItemInOrganizationScope,
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
@@ -7,16 +8,21 @@ import type {
 	CenterAgentInboxSummaryResponse,
 	DismissInboxItemResponse,
 	GetInboxItemResponse,
+	InboxFeedQuery,
+	InboxFeedResponse,
 	InboxMessageNotificationPreferencesResponse,
+	InboxNotificationObservationsQuery,
+	InboxNotificationObservationsResponse,
 	InboxNotificationPreferencesResponse,
 	InboxPresentation,
 	InboxSummaryResponse,
 	InboxView,
 	ListInboxItemsResponse,
 	MarkAllInboxItemsReadResponse,
-	MarkCenterAgentInboxReadThroughResponse,
 	MarkInboxItemReadResponse,
-	MarkSpaceInboxReadThroughResponse,
+	MutateInboxFeedBody,
+	MutateInboxFeedResponse,
+	MutateSpaceInboxReadBody,
 	SpaceInboxSummaryResponse,
 	SpaceInboxUnreadTargetsResponse,
 	UpdateInboxMessageNotificationPreferencesBody,
@@ -43,6 +49,41 @@ export async function dismissCurrentInboxItem(input: {
 		if (response.dismissedItemId !== input.itemId) {
 			throw new Error("Inbox dismiss response item mismatch.");
 		}
+		return response;
+	});
+}
+
+export async function listCurrentInboxFeed(
+	input: InboxFeedQuery & { organizationId: string; signal?: AbortSignal }
+): Promise<InboxFeedResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...query } = input;
+		const response = await createWebInboxApi(organizationId).feed(query);
+		assertOrganizationMatch(response.organizationId, organizationId);
+		return response;
+	});
+}
+
+export async function mutateCurrentInboxFeed(
+	input: MutateInboxFeedBody & { organizationId: string }
+): Promise<MutateInboxFeedResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...body } = input;
+		return await createWebInboxApi(organizationId).mutateFeed(body);
+	});
+}
+
+export async function observeCurrentInboxNotifications(
+	input: InboxNotificationObservationsQuery & {
+		organizationId: string;
+		signal?: AbortSignal;
+	}
+): Promise<InboxNotificationObservationsResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...query } = input;
+		const response =
+			await createWebInboxApi(organizationId).observeNotifications(query);
+		assertOrganizationMatch(response.organizationId, organizationId);
 		return response;
 	});
 }
@@ -78,7 +119,9 @@ export async function getCurrentInboxItem(input: {
 			itemId: input.itemId,
 			signal: input.signal,
 		});
-		assertOrganizationMatch(response.item.organizationId, input.organizationId);
+		if (!isInboxItemInOrganizationScope(response.item, input.organizationId)) {
+			throw new Error("Inbox response organization mismatch.");
+		}
 		return response;
 	});
 }
@@ -134,43 +177,17 @@ export async function getCurrentSpaceInboxUnreadTargets(input: {
 	return await runInboxOperation(async () => {
 		const response = await createWebInboxApi(
 			input.organizationId
-		).spaceUnreadTargets({ signal: input.signal, spaceId: input.spaceId });
+		).spaceUnreadTargets({
+			signal: input.signal,
+			spaceId: input.spaceId,
+			includeItemIds: true,
+		});
 		assertOrganizationMatch(response.organizationId, input.organizationId);
 		if (response.spaceId !== input.spaceId) {
 			throw new Error("Space Inbox unread targets response Space mismatch.");
 		}
 		return response;
 	});
-}
-
-export async function markCurrentCenterAgentInboxReadThrough(input: {
-	organizationId: string;
-	spaceId: string;
-	throughOccurredAtMs: number;
-}): Promise<MarkCenterAgentInboxReadThroughResponse> {
-	return await runInboxOperation(async () =>
-		createWebInboxApi(input.organizationId).markCenterAgentReadThrough({
-			spaceId: input.spaceId,
-			throughOccurredAtMs: input.throughOccurredAtMs,
-		})
-	);
-}
-
-export async function markCurrentSpaceInboxReadThrough(input: {
-	organizationId: string;
-	spaceId: string;
-	threadRootSignalId?: string;
-	throughOccurredAtMs: number;
-}): Promise<MarkSpaceInboxReadThroughResponse> {
-	return await runInboxOperation(async () =>
-		createWebInboxApi(input.organizationId).markSpaceReadThrough({
-			spaceId: input.spaceId,
-			...(input.threadRootSignalId
-				? { threadRootSignalId: input.threadRootSignalId }
-				: {}),
-			throughOccurredAtMs: input.throughOccurredAtMs,
-		})
-	);
 }
 
 export async function markCurrentInboxItemRead(input: {
@@ -183,7 +200,9 @@ export async function markCurrentInboxItemRead(input: {
 			itemId: input.itemId,
 			read: input.read,
 		});
-		assertOrganizationMatch(response.item.organizationId, input.organizationId);
+		if (!isInboxItemInOrganizationScope(response.item, input.organizationId)) {
+			throw new Error("Inbox response organization mismatch.");
+		}
 		return response;
 	});
 }
@@ -276,4 +295,15 @@ function assertOrganizationMatch(actual: string, expected: string): void {
 	if (actual !== expected) {
 		throw new Error("Inbox response organization mismatch.");
 	}
+}
+
+export async function mutateCurrentSpaceInboxRead(input: {
+	organizationId: string;
+	body: MutateSpaceInboxReadBody;
+}) {
+	return await runInboxOperation(() =>
+		createWebInboxApi(input.organizationId).mutateSpaceRead({
+			body: input.body,
+		})
+	);
 }

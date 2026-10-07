@@ -16,15 +16,42 @@ import {
 } from "./conversation-stream";
 
 describe("space conversation stream state", () => {
+	it("shows hosted progress live and clears it with the transient stream", () => {
+		const streaming = applySpaceConversationStreamFrame({
+			current: [],
+			frame: createProgressDeltaFrame({
+				sequence: 1,
+				progressSnapshot: "Checking the current Space context.",
+			}),
+			observedRevision: 1,
+		});
+		expect(listVisibleSpaceConversationStreams(streaming)[0]).toMatchObject({
+			progress: "Checking the current Space context.",
+		});
+		expect(
+			listVisibleSpaceConversationStreams(
+				clearSpaceConversationTransientStreams(streaming)
+			)[0]
+		).not.toHaveProperty("progress");
+	});
+
 	it("clears the live tail on privacy disable without replacing the execution", () => {
 		const frame = createThinkingDeltaFrame({
 			sequence: 1,
 			thinkingSnapshot: "Live reasoning",
 		});
-		const streaming = applySpaceConversationStreamFrame({
+		let streaming = applySpaceConversationStreamFrame({
 			current: [],
 			frame,
 			observedRevision: 1,
+		});
+		streaming = applySpaceConversationStreamFrame({
+			current: streaming,
+			frame: createProgressDeltaFrame({
+				sequence: 10,
+				progressSnapshot: "Checking results",
+			}),
+			observedRevision: 2,
 		});
 		const disabled = applySpaceConversationStreamFrame({
 			current: streaming,
@@ -42,6 +69,16 @@ describe("space conversation stream state", () => {
 			reasoningState: { status: "disabled" },
 		});
 		expect(disabled[0]).not.toHaveProperty("thinking");
+		expect(disabled[0]).toMatchObject({
+			sequence: 10,
+			progress: "Checking results",
+		});
+		const staleReplay = applySpaceConversationStreamFrame({
+			current: disabled,
+			frame,
+			observedRevision: 3,
+		});
+		expect(staleReplay).toBe(disabled);
 		expect(
 			clearSpaceConversationTransientStreams(disabled)[0]
 		).not.toHaveProperty("reasoningState");
@@ -274,7 +311,7 @@ describe("space conversation stream state", () => {
 			noticeText:
 				"Center Agent finished the reply, but OpenMeld could not publish it here.",
 		},
-	])("replaces partial text with the $kind terminal notice and rejects a late delta", (terminal) => {
+	])("settles $kind without accepting a late delta", (terminal) => {
 		let state = applySpaceConversationStreamFrame({
 			current: [],
 			frame: {
@@ -305,7 +342,10 @@ describe("space conversation stream state", () => {
 				reasonCode: terminal.reasonCode,
 				replyThreadRootSignalId: "source-thread-root",
 				status: terminal.kind,
-				text: terminal.noticeText,
+				text:
+					terminal.kind === "stopped"
+						? "Unfinished partial text"
+						: terminal.noticeText,
 			}),
 		]);
 	});
@@ -493,6 +533,26 @@ function createThinkingDeltaFrame(input: {
 		kind: "thinking",
 		thinkingSnapshot: input.thinkingSnapshot,
 		...(input.reasoningState ? { reasoningState: input.reasoningState } : {}),
+		state: "streaming",
+		updatedAtMs: 1000 + input.sequence,
+	};
+}
+
+function createProgressDeltaFrame(input: {
+	sequence: number;
+	progressSnapshot: string;
+}): Extract<SpaceAgentStreamDeltaFrame, { kind: "progress" }> {
+	return {
+		type: "space.agent_stream_delta",
+		v: 1,
+		spaceId: "space-123",
+		streamId: STREAM_ID,
+		sequence: input.sequence,
+		profileId: PROFILE_ID,
+		triggerMessageId: "signal-trigger-1",
+		dispatchId: "dispatch-1",
+		kind: "progress",
+		progressSnapshot: input.progressSnapshot,
 		state: "streaming",
 		updatedAtMs: 1000 + input.sequence,
 	};

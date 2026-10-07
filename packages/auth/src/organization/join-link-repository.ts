@@ -3,28 +3,29 @@ import {
   organizationJoinLinks,
   organizations,
 } from "@openmeld/db/auth";
-import type { InferSelectModel } from "drizzle-orm";
-import { and, eq, isNull, lte, sql } from "drizzle-orm";
-import type { createD1Db } from "../db";
-
+import {
+  and,
+  eq,
+  type InferSelectModel,
+  isNull,
+  lte,
+  sql,
+} from "@openmeld/db/query";
+import type { createAuthDatabase } from "../db";
 export type OrganizationJoinLinkRecord = InferSelectModel<
   typeof organizationJoinLinks
 >;
-
 export type OrganizationJoinLinkOrganizationRecord = Pick<
   InferSelectModel<typeof organizations>,
   "id" | "metadata" | "name" | "slug"
 >;
-
 export type OrganizationJoinLinkMembershipRecord = Pick<
   InferSelectModel<typeof members>,
   "id" | "role"
 >;
-
 export type ActiveOrganizationJoinLinkRecord = OrganizationJoinLinkRecord & {
   organization: OrganizationJoinLinkOrganizationRecord;
 };
-
 export type OrganizationJoinLinkRepository = {
   findActiveByOrganizationId: (
     organizationId: string,
@@ -66,9 +67,7 @@ export type OrganizationJoinLinkRepository = {
     mode?: "direct" | "request"
   ) => Promise<boolean>;
 };
-
-type OrganizationJoinLinkDatabase = ReturnType<typeof createD1Db>;
-
+type OrganizationJoinLinkDatabase = ReturnType<typeof createAuthDatabase>;
 export function createDrizzleOrganizationJoinLinkRepository(
   db: OrganizationJoinLinkDatabase
 ): OrganizationJoinLinkRepository {
@@ -158,13 +157,14 @@ export function createDrizzleOrganizationJoinLinkRepository(
       if (input.initialOnly) {
         // The history check and insertion are one statement: opening Share
         // cannot undo a revocation, even when another request races it.
-        await db.run(sql`INSERT OR IGNORE INTO organization_join_links
+        await db.execute(sql`INSERT INTO ${organizationJoinLinks}
           (id, organization_id, space_id, mode, token, role, created_by, expires_at)
           SELECT ${input.id}, ${input.organizationId}, ${input.spaceId ?? null},
             ${input.mode}, ${input.token}, 'member', ${input.createdBy}, ${input.expiresAt.getTime()}
-          WHERE NOT EXISTS (SELECT 1 FROM organization_join_links
+          WHERE NOT EXISTS (SELECT 1 FROM ${organizationJoinLinks}
             WHERE organization_id = ${input.organizationId}
-              AND space_id IS ${input.spaceId ?? null} AND mode = ${input.mode})`);
+              AND space_id IS NOT DISTINCT FROM ${input.spaceId ?? null} AND mode = ${input.mode})
+          ON CONFLICT DO NOTHING`);
         const rows = await db
           .select()
           .from(organizationJoinLinks)
@@ -181,50 +181,52 @@ export function createDrizzleOrganizationJoinLinkRepository(
           .limit(1);
         return rows[0] ?? null;
       }
-      const [, createdRows, activeRows] = await db.batch([
-        db
-          .update(organizationJoinLinks)
-          .set({ revokedAt: new Date() })
-          .where(
-            and(
-              eq(organizationJoinLinks.organizationId, input.organizationId),
-              eq(organizationJoinLinks.mode, input.mode),
-              input.spaceId
-                ? eq(organizationJoinLinks.spaceId, input.spaceId)
-                : isNull(organizationJoinLinks.spaceId),
-              isNull(organizationJoinLinks.revokedAt),
-              lte(organizationJoinLinks.expiresAt, new Date())
+      const [, createdRows, activeRows] = await db.transaction((tx) =>
+        Promise.all([
+          tx
+            .update(organizationJoinLinks)
+            .set({ revokedAt: new Date() })
+            .where(
+              and(
+                eq(organizationJoinLinks.organizationId, input.organizationId),
+                eq(organizationJoinLinks.mode, input.mode),
+                input.spaceId
+                  ? eq(organizationJoinLinks.spaceId, input.spaceId)
+                  : isNull(organizationJoinLinks.spaceId),
+                isNull(organizationJoinLinks.revokedAt),
+                lte(organizationJoinLinks.expiresAt, new Date())
+              )
+            ),
+          tx
+            .insert(organizationJoinLinks)
+            .values({
+              id: input.id,
+              mode: input.mode,
+              expiresAt: input.expiresAt,
+              spaceId: input.spaceId ?? null,
+              organizationId: input.organizationId,
+              token: input.token,
+              role: "member",
+              createdBy: input.createdBy,
+            })
+            .onConflictDoNothing()
+            .returning(),
+          tx
+            .select()
+            .from(organizationJoinLinks)
+            .where(
+              and(
+                eq(organizationJoinLinks.organizationId, input.organizationId),
+                eq(organizationJoinLinks.mode, input.mode),
+                input.spaceId
+                  ? eq(organizationJoinLinks.spaceId, input.spaceId)
+                  : isNull(organizationJoinLinks.spaceId),
+                isNull(organizationJoinLinks.revokedAt)
+              )
             )
-          ),
-        db
-          .insert(organizationJoinLinks)
-          .values({
-            id: input.id,
-            mode: input.mode,
-            expiresAt: input.expiresAt,
-            spaceId: input.spaceId ?? null,
-            organizationId: input.organizationId,
-            token: input.token,
-            role: "member",
-            createdBy: input.createdBy,
-          })
-          .onConflictDoNothing()
-          .returning(),
-        db
-          .select()
-          .from(organizationJoinLinks)
-          .where(
-            and(
-              eq(organizationJoinLinks.organizationId, input.organizationId),
-              eq(organizationJoinLinks.mode, input.mode),
-              input.spaceId
-                ? eq(organizationJoinLinks.spaceId, input.spaceId)
-                : isNull(organizationJoinLinks.spaceId),
-              isNull(organizationJoinLinks.revokedAt)
-            )
-          )
-          .limit(1),
-      ]);
+            .limit(1),
+        ])
+      );
       const active = createdRows[0] ?? activeRows[0];
       if (!active) {
         throw new Error(
@@ -235,35 +237,37 @@ export function createDrizzleOrganizationJoinLinkRepository(
     },
     async resetActive(input) {
       const now = new Date();
-      const [, createdRows] = await db.batch([
-        db
-          .update(organizationJoinLinks)
-          .set({ revokedAt: now })
-          .where(
-            and(
-              eq(organizationJoinLinks.organizationId, input.organizationId),
-              eq(organizationJoinLinks.mode, input.mode),
-              input.spaceId
-                ? eq(organizationJoinLinks.spaceId, input.spaceId)
-                : isNull(organizationJoinLinks.spaceId),
-              isNull(organizationJoinLinks.revokedAt)
-            )
-          ),
-        db
-          .insert(organizationJoinLinks)
-          .values({
-            id: input.id,
-            mode: input.mode,
-            expiresAt: input.expiresAt,
-            spaceId: input.spaceId ?? null,
-            organizationId: input.organizationId,
-            token: input.token,
-            role: "member",
-            createdBy: input.createdBy,
-            createdAt: now,
-          })
-          .returning(),
-      ]);
+      const [, createdRows] = await db.transaction((tx) =>
+        Promise.all([
+          tx
+            .update(organizationJoinLinks)
+            .set({ revokedAt: now })
+            .where(
+              and(
+                eq(organizationJoinLinks.organizationId, input.organizationId),
+                eq(organizationJoinLinks.mode, input.mode),
+                input.spaceId
+                  ? eq(organizationJoinLinks.spaceId, input.spaceId)
+                  : isNull(organizationJoinLinks.spaceId),
+                isNull(organizationJoinLinks.revokedAt)
+              )
+            ),
+          tx
+            .insert(organizationJoinLinks)
+            .values({
+              id: input.id,
+              mode: input.mode,
+              expiresAt: input.expiresAt,
+              spaceId: input.spaceId ?? null,
+              organizationId: input.organizationId,
+              token: input.token,
+              role: "member",
+              createdBy: input.createdBy,
+              createdAt: now,
+            })
+            .returning(),
+        ])
+      );
       const created = createdRows[0];
       if (!created) {
         throw new Error("Organization join link insert returned no record");

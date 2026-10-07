@@ -19,6 +19,7 @@ import {
   completeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
   RemoteAgentTerminalExecutionOwnerMissingError,
+  readRemoteAgentExecutionState,
   readRemoteAgentRequestedExecutionFailure,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
@@ -113,6 +114,44 @@ export async function handleCenterAgentObservation(input: {
       eventIndex: event.eventIndex,
       streamPublisher: input.streamPublisher,
       toolPart,
+    });
+    return;
+  }
+  if (isCompletedAssistantMessage(event)) {
+    const { coreWorker, env, storage } = resolveDependencies(
+      input.resolveDependencies
+    );
+    const submissionId = resolveRemoteAgentObservationSubmissionId(
+      event.submissionId
+    );
+    const context = await resolveRemoteAgentStreamContext({
+      storage,
+      submissionId,
+    });
+    if (!context || context.workLoopCheckpoint) {
+      return;
+    }
+    const identity = buildRemoteAgentExecutionIdentity(context);
+    const execution = await readRemoteAgentExecutionState({
+      identity,
+      storage,
+    });
+    if (
+      execution.status !== "found" ||
+      !["accepted", "running"].includes(execution.execution.status) ||
+      (await readRemoteAgentRequestedExecutionFailure({ identity, storage }))
+    ) {
+      return;
+    }
+    // A completed model message is ready to preview before compaction or
+    // later tool work. It does not settle the execution or publish its result.
+    await flushRemoteAgentStream({
+      coreWorker,
+      env,
+      event,
+      storage,
+      submissionId,
+      streamPublisher: input.streamPublisher,
     });
     return;
   }
@@ -333,9 +372,6 @@ async function handleCenterAgentStreamDelta(input: {
       input.streamDelta.kind === "thinking" ? "thinking_delta" : "text_delta",
     storage,
   });
-  if (input.streamDelta.kind === "thinking") {
-    return;
-  }
   if (context.workLoopCheckpoint) {
     return;
   }
@@ -363,6 +399,7 @@ async function handleCenterAgentStreamDelta(input: {
       delta: input.streamDelta.delta,
       kind: input.streamDelta.kind,
       observedAtMs: input.streamDelta.observedAtMs,
+      replaceTextPrefix: input.streamDelta.replaceTextPrefix,
       storage,
     });
     if (result.status === "published") {
@@ -455,6 +492,7 @@ async function handleCenterAgentPromptCompletion(input: {
     ? buildRemoteAgentExecutionIdentity(callbackContext)
     : null;
   const usage = normalizeFluePromptUsage(input.event.usage);
+  const completionMetadata = { modelId: extractModelId(input.event), usage };
   const observedFailure = resolveObservedRemoteAgentTerminalFailure({
     event: input.event,
     hasAssistantText: hasAssistantText || !!callbackContext?.workLoopCheckpoint,
@@ -468,6 +506,7 @@ async function handleCenterAgentPromptCompletion(input: {
   const settledExecution =
     callbackContext?.workLoopCheckpoint && !terminalFailure && executionIdentity
       ? await completeRemoteAgentExecutionState({
+          completionMetadata,
           identity: executionIdentity,
           nowMs: completedAtMs,
           storage,
@@ -475,6 +514,7 @@ async function handleCenterAgentPromptCompletion(input: {
           checkpoint: callbackContext.workLoopCheckpoint,
         })
       : await settleRemoteAgentPromptExecution({
+          completionMetadata,
           assistantText,
           executionIdentity,
           hasAssistantText,
@@ -581,6 +621,10 @@ async function resolveAuthoritativeRemoteAgentPromptOutcome(input: {
 }
 
 async function settleRemoteAgentPromptExecution(input: {
+  completionMetadata: {
+    modelId: ReturnType<typeof extractModelId>;
+    usage: ReturnType<typeof normalizeFluePromptUsage>;
+  };
   assistantText: string;
   executionIdentity: ReturnType<
     typeof buildRemoteAgentExecutionIdentity
@@ -595,6 +639,7 @@ async function settleRemoteAgentPromptExecution(input: {
   }
   if (input.isError || !input.hasAssistantText) {
     return await completeRemoteAgentExecutionState({
+      completionMetadata: input.completionMetadata,
       identity: input.executionIdentity,
       nowMs: Date.now(),
       status: "failed",
@@ -605,6 +650,7 @@ async function settleRemoteAgentPromptExecution(input: {
     });
   }
   return await completeRemoteAgentExecutionState({
+    completionMetadata: input.completionMetadata,
     completedText: input.assistantText,
     identity: input.executionIdentity,
     nowMs: Date.now(),
@@ -631,7 +677,10 @@ function resolveObservedRemoteAgentTerminalFailure(input: {
   if (!input.hasAssistantText) {
     return createRemoteAgentTerminalFailureFact({
       reasonCode:
-        REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_EMPTY_ASSISTANT_RESPONSE,
+        input.event.agentOutput?.type === "text" &&
+        input.event.agentOutput.finishReason === "length"
+          ? REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_OUTPUT_LIMIT_EXCEEDED
+          : REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_EMPTY_ASSISTANT_RESPONSE,
       status: "failed",
     });
   }
@@ -710,7 +759,17 @@ function isRemoteAgentExecutionObservation(event: FlueObservation): boolean {
     event.type === "tool" ||
     event.type === "compaction_start" ||
     event.type === "compaction" ||
+    isCompletedAssistantMessage(event) ||
     (event.type === "operation" && event.operationKind === "prompt")
+  );
+}
+
+function isCompletedAssistantMessage(event: FlueObservation): boolean {
+  return (
+    event.type === "message_end" &&
+    event.message.role === "assistant" &&
+    event.message.stopReason !== "error" &&
+    event.message.stopReason !== "aborted"
   );
 }
 

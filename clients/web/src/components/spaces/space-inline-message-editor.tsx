@@ -1,18 +1,18 @@
 import type { MessageEnvelope } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { PaperclipIcon, XIcon } from "@phosphor-icons/react";
+import { PaperclipIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
-import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import {
 	isSpaceComposerFileInProgress,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { SpaceAttachmentStrip } from "./space-attachment-strip";
 import {
 	SpaceComposerAttachmentRecovery,
-	SpaceComposerFileTray,
+	SpaceComposerFileItems,
 	useSpaceComposerFileInput,
 } from "./space-composer-attachments";
 import {
@@ -20,10 +20,7 @@ import {
 	type SpaceComposerEditorChange,
 	type SpaceComposerEditorHandle,
 } from "./space-composer-editor";
-import {
-	SpaceMessageAttachmentGrid,
-	SpaceMessageFileList,
-} from "./space-message-body";
+import { SpaceMessageAttachmentItems } from "./space-message-attachments";
 import { useSpaceMessageEditing } from "./space-message-editing";
 import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 import type { SpaceMentionPickerItem } from "./use-space-mention-authoring";
@@ -188,11 +185,6 @@ function InlineEditor({
 			await files.addFiles(selected);
 		},
 	});
-	const api = useMemo(
-		() =>
-			createUnscopedWebSpaceApi({ openMeldProfileId: editing.selfProfileId }),
-		[editing.selfProfileId]
-	);
 	useEffect(() => {
 		// Entering edit must not jump a long message to its last line.
 		const editable = containerRef.current?.querySelector<HTMLElement>(
@@ -267,12 +259,18 @@ function InlineEditor({
 		}
 	}
 
+	const hasAttachments =
+		fileIds.length + attachmentIds.length + files.files.length > 0;
 	return (
 		<div
 			className="min-w-0 max-w-full text-left"
+			data-has-attachments={hasAttachments}
 			data-slot="message-inline-editor"
 			ref={containerRef}
-			style={{ width: bodySize?.width, overflowWrap: "anywhere" }}
+			style={{
+				width: hasAttachments ? "100%" : bodySize?.width,
+				overflowWrap: "anywhere",
+			}}
 		>
 			<div className="flex flex-col gap-2">
 				<div
@@ -314,29 +312,42 @@ function InlineEditor({
 					/>
 				</div>
 				{collapseControl}
-				<SpaceMessageAttachmentGrid
-					attachments={item.attachments.filter((file) =>
-						attachmentIds.includes(file.id)
-					)}
-					organizationSlug={editing.orgSlug}
-					spaceId={item.spaceId}
-				/>
-				<SpaceMessageFileList
-					api={api}
-					files={(item.files ?? []).filter((file) =>
-						fileIds.includes(file.fileId)
-					)}
-					spaceId={item.spaceId}
-				/>
+				{hasAttachments && (
+					<SpaceAttachmentStrip
+						label="Message attachments to edit"
+						size="composer"
+					>
+						<SpaceMessageAttachmentItems
+							disabled={busy}
+							item={{
+								attachments: item.attachments.filter((file) =>
+									attachmentIds.includes(file.id)
+								),
+								files: (item.files ?? []).filter((file) =>
+									fileIds.includes(file.fileId)
+								),
+							}}
+							onRemoveAttachment={(id) =>
+								setAttachmentIds((ids) => ids.filter((value) => value !== id))
+							}
+							onRemoveFile={(id) =>
+								setFileIds((ids) => ids.filter((value) => value !== id))
+							}
+							openMeldProfileId={editing.selfProfileId}
+							organizationSlug={editing.orgSlug}
+							spaceId={item.spaceId}
+						/>
+						<SpaceComposerFileItems
+							disabled={busy}
+							files={files.files}
+							onRemove={files.removeFile}
+							onRetry={files.retryFile}
+						/>
+					</SpaceAttachmentStrip>
+				)}
 				{item.editedAt ? (
 					<span className="text-muted-foreground text-xs">(edited)</span>
 				) : null}
-				<SpaceComposerFileTray
-					disabled={busy}
-					files={files.files}
-					onRemove={files.removeFile}
-					onRetry={files.retryFile}
-				/>
 				<SpaceComposerAttachmentRecovery
 					cleanup={files.cleanup}
 					onRetryCleanup={files.retryCleanup}
@@ -368,42 +379,6 @@ function InlineEditor({
 								>
 									<PaperclipIcon />
 								</Button>
-								{(item.files ?? [])
-									.filter((file) => fileIds.includes(file.fileId))
-									.map((file) => (
-										<Button
-											disabled={busy}
-											key={file.fileId}
-											onClick={() =>
-												setFileIds((ids) =>
-													ids.filter((id) => id !== file.fileId)
-												)
-											}
-											size="sm"
-											variant="ghost"
-										>
-											Remove {file.name}
-											<XIcon />
-										</Button>
-									))}
-								{item.attachments
-									.filter((file) => attachmentIds.includes(file.id))
-									.map((file) => (
-										<Button
-											disabled={busy}
-											key={file.id}
-											onClick={() =>
-												setAttachmentIds((ids) =>
-													ids.filter((id) => id !== file.id)
-												)
-											}
-											size="sm"
-											variant="ghost"
-										>
-											Remove {file.fileName ?? "image"}
-											<XIcon />
-										</Button>
-									))}
 								<div className="flex shrink-0 gap-1">
 									<Button
 										disabled={busy}

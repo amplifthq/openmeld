@@ -91,9 +91,9 @@ describe("builtin agent controller definitions", () => {
     );
 
     expect(supportByAgentId).toMatchObject({
-      "claude-code": "passive",
+      "claude-code": "observational",
       codex: "native",
-      cursor: "unsupported",
+      cursor: "observational",
       "grok-build": "native",
       opencode: "provider_scoped",
     });
@@ -108,6 +108,7 @@ describe("builtin agent controller definitions", () => {
     );
 
     expect(supportByAgentId).toEqual({
+      antigravity: { contractVersion: 1, mode: "unsupported" },
       "claude-code": { contractVersion: 1, mode: "unsupported" },
       codex: {
         contractVersion: 1,

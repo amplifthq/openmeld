@@ -1,4 +1,9 @@
 import * as z from "../../lazy-zod";
+export const OPENMELD_EXECUTION_ADMISSION_HEADER =
+  "x-openmeld-execution-admission";
+export const OPENMELD_ADMISSION_EVIDENCE_HEADER =
+  "x-openmeld-admission-evidence";
+
 import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-recovery";
 import {
   executionRecoveryDestinationSchema,
@@ -42,6 +47,7 @@ import { workingLanguageGuidanceSchema } from "../runtime/working-language";
 import { spaceContractSchema } from "../space-mesh/space-contract";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { agentControllerRefSchema } from "./agent-controller-ref";
+import { executionHostObservationSchema } from "./computer-care";
 import {
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -84,13 +90,14 @@ import {
   runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeCoordinatorExecutionTokenEnvelopeSchema,
 } from "./runtime-coordinator-execution-token";
+import { runtimeTransportAdmissionEvidenceSchema } from "./runtime-transport-admission-evidence";
 import { runtimeTransportStopCauseSchema } from "./runtime-transport-stop-cause";
 import { daemonServiceLaneSchema } from "./service-contract";
 import { openMeldDaemonTaskResultEnvelopeSchema } from "./task-result";
 
 export const RUNTIME_TRANSPORT_SCHEMA_VERSION = 1 as const;
 export const CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH =
-  "runtime-transport-epoch-2026-09-large-space-files" as const;
+  "runtime-transport-epoch-2026-09-space-files-1gib" as const;
 
 export const daemonRuntimeContractSchema = z.strictObject({
   epoch: z.string().min(1),
@@ -157,6 +164,15 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
         .max(512)
         .optional(),
       interruptedSourceSignalId: z.string().trim().min(1).max(512).optional(),
+      // Whether the attempt this work would replace is safely out of the way.
+      // `not_started` means no execution was ever created for it, `withdrawn`
+      // means the computer acknowledged that its attempt is gone, and
+      // `awaiting_withdrawal` means Core cannot yet prove either. Older owner
+      // shards omit it during a rolling Core deployment, so callers must defer
+      // replacement work rather than assume the attempt was retired.
+      interruptedLocalAttempt: z
+        .enum(["awaiting_withdrawal", "not_started", "withdrawn"])
+        .optional(),
       spaceId: z.string().trim().min(1).max(512),
       status: z.literal("available"),
     }),
@@ -312,7 +328,9 @@ export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
   });
 
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
-  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
 
 export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
   z.strictObject({
@@ -327,6 +345,25 @@ export const runtimeTransportAgentProfileWorkSkipRequestSchema =
 export const runtimeTransportAgentProfileWorkSkipResponseSchema =
   z.strictObject({
     status: z.enum(["skipped", "not_pending", "unavailable"]),
+  });
+
+export const runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
+
+// `requested` means the withdrawal was asked for again and is still
+// unconfirmed; it is not a claim that the attempt stopped. `not_started` and
+// `withdrawn` are the two answers that leave nothing outstanding.
+export const runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema =
+  z.strictObject({
+    status: z.enum([
+      "not_pending",
+      "not_started",
+      "requested",
+      "unavailable",
+      "withdrawn",
+    ]),
   });
 
 export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
@@ -405,9 +442,11 @@ export const runtimeTransportLeaseSchema = z.strictObject({
 });
 
 export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
+  executionHost: executionHostObservationSchema.optional(),
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
+  verifiedRequesterContext: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
@@ -445,6 +484,9 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
 
 export const runtimeTransportCapabilitiesSchema =
   runtimeTransportBaseCapabilitiesSchema.extend({
+    localExecutionInput: z.literal(true).optional(),
+    spaceWorkHandoff: z.literal(true).optional(),
+    sessionHistory: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),
@@ -594,6 +636,9 @@ export const runtimeTransportRegisterSessionRequestSchema = z.strictObject({
 });
 
 export const runtimeTransportRegisterSessionResponseSchema = z.strictObject({
+  executionAdmissionConfirmation: z.literal(true).optional(),
+  computerCare: z.literal(true).optional(),
+  admissionEvidence: z.literal(true).optional(),
   ok: z.boolean(),
   connectionGeneration: z.number().int().positive(),
   acceptedLeases: z.array(runtimeTransportLeaseSchema),
@@ -612,6 +657,7 @@ export const runtimeTransportHeartbeatRequestSchema = z.strictObject({
   lane: daemonServiceLaneSchema,
   daemonSessionId: z.string().min(1),
   acceptingDispatches: z.boolean().optional(),
+  admissionEvidence: runtimeTransportAdmissionEvidenceSchema.optional(),
   stopCause: runtimeTransportStopCauseSchema.optional(),
   serviceVersion: z.string().trim().min(1).optional(),
   leases: z.array(runtimeTransportLeaseSchema).max(512),
@@ -1149,6 +1195,8 @@ export const runtimeTransportDispatchSourceSignalSchema = z.strictObject({
 });
 
 export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
+  // Core identity/delegation projection for this Wake, never a permission grant.
+  requesterIsAgentOwner: z.boolean().optional(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId,
   executionToken: runtimeCoordinatorExecutionTokenEnvelopeSchema.optional(),
@@ -1982,6 +2030,7 @@ export const runtimeTransportDispatchLocalQueueDiagnosticsSchema =
   });
 
 export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
+  acknowledgementId: z.string().uuid().optional(),
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId.optional(),
@@ -1997,6 +2046,17 @@ export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
     runtimeTransportAgentControllerConversationOccupancySchema.optional(),
   localQueue: runtimeTransportDispatchLocalQueueDiagnosticsSchema.optional(),
 });
+
+export const runtimeTransportDispatchLifecycleAcknowledgementSchema =
+  z.strictObject({
+    acknowledgementId: z.string().uuid(),
+    dispatchId: z.string().min(1),
+    attemptId: z.string().min(1),
+    connectionGeneration: z.number().int().positive(),
+    accepted: z.boolean(),
+    validForMs: z.number().int().nonnegative(),
+    reasonCode: z.string().min(1).nullable(),
+  });
 
 export const runtimeTransportDispatchRuntimeEvidencePhaseSchema = z.enum([
   "received",
@@ -2081,6 +2141,17 @@ export const runtimeTransportDispatchReasoningRequestSchema =
     .extend({
       thinkingSnapshot: z.string().max(LOCAL_AGENT_REASONING_MAX_CHARS),
       reasoningState: localAgentReasoningStateSchema,
+    });
+
+export const runtimeTransportDispatchProgressRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      progressSnapshot: z
+        .string()
+        .trim()
+        .min(1)
+        .max(32 * 1024),
     });
 
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
@@ -2270,6 +2341,8 @@ export const runtimeTransportDispatchPreviewEndRequestSchema = z.strictObject({
 
 export const daemonStreamCodeSchema = z.enum([
   "daemon.computer_file_access.read_policy",
+  "daemon.session_history.request",
+  "daemon.session_history.request_result",
   "daemon.computer_file_access.read_policy_result",
   "daemon.computer_file_access.update_policy",
   "daemon.computer_file_access.update_policy_result",
@@ -2279,9 +2352,11 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.session.heartbeat",
   "daemon.dispatch.deliver",
   "daemon.dispatch.lifecycle",
+  "daemon.dispatch.lifecycle_acknowledged",
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.reasoning",
+  "daemon.dispatch.progress",
   "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",
@@ -2293,6 +2368,8 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.route_catalog.changed",
   "daemon.local_agent_control.cancel",
   "daemon.local_agent_control.interrupt",
+  "daemon.execution_input.request",
+  "daemon.execution_input.result",
   "daemon.local_agent_control.fork_session",
   "daemon.local_agent_control.manage_installation",
   "daemon.local_agent_control.refresh_catalog",

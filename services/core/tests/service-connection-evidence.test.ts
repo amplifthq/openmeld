@@ -3,6 +3,7 @@ import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { serviceConnectionIncidentSchema } from "@openmeld/schemas";
 import type {
   RuntimeCoordinatorExecutionRecord,
@@ -16,12 +17,11 @@ import {
 } from "../src/computers/service-connection-evidence-repo";
 import { createServiceConnectionEvidenceRpc } from "../src/computers/service-connection-evidence-rpc";
 import { readOwnerServiceConnectionTrace } from "../src/computers/service-connection-trace";
-import { WAKE_EVIDENCE_RETENTION_MS } from "../src/dispatch/infrastructure/d1/wake-evidence-retention";
+import { WAKE_EVIDENCE_RETENTION_MS } from "../src/dispatch/infrastructure/postgresql/wake-evidence-retention";
 import type { CoreBindings } from "../src/lib/bindings";
-import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 
 const coreEnv = env as unknown as CoreBindings;
-
 function incident(): ServiceConnectionIncident {
   const now = Date.now();
   return {
@@ -48,7 +48,6 @@ function incident(): ServiceConnectionIncident {
     ],
   };
 }
-
 describe("owner-scoped Service connection evidence in D1", () => {
   it("links overlapping incidents to Wake traces only for the runtime's owner", async () => {
     const ownerUserId = crypto.randomUUID();
@@ -58,7 +57,7 @@ describe("owner-scoped Service connection evidence in D1", () => {
       source: "runtime_registry_authority",
     });
     await registerRuntimeRegistryRecord({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       record: {
         nowMs: Date.now(),
         runtimeLookupInput: createRuntimeLookupInput({
@@ -70,7 +69,7 @@ describe("owner-scoped Service connection evidence in D1", () => {
       },
     });
     await storeServiceConnectionIncident({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       ownerUserId,
       incident: record,
       nowMs: Date.now(),
@@ -116,7 +115,6 @@ describe("owner-scoped Service connection evidence in D1", () => {
       })
     ).toBeUndefined();
   });
-
   it("enforces owner and current-uploader gates before accessing incident storage", async () => {
     const record = incident();
     const rpc = createServiceConnectionEvidenceRpc({
@@ -174,7 +172,7 @@ describe("owner-scoped Service connection evidence in D1", () => {
     expect(
       (
         await readServiceConnectionIncidents({
-          db: env.OPENMELD_DB,
+          db: getPostgresDatabase(env),
           ownerUserId: "owner-a",
           target,
           nowMs: Date.now(),
@@ -186,7 +184,12 @@ describe("owner-scoped Service connection evidence in D1", () => {
     const ownerUserId = crypto.randomUUID();
     const record = incident();
     const nowMs = Date.now();
-    const input = { db: env.OPENMELD_DB, ownerUserId, incident: record, nowMs };
+    const input = {
+      db: getPostgresDatabase(env),
+      ownerUserId,
+      incident: record,
+      nowMs,
+    };
     const first = await storeServiceConnectionIncident(input);
     expect(
       await storeServiceConnectionIncident({ ...input, nowMs: nowMs + 1000 })
@@ -198,7 +201,7 @@ describe("owner-scoped Service connection evidence in D1", () => {
       })
     ).rejects.toThrow();
     const read = {
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       ownerUserId,
       target: { deviceId: record.deviceId, runtimeLane: record.runtimeLane },
       nowMs,
@@ -237,29 +240,34 @@ describe("owner-scoped Service connection evidence in D1", () => {
       }).success
     ).toBe(false);
   });
-
   it("caps each device at 100 incidents, reads 20, and deletes expired evidence", async () => {
     const ownerUserId = crypto.randomUUID();
     const nowMs = Date.now();
     for (let i = 0; i < 102; i += 1) {
       await storeServiceConnectionIncident({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         ownerUserId,
         incident: incident(),
         nowMs: nowMs + i,
       });
     }
     const count = () =>
-      env.OPENMELD_DB.prepare(
-        "SELECT COUNT(*) AS count FROM openmeld_service_connection_incidents WHERE owner_user_id = ?"
-      )
-        .bind(ownerUserId)
-        .first<{ count: number }>();
+      getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."openmeld_service_connection_incidents" WHERE owner_user_id = $1',
+            values: [],
+          },
+          values: [ownerUserId],
+        })
+        .then((result) => result.rows[0] ?? null);
     expect((await count())?.count).toBe(100);
     expect(
       (
         await readServiceConnectionIncidents({
-          db: env.OPENMELD_DB,
+          db: getPostgresDatabase(env),
           ownerUserId,
           target: { deviceId: "device-a", runtimeLane: "prod" },
           nowMs: nowMs + 102,
@@ -267,7 +275,7 @@ describe("owner-scoped Service connection evidence in D1", () => {
       ).incidents
     ).toHaveLength(20);
     await deleteExpiredServiceConnectionIncidents({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: nowMs + WAKE_EVIDENCE_RETENTION_MS + 1000,
     });
     expect((await count())?.count).toBe(0);

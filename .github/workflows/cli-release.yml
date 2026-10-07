@@ -1,8 +1,12 @@
 name: 📦 CLI Release
-run-name: CLI Release @ ${{ inputs.release_sha || github.sha }}
+run-name: ${{ inputs.helper_only && 'Windows Helper' || 'CLI Release' }} @ ${{ inputs.helper_only && github.sha || inputs.release_sha || github.sha }}
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
   id-token: write
 
 on:
@@ -22,6 +26,20 @@ on:
           - normal
           - resume-after-binary-upload
           - resume-after-npm-publish
+      windows_artifact_run_id:
+        description: "Optional trusted main CLI run whose Windows helper bytes were used to stamp this release"
+        required: false
+        type: string
+        default: ""
+      helper_only:
+        description: "Build a trusted Windows helper on main without publishing CLI or Core"
+        required: false
+        type: boolean
+        default: false
+      production_train_scopes:
+        description: "Comma-separated complete release train; use cli for an independent CLI release"
+        required: true
+        type: string
 
 concurrency:
   group: cli-production-release
@@ -39,9 +57,43 @@ jobs:
           echo "::error::CLI releases must run from main. Current ref: ${GITHUB_REF}"
           exit 1
 
+  windows_process_artifact:
+    name: Build Windows Process Helper For CLI Package
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (inputs.helper_only || inputs.windows_artifact_run_id == '')
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.helper_only && github.sha || inputs.release_sha || github.sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/release/build-windows-process-helper.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-process-${{ inputs.helper_only && github.sha || inputs.release_sha || github.sha }}
+          path: |
+            cli/dist/openmeld-windows-process.exe
+            cli/dist/windows-process-artifact.json
+          if-no-files-found: error
+          retention-days: 7
+
   cli_release:
     name: Publish CLI And Release Core
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
+      (inputs.windows_artifact_run_id != '' || needs.windows_process_artifact.result == 'success')
+    needs: windows_process_artifact
     runs-on: macos-15
     timeout-minutes: 45
     concurrency:
@@ -50,6 +102,7 @@ jobs:
       cancel-in-progress: false
     environment: production
     env:
+      OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       RELEASE_PATH: ${{ inputs.release_path }}
       RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
     steps:
@@ -108,11 +161,35 @@ jobs:
           control_directory: release-control
           working_directory: release-source
 
+      - name: Download source-matched Windows process helper
+        if: inputs.windows_artifact_run_id == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-process-${{ env.RELEASE_SHA }}
+          path: release-source/dev-tmp/windows-process-helper
+
+      - name: Verify and import Windows process helper
+        if: inputs.windows_artifact_run_id == ''
+        run: node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-helper
+        working-directory: release-source
+
+      - name: Reuse the stamped Windows process helper
+        if: inputs.windows_artifact_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_ARTIFACT_RUN_ID: ${{ inputs.windows_artifact_run_id }}
+        run: node scripts/release/reuse-windows-process-artifact.mjs
+        working-directory: release-source
+
       - name: Require production database migrations current
         env:
+          OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: ${{ github.token }}
+          OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: ${{ github.server_url }}
+          OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: ${{ github.repository }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD"
+          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD" --hosted-cli
         working-directory: release-source
 
       - name: Acquire shared CLI publication lease
@@ -178,6 +255,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
           OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           # npm Trusted Publishing authenticates private repositories through OIDC,
           # but npm cannot write public Sigstore provenance for a private source repo.
           NPM_CONFIG_PROVENANCE: "false"

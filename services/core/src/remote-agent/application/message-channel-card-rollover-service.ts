@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   claimRemoteAgentMessageChannelProviderCardRolloverCreation,
   claimRemoteAgentMessageChannelProviderCardRolloverFinalize,
@@ -11,11 +12,11 @@ import {
   markRemoteAgentMessageChannelProviderCardRolloverSendFailed,
   markRemoteAgentMessageChannelProviderCardRolloverSendOutcomeUnknown,
   markRemoteAgentMessageChannelProviderCardRolloverSent,
-} from "../infrastructure/d1/message-channel-provider-progress-repo";
+} from "../infrastructure/postgresql/message-channel-provider-progress-repo";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   hashMessageChannelCardText,
   MESSAGE_CHANNEL_CARD_MAX_SEGMENTS,
@@ -27,6 +28,10 @@ import { buildMessageChannelProviderPublicationUuid } from "./provider-publicati
 
 const MESSAGE_CHANNEL_CARD_ROLLOVER_CLAIM_LEASE_MS = 30_000;
 
+import {
+  projectMessageChannelCardRevision,
+  revisePreviousMessageChannelCards,
+} from "./message-channel-card-revision";
 export type MessageChannelCardRolloverResult =
   | {
       delivery: RemoteAgentNativeDeliveryRecord;
@@ -38,16 +43,16 @@ export type MessageChannelCardRolloverResult =
       retryAfterMs?: number;
       status: "in_progress" | "outcome_unknown" | "retryable";
     };
-
 type RolloverEvidence = {
+  revision: ReturnType<typeof projectMessageChannelCardRevision>;
+  snapshot: string;
   head: string;
   pendingSourceOffset: number;
   pendingTextHash: string;
   sequence: number;
 };
-
 export async function advanceRemoteAgentMessageChannelCardRollover(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   finalPublicationClaimId?: string | null;
   nowMs: number;
@@ -98,10 +103,14 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
       provider: input.target.locator.provider,
       publicationKind: `rollover:${rolloverIndex}:finalize:${evidence.sequence}`,
     });
-
   if (delivery.providerProgressState === "sent") {
     const claim =
       await claimRemoteAgentMessageChannelProviderCardRolloverFinalize({
+        cardHistory: {
+          ...evidence.revision.history,
+          pendingSnapshot: evidence.snapshot,
+        },
+        expectedSourceOffset: delivery.providerProgressSourceOffset,
         claimExpiresAtMs:
           input.nowMs + MESSAGE_CHANNEL_CARD_ROLLOVER_CLAIM_LEASE_MS,
         claimId: finalizePublicationKey,
@@ -119,7 +128,6 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
     }
     delivery = claim.delivery;
   }
-
   if (delivery.providerProgressState === "rollover_finalize_claimed") {
     const finalized = await finalizeCurrentCard({
       db: input.db,
@@ -134,7 +142,6 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
     }
     delivery = finalized.delivery;
   }
-
   if (delivery.providerProgressState === "rollover_finalized") {
     const created = await createContinuedCard({
       db: input.db,
@@ -143,19 +150,19 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
       nowMs: input.nowMs,
       rolloverIndex,
       target: input.target,
-      textSnapshot: input.textSnapshot,
+      textSnapshot: evidence.revision.text,
     });
     if (created.status !== "created") {
       return created;
     }
     delivery = created.delivery;
   }
-
   if (
     delivery.providerProgressState === "rollover_created" ||
     delivery.providerProgressState === "rollover_send_claimed"
   ) {
     const sent = await sendContinuedCard({
+      evidence,
       db: input.db,
       delivery,
       nowMs: input.nowMs,
@@ -167,12 +174,10 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
     }
     return { delivery: sent.delivery, status: "rolled_over" };
   }
-
   return classifyRolloverConflict(delivery, evidence);
 }
-
 async function finalizeCurrentCard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   evidence: RolloverEvidence;
   nowMs: number;
@@ -193,15 +198,35 @@ async function finalizeCurrentCard(input: {
     input.delivery.providerProgressClaimId,
     "Message Channel rollover has no finalize claim"
   );
-  const publication = await input.target.adapter.finalizeWorkingCard({
-    cardId,
-    connection: input.target.connection,
-    locator: input.target.locator,
-    providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
+  const previous = await revisePreviousMessageChannelCards({
+    delivery: input.delivery,
+    revision: input.evidence.revision,
+    target: input.target,
     sequence: input.evidence.sequence,
-    outcome: "continued",
-    text: input.evidence.head,
+    providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
   });
+  let publication = previous.result;
+  if (publication.status === "published") {
+    publication = await input.target.adapter.finalizeWorkingCard({
+      cardId,
+      connection: input.target.connection,
+      locator: input.target.locator,
+      providerPublicationIdempotencyKey:
+        input.providerPublicationIdempotencyKey,
+      sequence: input.evidence.sequence,
+      outcome: "continued",
+      text: input.evidence.head,
+    });
+  }
+  // Keep provider backoff even when cross-retry recovery must retain the claim.
+  const retryAfterMs =
+    publication.status === "failed" ? publication.retryAfterMs : undefined;
+  if (previous.revised && publication.status === "failed") {
+    publication = {
+      status: "outcome_unknown",
+      reasonCode: publication.reasonCode,
+    };
+  }
   const transitionInput = {
     claimId,
     db: input.db,
@@ -231,7 +256,7 @@ async function finalizeCurrentCard(input: {
       }),
       "Message Channel ambiguous rollover finalize lost its durable claim"
     );
-    return retryable(delivery, publication.reasonCode);
+    return retryable(delivery, publication.reasonCode, retryAfterMs);
   }
   const delivery = await requireTransition(
     markRemoteAgentMessageChannelProviderCardRolloverFinalizeFailed({
@@ -242,9 +267,8 @@ async function finalizeCurrentCard(input: {
   );
   return retryable(delivery, publication.reasonCode, publication.retryAfterMs);
 }
-
 async function createContinuedCard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   evidence: RolloverEvidence;
   nowMs: number;
@@ -318,9 +342,9 @@ async function createContinuedCard(input: {
     creation.status === "failed" ? creation.retryAfterMs : undefined
   );
 }
-
 async function sendContinuedCard(input: {
-  db: D1Database;
+  evidence: RolloverEvidence;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
   rolloverIndex: number;
@@ -364,6 +388,25 @@ async function sendContinuedCard(input: {
     return {
       delivery: await requireTransition(
         markRemoteAgentMessageChannelProviderCardRolloverSent({
+          cardHistory: {
+            ...input.evidence.revision.history,
+            pendingSnapshot: undefined,
+            cards: [
+              ...(await Promise.all(
+                input.evidence.revision.previous.map(async (card) => ({
+                  cardId: card.cardId,
+                  textHash: await hashMessageChannelCardText(card.text),
+                }))
+              )),
+              {
+                cardId: requireText(
+                  claim.delivery.providerProgressCardId,
+                  "Missing outgoing card identity"
+                ),
+                textHash: input.evidence.pendingTextHash,
+              },
+            ],
+          },
           claimId: providerPublicationIdempotencyKey,
           db: input.db,
           idempotencyKey: input.delivery.idempotencyKey,
@@ -403,29 +446,31 @@ async function sendContinuedCard(input: {
   );
   return retryable(delivery, publication.reasonCode, publication.retryAfterMs);
 }
-
 async function buildRolloverEvidence(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   sequence: number;
   textSnapshot: string;
 }): Promise<RolloverEvidence> {
-  const segment = splitMessageChannelCardSegment({
-    sourceOffset: input.delivery.providerProgressSourceOffset,
-    text: input.textSnapshot,
-  });
+  const snapshot = input.delivery.providerProgressState?.startsWith("rollover_")
+    ? (input.delivery.providerProgressCardHistory?.pendingSnapshot ??
+      input.textSnapshot)
+    : input.textSnapshot;
+  const revision = projectMessageChannelCardRevision(input.delivery, snapshot);
+  const segment = revision.active;
   if (!segment.tail) {
     throw new Error("Message Channel rollover requires another card segment");
   }
   const sequence =
     input.delivery.providerProgressPendingSequence ?? input.sequence;
   return {
+    revision,
+    snapshot,
     head: segment.head,
     pendingSourceOffset: segment.sourceEnd,
     pendingTextHash: await hashMessageChannelCardText(segment.head),
     sequence,
   };
 }
-
 function validatePendingEvidence(
   delivery: RemoteAgentNativeDeliveryRecord,
   evidence: RolloverEvidence
@@ -443,7 +488,6 @@ function validatePendingEvidence(
   }
   return null;
 }
-
 function classifyRolloverConflict(
   delivery: RemoteAgentNativeDeliveryRecord | null,
   evidence: Pick<RolloverEvidence, "pendingSourceOffset"> | null
@@ -471,9 +515,8 @@ function classifyRolloverConflict(
     status: "in_progress",
   };
 }
-
 async function requireCurrentDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
   const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -485,7 +528,6 @@ async function requireCurrentDelivery(input: {
   }
   return delivery;
 }
-
 function assertRolloverInput(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   sequence: number;
@@ -509,7 +551,6 @@ function assertRolloverInput(input: {
     );
   }
 }
-
 function assertCurrentFinalPublicationClaim(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   finalPublicationClaimId?: string | null;
@@ -525,7 +566,6 @@ function assertCurrentFinalPublicationClaim(input: {
     );
   }
 }
-
 function retryable(
   delivery: RemoteAgentNativeDeliveryRecord,
   reasonCode: string,
@@ -538,14 +578,12 @@ function retryable(
     status: "retryable",
   };
 }
-
 function outcomeUnknown(
   delivery: RemoteAgentNativeDeliveryRecord,
   reasonCode: string
 ): MessageChannelCardRolloverResult {
   return { delivery, reasonCode, status: "outcome_unknown" };
 }
-
 async function requireTransition(
   transition: Promise<RemoteAgentNativeDeliveryRecord | null>,
   errorMessage: string
@@ -556,7 +594,6 @@ async function requireTransition(
   }
   return delivery;
 }
-
 function requireText(value: string | null, errorMessage: string): string {
   const normalized = value?.trim();
   if (!normalized) {

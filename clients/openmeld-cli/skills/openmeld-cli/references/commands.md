@@ -487,7 +487,6 @@ openmeld space send <space-id> --profile <profile-id> --wake <agent-profile-id> 
 <DISPATCH_ACTION_CLI> space action reply --wake <agent-profile-id> "message"
 <DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "message"
 <DISPATCH_ACTION_CLI> space action reply --mention <human-profile-id> "message"
-<DISPATCH_ACTION_CLI> space action status done "short completion update"
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
 <DISPATCH_ACTION_CLI> space action targets
 <DISPATCH_ACTION_CLI> space action help
@@ -588,8 +587,15 @@ diagnostics; neither replaces the live progress view.
 
 ### `openmeld space wake-stop`
 
-Request Stop for exactly one live Wake. Pass `--target-profile` and exactly one
-of `--client-message` or `--source-signal`. `--reason` is optional.
+Request Stop for exactly one Wake, including before the message has reached
+OpenMeld. Pass `--target-profile` and exactly one of `--client-message` or
+`--source-signal`. `--reason` is optional. No progress preflight is required.
+
+`space send --client-message <id>` lets a caller allocate a fresh ID before
+sending. The `space.send.request` receipt also exposes the ID before network
+work begins. Use the same source Profile and target Agent when stopping that
+request. A confirmed early stop prevents a delayed send from starting the Agent;
+it does not delete the message or undo completed actions.
 
 ```bash
 openmeld space wake-stop <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
@@ -839,3 +845,23 @@ openmeld doctor --profile <profile-id>
 - Do not use `openmeld space guidelines`; use `openmeld space guide`.
 - Do not use `openmeld profile init`; use `openmeld profiles create`.
 - Do not invent flags from memory. Verify with `openmeld <command> --help`.
+
+## Routines
+
+Use one Routine service for Center, Remote, and Local Agents. Discover exact
+executor IDs and permitted Routines before creating or changing work:
+
+```bash
+openmeld routines list --view agent
+openmeld routines create --scope personal --agent <profile-id> --name "Daily review" --instructions "Review new issues." --daily 09:00 --timezone America/Los_Angeles --target-space <space-id> --view agent
+openmeld routines show <routine-id> --view agent
+openmeld routines runs <routine-id> --view agent
+openmeld routines pause <routine-id> --view agent
+```
+
+Use `--agent center` for the Center Agent and `--scope team` only for explicitly
+shared work. Personal visibility does not make a shared result Space private.
+Local Agents execute on their bound computer through normal Wake permissions;
+keep that computer awake and connected. Never create a separate local cron job
+or route Local work through the Center Agent. Pause affects future scheduling,
+not an active Run. Use the selected Agent's settings, not invented model flags.

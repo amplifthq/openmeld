@@ -101,6 +101,7 @@ describe("space-mesh schemas", () => {
     const inputs = [
       {
         type: "post_message",
+        placement: "conversation",
         observedThroughSignalId: "evt-observed-1",
         messageEnvelope: {
           activationTargets: [],

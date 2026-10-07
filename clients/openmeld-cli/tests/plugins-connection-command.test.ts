@@ -1,0 +1,107 @@
+import { Command } from "commander";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getCommandCheckRequirements } from "../src/command-entry-checks/command-check-requirements";
+import { resolveCommandEntryNameFromTokens } from "../src/command-entry-checks/command-entry-name";
+import { registerPluginCommands } from "../src/plugins/registration";
+
+const runPluginCommand = vi.hoisted(() => vi.fn());
+vi.mock("../src/plugins/command", () => ({ runPluginCommand }));
+function program() {
+  const command = new Command()
+    .exitOverride()
+    .configureOutput({ writeErr: () => undefined });
+  registerPluginCommands(command, {
+    view: () => "agent",
+    run: async (_tokens, execute) => await execute(),
+  });
+  return command;
+}
+beforeEach(() => runPluginCommand.mockReset());
+describe("Local Agent Plugin setup command", () => {
+  it.each([
+    "connect",
+    "connection",
+  ])("requires sign-in at the registered %s command entry", (operation) => {
+    const entry = resolveCommandEntryNameFromTokens(["plugins", operation]);
+    expect(entry).not.toBeNull();
+    if (entry) {
+      expect(getCommandCheckRequirements(entry).signIn.mode).toBe("required");
+    }
+  });
+  it("preserves the explicit account, profile, key, and Computer request", async () => {
+    await program().parseAsync(
+      [
+        "plugins",
+        "connection",
+        "cloudflare_worker",
+        "--account",
+        "personal",
+        "--profile",
+        "agent-profile",
+        "--key",
+        "diagnosis",
+        "--computer",
+      ],
+      { from: "user" }
+    );
+    expect(runPluginCommand).toHaveBeenCalledWith({
+      action: {
+        operation: "connection",
+        service: "cloudflare_worker",
+        account: "personal",
+        key: "diagnosis",
+        computer: true,
+      },
+      profile: "agent-profile",
+      view: "agent",
+    });
+  });
+  it.each([
+    "choose",
+    "personal",
+    "shared",
+  ])("preserves %s and delegates to the existing permission-bearing Plugin command", async (account) => {
+    await program().parseAsync(
+      [
+        "plugins",
+        "connect",
+        "github",
+        "--account",
+        account,
+        "--profile",
+        "agent-profile",
+      ],
+      { from: "user" }
+    );
+    expect(runPluginCommand).toHaveBeenCalledWith({
+      action: { operation: "connect", service: "github", account },
+      profile: "agent-profile",
+      view: "agent",
+    });
+  });
+  it("defaults only unspecified setup to choose and never runs a provider action", async () => {
+    await program().parseAsync(["plugins", "connect", "linear"], {
+      from: "user",
+    });
+    expect(runPluginCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: { operation: "connect", service: "linear", account: "choose" },
+      })
+    );
+    expect(runPluginCommand).toHaveBeenCalledOnce();
+  });
+  it("rejects a malformed service and invalid identity before invoking the server", async () => {
+    await expect(
+      program().parseAsync(["plugins", "connect", "https://invalid.example"], {
+        from: "user",
+      })
+    ).rejects.toThrow();
+    await expect(
+      program().parseAsync(
+        ["plugins", "connect", "github", "--account", "admin"],
+        { from: "user" }
+      )
+    ).rejects.toThrow();
+    expect(runPluginCommand).not.toHaveBeenCalled();
+  });
+});

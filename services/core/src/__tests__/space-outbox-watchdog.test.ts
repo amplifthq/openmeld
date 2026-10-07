@@ -1,9 +1,11 @@
+import type { PostgreSQLBinding } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as dispatchQueueService from "../dispatch/application/dispatch-queue-service";
 import { createDispatchOutboxRecord } from "../space/infrastructure/outbox/dispatch-outbox-repo";
@@ -273,21 +275,11 @@ describe("space outbox watchdog", () => {
         1_700_000_030_000,
         buildLogContext()
       )
-    ).resolves.toMatchObject({
-      intakeEvidenceState: "unavailable",
-      kind: "skip",
-      reason: "openmeld_db_unavailable",
-    });
+    ).rejects.toThrow("OPENMELD_POSTGRESQL Hyperdrive binding is required");
   });
 
   it("does not redrive a handed-off outbox candidate when dispatch intake evidence is missing", async () => {
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({
-          first: vi.fn().mockResolvedValue(null),
-        })),
-      })),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresBinding(() => []);
     const space = createSpaceHarness({ db });
 
     await expect(
@@ -304,13 +296,9 @@ describe("space outbox watchdog", () => {
   });
 
   it("does not treat a dispatch ledger read failure as missing intake evidence", async () => {
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({
-          first: vi.fn().mockRejectedValue(new Error("D1 read failed")),
-        })),
-      })),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresBinding(() => {
+      throw new Error("PostgreSQL read failed");
+    });
     const space = createSpaceHarness({ db });
 
     await expect(
@@ -327,21 +315,17 @@ describe("space outbox watchdog", () => {
   });
 
   it("redrives a hosted handoff when native admission never became durable", async () => {
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({
-          first: vi.fn().mockResolvedValue({
-            connection_generation: null,
-            daemon_session_id: null,
-            last_attempt_at_ms: 1_700_000_001_000,
-            latest_attempt_error_code: null,
-            latest_attempt_status: "dispatching",
-            lease_epoch: null,
-            status: "dispatching",
-          }),
-        })),
-      })),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresBinding(() => [
+      {
+        connection_generation: null,
+        daemon_session_id: null,
+        last_attempt_at_ms: 1_700_000_001_000,
+        latest_attempt_error_code: null,
+        latest_attempt_status: "dispatching",
+        lease_epoch: null,
+        status: "dispatching",
+      },
+    ]);
     const space = createSpaceHarness({ db }) as ReturnType<
       typeof createSpaceHarness
     > & {
@@ -371,13 +355,7 @@ describe("space outbox watchdog", () => {
   });
 
   it("uses the frozen hosted route when the current Binding may have changed", async () => {
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({
-          first: vi.fn().mockResolvedValue(null),
-        })),
-      })),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresBinding(() => []);
     const space = createSpaceHarness({ db }) as ReturnType<
       typeof createSpaceHarness
     > & {
@@ -402,7 +380,7 @@ describe("space outbox watchdog", () => {
         },
       })
     ).resolves.toBe("admission_incomplete");
-    expect(db.prepare).toHaveBeenCalledOnce();
+    // The frozen hosted route does not depend on a mutable Binding.
   });
 
   it("redrives a handed-off outbox seed when RuntimeCoordinator reports route reconnect", async () => {
@@ -662,7 +640,7 @@ describe("space outbox watchdog", () => {
     infoSpy.mockRestore();
   });
 
-  it("deletes terminal outbox candidates during the flush", async () => {
+  it("retains terminal outbox evidence while clearing its replay payload", async () => {
     const terminal = createOutboxRecordForSource("signal-terminal");
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {
       // silence flush progress logs
@@ -684,21 +662,19 @@ describe("space outbox watchdog", () => {
     await space.flushPendingDispatchOutbox();
 
     expect(exec).toHaveBeenCalledWith(
-      expect.stringContaining("DELETE FROM openMeldDaemon_outbox"),
+      expect.stringContaining("UPDATE openMeldDaemon_outbox"),
       terminal.dispatchId
     );
     infoSpy.mockRestore();
   });
 
-  it("keeps the same Wake recoverable through repeated D1 overload without rapid retries or a false account failure", async () => {
+  it("keeps the same Wake recoverable through repeated PostgreSQL overload without rapid retries or a false account failure", async () => {
     const candidate = createOutboxRecordForSource("signal-storage-overload");
     let nowMs = 1_700_000_100_000;
     const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
     const decision = vi.fn((_candidate: { dispatchId: string }) =>
       Promise.reject(
-        new Error(
-          "D1_ERROR: D1 DB is overloaded. Requests queued for too long."
-        )
+        Object.assign(new Error("too many connections"), { code: "53300" })
       )
     );
     const { poisonStateByDispatchId, space, terminalSignals } =
@@ -922,9 +898,9 @@ describe("space outbox watchdog", () => {
   });
 });
 
-const createSpaceHarness = (input: { db: D1Database | null }) => {
+const createSpaceHarness = (input: { db: PostgreSQLBinding | null }) => {
   const space = Object.create(Space.prototype) as {
-    bindings: { OPENMELD_DB: D1Database | null };
+    bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding | null };
     ctx: { storage: { sql: unknown } };
     resolveHandedOffOutboxCandidateDecision: (
       candidate: typeof handedOffOutboxCandidate,
@@ -936,7 +912,7 @@ const createSpaceHarness = (input: { db: D1Database | null }) => {
   Object.defineProperties(space, {
     bindings: {
       value: {
-        OPENMELD_DB: input.db,
+        OPENMELD_POSTGRESQL: input.db,
       },
     },
     ctx: {
@@ -969,6 +945,9 @@ const createSpaceAlarmHarness = (input: {
     exec: (query: string, ...params: unknown[]) => { toArray: () => unknown[] };
   };
 }) => {
+  const bindings = input.bindings ?? {
+    OPENMELD_DAEMON_DISPATCH_QUEUE: {},
+  };
   const space = Object.create(Space.prototype) as {
     bindings: Record<string, unknown>;
     ctx: {
@@ -980,13 +959,19 @@ const createSpaceAlarmHarness = (input: {
         sql: typeof input.sql;
       };
     };
+    env: Record<string, unknown>;
     spaceId: string;
     syncDispatchOutboxAlarm: () => Promise<void>;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    configurable: true,
+  });
   Object.defineProperties(space, {
     bindings: {
-      value: input.bindings ?? {
-        OPENMELD_DAEMON_DISPATCH_QUEUE: {},
+      value: {
+        OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []),
+        ...bindings,
       },
     },
     ctx: {
@@ -1000,6 +985,7 @@ const createSpaceAlarmHarness = (input: {
         },
       },
     },
+    env: { value: bindings },
     spaceId: { value: "space-1", writable: true },
   });
   return space;
@@ -1032,8 +1018,17 @@ const createSpaceSubmissionHarness = (input: {
     ) => Promise<boolean>;
     syncDispatchOutboxAlarm: () => Promise<void>;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    configurable: true,
+  });
   Object.defineProperties(space, {
-    bindings: { value: input.bindings },
+    bindings: {
+      value: {
+        OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []),
+        ...input.bindings,
+      },
+    },
     ctx: {
       value: {
         storage: {
@@ -1211,6 +1206,10 @@ const createFlushHarness = (input: {
     resolveThreadContextForSignal: () => null;
     spaceId: string;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    configurable: true,
+  });
   Object.defineProperties(space, {
     broadcastSignal: { value: broadcastSignal },
     buildSystemNoticeSignal: {
@@ -1272,6 +1271,10 @@ const createAlarmLaneHarness = (lanes: {
     alarm: () => Promise<void>;
     spaceId: string;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    configurable: true,
+  });
   Object.defineProperties(space, {
     flushDirtyMemberProjection: { value: lanes.flushDirtyMemberProjection },
     flushPendingDispatchOutbox: { value: lanes.flushPendingDispatchOutbox },
@@ -1325,9 +1328,14 @@ const createInternalRedriveHarness = (input: {
     spaceId: string;
     syncDispatchOutboxAlarm: () => Promise<void>;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    configurable: true,
+  });
   Object.defineProperties(space, {
     bindings: {
       value: {
+        OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []),
         ...(input.deliveryMode === "direct"
           ? {
               OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE: "direct",

@@ -15,12 +15,25 @@ import {
 import { Button } from "@openmeld/ui/components/button";
 import { useState } from "react";
 
-export function ProfileDetailsRecoveryActionButton(input: {
+type ProfileDetailsRecoveryActionButtonProps = {
 	compact?: boolean;
 	isPending: boolean;
 	onRecoveryAction: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	recoveryAction: ProfileDetailsRecoveryAction;
-}) {
+};
+
+export function ProfileDetailsRecoveryActionButton(
+	input: ProfileDetailsRecoveryActionButtonProps
+) {
+	return (
+		<RecoveryActionButton
+			{...input}
+			key={`${input.recoveryAction.kind}:${input.recoveryAction.expectedInterruptedTargetWakeLifecycleId ?? "unknown"}`}
+		/>
+	);
+}
+
+function RecoveryActionButton(input: ProfileDetailsRecoveryActionButtonProps) {
 	const [isSkipConfirmationOpen, setIsSkipConfirmationOpen] = useState(false);
 	const [isForkConfirmationOpen, setIsForkConfirmationOpen] = useState(false);
 	const buttonLabel = input.isPending
@@ -63,9 +76,11 @@ export function ProfileDetailsRecoveryActionButton(input: {
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							OpenMeld cannot write to it while the other app has it open. It
-							can continue on a new branch that copies the conversation up to
-							its last completed reply. The other app keeps the original, and
-							the two do not merge back together.
+							can continue on a new branch, copying the conversation up to the
+							last completed reply it can verify. The other app keeps the
+							original, and the two do not merge back together. A new branch
+							copies the conversation only: files and anything the work already
+							changed outside OpenMeld stay shared.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -128,8 +143,9 @@ export function ProfileDetailsRecoveryActionButton(input: {
 					<AlertDialogHeader>
 						<AlertDialogTitle>Skip this work?</AlertDialogTitle>
 						<AlertDialogDescription>
-							This work will not continue. Any queued work can start after you
-							skip it.
+							OpenMeld will not continue this work, and it asks your computer to
+							stop the original attempt. Anything the work already changed stays
+							as it is. Any queued work can start after you skip it.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

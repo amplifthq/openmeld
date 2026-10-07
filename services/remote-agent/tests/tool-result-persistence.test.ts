@@ -41,6 +41,7 @@ import {
   TEST_CODE_MODE_LOADER,
   TEST_CODE_MODE_RUNTIME,
 } from "./code-mode-runtime";
+import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -50,7 +51,7 @@ const INSTANCE_ID = "space-tool-result-budget";
 const MODEL_ID = "tool-result-budget-model";
 const PROVIDER_ID = "tool-result-budget-provider";
 const STREAM_PATH = `agents/${AGENT_NAME}/${INSTANCE_ID}`;
-const TOOL_NAME = "test_oversized_read";
+const TOOL_NAME = "computer";
 const CANONICAL_BATCH_SAFE_BUDGET_BYTES = 512 * 1024;
 
 describe("Remote Agent canonical tool result persistence", () => {
@@ -74,7 +75,7 @@ describe("Remote Agent canonical tool result persistence", () => {
     }
     const identity = buildRemoteAgentExecutionIdentity(context);
     let reads = 0;
-    const tools = await getRemoteAgentFlueTools({
+    const { tools } = await getRemoteAgentFlueTools({
       codeModeRuntime: TEST_CODE_MODE_RUNTIME,
       coreWorker: {},
       env: { LOADER: TEST_CODE_MODE_LOADER },
@@ -149,7 +150,7 @@ describe("Remote Agent canonical tool result persistence", () => {
   ])("finishes more than 64 real tool turns across SDK compaction (personal=%s)", async (personalAgent) => {
     const storage = await createToolExecutionStorage();
     const receipts: number[] = [];
-    const tools = await getRemoteAgentFlueTools({
+    const { tools } = await getRemoteAgentFlueTools({
       codeModeRuntime: TEST_CODE_MODE_RUNTIME,
       coreWorker: {
         personalRemoteAgentSpaceTool: () =>
@@ -250,17 +251,34 @@ describe("Remote Agent canonical tool result persistence", () => {
     ).not.toHaveProperty("workLoopCheckpoint");
   });
 
-  it("persists an oversized tool response as a bounded explicit error instead of a successful semantic shell", async () => {
+  it("persists an authorized oversized tool response with its completed receipt and retained continuation", async () => {
     const storage = await createToolExecutionStorage();
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      CALLBACK_SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing execution context");
+    }
+    let executions = 0;
     const definition: RemoteAgentToolDefinition = {
       description: "Return an intentionally oversized read result.",
-      execute: async () => ({ data: "A".repeat(2_100_000) }),
+      execute: () => {
+        executions += 1;
+        return Promise.resolve({
+          data: "A".repeat(2_100_000),
+          operationId: "completed-operation",
+          status: "completed",
+        });
+      },
       input: object({}),
       name: TOOL_NAME,
     };
-    const tools = await getRemoteAgentFlueTools({
+    const { tools } = await getRemoteAgentFlueTools({
       codeModeRuntime: TEST_CODE_MODE_RUNTIME,
-      coreWorker: {},
+      coreWorker: {
+        authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+      },
       env: { LOADER: TEST_CODE_MODE_LOADER },
       sandboxDefinitions: [definition],
       storage,
@@ -288,7 +306,7 @@ describe("Remote Agent canonical tool result persistence", () => {
         stopReason: "toolUse",
       }),
       fauxAssistantMessage(
-        "The read was too large, so I need a bounded request."
+        "The operation completed; only part of its returned evidence is shown."
       ),
     ]);
 
@@ -299,7 +317,7 @@ describe("Remote Agent canonical tool result persistence", () => {
     const agent = () => {
       useModel(`${PROVIDER_ID}/${MODEL_ID}`);
       useTool(tool);
-      return "Call the oversized read tool once, then explain its error.";
+      return "Call the tool once, then explain its result and presentation limits.";
     };
     const coordinator = createNodeAgentCoordinator({
       agents: [{ agent, name: AGENT_NAME }],
@@ -334,14 +352,28 @@ describe("Remote Agent canonical tool result persistence", () => {
 
     expect(toolOutcome, JSON.stringify(stream.batches, null, 2)).toBeDefined();
     expect(toolOutcome).toMatchObject({
-      isError: true,
+      isError: false,
       toolName: TOOL_NAME,
+      output: {
+        toolExecution: "returned",
+        resultMetadata: {
+          operationId: "completed-operation",
+          status: "completed",
+        },
+        presentation: {
+          kind: "partial",
+          continuation: {
+            resultId: expect.any(String),
+            expiresAtMs: expect.any(Number),
+          },
+        },
+      },
     });
-    expect(toolOutcome).not.toHaveProperty("output");
-    expect(JSON.stringify(toolOutcome?.content)).toContain(
+    expect(JSON.stringify(toolOutcome)).toContain(
       "remote_agent.tool_result_too_large"
     );
-    expect(JSON.stringify(toolOutcome)).not.toContain("AAAA");
+    expect(executions).toBe(1);
+    expect(JSON.stringify(toolOutcome)).not.toContain("A".repeat(20_000));
     for (const batch of stream.batches) {
       expect(utf8ByteLength(JSON.stringify(batch.records))).toBeLessThanOrEqual(
         CANONICAL_BATCH_SAFE_BUDGET_BYTES

@@ -1,9 +1,20 @@
 import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	act,
+	cleanup,
+	type RenderHookOptions,
+	renderHook as renderBareHook,
+	waitFor,
+} from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
+import type { CachedSpaceFileContent } from "#/query/spaces/space-file-media-resource";
+import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 
 type SpaceApi = ReturnType<typeof createUnscopedWebSpaceApi>;
@@ -66,8 +77,26 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 		[...drafts.values()].filter((draft) => ids.includes(draft.id)),
 }));
 
-afterEach(() => {
+const queryClient = new QueryClient({
+	defaultOptions: { queries: { retry: false } },
+});
+
+function renderHook<Result, Props>(
+	callback: (props: Props) => Result,
+	options?: RenderHookOptions<Props>
+) {
+	return renderBareHook(callback, {
+		...options,
+		wrapper: ({ children }) =>
+			createElement(QueryClientProvider, { client: queryClient }, children),
+	});
+}
+
+afterEach(async () => {
 	cleanup();
+	await Promise.resolve();
+	queryClient.clear();
+	vi.unstubAllGlobals();
 	vi.clearAllMocks();
 	drafts.clear();
 	draftReadGates.clear();
@@ -101,6 +130,65 @@ function setup() {
 		}
 	);
 }
+
+it("hands each original image to its canonical revision before consuming duplicate-named selections", async () => {
+	let sequence = 0;
+	const revoke = vi.fn();
+	vi.stubGlobal(
+		"URL",
+		class extends URL {
+			static createObjectURL = vi.fn(() => `blob:selected-${++sequence}`);
+			static revokeObjectURL = revoke;
+		}
+	);
+	const hook = setup();
+	api.publishComposerUpload.mockImplementation(({ uploadId }) => {
+		const descriptor = createPublishedFile();
+		const fileId = `file:${uploadId}`;
+		return Promise.resolve({
+			...descriptor,
+			id: fileId,
+			name: "photo.png",
+			latestRevision: {
+				...descriptor.latestRevision,
+				fileId,
+				mimeType: "image/png",
+			},
+		});
+	});
+	const originals = [
+		new File(["first"], "photo.png", { type: "image/png" }),
+		new File(["other"], "photo.png", { type: "image/png" }),
+	];
+	await act(async () => hook.result.current.addFiles(originals));
+	let submitted: readonly SpaceComposerFile[] = [];
+	act(() => {
+		submitted = hook.result.current.beginSubmission();
+	});
+	const sources = new Map(
+		submitted.map((file, index) => [file.localId, originals[index]])
+	);
+	await act(async () => {
+		const result = await hook.result.current.publishReadyFiles(submitted);
+		hook.result.current.consumePublishedFiles(result.publishedLocalIds);
+		hook.result.current.finishSubmission(submitted);
+		for (const local of submitted) {
+			const fileId = `file:${local.localId.replace("composer-file:", "")}`;
+			const cached = queryClient.getQueryData<CachedSpaceFileContent>(
+				spaceFileQueryKeys.content("space-1", fileId, 1)
+			);
+			expect(cached?.bytes).toBe(sources.get(local.localId));
+			expect(cached?.mediaPreview?.getSnapshot()).toBe(local.previewUrl);
+			expect(result.previewUrlsByFileId.get(fileId)).toBe(local.previewUrl);
+		}
+	});
+	expect(hook.result.current.files).toHaveLength(0);
+	expect(revoke).not.toHaveBeenCalled();
+	hook.unmount();
+	await Promise.resolve();
+	queryClient.clear();
+	expect(revoke).toHaveBeenCalledTimes(2);
+});
 
 it("hands local new-chat drafts to the Space upload owner once with their original identities", async () => {
 	setup();
@@ -692,10 +780,48 @@ describe("composer attachment submission", () => {
 		expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
 	});
 
+	it("shows a recoverable connection error without exposing upload internals", async () => {
+		const hook = setup();
+		api.stageComposerUpload.mockRejectedValue(
+			Object.assign(
+				new Error(
+					"space.composer_uploads.stage request could not reach localhost (Failed to fetch)"
+				),
+				{ code: "network.request_failed" }
+			)
+		);
+		await act(async () =>
+			hook.result.current.addFiles([new File(["text"], "sample.txt")])
+		);
+		const failed = hook.result.current.files[0];
+		if (!failed) {
+			throw new Error("Missing failed attachment");
+		}
+		expect(failed).toMatchObject({
+			errorMessage: "Couldn't connect. Check your connection and try again.",
+			failurePhase: "stage",
+			status: "failed",
+		});
+		api.stageComposerUpload.mockImplementation(async (input) => ({
+			id: input.uploadId,
+			name: input.name,
+			mimeType: input.mimeType,
+			sizeBytes: 4,
+			expiresAt: "2099-09-10T00:00:00.000Z",
+		}));
+		await act(async () => hook.result.current.retryFile(failed.localId));
+		expect(hook.result.current.files[0]).toMatchObject({
+			errorMessage: null,
+			status: "ready",
+		});
+	});
+
 	it("rejects oversized files before upload while keeping other attachments", async () => {
 		const hook = setup();
 		const oversized = new File(["too large"], "large.pdf");
-		Object.defineProperty(oversized, "size", { value: 251 * 1024 * 1024 });
+		Object.defineProperty(oversized, "size", {
+			value: SPACE_FILE_MAX_SIZE_BYTES + 1,
+		});
 		await act(async () =>
 			hook.result.current.addFiles([
 				oversized,
@@ -708,7 +834,7 @@ describe("composer attachment submission", () => {
 		);
 		expect(hook.result.current.files[0]).toMatchObject({
 			status: "failed",
-			errorMessage: expect.stringContaining("250 MiB upload limit"),
+			errorMessage: expect.stringContaining("1024 MiB upload limit"),
 		});
 		expect(hook.result.current.files[0]?.errorMessage).toContain(
 			"paste a link"
@@ -901,6 +1027,7 @@ function createPublishedFile(): Awaited<
 		id: "file-1",
 		kind: "file",
 		name: "first.txt",
+		origin: "chat_upload",
 		path: "/first.txt",
 		spaceId: "space-1",
 		parentId: null,

@@ -1,8 +1,8 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DAEMON_RUNTIME_CONTRACT_EPOCH } from "../src/local-service/core/constants";
 import { ensureDaemonRuntimePaths } from "../src/local-service/state/daemon-device-id";
+import { DAEMON_LOCAL_STATE_EPOCH } from "../src/local-service/state/local-state-version";
 import {
   ensureDaemonRuntimeContractState,
   readDaemonRuntimeContractMeta,
@@ -24,7 +24,7 @@ describe("local service runtime contract guard", () => {
       });
 
       expect(result.action).toBe("fresh_init");
-      expect(result.meta.contractEpoch).toBe(DAEMON_RUNTIME_CONTRACT_EPOCH);
+      expect(result.meta.contractEpoch).toBe(DAEMON_LOCAL_STATE_EPOCH);
 
       const report = await readDaemonRuntimeContractRepairReport();
       expect(report).toBeNull();
@@ -86,7 +86,7 @@ describe("local service runtime contract guard", () => {
       expect(result.reason).toBe("legacy_state_without_meta");
       expect(result.report.status).toBe("applied");
       expect(result.report.fromEpoch).toBeNull();
-      expect(result.report.toEpoch).toBe(DAEMON_RUNTIME_CONTRACT_EPOCH);
+      expect(result.report.toEpoch).toBe(DAEMON_LOCAL_STATE_EPOCH);
       expect(result.report.cleanedPaths).toContain(legacyContextStore);
       expect(result.report.cleanedPaths).toContain(legacyLedgerState);
       expect(result.report.backupPaths.length).toBeGreaterThanOrEqual(2);
@@ -129,7 +129,7 @@ describe("local service runtime contract guard", () => {
       }
       expect(result.reason).toBe("contract_epoch_mismatch");
       expect(result.report.fromEpoch).toBe(oldEpoch);
-      expect(result.report.toEpoch).toBe(DAEMON_RUNTIME_CONTRACT_EPOCH);
+      expect(result.report.toEpoch).toBe(DAEMON_LOCAL_STATE_EPOCH);
       expect(result.report.cleanedPaths).toContain(legacyLedgerState);
     });
   });
@@ -198,7 +198,7 @@ describe("local service runtime contract guard", () => {
       const meta = {
         schema: "daemon.runtime.contract.meta",
         v: 1,
-        contractEpoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
+        contractEpoch: DAEMON_LOCAL_STATE_EPOCH,
         updatedAt: "2026-03-04T00:00:00.000Z",
       };
       await writeFile(
@@ -212,11 +212,11 @@ describe("local service runtime contract guard", () => {
       });
 
       expect(result.action).toBe("none");
-      expect(result.meta.contractEpoch).toBe(DAEMON_RUNTIME_CONTRACT_EPOCH);
+      expect(result.meta.contractEpoch).toBe(DAEMON_LOCAL_STATE_EPOCH);
       const persisted = JSON.parse(
         await readFile(runtimePaths.contractMetaPath, "utf8")
       ) as { contractEpoch: string };
-      expect(persisted.contractEpoch).toBe(DAEMON_RUNTIME_CONTRACT_EPOCH);
+      expect(persisted.contractEpoch).toBe(DAEMON_LOCAL_STATE_EPOCH);
     });
   });
 
@@ -240,7 +240,7 @@ describe("local service runtime contract guard", () => {
         nowIso: "2026-03-04T00:01:00.000Z",
       });
       expect(second.action).toBe("none");
-      expect(second.meta.contractEpoch).toBe(DAEMON_RUNTIME_CONTRACT_EPOCH);
+      expect(second.meta.contractEpoch).toBe(DAEMON_LOCAL_STATE_EPOCH);
     });
   });
 

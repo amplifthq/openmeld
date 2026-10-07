@@ -1,10 +1,17 @@
 import { createExecutionContext, env } from "cloudflare:test";
-import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
+import { createHash } from "node:crypto";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
+import {
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import type { RuntimeTransportLookupOwnerServiceResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-
 import { handleAgentProfileCreationMessage } from "../src/agent-profile-creation-request/agent-profile-creation-execution";
 import { recoverAgentProfileCreationRequests } from "../src/agent-profile-creation-request/agent-profile-creation-request-recovery";
+import { createPostgresAgentProfileCreationRequestRepository } from "../src/agent-profile-creation-request/agent-profile-creation-request-repository";
 import {
   executeAgentProfileCreationRequest,
   rpcRetryAgentProfileCreationRequest as retryRequest,
@@ -39,8 +46,214 @@ async function rpcRetryAgentProfileCreationRequest(
     request: await executeAgentProfileCreationRequest(args[0], result.request),
   };
 }
-
 describe("Agent Profile creation request RPC", () => {
+  it("replays a pre-upgrade Center request without replacing its identity or merging another Space intent", async () => {
+    const fixture = await seedFixture();
+    const send = vi.fn();
+    const createAgentProfileInOrganization = vi.fn();
+    const bindings = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
+    } as unknown as CoreBindings;
+    const command = {
+      ...centerCreationCommand(fixture),
+      configuration: {
+        ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+        agentControllerRef: "builtin:codex",
+        targetComputerId: `device-${fixture.suffix}`,
+      },
+      requestedSpaceId: `space-before-upgrade-${fixture.suffix}`,
+    };
+    // Freeze the pre-upgrade byte formula independently of the new key builder.
+    const legacyKey = `center-agent:agent-profile-request:${createHash("sha256")
+      .update(
+        JSON.stringify({
+          configuration: command.configuration,
+          nativeSessionId: null,
+          profileName: command.profileName,
+          requestId: command.context.actorContext.requestId,
+          sessionStrategy: command.sessionStrategy,
+          targetOwnerUserId: command.targetOwnerUserId,
+        })
+      )
+      .digest("hex")}`;
+    const accepted = await submitRequest(bindings, {
+      ...command,
+      context: {
+        ...command.context,
+        actorContext: {
+          ...command.context.actorContext,
+          callerPrincipalId: fixture.requesterUserId,
+          ownerUserId: fixture.requesterUserId,
+        },
+      },
+      idempotencyKey: legacyKey,
+      organizationId: fixture.organizationId,
+      source: "center_agent",
+    });
+    const repository = createPostgresAgentProfileCreationRequestRepository(
+      getPostgresDatabase(env)
+    );
+    const completedAtMs = Date.parse(accepted.request.updatedAt) + 1;
+    const createdAgentProfileId = `agt_${crypto.randomUUID()}`;
+    // The old deployment already completed setup; only its response was lost.
+    const completed = await repository.transition({
+      expectedStatuses: ["approved"],
+      expectedUpdatedAtMs: Date.parse(accepted.request.updatedAt),
+      requestId: accepted.request.id,
+      update: {
+        completedAtMs,
+        createdAgentProfileId,
+        status: "completed",
+        statusReason: "profile_created",
+        updatedAtMs: completedAtMs,
+      },
+    });
+    expect(completed).not.toBeNull();
+    send.mockClear();
+    const replay = await submitCenterAgentRequest(bindings, command);
+    expect(replay).toMatchObject({
+      replayed: true,
+      request: {
+        id: accepted.request.id,
+        createdAgentProfileId,
+        status: "completed",
+      },
+    });
+    await executeAgentProfileCreationRequest(bindings, replay.request);
+    expect(createAgentProfileInOrganization).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    // The legacy hash omitted Space. It must not absorb a different intent.
+    const otherCommand = {
+      ...command,
+      requestedSpaceId: `space-after-upgrade-${fixture.suffix}`,
+    };
+    const other = await submitCenterAgentRequest(bindings, otherCommand);
+    expect(other.replayed).toBe(false);
+    expect(other.request.id).not.toBe(accepted.request.id);
+    expect(other.request.createdAgentProfileId).toBeNull();
+    await expect(
+      submitCenterAgentRequest(bindings, otherCommand)
+    ).resolves.toMatchObject({
+      replayed: true,
+      request: {
+        id: other.request.id,
+        requestedSpaceId: otherCommand.requestedSpaceId,
+      },
+    });
+    expect(
+      await repository.findByIdempotencyKey({
+        idempotencyKey: legacyKey,
+        organizationId: fixture.organizationId,
+        requesterUserId: fixture.requesterUserId,
+      })
+    ).toMatchObject({
+      id: accepted.request.id,
+      createdAgentProfileId,
+      status: "completed",
+    });
+    const rows = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: 'SELECT count(*) AS count FROM "openmeld"."agent_profile_creation_requests" WHERE organization_id = $1',
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
+    expect(rows?.count).toBe(2);
+  });
+  it("keeps distinct target Spaces separate while replaying the same canonical Center creation intent", async () => {
+    const fixture = await seedFixture();
+    const bindings = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn() },
+    } as unknown as CoreBindings;
+    const command = centerCreationCommand(fixture);
+    const first = await submitCenterAgentRequest(bindings, {
+      ...command,
+      requestedSpaceId: "space-a",
+    });
+    const same = await submitCenterAgentRequest(bindings, {
+      ...command,
+      profileName: ` ${command.profileName} `,
+      requestedSpaceId: "space-a",
+      configuration: Object.fromEntries(
+        Object.entries(command.configuration).reverse()
+      ) as typeof command.configuration,
+    });
+    expect(same).toMatchObject({
+      replayed: true,
+      request: { id: first.request.id },
+    });
+    const other = await submitCenterAgentRequest(bindings, {
+      ...command,
+      requestedSpaceId: "space-b",
+    });
+    expect(other.replayed).toBe(false);
+    expect(other.request.id).not.toBe(first.request.id);
+    expect(other.request).toMatchObject({
+      requestedSpaceId: "space-b",
+      status: "approved",
+      createdAgentProfileId: null,
+    });
+    const rows = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: 'SELECT count(*) AS count FROM "openmeld"."agent_profile_creation_requests" WHERE organization_id = $1',
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
+    expect(rows?.count).toBe(2);
+  });
+  it("rejects a Center working request with no run target before persisting identity or execution", async () => {
+    const fixture = await seedFixture();
+    const send = vi.fn();
+    const bindings = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
+    } as unknown as CoreBindings;
+    await expect(
+      submitCenterAgentRequest(bindings, {
+        ...centerCreationCommand(fixture),
+        configuration: undefined,
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile_creation_request.state_conflict",
+    });
+    expect(send).not.toHaveBeenCalled();
+    const rows = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: 'SELECT count(*) AS count FROM "openmeld"."agent_profile_creation_requests" WHERE organization_id = $1',
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
+    expect(rows?.count).toBe(0);
+  });
+  it("rejects contradictory Remote and Local selection without silently changing the requested runtime", async () => {
+    const fixture = await seedFixture();
+    const bindings = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
+    await expect(
+      submitCenterAgentRequest(bindings, {
+        ...centerCreationCommand(fixture),
+        localAgentConnectionCandidateId: "local-candidate",
+      })
+    ).rejects.toMatchObject({ code: "invalid_payload", status: 400 });
+  });
   it("recovers a durable accepted request after notification loss and executes duplicate deliveries only once", async () => {
     const fixture = await seedFixture();
     const send = vi
@@ -52,7 +265,7 @@ describe("Agent Profile creation request RPC", () => {
       profile: { openMeldProfileId: "agt_durable_creation" },
     });
     const bindings = {
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
     } as unknown as CoreBindings;
@@ -78,7 +291,7 @@ describe("Agent Profile creation request RPC", () => {
       requests: [{ id: accepted.request.id, status: "approved" }],
     });
     await recoverAgentProfileCreationRequests({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: bindings,
       nowMs: Date.now(),
     });
@@ -126,12 +339,11 @@ describe("Agent Profile creation request RPC", () => {
       },
     });
   });
-
   it("rechecks Organization membership after accepting a request and before creating identity", async () => {
     const fixture = await seedFixture();
     const createAgentProfileInOrganization = vi.fn();
     const bindings = {
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn() },
     } as unknown as CoreBindings;
@@ -144,17 +356,18 @@ describe("Agent Profile creation request RPC", () => {
       source: "cli",
       targetOwnerUserId: fixture.requesterUserId,
     });
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationId, fixture.requesterUserId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationId, fixture.requesterUserId],
+    });
     expect(
       await executeAgentProfileCreationRequest(bindings, accepted.request)
     ).toMatchObject({ status: "failed", createdAgentProfileId: null });
     expect(createAgentProfileInOrganization).not.toHaveBeenCalled();
   });
-
   it("retries setup for the committed Profile without creating another identity", async () => {
     const fixture = await seedFixture();
     const createdAgentProfileId = "agt_33333333-3333-4333-8333-333333333333";
@@ -172,9 +385,8 @@ describe("Agent Profile creation request RPC", () => {
       });
     const bindings = {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     } as unknown as CoreBindings;
-
     try {
       const first = await rpcCreateAgentProfileCreationRequest(bindings, {
         context: contextFor(
@@ -189,13 +401,11 @@ describe("Agent Profile creation request RPC", () => {
         source: "cli",
         targetOwnerUserId: fixture.requesterUserId,
       });
-
       expect(first.request).toMatchObject({
         createdAgentProfileId,
         status: "failed",
         statusReason: "profile_created",
       });
-
       const retried = await rpcRetryAgentProfileCreationRequest(bindings, {
         context: contextFor(
           fixture.requesterUserId,
@@ -204,7 +414,6 @@ describe("Agent Profile creation request RPC", () => {
         organizationId: fixture.organizationId,
         requestId: first.request.id,
       });
-
       expect(retried.request).toMatchObject({
         createdAgentProfileId,
         status: "completed",
@@ -216,7 +425,6 @@ describe("Agent Profile creation request RPC", () => {
       addProfileToSpace.mockRestore();
     }
   });
-
   it("does not create an Agent Profile when the selected local agent is no longer available", async () => {
     const fixture = await seedFixture();
     const createAgentProfileInOrganizationMock = vi.fn().mockResolvedValue({
@@ -238,9 +446,8 @@ describe("Agent Profile creation request RPC", () => {
       OPENMELD_AUTH_WORKER: {
         createAgentProfileInOrganization: createAgentProfileInOrganizationMock,
       },
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     } as unknown as CoreBindings;
-
     try {
       const result = await rpcCreateAgentProfileCreationRequest(bindings, {
         configuration: {
@@ -265,7 +472,6 @@ describe("Agent Profile creation request RPC", () => {
         source: "web",
         targetOwnerUserId: fixture.requesterUserId,
       });
-
       expect(result.request).toMatchObject({
         createdAgentProfileId: null,
         failureMessage:
@@ -278,7 +484,6 @@ describe("Agent Profile creation request RPC", () => {
       listLocalRuntimes.mockRestore();
     }
   });
-
   it("blocks an explicitly unavailable model before every creation entry reaches Auth", async () => {
     const fixture = await seedFixture();
     const createAgentProfileInOrganization = vi.fn().mockResolvedValue({
@@ -314,7 +519,7 @@ describe("Agent Profile creation request RPC", () => {
     };
     const bindings = {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
       OPENMELD_RUNTIME_TRANSPORT: {
         idFromName: (name: string) => {
           expect(name).toBe(fixture.requesterUserId);
@@ -328,7 +533,6 @@ describe("Agent Profile creation request RPC", () => {
         }),
       },
     } as unknown as CoreBindings;
-
     try {
       const result = await rpcCreateAgentProfileCreationRequest(bindings, {
         configuration: {
@@ -353,7 +557,6 @@ describe("Agent Profile creation request RPC", () => {
         source: "web",
         targetOwnerUserId: fixture.requesterUserId,
       });
-
       expect(result.request).toMatchObject({
         createdAgentProfileId: null,
         failureMessage: expect.stringContaining(
@@ -367,10 +570,11 @@ describe("Agent Profile creation request RPC", () => {
       listLocalRuntimes.mockRestore();
     }
   });
-
   it("rejects teammate creation through both public and represented-member entry points", async () => {
     const fixture = await seedFixture();
-    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const bindings = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const intent = {
       profileName: "Held Agent",
       sessionStrategy: "new" as const,
@@ -410,16 +614,23 @@ describe("Agent Profile creation request RPC", () => {
       status: 403,
       code: "agent_profile_creation_request.forbidden",
     });
-    const rows = await env.OPENMELD_DB.prepare(
-      "SELECT count(*) AS count FROM agent_profile_creation_requests WHERE organization_id = ?"
-    )
-      .bind(fixture.organizationId)
-      .first<{ count: number }>();
+    const rows = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: 'SELECT count(*) AS count FROM "openmeld"."agent_profile_creation_requests" WHERE organization_id = $1',
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(rows?.count).toBe(0);
     // The same Center Agent attribution may still create for its represented
     // member. The launch hold must not confuse Agent identity with ownership.
     const own = await submitCenterAgentRequest(bindings, {
       ...intent,
+      configuration: centerCreationCommand(fixture).configuration,
       targetOwnerUserId: fixture.requesterUserId,
       context: {
         activeOrganizationId: fixture.organizationId,
@@ -439,12 +650,12 @@ describe("Agent Profile creation request RPC", () => {
       status: "approved",
     });
   });
-
   it("accepts a Resume request for a current matching Session", async () => {
     const fixture = await seedFixture();
     const session = await seedResumeSession(fixture);
-    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
-
+    const bindings = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const created = await submitRequest(bindings, {
       configuration: {
         agentControllerCollaborationMode: null,
@@ -466,7 +677,6 @@ describe("Agent Profile creation request RPC", () => {
       source: "web",
       targetOwnerUserId: fixture.targetUserId,
     });
-
     expect(created.request).toMatchObject({
       configuration: {
         agentControllerRef: "builtin:codex",
@@ -478,11 +688,13 @@ describe("Agent Profile creation request RPC", () => {
       status: "approved",
       targetOwnerUserId: fixture.targetUserId,
     });
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM agent_activity_session_inventory WHERE id = ?"
-    )
-      .bind(`inventory-${fixture.suffix}`)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."agent_activity_session_inventory" WHERE id = $1',
+        values: [],
+      },
+      values: [`inventory-${fixture.suffix}`],
+    });
     const replayed = await submitRequest(bindings, {
       ...created.request,
       context: contextFor(fixture.targetUserId, fixture.targetProfileId),
@@ -493,12 +705,12 @@ describe("Agent Profile creation request RPC", () => {
       request: { id: created.request.id },
     });
   });
-
   it("accepts a Fork request addressed to the Session's public Computer", async () => {
     const fixture = await seedFixture();
     const session = await seedResumeSession(fixture);
-    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
-
+    const bindings = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const created = await submitRequest(bindings, {
       configuration: {
         agentControllerCollaborationMode: null,
@@ -520,7 +732,6 @@ describe("Agent Profile creation request RPC", () => {
       source: "web",
       targetOwnerUserId: fixture.targetUserId,
     });
-
     expect(created.request).toMatchObject({
       configuration: {
         agentControllerRef: "builtin:codex",
@@ -531,11 +742,11 @@ describe("Agent Profile creation request RPC", () => {
       status: "approved",
     });
   });
-
   it("rejects Resume when the selected Session is not current and matching", async () => {
     const fixture = await seedFixture();
-    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
-
+    const bindings = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     await expect(
       rpcCreateAgentProfileCreationRequest(bindings, {
         configuration: {
@@ -564,7 +775,6 @@ describe("Agent Profile creation request RPC", () => {
     });
   });
 });
-
 function createModelGuardLocalRuntimes(): Awaited<
   ReturnType<typeof currentDeviceTargetService.listLocalRuntimesUseCase>
 > {
@@ -654,7 +864,30 @@ function createModelGuardLocalRuntimes(): Awaited<
     ],
   };
 }
-
+function centerCreationCommand(
+  fixture: Awaited<ReturnType<typeof seedFixture>>
+) {
+  return {
+    configuration: {
+      ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+    },
+    context: {
+      activeOrganizationId: fixture.organizationId,
+      actorContext: {
+        callerPrincipalId: fixture.centerAgentProfileId,
+        openMeldProfileId: fixture.centerAgentProfileId,
+        profileKind: "agent" as const,
+        profileName: "Center Agent",
+        requestId: fixture.suffix,
+      },
+    },
+    onBehalfOf: { profileId: fixture.requesterProfileId },
+    profileName: "Research Partner",
+    sessionStrategy: "new" as const,
+    targetOwnerUserId: fixture.requesterUserId,
+  };
+}
 function contextFor(userId: string, profileId: string) {
   return {
     activeOrganizationId: "ignored-by-explicit-route-scope",
@@ -668,7 +901,6 @@ function contextFor(userId: string, profileId: string) {
     },
   };
 }
-
 async function seedFixture() {
   const suffix = crypto.randomUUID();
   const organizationId = `org-apcr-rpc-${suffix}`;
@@ -678,64 +910,113 @@ async function seedFixture() {
   const targetProfileId = crypto.randomUUID();
   const centerAgentProfileId = `agt_${crypto.randomUUID()}`;
   const nowMs = 1_787_220_000_000;
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-    ).bind(organizationId, "Creation Request RPC Test", organizationId, nowMs),
-    ...[requesterUserId, targetUserId].map((userId) =>
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
-      ).bind(userId, userId, `${userId}@openmeld.invalid`, nowMs, nowMs)
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-    ).bind(
-      `member-requester-${suffix}`,
-      organizationId,
-      requesterUserId,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-    ).bind(`member-target-${suffix}`, organizationId, targetUserId, nowMs),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+            values: [],
+          },
+          values: [
+            organizationId,
+            "Creation Request RPC Test",
+            organizationId,
+            nowMs,
+          ],
+        },
+        ...[requesterUserId, targetUserId].map((userId) => ({
+          ...{
+            text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, 1, $4, $5)',
+            values: [],
+          },
+          values: [userId, userId, `${userId}@openmeld.invalid`, nowMs, nowMs],
+        })),
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4)',
+            values: [],
+          },
+          values: [
+            `member-requester-${suffix}`,
+            organizationId,
+            requesterUserId,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4)',
+            values: [],
+          },
+          values: [
+            `member-target-${suffix}`,
+            organizationId,
+            targetUserId,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           managed_role, created_at, updated_at
-        ) VALUES (?, 'Requester', ?, 'human', 1, 'active', NULL, ?, ?,
-          'auth_bootstrap', NULL, ?, ?)
-      `
-    ).bind(
-      requesterProfileId,
-      `requester-${suffix}`,
-      requesterUserId,
-      requesterUserId,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+        ) VALUES ($1, 'Requester', $2, 'human', 1, 'active', NULL, $3, $4,
+          'auth_bootstrap', NULL, $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            requesterProfileId,
+            `requester-${suffix}`,
+            requesterUserId,
+            requesterUserId,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           managed_role, created_at, updated_at
-        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?,
-          'auth_bootstrap', 'center_agent', ?, ?)
-      `
-    ).bind(
-      centerAgentProfileId,
-      `center-agent-${suffix}`,
-      organizationId,
-      requesterUserId,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO center_agent_designations (organization_id, agent_profile_id, duty, designated_by, created_at) VALUES (?, ?, NULL, ?, ?)"
-    ).bind(organizationId, centerAgentProfileId, requesterUserId, nowMs),
-  ]);
+        ) VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4,
+          'auth_bootstrap', 'center_agent', $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            centerAgentProfileId,
+            `center-agent-${suffix}`,
+            organizationId,
+            requesterUserId,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, duty, designated_by, created_at) VALUES ($1, $2, NULL, $3, $4)',
+            values: [],
+          },
+          values: [
+            organizationId,
+            centerAgentProfileId,
+            requesterUserId,
+            nowMs,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return {
     centerAgentProfileId,
     organizationId,
@@ -746,7 +1027,6 @@ async function seedFixture() {
     targetUserId,
   };
 }
-
 async function seedResumeSession(
   fixture: Awaited<ReturnType<typeof seedFixture>>
 ) {
@@ -757,75 +1037,106 @@ async function seedResumeSession(
   const nativeSessionId = `native-session-${fixture.suffix}`;
   const sourceScopeKey = `source-${fixture.suffix}`;
   const localConnectionId = `sha256:${"a".repeat(64)}`;
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `INSERT INTO projects (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `INSERT INTO "openmeld"."projects" (
         id, organization_id, name, slug, created_by_user_id,
         created_at_ms, updated_at_ms
-      ) VALUES (?, ?, 'OpenMeld', ?, ?, ?, ?)`
-    ).bind(
-      projectId,
-      fixture.organizationId,
-      `openmeld-${fixture.suffix}`,
-      fixture.targetUserId,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      `INSERT INTO openMeldDaemon_owned_devices (
+      ) VALUES ($1, $2, 'OpenMeld', $3, $4, $5, $6)`,
+            values: [],
+          },
+          values: [
+            projectId,
+            fixture.organizationId,
+            `openmeld-${fixture.suffix}`,
+            fixture.targetUserId,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `INSERT INTO "openmeld"."openMeldDaemon_owned_devices" (
         owner_user_id, device_id, connected_computer_id, user_display_name,
         first_seen_at_ms, last_observed_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, 'Target Mac', ?, ?, ?)`
-    ).bind(fixture.targetUserId, deviceId, computerId, nowMs, nowMs, nowMs),
-    env.OPENMELD_DB.prepare(
-      `INSERT INTO agent_activity_session_inventory_sources (
+      ) VALUES ($1, $2, $3, 'Target Mac', $4, $5, $6)`,
+            values: [],
+          },
+          values: [
+            fixture.targetUserId,
+            deviceId,
+            computerId,
+            nowMs,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `INSERT INTO "openmeld"."agent_activity_session_inventory_sources" (
         source_scope_key, organization_id, owner_user_id, project_id,
         device_id, connected_computer_id, local_connection_id,
         agent_controller_ref, provider, state, current_reconciliation_id,
         next_page_index, problem_code, last_attempt_at_ms,
         last_complete_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'builtin:codex', 'codex', 'current',
-        ?, 1, NULL, ?, ?, ?)`
-    ).bind(
-      sourceScopeKey,
-      fixture.organizationId,
-      fixture.targetUserId,
-      projectId,
-      deviceId,
-      computerId,
-      localConnectionId,
-      `reconciliation-${fixture.suffix}`,
-      nowMs,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      `INSERT INTO agent_activity_session_inventory (
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'builtin:codex', 'codex', 'current',
+        $8, 1, NULL, $9, $10, $11)`,
+            values: [],
+          },
+          values: [
+            sourceScopeKey,
+            fixture.organizationId,
+            fixture.targetUserId,
+            projectId,
+            deviceId,
+            computerId,
+            localConnectionId,
+            `reconciliation-${fixture.suffix}`,
+            nowMs,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `INSERT INTO "openmeld"."agent_activity_session_inventory" (
         id, organization_id, owner_user_id, agent_controller_ref,
         native_session_id, project_id, device_id, connected_computer_id,
         local_connection_id, source_scope_key, provider, native_session_title,
         status, last_active_at_ms, started_at_ms, origin, can_resume, can_fork,
         visible, source_reconciliation_id, observed_at_ms, published_at_ms,
         updated_at_ms
-      ) VALUES (?, ?, ?, 'builtin:codex', ?, ?, ?, ?, ?, ?, 'codex',
-        'Existing release work', 'idle', ?, ?, 'local', 1, 1, 1, ?, ?, ?, ?)`
-    ).bind(
-      `inventory-${fixture.suffix}`,
-      fixture.organizationId,
-      fixture.targetUserId,
-      nativeSessionId,
-      projectId,
-      deviceId,
-      computerId,
-      localConnectionId,
-      sourceScopeKey,
-      nowMs,
-      nowMs - 60_000,
-      `reconciliation-${fixture.suffix}`,
-      nowMs,
-      nowMs,
-      nowMs
-    ),
-  ]);
+      ) VALUES ($1, $2, $3, 'builtin:codex', $4, $5, $6, $7, $8, $9, 'codex',
+        'Existing release work', 'idle', $10, $11, 'local', 1, 1, 1, $12, $13, $14, $15)`,
+            values: [],
+          },
+          values: [
+            `inventory-${fixture.suffix}`,
+            fixture.organizationId,
+            fixture.targetUserId,
+            nativeSessionId,
+            projectId,
+            deviceId,
+            computerId,
+            localConnectionId,
+            sourceScopeKey,
+            nowMs,
+            nowMs - 60_000,
+            `reconciliation-${fixture.suffix}`,
+            nowMs,
+            nowMs,
+            nowMs,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return { computerId, deviceId, nativeSessionId, projectId };
 }

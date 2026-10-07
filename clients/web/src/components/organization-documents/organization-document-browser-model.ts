@@ -7,6 +7,13 @@ import type { DragEvent } from "react";
 export const DOCUMENT_DRAG_TYPE = "application/x-openmeld-document-id";
 export const FOLDER_DRAG_TYPE = "application/x-openmeld-folder-id";
 
+export function organizationDocumentDisplayTitle(document: {
+	kind: OrganizationDocumentSummary["kind"];
+	title: string;
+}): string {
+	return document.kind === "brief" ? "Team Brief" : document.title;
+}
+
 export type FolderMoveTarget = {
 	id: string | null;
 	label: string;

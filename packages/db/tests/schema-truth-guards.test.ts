@@ -40,8 +40,8 @@ describe("schema truth guards", () => {
 
   it("keeps core dispatch runtime files free of local canonical DDL truth", () => {
     const runtimeFiles = [
-      "services/core/src/dispatch/infrastructure/d1/dispatch-ledger-d1.ts",
-      "services/core/src/dispatch/infrastructure/d1/dispatch-result-repo.ts",
+      "services/core/src/dispatch/infrastructure/postgresql/dispatch-ledger-postgresql.ts",
+      "services/core/src/dispatch/infrastructure/postgresql/dispatch-result-repo.ts",
     ];
 
     for (const relativePath of runtimeFiles) {

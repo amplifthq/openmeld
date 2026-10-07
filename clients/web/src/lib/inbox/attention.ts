@@ -6,12 +6,16 @@ export function resolveInboxItemIndicator(item: InboxItem) {
 		item.attention === "action_required" &&
 		item.resolutionStatus === "open"
 	) {
-		return "danger";
+		return "warning";
 	}
 	if (item.readAt !== null) {
 		return null;
 	}
-	if (item.importance === "urgent" && item.resolutionStatus !== "resolved") {
+	if (
+		item.attention === "update" &&
+		(item.importance === "urgent" ||
+			(item.sourceFacts?.firstContactAgentProfileIds?.length ?? 0) > 0)
+	) {
 		return "warning";
 	}
 	return "unread";
@@ -21,10 +25,10 @@ export function resolveInboxAttentionLabel(
 	tone: "danger" | "warning" | null | undefined
 ) {
 	if (tone === "danger") {
-		return "Needs action";
+		return "Error";
 	}
 	if (tone === "warning") {
-		return "Urgent updates";
+		return "Priority attention";
 	}
 	return null;
 }
@@ -40,9 +44,9 @@ export function resolveInboxIndicatorClassName(
 export function resolveInboxAttentionTone(input: {
 	unresolvedActionCount?: number;
 	unreadUrgentUpdateCount?: number;
-}): "danger" | "warning" | null {
+}): "warning" | null {
 	if ((input.unresolvedActionCount ?? 0) > 0) {
-		return "danger";
+		return "warning";
 	}
 	if ((input.unreadUrgentUpdateCount ?? 0) > 0) {
 		return "warning";

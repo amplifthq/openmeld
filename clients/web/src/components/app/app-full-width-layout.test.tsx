@@ -7,6 +7,8 @@ const appOuterRailSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("#/components/directory/team-sidebar-header", () => ({
 	TeamSidebarHeader: () => <h2>Team</h2>,
+	TeamSidebarHeaderActionsProvider: ({ children }: { children: ReactNode }) =>
+		children,
 }));
 
 vi.mock("#/components/app/app-outer-rail", () => ({
@@ -37,6 +39,7 @@ describe("AppFullWidthLayout", () => {
 	it("places profile lists in the middle column without duplicating application navigation", () => {
 		render(
 			<AppFullWidthLayout
+				defaultModuleSidebarOpen
 				mainSidebarContent={<nav aria-label="People">Members</nav>}
 			>
 				<h1>Profile</h1>

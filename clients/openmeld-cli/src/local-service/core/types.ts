@@ -109,11 +109,20 @@ export type LedgerPaths = {
   stateTempFilePath: string;
 };
 
+// Execution emits frames; it does not own, close, or reconnect a cloud socket.
+export type DaemonFrameSink = {
+  readonly bufferedAmount?: number;
+  send(data: string): void;
+};
+
 export type CurrentDaemonSocketRef = {
+  confirmExecutionAdmission?: (
+    request: RuntimeTransportDeliverDispatchRequest
+  ) => Promise<void>;
   reasoningStreamEnabled?: boolean;
   reasoningPreferenceListeners?: Set<() => void>;
   connectionGeneration: number | null;
-  socket: import("../../transport/ws").WsClient | null;
+  socket: DaemonFrameSink | null;
 };
 
 export type DaemonDispatchLimits = {
@@ -167,6 +176,7 @@ export type DaemonProfileSkipReason = SharedDaemonProfileSkipReason;
 export type SkippedDaemonProfile = SharedSkippedDaemonProfile;
 
 export type RouteCatalog = {
+  executionHostCatalogRevision?: number;
   expectedRoutesContractVersion?: "v4";
   profileIds: string[];
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
@@ -176,6 +186,7 @@ export type RouteCatalog = {
 };
 
 export type MutableRouteCatalogState = {
+  executionHostCatalogRevision?: number;
   expectedRoutesContractVersion?: "v4";
   fingerprint: string;
   profileIds: string[];
@@ -227,6 +238,9 @@ export type OpenMeldDaemonTaskErrorType =
   | "timeout";
 
 export type ParsedDispatchTask = {
+  requesterIsAgentOwner?: boolean;
+  workHandoff?: import("@openmeld/schemas").SpaceWorkHandoff;
+  workingCopyId?: string;
   executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
   callerContext?: NonNullable<
     RuntimeTransportDeliverDispatchRequest["payload"]["sourceSignalSnapshot"]
@@ -272,6 +286,10 @@ export type ParsedDispatchTask = {
 };
 
 export type DispatchPromptBootstrapInput = {
+  requesterIsAgentOwner?: ParsedDispatchTask["requesterIsAgentOwner"];
+  executionContextAccess?: NonNullable<
+    ParsedDispatchTask["executionContext"]
+  >["access"];
   callerContext?: ParsedDispatchTask["callerContext"];
   continuitySnapshot?: OpenMeldDaemonDispatchContinuitySnapshot | null;
   dispatchTriggerSource: "activation_targets" | "listen_all";
@@ -335,14 +353,18 @@ export type ParsedDaemonFrame = {
     | "daemon.dispatch.interaction_request"
     | "daemon.dispatch.interaction_response"
     | "daemon.dispatch.lifecycle"
+    | "daemon.dispatch.lifecycle_acknowledged"
     | "daemon.dispatch.preview"
     | "daemon.dispatch.preview_end"
     | "daemon.dispatch.result"
     | "daemon.dispatch.runtime_evidence"
     | "daemon.dispatch.tool_activity"
     | "daemon.dispatch.reasoning"
+    | "daemon.dispatch.progress"
     | "daemon.reasoning.preferences"
     | "daemon.error"
+    | "daemon.session_history.request"
+    | "daemon.session_history.request_result"
     | "daemon.computer_file_access.read_policy"
     | "daemon.computer_file_access.read_policy_result"
     | "daemon.computer_file_access.update_policy"
@@ -351,6 +373,8 @@ export type ParsedDaemonFrame = {
     | "daemon.execution_recovery.resume_controller_conversation_result"
     | "daemon.local_agent_control.cancel"
     | "daemon.local_agent_control.interrupt"
+    | "daemon.execution_input.request"
+    | "daemon.execution_input.result"
     | "daemon.local_agent_control.fork_session"
     | "daemon.local_agent_control.manage_installation"
     | "daemon.local_agent_control.refresh_catalog"

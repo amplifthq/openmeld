@@ -8,13 +8,14 @@ export function AgentNameEditor(input: {
 	onChange: (value: string) => void;
 	disabled?: boolean;
 	maxLength?: number;
+	className?: string;
 }) {
 	const hintId = useId();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [editing, setEditing] = useState(false);
 	const [beforeEdit, setBeforeEdit] = useState(input.value);
 	return (
-		<div className="grid w-full min-w-0 max-w-xl gap-1">
+		<div className={cn("grid w-full min-w-0 max-w-xl gap-1", input.className)}>
 			<div className="flex h-12 w-fit min-w-0 max-w-full items-center gap-2">
 				<div className="relative h-full min-w-0">
 					<span

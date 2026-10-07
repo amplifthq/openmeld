@@ -1,10 +1,10 @@
 import type { OrganizationAgentRuntimeOverviewResponse } from "@openmeld/schemas/types";
-import { buildPublicSpaceEntryPath } from "@openmeld/space";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ArrowRightIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { organizationAgentRuntimeOverviewQueryOptions } from "#/query/organizations/organization-directory";
 import type { AgentProfileActivityNavigation } from "./agent-profile-activity-preview";
@@ -13,7 +13,8 @@ type Activity =
 	OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number];
 
 export function agentTaskActivityNavigation(
-	activity: Pick<Activity, "operationalContext"> | undefined
+	activity: Pick<Activity, "operationalContext"> | undefined,
+	organizationSlug: string
 ): AgentProfileActivityNavigation | null {
 	const context = activity?.operationalContext;
 	if (
@@ -25,7 +26,8 @@ export function agentTaskActivityNavigation(
 	const destination = (
 		location: NonNullable<typeof context.currentWorkLocation>
 	) => ({
-		href: buildPublicSpaceEntryPath({
+		href: buildOrganizationSpacePath({
+			orgSlug: organizationSlug,
 			spaceId: location.spaceId,
 		}),
 		source: "space" as const,
@@ -39,12 +41,16 @@ export function agentTaskActivityNavigation(
 	};
 }
 
-export function useAgentTaskActivity(profileId: string) {
+export function useAgentTaskActivity(
+	profileId: string,
+	includeWorkload = false
+) {
 	const organization = useOptionalAppOrganization();
 	const query = useQuery(
 		organizationAgentRuntimeOverviewQueryOptions({
 			enabled: Boolean(organization),
 			organizationId: organization?.currentOrganization.id ?? "",
+			...(includeWorkload ? { workloadProfileId: profileId } : {}),
 		})
 	);
 	const activity = query.data?.agentProfiles.find(
@@ -53,8 +59,14 @@ export function useAgentTaskActivity(profileId: string) {
 	return {
 		activity,
 		enabled: Boolean(organization),
+		isPending: query.isPending,
 		isError: query.isError,
-		navigation: agentTaskActivityNavigation(activity),
+		navigation: organization
+			? agentTaskActivityNavigation(
+					activity,
+					organization.currentOrganization.slug
+				)
+			: null,
 	};
 }
 
@@ -98,21 +110,18 @@ export function AgentTaskActivitySummary({ profileId }: { profileId: string }) {
 		return null;
 	}
 	const context = activity?.operationalContext;
+	if (context?.status !== "working" && context?.status !== "paused") {
+		return null;
+	}
 	const current = navigation?.current;
 	const active = context?.status === "working";
 	const queued =
 		context && "waitingCount" in context ? context.waitingCount : 0;
-	let label = "No current task";
+	let label = "Waiting to continue";
 	if (isError) {
 		label = "Activity unavailable";
-	} else if (!activity || context?.status === "checking") {
-		label = "Checking activity…";
-	} else if (!context) {
-		label = "Current activity unavailable";
 	} else if (active) {
 		label = "Active task";
-	} else if (context?.status === "paused") {
-		label = "Waiting to continue";
 	}
 	return (
 		<section
@@ -135,11 +144,6 @@ export function AgentTaskActivitySummary({ profileId }: { profileId: string }) {
 				) : null}
 			</div>
 			<AgentTaskActivityTime timestamp={activity?.lastTaskActivityAt} />
-			{activity?.lastTaskActivityAt === null ? (
-				<span className="text-muted-foreground text-xs">
-					No recorded task activity in the past 30 days
-				</span>
-			) : null}
 		</section>
 	);
 }

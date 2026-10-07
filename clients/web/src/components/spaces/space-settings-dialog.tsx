@@ -17,6 +17,7 @@ import {
 import { CopyIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { formatWebCliCommand } from "#/lib/cli-entry-command";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import type { SpaceAccessUpdateInput } from "./space-access-editor";
 import { SpaceAccessSettings } from "./space-access-settings";
@@ -187,7 +188,9 @@ export function SpaceSettingsDialog(input: {
 						) : null}
 					</>
 				)}
-				{section === "general" && <SpaceInfoNotificationsSection />}
+				{section === "general" && (
+					<SpaceInfoNotificationsSection spaceId={input.spaceId} />
+				)}
 				{section === "members" && showSpaceAccessControls ? (
 					<div className="grid gap-4">
 						{input.onOpenInvitations ? (
@@ -331,7 +334,7 @@ function SpaceInfoLeaveSection(input: {
 }
 
 function buildSpaceCliJoinCommand(spaceId: string): string {
-	return `npx -y openmeld@latest space join ${spaceId}`;
+	return formatWebCliCommand(`openmeld space join ${spaceId}`);
 }
 
 function SpaceInfoDeleteSection(input: {

@@ -8,6 +8,7 @@ import {
 } from "@openmeld/schemas";
 import {
   CURRENT_PROCESS_START_IDENTITY,
+  isPreciseProcessStartIdentity,
   isProcessIdentityAlive,
   readProcessStartIdentity,
 } from "../system/process-identity";
@@ -89,7 +90,7 @@ export async function reserveServiceAccountAdmission(input: {
 }): Promise<ServiceAccountAdmission> {
   await assertServiceAccountAdmissionMutationAvailable();
   const previous = await readServiceAccountAdmission();
-  if (!CURRENT_PROCESS_START_IDENTITY.startsWith("ps:")) {
+  if (!isPreciseProcessStartIdentity(CURRENT_PROCESS_START_IDENTITY)) {
     throw new ServiceAccountAdmissionError(
       "unknown",
       "OpenMeld could not verify this command's process identity. Try again from a supported local CLI."

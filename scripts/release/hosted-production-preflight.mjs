@@ -7,11 +7,13 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { createTrustedGitEnvironment } from "../ci/trusted-git-network.mjs";
+import { assertHostedProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
 import {
   buildCoreCurrentCliProjectionPreflightStepSpecs,
   buildProductionPreflightStepSpecs,
   expandRequestedReleaseScopes,
 } from "./production-release.mjs";
+import { admitWebsiteDomainRelease } from "./website-domain-migration.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const HOSTED_WORKER_SCOPES = new Set([
@@ -20,6 +22,8 @@ const HOSTED_WORKER_SCOPES = new Set([
   "gateway",
   "remote-agent",
   "web",
+  "website",
+  "docs",
 ]);
 
 export async function runHostedProductionPreflight(input) {
@@ -38,22 +42,26 @@ export async function runHostedProductionPreflight(input) {
       `Hosted production preflight release source is not a Git checkout: ${releaseSource}`
     );
   }
-  const actualHead = readReleaseSourceHead(releaseSource);
-  if (actualHead !== releaseSha) {
-    throw new Error(
-      `Hosted production preflight source mismatch: expected ${releaseSha}, found ${actualHead}.`
-    );
-  }
-
   const scopes = expandRequestedReleaseScopes(input.scope);
   if (!scopes || scopes.length !== 1 || !HOSTED_WORKER_SCOPES.has(scopes[0])) {
     throw new Error(
       "Hosted production preflight requires exactly one Worker release scope."
     );
   }
+  assertHostedProductDatabaseReleaseSupported(releaseSource, scopes);
+  const actualHead = readReleaseSourceHead(releaseSource);
+  if (actualHead !== releaseSha) {
+    throw new Error(
+      `Hosted production preflight source mismatch: expected ${releaseSha}, found ${actualHead}.`
+    );
+  }
   const steps = input.currentStableCliProjection
-    ? buildCoreCurrentCliProjectionPreflightStepSpecs([])
-    : buildProductionPreflightStepSpecs({ changedPaths: [], scopes });
+    ? buildCoreCurrentCliProjectionPreflightStepSpecs([], releaseSha)
+    : buildProductionPreflightStepSpecs({
+        changedPaths: [],
+        releaseSha,
+        scopes,
+      });
   const runControlStep =
     input.adapters?.runControlStep ?? defaultRunControlStep;
 
@@ -75,6 +83,9 @@ export async function runHostedProductionPreflight(input) {
     }
     await runControlStep(step, { controlRoot, releaseSource });
   }
+  await (
+    input.adapters?.admitWebsiteDomainRelease ?? admitWebsiteDomainRelease
+  )({ scopes, sourceSha: releaseSha });
 }
 
 function readReleaseSourceHead(releaseSource) {

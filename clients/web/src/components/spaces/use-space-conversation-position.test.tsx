@@ -7,9 +7,6 @@ import {
 import { notifyResizeObservers } from "#/test-support/dom-observers.setup";
 import { useSpaceConversationPosition } from "./use-space-conversation-position";
 
-vi.mock("@tanstack/react-router", () => ({
-	useElementScrollRestoration: () => undefined,
-}));
 beforeEach(() => {
 	vi.useFakeTimers();
 	sessionStorage.clear();
@@ -41,6 +38,7 @@ function fixture() {
 		}) as DOMRect;
 	const input = {
 		historyIsPending: false,
+		isLiveHistory: true,
 		hasEarlierHistory: false,
 		isLoadingEarlierHistory: false,
 		historyVersion: 1,
@@ -171,6 +169,37 @@ it("saves before navigation without waiting for scrollend, and keeps different S
 	).toBeNull();
 });
 
+it.each([
+	true,
+	false,
+])("distinguishes the live bottom from a historical window's bottom (live: %s)", (isLiveHistory) => {
+	const f = fixture();
+	f.input.isLiveHistory = isLiveHistory;
+	const first = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	f.input.viewport.scrollTop = 1500;
+	act(() => first.result.current.onScrollEnd(f.input.viewport));
+	first.unmount();
+	f.input.viewport.scrollTop = 0;
+	const returned = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	expect(returned.result.current.defaultScrollPosition).toBe(
+		isLiveHistory ? "end" : "start"
+	);
+	expect(returned.result.current.autoScroll).toBe(isLiveHistory);
+	returned.unmount();
+	const focused = renderHook(useSpaceConversationPosition, {
+		initialProps: { ...f.input, hasExplicitFocus: true },
+	});
+	// Explicit focus does not restore the saved anchor over the jump controller.
+	f.input.viewport.scrollTop = 400;
+	act(() => notifyResizeObservers(f.message));
+	expect(f.input.viewport.scrollTop).toBe(400);
+	expect(focused.result.current.restorationStatus).toBe("ready");
+});
+
 it("waits for a scroll pause before measuring and ignores callback identity changes", () => {
 	const f = fixture();
 	const measure = vi.spyOn(f.message, "getBoundingClientRect");
@@ -196,6 +225,31 @@ it("waits for a scroll pause before measuring and ignores callback identity chan
 		anchorSignalId: "message-a",
 		offsetFromVisibleTop: -45,
 	});
+});
+
+it("does not loop when a focused conversation receives a new history reference on render", () => {
+	const f = fixture();
+	const { result } = renderHook(() =>
+		useSpaceConversationPosition({
+			...f.input,
+			hasExplicitFocus: true,
+			historyVersion: {},
+		})
+	);
+	expect(result.current.restorationStatus).toBe("ready");
+});
+
+it("does not restart completed restoration when history references change on render", () => {
+	const f = fixture();
+	writeSpaceConversationPosition(f.key, {
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: 20,
+	});
+	const { result } = renderHook(() =>
+		useSpaceConversationPosition({ ...f.input, historyVersion: {} })
+	);
+	expect(result.current.restorationStatus).toBe("ready");
+	expect(f.input.viewport.scrollTop).toBe(780);
 });
 
 it("falls back without fetching when a recorded anchor was evicted", async () => {

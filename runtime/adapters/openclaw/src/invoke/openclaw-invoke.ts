@@ -55,7 +55,11 @@ export async function invokeOpenClawWithSingleContextHeal(input: {
 }> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.sessionId,
-    contextLossPolicy: "rebuild",
+    contextLossPolicy:
+      input.executionMode === "repair" ||
+      input.env?.OPENMELD_SPACE_ACTION_DELIVERY_ONLY === "1"
+        ? "fail"
+        : "rebuild",
     createRebuildFailedError: (error) =>
       new OpenClawRuntimeError({
         code: "context.rebuild_failed",

@@ -1,15 +1,23 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	buildOrganizationDirectoryAddCandidates,
+	filterAddMemberGroups,
+} from "#/components/spaces/people-agent-picker-model";
+import {
 	readCurrentOrganizationAgentRuntimeOverview,
 	readCurrentOrganizationDirectory,
 	readCurrentOrganizationProfileDirectory,
 } from "#/lib/organizations/organization-directory";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
+	organizationDirectoryQueryFilters,
+	organizationDirectoryQueryOptions,
 	organizationMemberOpenMeldServiceStatusesQueryOptions,
 	organizationMemberRoleQueryOptions,
 	organizationProfileDirectoryQueryOptions,
+	organizationQueryKeys,
+	organizationSpaceProfileCandidatesQueryOptions,
 } from "./organization-directory";
 
 vi.mock("#/lib/organizations/organization-directory", () => ({
@@ -25,6 +33,49 @@ beforeEach(() => {
 });
 
 describe("organization profile projections", () => {
+	it("keeps Center Agent settings separate from the full directory and updates both identity caches", async () => {
+		const queryClient = new QueryClient();
+		const fullDirectory = createDirectory({
+			organizationId: "org-acme",
+			role: "owner",
+			userId: "user-123",
+		});
+		vi.mocked(readCurrentOrganizationDirectory).mockResolvedValueOnce({
+			...fullDirectory,
+			members: [],
+		});
+		const settings = organizationDirectoryQueryOptions({
+			enabled: true,
+			organizationId: "org-acme",
+			centerAgentOnly: true,
+		});
+		await queryClient.fetchQuery(settings);
+		expect(
+			queryClient.getQueryData(organizationQueryKeys.directory("org-acme"))
+		).toBeUndefined();
+		queryClient.setQueryData(
+			organizationQueryKeys.directory("org-acme"),
+			fullDirectory
+		);
+		queryClient.setQueryData(
+			organizationQueryKeys.profileIdentityDirectory("org-acme"),
+			fullDirectory
+		);
+		expect(
+			queryClient.getQueriesData(
+				organizationDirectoryQueryFilters({ organizationId: "org-acme" })
+			)
+		).toHaveLength(3);
+		expect(readCurrentOrganizationDirectory).toHaveBeenCalledWith({
+			organizationId: "org-acme",
+			centerAgentOnly: true,
+			signal: expect.any(AbortSignal),
+		});
+		expect(
+			queryClient.getQueryData(organizationQueryKeys.directory("org-acme"))
+		).toEqual(fullDirectory);
+		queryClient.clear();
+	});
 	it("keeps stable identity and changing runtime state in separate caches", () => {
 		const profileDirectory = organizationProfileDirectoryQueryOptions({
 			enabled: true,
@@ -50,6 +101,71 @@ describe("organization profile projections", () => {
 		expect(profileDirectory.refetchIntervalInBackground).toBe(false);
 		expect(runtimeOverview.refetchOnWindowFocus).toBe(true);
 		expect(runtimeOverview.staleTime).toBe(10_000);
+	});
+
+	it("finds a newly created Remote Agent from the same identity directory as Team", async () => {
+		const profile = {
+			agentControllerRef: "hosted:remote-agent",
+			avatarUrl: undefined,
+			createdAt: "2026-09-23T08:00:00.000Z",
+			createdByUserId: "user-123",
+			creatorProfileId: null,
+			isCenterAgent: false,
+			isDefault: false as const,
+			lastUsedAt: null,
+			managedRole: null,
+			organizationId: "org-acme",
+			ownerName: "Felix Lu",
+			ownerUserId: "user-123",
+			profileHandle: "felix-remote-gpt-6-sol",
+			profileId: "agt_33333333-3333-4333-8333-333333333333",
+			profileKind: "agent" as const,
+			profileName: "Felix Lu’s Remote GPT 6 Sol",
+			source: "user",
+			status: "active" as const,
+			updatedAt: "2026-09-23T08:00:00.000Z",
+		};
+		vi.mocked(readCurrentOrganizationProfileDirectory).mockResolvedValue({
+			...createDirectory({
+				organizationId: "org-acme",
+				role: "owner",
+				userId: "user-123",
+			}),
+			agentProfiles: [profile],
+		});
+		const queryClient = new QueryClient();
+		const options = organizationSpaceProfileCandidatesQueryOptions({
+			enabled: true,
+			organizationId: "org-acme",
+		});
+		const directory = await queryClient.fetchQuery(options);
+		const candidates = options.select?.(directory);
+		const matches = filterAddMemberGroups(
+			buildOrganizationDirectoryAddCandidates({
+				directory: candidates ?? null,
+				organizationName: "Acme",
+				snapshot: null,
+			}),
+			"remote"
+		);
+
+		expect(options.queryKey).toEqual(
+			organizationProfileDirectoryQueryOptions({
+				enabled: true,
+				organizationId: "org-acme",
+			}).queryKey
+		);
+		expect(candidates?.agentProfiles).toEqual([
+			expect.objectContaining({
+				profileId: profile.profileId,
+				profileName: profile.profileName,
+			}),
+		]);
+		expect(matches.personGroups[0]?.agentCandidates[0]?.profileId).toBe(
+			profile.profileId
+		);
+		expect(readCurrentOrganizationDirectory).not.toHaveBeenCalled();
+		queryClient.clear();
 	});
 });
 

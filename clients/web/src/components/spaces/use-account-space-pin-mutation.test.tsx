@@ -295,12 +295,26 @@ it("keeps a confirmed message preview through index lag but accepts convergence 
 		timestamp: Date.now(),
 		text: "Sent just now",
 	};
-	const accepted = applyAcceptedAccountSpaceMessage(sections, "chat", preview);
+	const previous = {
+		...preview,
+		signalId: "previous",
+		timestamp: preview.timestamp - 1,
+	};
+	const first = applyAcceptedAccountSpaceMessage(sections, "chat", previous);
+	const accepted = applyAcceptedAccountSpaceMessage(first, "chat", preview);
+	expect(
+		applyAcceptedAccountSpaceMessage(accepted, "chat", preview).spaceItems[0]
+			?.recentMessagePreviews
+	).toEqual([preview, previous]);
 	const lagging = preserveOptimisticAccountSpacePinUpdates(
 		accepted,
 		sections
 	) as AccountSpaceSections;
 	expect(lagging.spaceItems[0]?.messagePreview).toEqual(preview);
+	expect(lagging.spaceItems[0]?.recentMessagePreviews).toEqual([
+		preview,
+		previous,
+	]);
 	const converged = {
 		...sections,
 		spaceItems: sections.spaceItems.map((item) => ({
@@ -316,6 +330,33 @@ it("keeps a confirmed message preview through index lag but accepts convergence 
 		sections
 	);
 	vi.useRealTimers();
+});
+
+it("reuses unchanged directory rows across refreshes and updates changed fields", () => {
+	const sections: AccountSpaceSections = {
+		pinnedItems: [],
+		spaceItems: [
+			createAccountSpaceItem({ spaceId: "planning", spaceName: "Planning" }),
+			createAccountSpaceItem({ spaceId: "design", spaceName: "Design" }),
+		],
+	};
+	const client = createQueryClient(sections);
+	const key = accountSpaceQueryKeys.items("human-1", "account");
+	client.setQueryData(key, structuredClone(sections));
+	expect(readSections(client)).toBe(sections);
+	const refreshed = {
+		...sections,
+		spaceItems: sections.spaceItems.map((item) => ({
+			...item,
+			spaceName: item.spaceId === "design" ? "Design review" : item.spaceName,
+		})),
+	};
+	client.setQueryData(key, refreshed);
+	const changed = readSections(client);
+	expect(changed.spaceItems[0]).toBe(sections.spaceItems[0]);
+	expect(changed.spaceItems[1]?.spaceName).toBe("Design review");
+	expect(changed.spaceItems[1]).not.toBe(sections.spaceItems[1]);
+	client.clear();
 });
 
 function createQueryClient(sections: AccountSpaceSections): QueryClient {

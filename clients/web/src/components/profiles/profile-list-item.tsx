@@ -1,5 +1,6 @@
 "use client";
 
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import type { ReactElement, ReactNode, Ref } from "react";
 
@@ -39,6 +40,7 @@ function ProfileCardSummary(input: {
 }
 
 export function ProfileCard(input: {
+	contextMenu?: boolean;
 	actions?: ReactNode;
 	className?: string;
 	dimTitle?: boolean;
@@ -115,7 +117,7 @@ export function ProfileCard(input: {
 			</div>
 		</>
 	);
-	return (
+	const card = (
 		<article
 			className={cn(
 				"group relative flex h-full min-w-0 flex-col rounded-md border border-border/70 bg-transparent px-4 py-4 transition-[background-color,border-color,box-shadow] hover:border-border",
@@ -170,6 +172,7 @@ export function ProfileCard(input: {
 			</div>
 		</article>
 	);
+	return input.contextMenu ? <FluidContextMenuScope target={card} /> : card;
 }
 
 export function ProfileListItem(input: {

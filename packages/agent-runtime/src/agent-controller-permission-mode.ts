@@ -99,13 +99,14 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Codex asks before editing files outside its working folder or using the internet.",
     label: "Ask for approval",
     requiresExplicitConfirmation: false,
-    technicalDetail: "codex -s workspace-write -a untrusted",
+    technicalDetail:
+      'codex -s workspace-write -a on-request -c approvals_reviewer="user"',
     tone: "neutral",
     value: "codex:askForApproval",
   },
   {
     description:
-      "Codex automatically reviews eligible approval requests. It may approve or deny them; denied actions may stop or require a safer approach.",
+      "Automatically review actions that need approval. Potentially unsafe actions may be blocked.",
     label: "Approve for me",
     requiresExplicitConfirmation: false,
     technicalDetail:
@@ -115,7 +116,7 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   },
   {
     description:
-      "Codex bypasses its sandbox and approval prompts for this Agent. Separate file-access limits on this Computer still apply.",
+      "Allow internet and file access without Codex approval prompts. This Computer's file-access limits still apply.",
     label: "Full access",
     requiresExplicitConfirmation: true,
     technicalDetail: "codex --dangerously-bypass-approvals-and-sandbox",
@@ -124,8 +125,8 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   },
   {
     description:
-      "Codex follows the permissions in config.toml. OpenMeld does not override its sandbox or approval settings.",
-    label: "Custom (config.toml)",
+      "This Agent keeps its previous permission settings until you choose a mode.",
+    label: "Previous settings",
     requiresExplicitConfirmation: false,
     technicalDetail: "codex (no OpenMeld permission overrides)",
     tone: "neutral",
@@ -238,7 +239,47 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   },
 ] as const satisfies readonly AgentControllerPermissionModeOption[];
 
+const ANTIGRAVITY_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
+  {
+    description:
+      "Use Antigravity's configured tool permissions. Actions that need approval are blocked during unattended runs.",
+    label: "Default",
+    requiresExplicitConfirmation: false,
+    technicalDetail: "agy (no OpenMeld permission overrides)",
+    tone: "neutral",
+    value: "antigravity:default",
+  },
+  {
+    description:
+      "Automatically accept file edits. Shell commands still follow Antigravity's configured tool permissions.",
+    label: "Accept edits",
+    requiresExplicitConfirmation: false,
+    technicalDetail: "agy --mode accept-edits",
+    tone: "neutral",
+    value: "antigravity:acceptEdits",
+  },
+  {
+    description:
+      "Ask Antigravity to investigate and propose a plan before making changes. This is not a read-only sandbox.",
+    label: "Plan",
+    requiresExplicitConfirmation: false,
+    technicalDetail: "agy --mode plan",
+    tone: "neutral",
+    value: "antigravity:plan",
+  },
+  {
+    description:
+      "Automatically approve all tool requests, including file changes and shell commands.",
+    label: "Bypass permissions",
+    requiresExplicitConfirmation: true,
+    technicalDetail: "agy --dangerously-skip-permissions",
+    tone: "warning",
+    value: "antigravity:bypassPermissions",
+  },
+] as const satisfies readonly AgentControllerPermissionModeOption[];
+
 const AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS_BY_CONTROLLER_ID = {
+  antigravity: ANTIGRAVITY_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
   "claude-code": CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
   codex: CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
   cursor: CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
@@ -249,6 +290,7 @@ const AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS_BY_CONTROLLER_ID = {
 >;
 
 const AGENT_CONTROLLER_PERMISSION_MODE_FIELD_LABEL_BY_CONTROLLER_ID = {
+  antigravity: "Antigravity permissions mode",
   "claude-code": "Claude Code permissions mode",
   codex: "Codex permissions mode",
   cursor: "Cursor permissions mode",
@@ -345,17 +387,22 @@ export function listAgentControllerPermissionModeOptions(input?: {
 }): AgentControllerPermissionModeOption[] {
   const controllerOptions = resolveControllerOptions(input?.agentControllerRef);
   if (controllerOptions) {
-    return controllerOptions.map((option) => ({ ...option }));
+    return controllerOptions
+      .filter((option) => option.value !== "codex:customConfig")
+      .map((option) => ({ ...option }));
   }
   if (input) {
     return [];
   }
   return [
+    ...ANTIGRAVITY_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
     ...CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
     ...CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
     ...CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
     ...GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
-  ].map((option) => ({ ...option }));
+  ]
+    .filter((option) => option.value !== "codex:customConfig")
+    .map((option) => ({ ...option }));
 }
 
 export function agentControllerPermissionModeRequiresExplicitConfirmation(
@@ -373,7 +420,9 @@ function resolveAgentControllerPermissionModeOption(
 ): AgentControllerPermissionModeOption {
   const options =
     resolveControllerOptions(input?.agentControllerRef) ??
-    listAgentControllerPermissionModeOptions();
+    Object.values(
+      AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS_BY_CONTROLLER_ID
+    ).flat();
   return (
     options.find((option) => option.value === policy) ??
     CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS[0]

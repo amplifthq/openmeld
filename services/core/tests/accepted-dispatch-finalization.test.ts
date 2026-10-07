@@ -1,3 +1,27 @@
+import type {
+  PostgreSQLBinding,
+  PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { createWorkerPostgresFixture } from "./postgresql.test-support";
+
+const finalizationDatabases = vi.hoisted(
+  () => new WeakMap<PostgreSQLBinding, PostgresDatabase>()
+);
+vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@openmeld/db/postgresql")>();
+  return {
+    ...actual,
+    getPostgresDatabase: (bindings: {
+      OPENMELD_POSTGRESQL?: PostgreSQLBinding;
+    }) =>
+      (bindings.OPENMELD_POSTGRESQL &&
+        finalizationDatabases.get(bindings.OPENMELD_POSTGRESQL)) ??
+      actual.getPostgresDatabase(bindings),
+  };
+});
+
 import { env, runInDurableObject } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -13,7 +37,7 @@ import { buildDefaultSpaceContract } from "@openmeld/space-mesh";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentTransportSpaceActionDeliveryInput } from "../src/dispatch/application/dispatch-execution-service";
 import { buildLocalAgentStreamId } from "../src/runtime-transport/application/local-agent-stream";
-import type { DispatchResultInboxRecord } from "../src/runtime-transport/infrastructure/d1/dispatch-result-inbox-repo";
+import type { DispatchResultInboxRecord } from "../src/runtime-transport/infrastructure/postgresql/dispatch-result-inbox-repo";
 import { buildAcceptedDispatchFinalizationQueueMessage } from "../src/space/application/accepted-dispatch-finalization";
 import {
   type AgentStreamProjectionStorage,
@@ -22,7 +46,7 @@ import {
 import {
   type AcceptedDispatchFinalizationFact,
   listAcceptedDispatchResultInboxRefsForSpace,
-} from "../src/space/infrastructure/d1/accepted-dispatch-finalization-repo";
+} from "../src/space/infrastructure/postgresql/accepted-dispatch-finalization-repo";
 import {
   insertSignalRecord,
   readFinalReplyClaimSignalId,
@@ -34,6 +58,10 @@ import {
   resolveRuntimeCoordinatorFinalizationVisibleFinalMessage,
   Space,
 } from "../src/space/transport/do/space";
+import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
+
+const DISPATCH_WRITE_PATTERN =
+  /UPDATE "openmeld"."openMeldDaemon_dispatch_(ledger|attempts)"/u;
 
 const sourceSignal = {
   v: 1,
@@ -93,7 +121,7 @@ const baseInboxRecord = {
   publicationErrorCode: null,
   publishedSignalId: null,
   publishState: "result_accepted",
-  resultKey: "dispatch-1:attempt-1",
+  resultKey: "dispatch-1::attempt-1",
   runtimeCoordinatorExecutionId: "rce-1",
   submittedConnectionGeneration: 2,
   targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
@@ -149,9 +177,13 @@ const baseFinalizationCommand = {
 
 describe("accepted dispatch finalization", () => {
   it.each([
-    false,
-    true,
-  ])("elects one actual Space final claim when Stop races a reply (reply first: %s)", async (replyFirst) => {
+    [false, null],
+    [true, null],
+    [false, "computer.file_access.owner_declined"],
+    [true, "computer.file_access.owner_declined"],
+    [false, "context.workspace_recovery_declined"],
+    [true, "context.workspace_recovery_declined"],
+  ] as const)("elects one actual Space final claim (reply first: %s, owner refused: %s)", async (replyFirst, ownerRefused) => {
     const spaces = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
@@ -167,11 +199,30 @@ describe("accepted dispatch finalization", () => {
       organizationId: "org-1",
       visibility: "private",
     });
-    const command = {
+    const command: RuntimeCoordinatorFinalizationCommand = {
       ...baseFinalizationCommand,
       spaceId,
       dispatchFact: { ...baseFact, spaceId },
     };
+    if (ownerRefused) {
+      command.acceptedResult = {
+        ...command.acceptedResult,
+        taskResult: {
+          ...baseInboxRecord.taskResult,
+          payload: {
+            agentId: baseFact.targetProfileId,
+            attemptId: baseFact.attemptId,
+            deduped: false,
+            taskId: baseFact.taskId,
+            sourceEventId: baseFact.sourceEventId,
+            status: "failed",
+            errorType: "policy",
+            errorCode: ownerRefused,
+            errorMessage: "Private path must not become public copy",
+          },
+        },
+      };
+    }
     const reply: SignalEnvelope = {
       ...sourceSignal,
       spaceId,
@@ -214,6 +265,13 @@ describe("accepted dispatch finalization", () => {
         )
         .toArray();
       expect(rows).toHaveLength(1);
+      if (!replyFirst && ownerRefused) {
+        expect(JSON.parse(rows[0]?.payload_json ?? "null").data).toMatchObject({
+          noticeType: "wake_stopped",
+          reasonCode: ownerRefused,
+          text: "The Computer owner stopped this task before the Agent started.",
+        });
+      }
       expect(JSON.parse(rows[0]?.payload_json ?? "null")).toMatchObject(
         replyFirst
           ? { id: reply.id }
@@ -606,6 +664,7 @@ describe("accepted dispatch finalization", () => {
       spaceId: string;
     };
     Object.defineProperties(space, {
+      bindings: { value: env },
       applySpaceRef: {
         value: vi.fn((spaceId: string) => {
           space.spaceId = spaceId;
@@ -785,13 +844,7 @@ describe("accepted dispatch finalization", () => {
 
   it("does not replay accepted results when creating a diagnostic report", async () => {
     const waitUntil = vi.fn();
-    const batch = vi.fn(async () => []);
-    const db = {
-      batch,
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({})),
-      })),
-    } as unknown as D1Database;
+    const db = await createFinalizationPublishingPostgresDb({ fact: baseFact });
     const sql = {
       exec: vi.fn(() => ({
         toArray: () => [],
@@ -806,7 +859,7 @@ describe("accepted dispatch finalization", () => {
       throw new Error("diagnostic reports must not publish failure notices");
     });
     const space = Object.create(Space.prototype) as {
-      bindings: { OPENMELD_DB: D1Database };
+      bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding };
       ctx: { storage: { sql: SqlStorage }; waitUntil: typeof waitUntil };
       handleCreateDiagnosticReport: (
         request: Request,
@@ -818,7 +871,7 @@ describe("accepted dispatch finalization", () => {
       spaceId: string;
     };
     Object.defineProperties(space, {
-      bindings: { value: { OPENMELD_DB: db } },
+      bindings: { value: { OPENMELD_POSTGRESQL: db.binding } },
       ctx: { value: { storage: { sql }, waitUntil } },
       readSignalById: {
         value: vi.fn((signalId: string) =>
@@ -846,7 +899,11 @@ describe("accepted dispatch finalization", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(batch).toHaveBeenCalledTimes(1);
+    expect(
+      await db.fixture
+        .rows("openMeldDaemon_space_diagnostic_reports", ["report_id"])
+        .size()
+    ).toBe(1);
     expect(waitUntil).not.toHaveBeenCalled();
     expect(reconcileAcceptedResults).not.toHaveBeenCalled();
     expect(applyFailurePublicationCommand).not.toHaveBeenCalled();
@@ -856,6 +913,7 @@ describe("accepted dispatch finalization", () => {
     const message = buildAcceptedDispatchFinalizationQueueMessage({
       fact: baseFact,
       inboxRecord: baseInboxRecord,
+      organizationId: "org-1",
       sourceSignal,
       spaceContract: buildDefaultSpaceContract(),
       threadContext: {
@@ -866,6 +924,7 @@ describe("accepted dispatch finalization", () => {
 
     expect(message).toMatchObject({
       dispatchId: "dispatch-1",
+      organizationId: "org-1",
       dispatchOwner: {
         id: "owner-1",
         kind: "owner_account",
@@ -978,6 +1037,12 @@ describe("accepted dispatch finalization", () => {
   });
 
   it("publishes accepted post_status finalization through Space action delivery without a space password", async () => {
+    const historicalSpaceContract: ReturnType<
+      typeof buildDefaultSpaceContract
+    > = {
+      ...buildDefaultSpaceContract(),
+      allowedActions: ["post_message", "post_status", "stay_silent"],
+    };
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
@@ -1061,7 +1126,7 @@ describe("accepted dispatch finalization", () => {
       fact: dispatchFact,
       inboxRecord,
       sourceSignal: source,
-      spaceContract: buildDefaultSpaceContract(),
+      spaceContract: historicalSpaceContract,
       threadContext: null,
     });
     expect(dispatchMessage && "spacePassword" in dispatchMessage).toBe(false);
@@ -1069,14 +1134,10 @@ describe("accepted dispatch finalization", () => {
     const { finalReplyClaims, signalRows, sql } = createSpaceSqlHarness([
       source,
     ]);
-    const wakeEvidenceDatabase = createFinalizationPublishingD1Db({
-      dispatchId: dispatchFact.dispatchId,
-      idempotencyKey: dispatchFact.idempotencyKey,
+    const wakeEvidenceDatabase = await createFinalizationPublishingPostgresDb({
+      fact: dispatchFact,
     });
-    const coordinationDatabase = createFinalizationPublishingD1Db({
-      dispatchId: dispatchFact.dispatchId,
-      idempotencyKey: dispatchFact.idempotencyKey,
-    });
+    const coordinationDatabase = wakeEvidenceDatabase;
     const ordinarySignalPublicationCalls: string[] = [];
     const ordinaryRpcFetch = vi.fn((request: Request) => {
       const pathname = new URL(request.url, "http://localhost").pathname;
@@ -1136,8 +1197,7 @@ describe("accepted dispatch finalization", () => {
       },
       bindings: {
         value: {
-          OPENMELD_DB: coordinationDatabase,
-          OPENMELD_WAKE_EVIDENCE_DB: wakeEvidenceDatabase,
+          OPENMELD_POSTGRESQL: coordinationDatabase.binding,
           OPENMELD_SPACES: {
             get: vi.fn(() => ({ fetch: ordinaryRpcFetch })),
             idFromString: vi.fn((value: string) => value),
@@ -1164,7 +1224,7 @@ describe("accepted dispatch finalization", () => {
         }),
       },
       readSpaceContractRecord: {
-        value: vi.fn(() => buildDefaultSpaceContract()),
+        value: vi.fn(() => historicalSpaceContract),
       },
       readSpaceMetaRecord: {
         value: vi.fn(() => ({
@@ -1188,13 +1248,32 @@ describe("accepted dispatch finalization", () => {
       publishState: "reply_published",
       status: "finalized",
     });
-    expect(wakeEvidenceDatabase.readTaskOutcomeWriteCount()).toBe(0);
+    expect(coordinationDatabase.binding).toBe(wakeEvidenceDatabase.binding);
+    const outcomes = await coordinationDatabase.fixture
+      .rows("agent_task_terminal_outcomes", ["task_key"])
+      .values();
+    expect(outcomes).toHaveLength(1);
+    expect(JSON.parse(String(outcomes[0]?.task_handle_json))).toMatchObject({
+      kind: "space_wake",
+      spaceId,
+      targetProfileId,
+    });
+    expect(outcomes[0]?.event_id).toBe(command.finalizationCommandId);
     expect(coordinationDatabase.readTaskOutcomeWriteCount()).toBe(1);
     expect(wakeEvidenceDatabase.readDispatchLedgerStatuses()).toEqual([
       "succeeded",
     ]);
     expect(wakeEvidenceDatabase.readDispatchSuccessWriteCount()).toBe(2);
-    expect(coordinationDatabase.readDispatchSuccessWriteCount()).toBe(0);
+    expect(
+      await coordinationDatabase.fixture
+        .rows("openMeldDaemon_dispatch_ledger", ["idempotency_key"])
+        .get(dispatchFact.idempotencyKey)
+    ).toMatchObject({
+      dispatch_id: dispatchFact.dispatchId,
+      space_id: spaceId,
+      target_profile_id: targetProfileId,
+      status: "succeeded",
+    });
     expect(ordinarySignalPublicationCalls).toEqual([]);
     const finalSignalId = readFinalReplyClaimSignalId(sql, {
       dispatchId: dispatchFact.dispatchId,
@@ -1289,7 +1368,7 @@ describe("accepted dispatch finalization", () => {
       publishState: "reply_published",
       status: "finalized",
     });
-    coordinationDatabase.replaceTaskOutcome({
+    await coordinationDatabase.replaceTaskOutcome({
       errorCode: "runtime_coordinator.publication_retry_exhausted",
       eventId: command.finalizationCommandId,
       occurredAtMs: command.createdAtMs,
@@ -1397,15 +1476,11 @@ describe("accepted dispatch finalization", () => {
     const { finalReplyClaims, signalRows, sql } = createSpaceSqlHarness([
       source,
     ]);
-    const wakeEvidenceDatabase = createFinalizationPublishingD1Db({
+    const wakeEvidenceDatabase = await createFinalizationPublishingPostgresDb({
       allowResultInsert: true,
-      dispatchId: dispatchFact.dispatchId,
-      idempotencyKey: dispatchFact.idempotencyKey,
+      fact: dispatchFact,
     });
-    const coordinationDatabase = createFinalizationPublishingD1Db({
-      dispatchId: dispatchFact.dispatchId,
-      idempotencyKey: dispatchFact.idempotencyKey,
-    });
+    const coordinationDatabase = wakeEvidenceDatabase;
     let builtNoticeCount = 0;
     const deliverAgentTransportSpaceAction = vi.fn(() => {
       throw new Error("failed system notices must not use Space Action");
@@ -1486,8 +1561,7 @@ describe("accepted dispatch finalization", () => {
       },
       bindings: {
         value: {
-          OPENMELD_DB: coordinationDatabase,
-          OPENMELD_WAKE_EVIDENCE_DB: wakeEvidenceDatabase,
+          OPENMELD_POSTGRESQL: coordinationDatabase.binding,
           OPENMELD_SPACES: {
             get: vi.fn(() => ({
               fetch: ordinaryRpcFetch,
@@ -1567,7 +1641,17 @@ describe("accepted dispatch finalization", () => {
       publishState: "reply_published",
       status: "finalized",
     });
-    expect(wakeEvidenceDatabase.readTaskOutcomeWriteCount()).toBe(0);
+    expect(coordinationDatabase.binding).toBe(wakeEvidenceDatabase.binding);
+    const outcomes = await coordinationDatabase.fixture
+      .rows("agent_task_terminal_outcomes", ["task_key"])
+      .values();
+    expect(outcomes).toHaveLength(1);
+    expect(JSON.parse(String(outcomes[0]?.task_handle_json))).toMatchObject({
+      kind: "space_wake",
+      spaceId,
+      targetProfileId,
+    });
+    expect(outcomes[0]?.event_id).toBe(command.finalizationCommandId);
     expect(coordinationDatabase.readTaskOutcomeWriteCount()).toBe(1);
     expect(wakeEvidenceDatabase.readDispatchLedgerStatuses()).not.toContain(
       "succeeded"
@@ -1714,10 +1798,9 @@ describe("accepted dispatch finalization", () => {
     } satisfies RuntimeCoordinatorFinalizationCommand;
 
     const { signalRows, sql } = createSpaceSqlHarness([source]);
-    const db = createFinalizationPublishingD1Db({
+    const db = await createFinalizationPublishingPostgresDb({
       allowResultInsert: true,
-      dispatchId: dispatchFact.dispatchId,
-      idempotencyKey: dispatchFact.idempotencyKey,
+      fact: dispatchFact,
     });
     let builtNoticeCount = 0;
     const deliverAgentTransportSpaceAction = vi.fn(() => {
@@ -1799,7 +1882,7 @@ describe("accepted dispatch finalization", () => {
       },
       bindings: {
         value: {
-          OPENMELD_DB: db,
+          OPENMELD_POSTGRESQL: db.binding,
           OPENMELD_SPACES: {
             get: vi.fn(() => ({
               fetch: ordinaryRpcFetch,
@@ -1913,9 +1996,13 @@ describe("accepted dispatch finalization", () => {
   });
 
   it.each([
-    true,
-    false,
-  ])("requires a readable stored threaded final reply (readable: %s)", async (readableFinal) => {
+    { readableFinal: true, sourceInThread: true },
+    { readableFinal: true, sourceInThread: false },
+    { readableFinal: false, sourceInThread: true },
+  ])("publishes a threaded final reply for a main or thread Wake and requires a readable result ($sourceInThread/$readableFinal)", async ({
+    readableFinal,
+    sourceInThread,
+  }) => {
     const spaceId =
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const targetProfileId = "agt_33333333-3333-4333-8333-333333333333";
@@ -1984,7 +2071,7 @@ describe("accepted dispatch finalization", () => {
       inboxRecord,
       sourceSignal: source,
       spaceContract: buildDefaultSpaceContract(),
-      threadContext,
+      threadContext: sourceInThread ? threadContext : null,
     });
     expect(dispatchMessage).toBeTruthy();
     if (!dispatchMessage) {
@@ -2066,6 +2153,9 @@ describe("accepted dispatch finalization", () => {
         plannerContext: null;
       };
       readSignalById: (signalId: string) => SignalEnvelope | null;
+      rpcResolveNativeReplyPlacement: () => Promise<{
+        threadContext: typeof threadContext;
+      }>;
       readSpaceMetaRecord: () => {
         createdAt: string;
         name: string;
@@ -2087,7 +2177,9 @@ describe("accepted dispatch finalization", () => {
           space.spaceId = nextSpaceId;
         }),
       },
-      bindings: { value: {} },
+      // Final-reply delivery reads caller identity before its persisted reply.
+      // Keep the real test binding instead of failing before the intended read.
+      bindings: { value: env },
       broadcastSignal: { value: vi.fn() },
       ctx: {
         value: { storage: projectionStorage, waitUntil: vi.fn() },
@@ -2113,6 +2205,9 @@ describe("accepted dispatch finalization", () => {
           const row = signalRows.get(signalId);
           return row ? (JSON.parse(row.payloadJson) as SignalEnvelope) : null;
         }),
+      },
+      rpcResolveNativeReplyPlacement: {
+        value: vi.fn().mockResolvedValue({ threadContext }),
       },
       readSpaceMetaRecord: {
         value: vi.fn(() => ({
@@ -2411,8 +2506,10 @@ describe("accepted dispatch finalization", () => {
           agentReplyObservation: {
             observedThroughSignalId: string;
             sourceSignalId: string;
+            sourceThreadId?: string | null;
             targetProfileId: string;
           };
+          threadContext?: { rootSignalId: string; threadId: string };
         }
       ) => {
         persistedSignal: boolean;
@@ -2446,7 +2543,12 @@ describe("accepted dispatch finalization", () => {
       agentReplyObservation: {
         observedThroughSignalId: source.id,
         sourceSignalId: source.id,
+        sourceThreadId: null,
         targetProfileId,
+      },
+      threadContext: {
+        rootSignalId: source.id,
+        threadId: "thr_33333333-3333-4333-8333-333333333333",
       },
     });
 
@@ -2510,7 +2612,7 @@ describe("accepted dispatch finalization", () => {
 
   it("requests RuntimeCoordinator command replay for a durable accepted result", async () => {
     const replayRequests: unknown[] = [];
-    const db = createAcceptedInboxReadDb(baseInboxRecord);
+    const db = await createAcceptedInboxReadDb(baseInboxRecord);
     const space = Object.create(Space.prototype) as {
       bindings: unknown;
       durableObjectId: string;
@@ -2524,7 +2626,7 @@ describe("accepted dispatch finalization", () => {
     Object.defineProperties(space, {
       bindings: {
         value: {
-          OPENMELD_DB: db,
+          OPENMELD_POSTGRESQL: db.binding,
           OPENMELD_RUNTIME_TRANSPORT: {
             get: vi.fn(() => ({
               rpcReplayRuntimeCoordinatorFinalizationCommand: vi.fn(
@@ -2578,7 +2680,7 @@ describe("accepted dispatch finalization", () => {
 
   it("requests RuntimeCoordinator command replay for a durable publication failure", async () => {
     const replayRequests: unknown[] = [];
-    const db = createAcceptedInboxReadDb({
+    const db = await createAcceptedInboxReadDb({
       ...baseInboxRecord,
       publicationErrorCode: "space.reply_write_failed",
       publishState: "reply_publication_failed",
@@ -2597,7 +2699,7 @@ describe("accepted dispatch finalization", () => {
     Object.defineProperties(space, {
       bindings: {
         value: {
-          OPENMELD_DB: db,
+          OPENMELD_POSTGRESQL: db.binding,
           OPENMELD_RUNTIME_TRANSPORT: {
             get: vi.fn(() => ({
               rpcReplayRuntimeCoordinatorFinalizationCommand: vi.fn(
@@ -2651,23 +2753,10 @@ describe("accepted dispatch finalization", () => {
 
   it("includes publication failures in the durable finalization replay scan", async () => {
     let capturedQuery = "";
-    const db = {
-      prepare: vi.fn((query: string) => {
-        capturedQuery = query;
-        return {
-          bind: vi.fn(() => ({
-            all: vi.fn().mockResolvedValue({
-              results: [
-                {
-                  attemptId: "attempt-1",
-                  dispatchId: "dispatch-1",
-                },
-              ],
-            }),
-          })),
-        };
-      }),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresDatabase(({ text }) => {
+      capturedQuery = text;
+      return [{ attemptId: "attempt-1", dispatchId: "dispatch-1" }];
+    });
 
     await expect(
       listAcceptedDispatchResultInboxRefsForSpace({
@@ -2686,7 +2775,7 @@ describe("accepted dispatch finalization", () => {
   });
 
   it("keeps Space finalization retryable when RuntimeCoordinator replay records a failed publication outcome", async () => {
-    const db = createAcceptedInboxReadDb(baseInboxRecord);
+    const db = await createAcceptedInboxReadDb(baseInboxRecord);
     const space = Object.create(Space.prototype) as {
       bindings: unknown;
       durableObjectId: string;
@@ -2700,7 +2789,7 @@ describe("accepted dispatch finalization", () => {
     Object.defineProperties(space, {
       bindings: {
         value: {
-          OPENMELD_DB: db,
+          OPENMELD_POSTGRESQL: db.binding,
           OPENMELD_RUNTIME_TRANSPORT: {
             get: vi.fn(() => ({
               rpcReplayRuntimeCoordinatorFinalizationCommand: vi.fn(() =>
@@ -2746,7 +2835,7 @@ describe("accepted dispatch finalization", () => {
   });
 
   it("keeps Space finalization redrive fail-soft when RuntimeCoordinator replay throws", async () => {
-    const db = createAcceptedInboxReadDb(baseInboxRecord);
+    const db = await createAcceptedInboxReadDb(baseInboxRecord);
     const space = Object.create(Space.prototype) as {
       bindings: unknown;
       durableObjectId: string;
@@ -2760,7 +2849,7 @@ describe("accepted dispatch finalization", () => {
     Object.defineProperties(space, {
       bindings: {
         value: {
-          OPENMELD_DB: db,
+          OPENMELD_POSTGRESQL: db.binding,
           OPENMELD_RUNTIME_TRANSPORT: {
             get: vi.fn(() => ({
               rpcReplayRuntimeCoordinatorFinalizationCommand: vi.fn(() => {
@@ -2801,6 +2890,8 @@ describe("accepted dispatch finalization", () => {
       ) => Promise<unknown>;
     };
 
+    Object.defineProperty(space, "bindings", { value: env });
+
     await expect(
       space.rpcApplyRuntimeCoordinatorFinalizationCommand({})
     ).resolves.toEqual({
@@ -2813,8 +2904,8 @@ describe("accepted dispatch finalization", () => {
     });
   });
 
-  it("does not treat D1 terminal-looking result state as a visible Space reply", async () => {
-    const d1ResultSignalId = "signal-final-from-d1";
+  it("does not treat PostgreSQL terminal-looking result state as a visible Space reply", async () => {
+    const archivedResultSignalId = "signal-final-from-postgresql";
     const sql = {
       exec: vi.fn((query: string) => {
         if (query.includes("SELECT signal_id")) {
@@ -2825,12 +2916,12 @@ describe("accepted dispatch finalization", () => {
         throw new Error(`unexpected Space SQL query: ${query}`);
       }),
     } as unknown as SqlStorage;
-    const db = createFinalizationApplyD1Db({
-      publishedSignalId: d1ResultSignalId,
+    const db = await createFinalizationApplyPostgresDb({
+      publishedSignalId: archivedResultSignalId,
     });
     const space = Object.create(Space.prototype) as {
       applySpaceRef: (spaceId: string) => void;
-      bindings: { OPENMELD_DB: D1Database };
+      bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding };
       ctx: { storage: { sql: SqlStorage } };
       readSignalById: (signalId: string) => SignalEnvelope | null;
       readSpaceContractRecord: () => ReturnType<
@@ -2844,7 +2935,7 @@ describe("accepted dispatch finalization", () => {
     };
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
-      bindings: { value: { OPENMELD_DB: db } },
+      bindings: { value: { OPENMELD_POSTGRESQL: db.binding } },
       ctx: { value: { storage: { sql } } },
       readSignalById: {
         value: vi.fn((signalId: string) =>
@@ -2853,6 +2944,9 @@ describe("accepted dispatch finalization", () => {
       },
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
+      },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
       },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
@@ -2870,12 +2964,18 @@ describe("accepted dispatch finalization", () => {
       publishState: "reply_publication_failed",
       status: "retry_later",
     });
-    expect(db.prepare).not.toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE openMeldDaemon_dispatch_ledger")
-    );
-    expect(db.prepare).not.toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE openMeldDaemon_dispatch_attempts")
-    );
+    expect(
+      db.calls.some((call) =>
+        call.text.includes('UPDATE "openmeld"."openMeldDaemon_dispatch_ledger"')
+      )
+    ).toBe(false);
+    expect(
+      db.calls.some((call) =>
+        call.text.includes(
+          'UPDATE "openmeld"."openMeldDaemon_dispatch_attempts"'
+        )
+      )
+    ).toBe(false);
   });
 
   it("does not treat an archived internal-only result as a successful Wake outcome", async () => {
@@ -2887,7 +2987,7 @@ describe("accepted dispatch finalization", () => {
         throw new Error(`unexpected Space SQL query: ${query}`);
       }),
     } as unknown as SqlStorage;
-    const db = createFinalizationApplyD1Db({
+    const db = await createFinalizationApplyPostgresDb({
       publicOutcome: "internal_only",
       publishedSignalId: null,
     });
@@ -2906,7 +3006,7 @@ describe("accepted dispatch finalization", () => {
     } satisfies RuntimeCoordinatorFinalizationCommand;
     const space = Object.create(Space.prototype) as {
       applySpaceRef: (spaceId: string) => void;
-      bindings: { OPENMELD_DB: D1Database };
+      bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding };
       ctx: { storage: { sql: SqlStorage } };
       readSignalById: (signalId: string) => SignalEnvelope | null;
       readSpaceContractRecord: () => ReturnType<
@@ -2920,7 +3020,7 @@ describe("accepted dispatch finalization", () => {
     };
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
-      bindings: { value: { OPENMELD_DB: db } },
+      bindings: { value: { OPENMELD_POSTGRESQL: db.binding } },
       ctx: { value: { storage: { sql } } },
       readSignalById: {
         value: vi.fn((signalId: string) =>
@@ -2929,6 +3029,9 @@ describe("accepted dispatch finalization", () => {
       },
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
+      },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
       },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
@@ -2944,12 +3047,18 @@ describe("accepted dispatch finalization", () => {
       publishState: "reply_publication_failed",
       status: "retry_later",
     });
-    expect(db.prepare).not.toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE openMeldDaemon_dispatch_ledger")
-    );
-    expect(db.prepare).not.toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE openMeldDaemon_dispatch_attempts")
-    );
+    expect(
+      db.calls.some((call) =>
+        call.text.includes('UPDATE "openmeld"."openMeldDaemon_dispatch_ledger"')
+      )
+    ).toBe(false);
+    expect(
+      db.calls.some((call) =>
+        call.text.includes(
+          'UPDATE "openmeld"."openMeldDaemon_dispatch_attempts"'
+        )
+      )
+    ).toBe(false);
   });
 
   it("keeps finalization retryable when a non-silent result has no visible Space outcome", async () => {
@@ -2961,10 +3070,12 @@ describe("accepted dispatch finalization", () => {
         throw new Error(`unexpected Space SQL query: ${query}`);
       }),
     } as unknown as SqlStorage;
-    const db = createFinalizationApplyD1Db({ publishedSignalId: null });
+    const db = await createFinalizationApplyPostgresDb({
+      publishedSignalId: null,
+    });
     const space = Object.create(Space.prototype) as {
       applySpaceRef: (spaceId: string) => void;
-      bindings: { OPENMELD_DB: D1Database };
+      bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding };
       ctx: { storage: { sql: SqlStorage } };
       readSignalById: (signalId: string) => SignalEnvelope | null;
       readSpaceContractRecord: () => ReturnType<
@@ -2978,7 +3089,7 @@ describe("accepted dispatch finalization", () => {
     };
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
-      bindings: { value: { OPENMELD_DB: db } },
+      bindings: { value: { OPENMELD_POSTGRESQL: db.binding } },
       ctx: { value: { storage: { sql } } },
       readSignalById: {
         value: vi.fn((signalId: string) =>
@@ -2987,6 +3098,9 @@ describe("accepted dispatch finalization", () => {
       },
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
+      },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
       },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
@@ -3021,10 +3135,12 @@ describe("accepted dispatch finalization", () => {
     Object.defineProperties(space, {
       bindings: {
         value: {
-          OPENMELD_DB: createAcceptedInboxReadDb({
-            ...baseInboxRecord,
-            executionTokenRunId: null,
-          }),
+          OPENMELD_POSTGRESQL: (
+            await createAcceptedInboxReadDb({
+              ...baseInboxRecord,
+              executionTokenRunId: null,
+            })
+          ).binding,
           OPENMELD_RUNTIME_TRANSPORT: {
             get: vi.fn(() => ({
               rpcReplayRuntimeCoordinatorFinalizationCommand: vi.fn(
@@ -3062,51 +3178,12 @@ describe("accepted dispatch finalization", () => {
   });
 
   it("quarantines a legacy accepted inbox row that has no exact RuntimeCoordinator run pointer", async () => {
-    const updates: unknown[][] = [];
-    const db = {
-      prepare: vi.fn((query: string) => {
-        if (
-          query.includes("SELECT") &&
-          query.includes("openMeldDaemon_dispatch_result_inbox")
-        ) {
-          return {
-            bind: vi.fn(() => ({
-              first: vi.fn().mockResolvedValue({
-                accepted_at_ms: baseInboxRecord.acceptedAtMs,
-                attempt_id: baseInboxRecord.attemptId,
-                daemon_session_id: baseInboxRecord.daemonSessionId,
-                dispatch_id: baseInboxRecord.dispatchId,
-                execution_token_fingerprint: null,
-                execution_token_run_id: null,
-                lease_epoch: baseInboxRecord.leaseEpoch,
-                publication_error_code: null,
-                publish_state: "result_accepted",
-                published_signal_id: null,
-                result_key: baseInboxRecord.resultKey,
-                result_payload_json: JSON.stringify(baseInboxRecord.taskResult),
-                runtime_coordinator_execution_id: null,
-                submitted_connection_generation:
-                  baseInboxRecord.submittedConnectionGeneration,
-                target_profile_id: baseInboxRecord.targetProfileId,
-                task_id: baseInboxRecord.taskId,
-                updated_at_ms: baseInboxRecord.updatedAtMs,
-              }),
-            })),
-          };
-        }
-        if (query.includes("UPDATE openMeldDaemon_dispatch_result_inbox")) {
-          return {
-            bind: vi.fn((...params: unknown[]) => {
-              updates.push(params);
-              return {
-                run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
-              };
-            }),
-          };
-        }
-        throw new Error(`unexpected query: ${query}`);
-      }),
-    };
+    const db = await createAcceptedInboxReadDb({
+      ...baseInboxRecord,
+      executionTokenFingerprint: null,
+      executionTokenRunId: null,
+      runtimeCoordinatorExecutionId: null,
+    });
     const space = Object.create(Space.prototype) as {
       bindings: unknown;
       durableObjectId: string;
@@ -3118,7 +3195,7 @@ describe("accepted dispatch finalization", () => {
       spaceId: string;
     };
     Object.defineProperties(space, {
-      bindings: { value: { OPENMELD_DB: db } },
+      bindings: { value: { OPENMELD_POSTGRESQL: db.binding } },
       durableObjectId: { value: "space-1" },
       spaceId: { value: "space-1", writable: true },
     });
@@ -3134,102 +3211,79 @@ describe("accepted dispatch finalization", () => {
       status: "quarantined",
     });
 
-    expect(updates).toHaveLength(1);
-    expect(updates[0]).toEqual(
-      expect.arrayContaining([
-        "legacy_result_quarantined",
-        "runtime_coordinator.execution_token_required",
-      ])
-    );
+    expect(
+      await db.fixture
+        .rows("openMeldDaemon_dispatch_result_inbox", ["result_key"])
+        .get(baseInboxRecord.resultKey)
+    ).toMatchObject({
+      publish_state: "legacy_result_quarantined",
+      publication_error_code: "runtime_coordinator.execution_token_required",
+    });
   });
 });
 
-function createAcceptedInboxReadDb(record: DispatchResultInboxRecord) {
-  return {
-    prepare: vi.fn((query: string) => {
-      if (
-        query.includes("SELECT") &&
-        query.includes("openMeldDaemon_dispatch_result_inbox")
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn().mockResolvedValue({
-              accepted_at_ms: record.acceptedAtMs,
-              attempt_id: record.attemptId,
-              daemon_session_id: record.daemonSessionId,
-              dispatch_id: record.dispatchId,
-              execution_token_fingerprint: record.executionTokenFingerprint,
-              execution_token_run_id: record.executionTokenRunId,
-              lease_epoch: record.leaseEpoch,
-              publication_error_code: record.publicationErrorCode,
-              publish_state: record.publishState,
-              published_signal_id: record.publishedSignalId,
-              result_key: record.resultKey,
-              result_payload_json: JSON.stringify(record.taskResult),
-              runtime_coordinator_execution_id:
-                record.runtimeCoordinatorExecutionId,
-              submitted_connection_generation:
-                record.submittedConnectionGeneration,
-              target_profile_id: record.targetProfileId,
-              task_id: record.taskId,
-              updated_at_ms: record.updatedAtMs,
-            }),
-          })),
-        };
-      }
-      if (query.includes("UPDATE openMeldDaemon_dispatch_result_inbox")) {
-        return {
-          bind: vi.fn(() => ({
-            run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
-          })),
-        };
-      }
-      throw new Error(`unexpected query: ${query}`);
-    }),
-  };
+async function createAcceptedInboxReadDb(record: DispatchResultInboxRecord) {
+  const db = await createFinalizationPublishingPostgresDb({
+    fact: {
+      ...baseFact,
+      dispatchId: record.dispatchId,
+      attemptId: record.attemptId,
+      targetProfileId: record.targetProfileId,
+      taskId: record.taskId,
+    },
+  });
+  await db.fixture.writeRow(
+    "openMeldDaemon_dispatch_result_inbox",
+    {
+      accepted_at_ms: record.acceptedAtMs,
+      attempt_id: record.attemptId,
+      daemon_session_id: record.daemonSessionId,
+      dispatch_id: record.dispatchId,
+      execution_token_fingerprint: record.executionTokenFingerprint,
+      execution_token_run_id: record.executionTokenRunId,
+      lease_epoch: record.leaseEpoch,
+      publication_error_code: record.publicationErrorCode,
+      publish_state: record.publishState,
+      published_signal_id: record.publishedSignalId,
+      result_key: record.resultKey,
+      result_payload_json: JSON.stringify(record.taskResult),
+      runtime_coordinator_execution_id: record.runtimeCoordinatorExecutionId,
+      submitted_connection_generation: record.submittedConnectionGeneration,
+      target_profile_id: record.targetProfileId,
+      task_id: record.taskId,
+      updated_at_ms: record.updatedAtMs,
+    },
+    ["result_key"]
+  );
+  return db;
 }
 
-function createFinalizationApplyD1Db(input: {
+async function createFinalizationApplyPostgresDb(input: {
   publishedSignalId: string | null;
   publicOutcome?: "internal_only" | "post_message";
 }) {
-  return {
-    prepare: vi.fn((query: string) => {
-      if (query.includes("FROM openMeldDaemon_dispatch_results")) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn().mockResolvedValue({
-              actor_name: "Test Agent",
-              actor_profile_id: "agt_11111111-1111-4111-8111-111111111111",
-              created_at_ms: 1_700_000_000_250,
-              dispatch_id: "dispatch-1",
-              final_text: "Hey, I'm here.",
-              message_envelope_json: null,
-              preview_text: "Hey, I'm here.",
-              public_outcome: input.publicOutcome ?? "post_message",
-              published_signal_id: input.publishedSignalId,
-              reply_to_signal_id: "signal-1",
-              result_kind: "text",
-              result_ref: "result-dispatch-1",
-              space_id: "space-1",
-              status_type: null,
-            }),
-          })),
-        };
-      }
-      if (
-        query.includes("UPDATE openMeldDaemon_dispatch_ledger") ||
-        query.includes("UPDATE openMeldDaemon_dispatch_attempts")
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
-          })),
-        };
-      }
-      throw new Error(`unexpected query: ${query}`);
-    }),
-  } as unknown as D1Database;
+  const db = await createFinalizationPublishingPostgresDb({ fact: baseFact });
+  await db.fixture.writeRow(
+    "openMeldDaemon_dispatch_results",
+    {
+      actor_name: "Test Agent",
+      actor_profile_id: baseFact.targetProfileId,
+      created_at_ms: 1_700_000_000_250,
+      dispatch_id: baseFact.dispatchId,
+      final_text: "Hey, I'm here.",
+      message_envelope_json: null,
+      preview_text: "Hey, I'm here.",
+      public_outcome: input.publicOutcome ?? "post_message",
+      published_signal_id: input.publishedSignalId,
+      reply_to_signal_id: "signal-1",
+      result_kind: "text",
+      result_ref: "result-dispatch-1",
+      space_id: baseFact.spaceId,
+      status_type: null,
+    },
+    ["result_ref"]
+  );
+  return db;
 }
 
 function createDispatchSourceSignal(input: {
@@ -3522,194 +3576,144 @@ function createSpaceSqlHarness(
   return { finalReplyClaims, signalRows, sql, threadPlacements };
 }
 
-function createFinalizationPublishingD1Db(input: {
+async function createFinalizationPublishingPostgresDb(input: {
   allowResultInsert?: boolean;
-  dispatchId: string;
-  idempotencyKey: string;
-}): D1Database & {
-  readDispatchLedgerStatuses: () => string[];
-  readDispatchSuccessWriteCount: () => number;
-  readTaskOutcomeWriteCount: () => number;
-  replaceTaskOutcome: (outcome: AgentTaskTerminalOutcome) => void;
-} {
-  let dispatchSuccessWriteCount = 0;
-  const dispatchLedgerStatuses: string[] = [];
-  let finalReplyClaimed = false;
-  let taskOutcomeWriteCount = 0;
-  let terminalOutcomeRow:
-    | {
-        event_id: string;
-        observed_at_ms: number;
-        occurred_at_ms: number;
-        outcome_json: string;
-        status: string;
-        task_handle_json: string;
-        task_key: string;
-      }
-    | undefined;
-  return {
-    prepare: vi.fn((query: string) => {
-      if (query.includes("INSERT INTO agent_task_terminal_outcomes")) {
-        return {
-          bind: vi.fn(
-            (
-              taskKey: string,
-              taskHandleJson: string,
-              status: string,
-              eventId: string,
-              outcomeJson: string,
-              occurredAtMs: number,
-              observedAtMs: number
-            ) => ({
-              run: vi.fn().mockImplementation(() => {
-                taskOutcomeWriteCount += 1;
-                terminalOutcomeRow ??= {
-                  event_id: eventId,
-                  observed_at_ms: observedAtMs,
-                  occurred_at_ms: occurredAtMs,
-                  outcome_json: outcomeJson,
-                  status,
-                  task_handle_json: taskHandleJson,
-                  task_key: taskKey,
-                };
-                return Promise.resolve({ meta: { changes: 1 } });
-              }),
-            })
-          ),
-        };
-      }
-      if (
-        query.includes("SELECT *") &&
-        query.includes("FROM agent_task_terminal_outcomes")
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi
-              .fn()
-              .mockImplementation(() => Promise.resolve(terminalOutcomeRow)),
-          })),
-        };
-      }
-      if (
-        query.includes("UPDATE agent_delegation_children") ||
-        (query.includes("SELECT *") &&
-          query.includes("FROM agent_task_completion_subscriptions"))
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            all: vi.fn().mockResolvedValue({ results: [] }),
-            run: vi.fn().mockResolvedValue({ meta: { changes: 0 } }),
-          })),
-        };
-      }
-      if (
-        query.includes("SELECT agent_delegations.*") &&
-        query.includes("FROM agent_delegations")
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn().mockResolvedValue(null),
-          })),
-        };
-      }
-      if (
-        query.includes("SELECT subscription_id") &&
-        query.includes("FROM agent_task_completion_subscriptions")
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            all: vi.fn().mockResolvedValue({ results: [] }),
-          })),
-        };
-      }
-      if (
-        query.includes("SELECT") &&
-        query.includes("FROM openMeldDaemon_dispatch_results")
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn().mockResolvedValue(null),
-          })),
-        };
-      }
-      if (query.includes("INSERT INTO openMeldDaemon_dispatch_results")) {
-        if (input.allowResultInsert === true) {
-          return {
-            bind: vi.fn(() => ({
-              run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
-            })),
-          };
-        }
-        throw new Error(
-          "non-archived finalization must not write a result row"
-        );
-      }
-      if (
-        query.includes("UPDATE openMeldDaemon_dispatch_ledger") &&
-        query.includes("final_reply_sent_at_ms")
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            run: vi.fn().mockImplementation(() => {
-              if (finalReplyClaimed) {
-                return Promise.resolve({ rowsWritten: 0 });
-              }
-              finalReplyClaimed = true;
-              return Promise.resolve({ rowsWritten: 1 });
-            }),
-          })),
-        };
-      }
-      if (
-        query.includes("SELECT idempotency_key") &&
-        query.includes("FROM openMeldDaemon_dispatch_ledger")
-      ) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn().mockResolvedValue({
-              idempotency_key: input.idempotencyKey,
-            }),
-          })),
-        };
-      }
-      if (
-        query.includes("UPDATE openMeldDaemon_dispatch_ledger") ||
-        query.includes("UPDATE openMeldDaemon_dispatch_attempts")
-      ) {
-        return {
-          bind: vi.fn((status: string) => ({
-            run: vi.fn().mockImplementation(() => {
-              dispatchSuccessWriteCount += 1;
-              if (query.includes("UPDATE openMeldDaemon_dispatch_ledger")) {
-                dispatchLedgerStatuses.push(status);
-              }
-              return Promise.resolve({ rowsWritten: 1 });
-            }),
-          })),
-        };
-      }
-      throw new Error(`unexpected query: ${query}`);
-    }),
-    readDispatchLedgerStatuses: () => [...dispatchLedgerStatuses],
-    readDispatchSuccessWriteCount: () => dispatchSuccessWriteCount,
-    readTaskOutcomeWriteCount: () => taskOutcomeWriteCount,
-    replaceTaskOutcome: (outcome: AgentTaskTerminalOutcome) => {
-      if (!terminalOutcomeRow) {
-        throw new Error("Expected an Agent Task terminal outcome row.");
-      }
-      terminalOutcomeRow = {
-        ...terminalOutcomeRow,
-        event_id: outcome.eventId,
-        occurred_at_ms: outcome.occurredAtMs,
-        outcome_json: JSON.stringify(outcome),
-        status: outcome.status,
-      };
+  fact: AcceptedDispatchFinalizationFact;
+}) {
+  const fixture = await createWorkerPostgresFixture(env);
+  const write = fixture.writeRow;
+  const fact = input.fact;
+  if (!fact.dispatchOwner || fact.dispatchOwner.kind !== "owner_account") {
+    throw new Error("An owner-account fixture is required");
+  }
+  const owner = fact.dispatchOwner;
+  const now = 1_700_000_000_000;
+  await write(
+    "users",
+    { id: owner.id, name: "Owner", email: `${owner.id}@example.com` },
+    ["id"]
+  );
+  await write(
+    "organizations",
+    { id: "org-1", name: "Organization", slug: "org-1", created_at: now },
+    ["id"]
+  );
+  await write(
+    "openmeld_profiles",
+    {
+      profile_id: fact.targetProfileId,
+      profile_name: "Test Agent",
+      profile_handle: "test-agent",
+      profile_kind: "agent",
+      organization_id: "org-1",
+      owner_user_id: owner.id,
+      source: "migration",
     },
-  } as unknown as D1Database & {
-    readDispatchLedgerStatuses: () => string[];
-    readDispatchSuccessWriteCount: () => number;
-    readTaskOutcomeWriteCount: () => number;
-    replaceTaskOutcome: (outcome: AgentTaskTerminalOutcome) => void;
+    ["profile_id"]
+  );
+  await write(
+    "openmeld_profiles",
+    {
+      profile_id: sourceSignal.profile.profileId,
+      profile_name: "Test User",
+      profile_handle: "test-human",
+      profile_kind: "human",
+      owner_user_id: owner.id,
+      source: "auth_bootstrap",
+      is_default: 1,
+    },
+    ["profile_id"]
+  );
+  await write(
+    "openMeldDaemon_dispatch_ledger",
+    {
+      idempotency_key: fact.idempotencyKey,
+      dispatch_id: fact.dispatchId,
+      space_id: fact.spaceId,
+      source_event_id: fact.sourceEventId,
+      source_client_message_id: fact.sourceClientMessageId,
+      dispatch_owner_kind: owner.kind,
+      dispatch_owner_id: owner.id,
+      target_profile_id: fact.targetProfileId,
+      status: "waiting_result",
+      first_seen_at_ms: fact.enqueuedAtMs,
+      last_attempt_at_ms: fact.enqueuedAtMs,
+      attempt_count: 1,
+      latest_attempt_id: fact.attemptId,
+    },
+    ["idempotency_key"]
+  );
+  await write(
+    "openMeldDaemon_dispatch_attempts",
+    {
+      attempt_id: fact.attemptId,
+      dispatch_id: fact.dispatchId,
+      idempotency_key: fact.idempotencyKey,
+      attempt_no: 1,
+      status: "waiting_result",
+      task_id: fact.taskId,
+      target_profile_id: fact.targetProfileId,
+      created_at_ms: fact.enqueuedAtMs,
+    },
+    ["attempt_id"]
+  );
+  const calls: { text: string; values: unknown[] }[] = [];
+  const db = observePostgresDatabase(fixture.db, (query) => {
+    calls.push({ text: query.text, values: query.values ?? [] });
+    if (
+      !input.allowResultInsert &&
+      query.text.includes(
+        'INSERT INTO "openmeld"."openMeldDaemon_dispatch_results"'
+      )
+    ) {
+      throw new Error("non-archived finalization must not write a result row");
+    }
+  });
+  finalizationDatabases.set(fixture.binding, db);
+  return {
+    binding: fixture.binding,
+    fixture,
+    calls,
+    db,
+    readDispatchLedgerStatuses: () =>
+      calls
+        .filter(
+          (call) =>
+            call.text.includes(
+              'UPDATE "openmeld"."openMeldDaemon_dispatch_ledger"'
+            ) && !call.text.includes("final_reply_sent_at_ms")
+        )
+        .map((call) => String(call.values[0])),
+    readDispatchSuccessWriteCount: () =>
+      calls.filter(
+        (call) =>
+          DISPATCH_WRITE_PATTERN.test(call.text) &&
+          !call.text.includes("final_reply_sent_at_ms")
+      ).length,
+    readTaskOutcomeWriteCount: () =>
+      calls.filter((call) =>
+        call.text.includes(
+          'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+        )
+      ).length,
+    replaceTaskOutcome: async (outcome: AgentTaskTerminalOutcome) => {
+      const rows = await fixture
+        .rows("agent_task_terminal_outcomes", ["task_key"])
+        .values();
+      if (rows.length !== 1) {
+        throw new Error("Expected one Agent Task terminal outcome row");
+      }
+      await fixture.operator.query({
+        text: 'UPDATE "openmeld"."agent_task_terminal_outcomes" SET event_id=$1,occurred_at_ms=$2,outcome_json=$3,status=$4 WHERE task_key=$5',
+        values: [
+          outcome.eventId,
+          outcome.occurredAtMs,
+          JSON.stringify(outcome),
+          outcome.status,
+          rows[0]?.task_key,
+        ],
+      });
+    },
   };
 }
 

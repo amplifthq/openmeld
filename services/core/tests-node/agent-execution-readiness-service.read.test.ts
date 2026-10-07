@@ -1,22 +1,25 @@
 import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
+  resolveAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import publishedManifest from "../../../release/local-components.json";
 import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadinessForProfile } from "../src/agent-execution/application/agent-execution-readiness-service";
-import { writeAcceptedAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
-import { acceptProviderConversationProofRecord } from "../src/agent-execution/infrastructure/d1/provider-conversation-proof-repo";
-import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { writeAcceptedAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
+import { acceptProviderConversationProofRecord } from "../src/agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
+import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
-import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
-import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import { createAvailableCodexAgentControllerInterface } from "./helpers/agent-controller-interface.test-support";
 import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const OWNER_USER_ID = "owner-1";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
@@ -25,10 +28,10 @@ const GENERATED_AT = "2026-05-10T00:00:00.000Z";
 const GENERATED_AT_MS = Date.parse(GENERATED_AT);
 const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
   createAvailableCodexAgentControllerInterface({ observedAt: GENERATED_AT });
-// These readiness fixtures represent a supported Service. Keep the version
-// explicit so a release manifest that still describes the previous public
-// version cannot silently turn unrelated readiness tests into update tests.
-const CURRENT_SERVICE_VERSION = "0.3.198";
+// Read-model scenarios use the matching supported release; outdated-Service
+// behavior is covered separately by the local-component update tests.
+const CURRENT_SERVICE_VERSION =
+  publishedManifest.components.service.bundleVersion;
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -36,13 +39,10 @@ const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   status: "compatible",
 } as const;
 
-describe.each([
-  false,
-  true,
-])("agent execution readiness service D1 read model (batch=%s)", (batchProfileReads) => {
+describe("agent execution readiness service PostgreSQL read model", () => {
   it("blocks readiness when the online daemon route is for a different Runtime than the Binding runtime", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const oldRuntimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-old",
@@ -95,7 +95,7 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -132,13 +132,16 @@ describe.each([
         "blocked"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
-  it("uses the Core primary Binding capability as the only profile execution target", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+  it.each([
+    true,
+    false,
+  ])("uses the Core Binding and current Service admission for Wakeability (accepting=%s)", async (acceptingDispatches) => {
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
@@ -191,18 +194,46 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           routeDeviceId: "device-current",
           routeLane: "dev-local",
           workingFolderBindingId: "bind_22222222-2222-4222-8222-222222222222",
+          acceptingDispatches,
         }),
         generatedAt: GENERATED_AT,
         profileId: AGENT_PROFILE_ID,
       });
 
+      if (!acceptingDispatches) {
+        expect(readiness.agentExecutionReadiness).toMatchObject({
+          displayState: "not_ready",
+          primaryAction: "check_status",
+          facts: {
+            localService: { reachable: true },
+            route: { online: false },
+          },
+        });
+        expect(readiness.spaceMemberAgentExecutionReadiness.displayState).toBe(
+          "not_ready"
+        );
+        expect(readiness.daemonRouteObservation.status).toBe("online");
+        expect(readiness.agentWakeRouteRegistration.status).toBe("registered");
+        expect(
+          resolveAgentWakeAvailability({
+            ...readiness,
+            readiness: readiness.agentExecutionReadiness,
+          })
+        ).toMatchObject({
+          category: "checking",
+          reasonCode: "local_service.not_accepting_wakes",
+          status: "checking_connection",
+          isRefreshing: true,
+        });
+        return;
+      }
       expect(readiness.agentExecutionReadiness).toMatchObject({
         displayState: "ready",
         facts: {
@@ -222,13 +253,13 @@ describe.each([
         "claim_eligibility.binding_capability_mismatch"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps missing Codex App Server provider conversation proof as diagnostics only", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
@@ -282,7 +313,7 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -317,13 +348,13 @@ describe.each([
         status: "missing",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("allows readiness when the bound Codex App Server controller thread has fresh proof", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
@@ -401,7 +432,7 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -428,13 +459,13 @@ describe.each([
         primaryAction: "none",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps readiness impact as history without overriding current facts", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
@@ -501,7 +532,7 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -550,13 +581,13 @@ describe.each([
         source: "wake_failure",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("auto-checks route recovery when a fresh controller report exists without a live route", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
@@ -609,7 +640,7 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -643,13 +674,13 @@ describe.each([
         "local_service.not_connected_for_account"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("requires service reconnect when stale controller evidence has no live local service path", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
@@ -701,7 +732,7 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -732,13 +763,13 @@ describe.each([
         primaryAction: "connect_service",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("auto-checks stale runtime evidence when a same-account local service can refresh the binding runtime", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
@@ -778,7 +809,7 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -814,13 +845,13 @@ describe.each([
         "runtime.agent_controller_report_missing"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not treat another lane on the same device as a refreshable local service path", async () => {
-    const harness = createSqliteD1Harness();
-    applyReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+    await seedReadinessProfile(harness);
     try {
       const runtimeLookupInput = createRuntimeLookupInput({
         deviceId: "device-current",
@@ -860,7 +891,7 @@ describe.each([
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
+        reads: createAgentExecutionReadinessReads(),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -885,49 +916,29 @@ describe.each([
         primaryAction: "reconnect_binding",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function applyReadinessMigrations(
-  harness: Pick<ReturnType<typeof createSqliteD1Harness>, "run">
-): void {
-  harness.run({
-    sql: `
-      CREATE TABLE openmeld_profiles (
-        profile_id text PRIMARY KEY NOT NULL,
-        profile_name text NOT NULL,
-        profile_handle text NOT NULL,
-        profile_kind text NOT NULL,
-        is_default integer NOT NULL,
-        status text NOT NULL,
-        organization_id text,
-        owner_user_id text NOT NULL,
-        source text NOT NULL,
-        managed_role text,
-        created_at integer NOT NULL,
-        updated_at integer NOT NULL
-      )
-    `,
+async function seedReadinessProfile(
+  harness: Pick<Awaited<ReturnType<typeof createPostgresHarness>>, "query">
+): Promise<void> {
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $1, $3)',
+    values: [ORGANIZATION_ID, "Readiness Organization", GENERATED_AT_MS],
   });
-  applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
-  applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-  applyMigrationForTable(
-    harness,
-    "openMeldDaemon_runtime_agent_controller_reports"
-  );
-  applyMigrationForTable(
-    harness,
-    "openMeldDaemon_provider_conversation_proofs"
-  );
-  applyMigrationForTable(harness, "openMeldDaemon_provider_access_evidence");
-  applyMigrationForTable(
-    harness,
-    "openMeldDaemon_agent_execution_readiness_impacts"
-  );
-  harness.run({
-    params: [
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."users" (id, name, email, created_at, updated_at) VALUES ($1, $2, $3, $4, $4)',
+    values: [
+      OWNER_USER_ID,
+      "Owner",
+      "readiness-owner@example.test",
+      GENERATED_AT_MS,
+    ],
+  });
+  await harness.query({
+    values: [
       AGENT_PROFILE_ID,
       "Codex",
       "codex",
@@ -936,8 +947,8 @@ function applyReadinessMigrations(
       GENERATED_AT_MS,
       GENERATED_AT_MS,
     ],
-    sql: `
-      INSERT INTO openmeld_profiles (
+    text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -950,13 +961,14 @@ function applyReadinessMigrations(
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, 'agent', 0, 'active', ?, ?, 'cli_create', ?, ?)
+      VALUES ($1, $2, $3, 'agent', 0, 'active', $4, $5, 'cli_create', $6, $7)
     `,
   });
 }
 
 function createReadinessEnv(input: {
-  db: D1Database;
+  acceptingDispatches?: boolean;
+  db: PostgresDatabase;
   ownerServiceDeviceIds?: readonly string[];
   ownerServiceSessions?: readonly { deviceId: string; lane: string }[];
   routeDeviceId: string | null;
@@ -978,17 +990,19 @@ function createReadinessEnv(input: {
       }),
     },
     OPENMELD_RUNTIME_TRANSPORT: createRuntimeTransportNamespace({
+      acceptingDispatches: input.acceptingDispatches,
       ownerServiceDeviceIds: input.ownerServiceDeviceIds ?? [],
       ownerServiceSessions: input.ownerServiceSessions ?? null,
       routeDeviceId: input.routeDeviceId,
       routeLane: input.routeLane,
       workingFolderBindingId: input.workingFolderBindingId,
     }),
-    OPENMELD_DB: input.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(input.db),
   } as unknown as CoreBindings;
 }
 
 function createRuntimeTransportNamespace(input: {
+  acceptingDispatches?: boolean;
   ownerServiceDeviceIds: readonly string[];
   ownerServiceSessions: readonly { deviceId: string; lane: string }[] | null;
   routeDeviceId: string | null;
@@ -1043,6 +1057,7 @@ function createRuntimeTransportNamespace(input: {
 
           return Promise.resolve(
             Response.json({
+              acceptingDispatches: input.acceptingDispatches,
               capabilities: {},
               connectionGeneration: 1,
               daemonSessionId: "session-1",

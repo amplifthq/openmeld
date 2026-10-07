@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  lstatSync,
+  realpathSync,
+} from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { buildLaneId } from "./dev-isolated-lane.mjs";
 
 const PATH_SEPARATOR = /[\\/]/u;
@@ -47,22 +53,11 @@ export function manageWorktreeDevService(
   if (!existsSync(join(home, "runtime", "daemon"))) {
     return;
   }
-  const entry = join(
-    repoRoot,
-    "clients",
-    "openmeld-cli",
-    "dist",
-    "openmeld-dev.js"
-  );
-  if (!existsSync(entry)) {
-    throw new Error(
-      "Build the repo-local CLI before stopping this environment: pnpm turbo run build --filter=openmeld"
-    );
-  }
+  const invocation = resolveWorktreeDevServiceCommand(repoRoot);
   const result = spawnSync(
-    process.execPath,
+    invocation.command,
     [
-      entry,
+      ...invocation.args,
       "service",
       clean ? "uninstall" : "stop",
       "--json",
@@ -82,8 +77,18 @@ export function manageWorktreeDevService(
     }
   );
   if (result.error || result.status !== 0) {
+    const detail = [
+      result.error?.message,
+      result.stderr?.trim(),
+      result.stdout?.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const termination = result.signal
+      ? `signal ${result.signal}`
+      : `exit code ${result.status}`;
     throw new Error(
-      `Development Service ${clean ? "uninstall" : "stop"} failed: ${result.error?.message ?? result.stderr ?? result.stdout}`
+      `Development Service ${clean ? "uninstall" : "stop"} failed (${termination}): ${detail || "No error output."}`
     );
   }
   const output = JSON.parse(result.stdout);
@@ -95,6 +100,33 @@ export function manageWorktreeDevService(
   console.log(
     `[dev-service] ${clean ? "Uninstalled" : "Stopped"} this environment's Service and maintenance worker.`
   );
+}
+
+/** Reuse a lane-installed CLI when there is no source CLI output, never PATH/global state. */
+export function resolveWorktreeDevServiceCommand(repoRoot) {
+  const entry = join(repoRoot, "clients/openmeld-cli/dist/openmeld-dev.js");
+  if (existsSync(entry)) {
+    return { command: process.execPath, args: [entry] };
+  }
+  const home = resolveWorktreeDevHome(repoRoot);
+  assertNoSymlinkAncestors(home, repoRoot);
+  const binary = join(
+    home,
+    "bin",
+    process.platform === "win32" ? "openmeld.exe" : "openmeld"
+  );
+  try {
+    accessSync(binary, constants.X_OK);
+    if (!realpathSync(binary).startsWith(realpathSync(home) + sep)) {
+      throw new Error("CLI resolves outside the owned development home.");
+    }
+  } catch (cause) {
+    throw new Error(
+      "Stopping this Service requires this lane's installed CLI or repo-local CLI output. Complete local Web setup or run pnpm turbo run build --filter=openmeld. No global CLI was invoked.",
+      { cause }
+    );
+  }
+  return { command: binary, args: [] };
 }
 
 export function listWorktreeDevData(repoRoot) {

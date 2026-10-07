@@ -1,39 +1,33 @@
 import { randomUUID } from "node:crypto";
+import type { LocalDaemonAdapterContainer } from "@openmeld/local-service";
 import {
   applyIntervalJitterMs as applyIntervalJitterMsInternal,
-  createInflightTaskControlRegistry,
-  createLocalAdapterContainer,
-  createLocalAdapterEntries,
-  createLocalTaskInterruptSender,
-  createPendingAgentInteractionRegistry,
-  type LocalDaemonAdapterContainer,
   resolveAdaptiveHeartbeatIntervalMs as resolveAdaptiveHeartbeatIntervalMsInternal,
   resolveCatalogSyncIntervalMs as resolveCatalogSyncIntervalMsInternal,
-  resolveRouteRegistrationReconcileDecision,
-} from "@openmeld/local-service";
+} from "@openmeld/local-service/heartbeat-policy";
+import { resolveRouteRegistrationReconcileDecision } from "@openmeld/local-service/service-reconcile-decision";
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   daemonServiceLaneSchema,
+  LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
+  OPENMELD_ADMISSION_EVIDENCE_HEADER,
+  OPENMELD_COMPUTER_CARE_HEADER,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonControlPlaneResponse,
-  OpenMeldDaemonSetLocalAgentEnabledRequestPayload,
   OpenMeldDaemonSyncRouteCatalogRequestPayload,
   RuntimeTransportStopCause,
 } from "@openmeld/schemas/types";
 import {
-  createManagedAgentActivityIntegrationRefreshScheduler,
-  refreshManagedAgentActivityIntegrations,
-} from "../../agent-activity/integration-refresh";
-import { startLocalAgentActivitySyncLoop } from "../../agent-activity/local-sync";
-import { setAgentRegistrationEnabled } from "../../agents/registry";
-import {
   type AuthSessionState,
+  buildStoredAuthSessionIdentity,
   getAuthSessionState,
   onAuthSessionCredentialAvailable,
   onAuthSessionCredentialObservation,
@@ -48,6 +42,7 @@ import {
   ensureDaemonControlPlaneToken,
   resolveDaemonServiceRuntimeMetadata,
 } from "../../config/daemon-state";
+import { resolveOpenMeldRootDir } from "../../config/paths";
 import {
   AuthRequestCredentialError,
   type AuthRequestCredentialFailureReason,
@@ -63,9 +58,13 @@ import { getConfiguredDaemonDispatchLimits } from "../../config/runtime-config";
 import { ServiceAccountAdmissionError } from "../../config/service-account-admission";
 import type { Presenter } from "../../runtime/presenter";
 import { OPENMELD_VERSION } from "../../runtime/version";
+import {
+  CURRENT_PROCESS_START_IDENTITY,
+  isPreciseProcessStartIdentity,
+  readProcessStartIdentity,
+} from "../../system/process-identity";
 import type { WsClient } from "../../transport/ws";
 import { connectWebSocket, WebSocketConnectionError } from "../../transport/ws";
-import { resolveLocalConversationExecutionStatus } from "../control-plane/conversation-execution-status";
 import { startLocalDaemonControlPlaneServer } from "../control-plane/server";
 import {
   DAEMON_STREAM_CONNECT_TIMEOUT_MS,
@@ -82,9 +81,7 @@ import {
   warnDaemonEvent,
 } from "../core/logger";
 import type {
-  CurrentDaemonSocketRef,
   DaemonServiceRunInput,
-  InflightDispatchMeta,
   MutableRouteCatalogState,
   RouteCatalog,
   RouteCatalogSyncResult,
@@ -94,12 +91,13 @@ import {
   emitDriftDetectedEvidence,
   emitReconcileStartedEvidence,
 } from "../diagnostics/service-evidence-trace";
-import { listDispatchResultOutboxPendingAcknowledgementKeys } from "../dispatch/dispatch-result-outbox";
 import {
   buildDispatchBootstrapTemplateFacts as buildDispatchBootstrapTemplateFactsInternal,
   buildDispatchPromptPlan as buildDispatchPromptPlanInternal,
   buildDispatchPromptWithBootstrap as buildDispatchPromptWithBootstrapInternal,
 } from "../dispatch/parse-dispatch-task";
+import { createExecutionHostCatalogClient } from "../execution-host/catalog-client";
+import { launchExecutionHost } from "../execution-host/launch";
 import { resolveComputerFileAccessStorePath } from "../file-access/computer-file-access-store";
 import { resolveSystemLocalFolderPickerHelper } from "../folder-picker/local-folder-picker-helper-process";
 import { createLocalFolderPickerService } from "../folder-picker/local-folder-picker-service";
@@ -115,21 +113,14 @@ import {
 import { admitServiceAccountStop } from "../lifecycle/service-account-authorization";
 import { createServiceConnectionEvidenceObserver } from "../lifecycle/service-connection-evidence-observer";
 import { createOpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
-import { syncLocalServiceRuntimeAgentControllerReports } from "../reporting/runtime-agent-controller-report-sync";
-import type { RuntimeReportingAttemptObserver } from "../reporting/runtime-agent-controller-reporting-submission";
-import { createRuntimeReportingAttemptObserver } from "../reporting/runtime-reporting-attempt-observer";
 import type { RuntimeReportingAuthenticationFailure } from "../reporting/runtime-reporting-auth-recovery";
 import { createRuntimeReportingAuthenticationRecovery } from "../reporting/runtime-reporting-auth-recovery";
 import {
   createMutableRouteCatalogState as createMutableRouteCatalogStateInternal,
-  loadDaemonRouteCatalog,
-  type RouteCatalogLoadPhaseTimings,
   summarizeSkippedDaemonProfiles,
   syncDaemonRouteCatalogState as syncDaemonRouteCatalogStateInternal,
-} from "../routing/route-catalog";
-import { loadContextStore } from "../state/context-store";
+} from "../routing/route-catalog-state";
 import {
-  buildLedgerPaths,
   ensureDaemonRuntimePaths,
   resolveDaemonDeviceId,
 } from "../state/daemon-device-id";
@@ -140,10 +131,6 @@ import {
   resolveServiceConnectionReconnectBackoffMs,
   toDaemonStreamUrl,
 } from "../state/daemon-runtime-state";
-import {
-  readDaemonRouteCatalogCache,
-  writeDaemonRouteCatalogCache,
-} from "../state/route-catalog-cache";
 import { ensureDaemonRuntimeContractState } from "../state/runtime-contract-guard";
 import {
   createDaemonRuntimeStateTracker,
@@ -156,11 +143,6 @@ import {
   type ServiceConnectionDegradedReason,
   toHealthProjection,
 } from "../state/service-connection-state";
-import {
-  handleLocalControlPlaneCancel,
-  handleLocalControlPlaneInterrupt,
-} from "./local-control-handlers";
-import { createDaemonLocalExecutionSlots } from "./local-execution-slots";
 import { runDaemonSocketSession } from "./run-socket-session";
 import { createServiceLocalComponentsObservation } from "./service-local-components-observation";
 import { createStopAwareDelay } from "./stop-aware-delay";
@@ -193,7 +175,14 @@ function buildLocalServiceCapabilityHeaders(input: {
   localFolderPickerAvailable: boolean;
 }): Record<string, string> {
   return {
+    [LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER]: "1",
+    ...(process.platform === "darwin"
+      ? { [SPACE_WORK_HANDOFF_CAPABILITY_HEADER]: "1" }
+      : {}),
     [OPENMELD_REASONING_STREAM_HEADER]: "1",
+    [OPENMELD_COMPUTER_CARE_HEADER]: "1",
+    [OPENMELD_EXECUTION_ADMISSION_HEADER]: "1",
+    [OPENMELD_ADMISSION_EVIDENCE_HEADER]: "1",
     ...(input.localFolderPickerAvailable
       ? {
           [OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER]:
@@ -202,6 +191,7 @@ function buildLocalServiceCapabilityHeaders(input: {
       : {}),
     [OPENMELD_RUNTIME_CAPABILITIES_HEADER]:
       COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+    [SESSION_HISTORY_CAPABILITY_HEADER]: SESSION_HISTORY_RUNTIME_CAPABILITY,
   };
 }
 
@@ -589,18 +579,6 @@ async function withControlledStopRefusalProof<T>(input: {
   }
 }
 
-function hasUndrainedLocalWork(input: {
-  inflightDispatchMetaByTaskId: Map<string, InflightDispatchMeta>;
-  ledgerPaths: ReturnType<typeof buildLedgerPaths>;
-}): boolean {
-  return (
-    input.inflightDispatchMetaByTaskId.size > 0 ||
-    listDispatchResultOutboxPendingAcknowledgementKeys({
-      ledgerPaths: input.ledgerPaths,
-    }).length > 0
-  );
-}
-
 async function runSocketSessionWithControlledShutdown(input: {
   controlledShutdown: ReturnType<typeof createControlledShutdownCoordinator>;
   sessionInput: Parameters<typeof runDaemonSocketSession>[0];
@@ -633,6 +611,56 @@ export const runDaemonServiceLoop = async (
     async () => await runAccountBoundDaemonServiceLoop(input)
   );
 };
+
+async function launchAccountExecutionHost(input: {
+  ownerUserId: string;
+  deviceId: string;
+  lane: string;
+  daemonSessionId: string;
+  contract: Awaited<ReturnType<typeof readDaemonServiceContract>>;
+  baseUrl: string;
+  presenter: Presenter;
+}) {
+  const session = (await getAuthSessionState()).session;
+  if (!(session && input.contract) || session.user?.id !== input.ownerUserId) {
+    throw new DaemonServiceRunError({
+      code: "daemon.run.host_identity_missing",
+      message:
+        "The Service account or installation cannot be verified for local execution.",
+    });
+  }
+  const parentProcessStartedAt =
+    process.platform === "win32"
+      ? CURRENT_PROCESS_START_IDENTITY
+      : readProcessStartIdentity(process.pid);
+  if (!parentProcessStartedAt) {
+    throw new DaemonServiceRunError({
+      code: "daemon.run.host_parent_unknown",
+      message: "The Service process cannot be verified for local execution.",
+    });
+  }
+  return launchExecutionHost({
+    identity: {
+      ownerUserId: input.ownerUserId,
+      deviceId: input.deviceId,
+      lane: daemonServiceLaneSchema.parse(input.lane),
+      daemonSessionId: input.daemonSessionId,
+      serviceContractGeneration: input.contract.generation,
+      sessionIdentity: buildStoredAuthSessionIdentity(session),
+      stateRoot: resolveOpenMeldRootDir(),
+      authBaseUrl: session.authBaseUrl,
+      gatewayBaseUrl: input.baseUrl,
+      parentPid: process.pid,
+      parentProcessStartedAt,
+    },
+    onFailure: (error) =>
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.execution_host_unavailable",
+        text: `Local execution is unavailable: ${toErrorMessage(error)}`,
+      }),
+  });
+}
 
 const runAccountBoundDaemonServiceLoop = async (
   input: DaemonServiceRunInput
@@ -667,14 +695,6 @@ const runAccountBoundDaemonServiceLoop = async (
       },
     });
   }
-  const contextStore = await loadContextStore(runtimePaths.contextStorePath);
-  const inflightDispatchMetaByTaskId = new Map<string, InflightDispatchMeta>();
-  const inflightTaskControlRegistry = createInflightTaskControlRegistry();
-  const pendingAgentInteractionRegistry =
-    createPendingAgentInteractionRegistry();
-  const localTaskInterruptSender = createLocalTaskInterruptSender({
-    registry: inflightTaskControlRegistry,
-  });
   const deviceId = await resolveDaemonDeviceId({
     deviceId: input.deviceId,
     deviceIdPath: runtimePaths.deviceIdPath,
@@ -692,17 +712,9 @@ const runAccountBoundDaemonServiceLoop = async (
     input.heartbeatIntervalMs
   );
   const dispatchLimits = await getConfiguredDaemonDispatchLimits();
-  // A WebSocket is replaceable transport. Active controller ownership is a
-  // process-lifetime invariant and must survive that transport reconnect.
-  const localExecutionSlots = createDaemonLocalExecutionSlots({
-    limits: dispatchLimits,
-    presenter: input.presenter,
-  });
-  const ledgerPaths = buildLedgerPaths(runtimePaths.ledgerRootPath);
   const mode = resolveDaemonRunMode(input.mode);
   const now = nowIsoString();
   const runtimeMetadata = resolveDaemonServiceRuntimeMetadata();
-  const profileOwnerName = ownerContext.ownerName;
   const daemonRuntimeState = createDaemonRuntimeState({
     heartbeatAt: null,
     mode,
@@ -758,78 +770,23 @@ const runAccountBoundDaemonServiceLoop = async (
       }),
   });
 
-  const localAdapterContainer = createLocalAdapterContainer(
-    createLocalAdapterEntries({
-      registerRuntimeProcess: (event) => {
-        const nextProcessId =
-          event.phase === "process_exit" ? null : event.processId;
-        const updatedRecord = inflightTaskControlRegistry.updateTaskProcess({
-          processId: nextProcessId,
-          signalTarget:
-            event.phase === "process_exit" ? null : event.signalTarget,
-          taskId: event.taskId,
-        });
-        if (!updatedRecord) {
-          return;
-        }
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.control_process_registered",
-          text: `control process ${event.phase === "process_spawned" ? "registered" : "cleared"} for task ${event.taskId}`,
-          payload: {
-            adapterId: updatedRecord.adapterId,
-            dispatchId: updatedRecord.dispatchId,
-            phase: event.phase,
-            processId: nextProcessId,
-            signalTarget:
-              event.phase === "process_exit" ? null : event.signalTarget,
-            taskId: event.taskId,
-          },
-        });
-      },
-      runtimeWorkdir: process.cwd(),
-      sendInterrupt: async (signal) => {
-        await localTaskInterruptSender(signal);
-      },
-    })
-  );
-  if (localAdapterContainer.listAdapters().length === 0) {
-    throw new DaemonServiceRunError({
-      code: "daemon.run.adapter_missing",
-      message: "no local adapters configured for daemon runtime",
-    });
-  }
-
-  const serviceBundleId = daemonServiceContract?.bundleId ?? null;
-  // The account-wide route catalog scan must not gate local service liveness.
-  // Boot with an unresolved placeholder so the control plane, runtime state,
-  // and socket session come up immediately; the first in-session catalog sync
-  // resolves the real catalog and registers it (pending -> registered is the
-  // documented Wake route registration shape). The placeholder may register
-  // an empty profile set on this fresh daemon session, which is lease-neutral
-  // on RuntimeTransport; only a RESOLVED catalog may shrink the registered set.
+  const executionHost = await launchAccountExecutionHost({
+    ownerUserId,
+    deviceId,
+    lane,
+    daemonSessionId,
+    contract: daemonServiceContract,
+    baseUrl,
+    presenter: input.presenter,
+  });
+  // Start transport with a lease-neutral placeholder; Host initialization and
+  // provider discovery never block control or the first cloud registration.
   const routeCatalogState = createMutableRouteCatalogStateInternal({
     profileIds: [],
     routeByProfileId: new Map(),
     skippedProfiles: [],
   });
-  const routeCatalogLoader = createRouteCatalogSyncLoader({
-    loadFresh: () =>
-      loadFreshDaemonRouteCatalog({
-        localAdapterContainer,
-        ownerUserId,
-        presenter: input.presenter,
-      }),
-    loadInitial: async () =>
-      await loadInitialDaemonRouteCatalog({
-        allowEmpty: true,
-        lane,
-        localAdapterContainer,
-        ownerUserId,
-        presenter: input.presenter,
-        serviceBundleId,
-      }),
-  });
+  const routeCatalogLoader = createExecutionHostCatalogClient(executionHost);
 
   let stopRequested = false;
   // Reconnect backoff waits must wake the moment a stop request arrives, or
@@ -870,19 +827,17 @@ const runAccountBoundDaemonServiceLoop = async (
       status: recovery.status,
     });
   };
-  const currentSocketRef: CurrentDaemonSocketRef = {
-    connectionGeneration: null,
-    socket: null,
-  };
   let requestActiveRouteCatalogSync:
     | ((reason: string) => Promise<RouteCatalogSyncResult>)
     | null = null;
   const controlledShutdown = createControlledShutdownCoordinator({
-    hasUndrainedWork: () =>
-      hasUndrainedLocalWork({
-        inflightDispatchMetaByTaskId,
-        ledgerPaths,
-      }),
+    hasUndrainedWork: () => {
+      const observed = executionHost.snapshot();
+      return (
+        !(executionHost.available() && observed?.localQuiescent) ||
+        observed.unacknowledgedResultCount > 0
+      );
+    },
     isStopRequested: () => stopRequested,
     markStopping: () => {
       stopRequested = true;
@@ -892,7 +847,20 @@ const runAccountBoundDaemonServiceLoop = async (
   });
   const controlPlaneDaemonVersion =
     daemonServiceContract?.daemonVersion ?? "unknown";
-  let requestAgentActivitySync: (() => void) | null = null;
+  const requestAgentActivitySync = (refreshIntegrations = false) => {
+    executionHost
+      .call(
+        "syncActivity",
+        refreshIntegrations ? { refreshIntegrations: true } : {}
+      )
+      .catch((error: unknown) =>
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_activity_sync_failed",
+          text: `Agent Activity sync unavailable: ${toErrorMessage(error)}`,
+        })
+      );
+  };
   const controlPlaneServer = await startLocalDaemonControlPlaneServer({
     // Resolve the current file-backed token per request. Older CLIs may rotate
     // that file before stopping this Service, so caching it here would make the
@@ -910,7 +878,9 @@ const runAccountBoundDaemonServiceLoop = async (
       });
     },
     getContext: async () => ({
-      accountCheckedServiceControl: process.platform !== "win32",
+      accountCheckedServiceControl: isPreciseProcessStartIdentity(
+        CURRENT_PROCESS_START_IDENTITY
+      ),
       healthPayload: {
         checkedAt: nowIsoString(),
         ...toHealthProjection(
@@ -921,26 +891,13 @@ const runAccountBoundDaemonServiceLoop = async (
       },
       historyEntries: [],
       interruptHandler: async (payload) =>
-        await handleLocalControlPlaneInterrupt({
-          localAdapterContainer,
-          payload,
-          presenter: input.presenter,
-          registry: inflightTaskControlRegistry,
-        }),
+        await executionHost.call("interrupt", payload),
       cancelHandler: async (payload) =>
-        await handleLocalControlPlaneCancel({
-          localAdapterContainer,
-          payload,
-          presenter: input.presenter,
-          registry: inflightTaskControlRegistry,
-        }),
+        await executionHost.call("cancel", payload),
       conversationExecutionStatusHandler: async (payload) =>
-        await resolveLocalConversationExecutionStatus(payload),
-      requestAgentActivitySyncHandler: () => {
-        if (!requestAgentActivitySync) {
-          return { accepted: false };
-        }
-        requestAgentActivitySync();
+        await executionHost.call("conversationStatus", payload),
+      requestAgentActivitySyncHandler: async () => {
+        await executionHost.call("syncActivity", {});
         return { accepted: true };
       },
       syncRouteCatalogHandler: async (payload) =>
@@ -950,29 +907,13 @@ const runAccountBoundDaemonServiceLoop = async (
           requestActiveRouteCatalogSync,
           routeCatalogState,
         }),
-      setLocalAgentEnabledHandler: async (payload) => {
-        const expectedSocket = activeSocket;
-        const onAttempt = createRuntimeReportingAttemptObserver({
-          onAuthenticationFailure: async (failure) => {
-            await requestRuntimeReportingAuthenticationRecovery({
-              expectedSocket,
-              failure,
-            });
-          },
-          serviceIdentity: {
-            contractGeneration: daemonServiceContract?.generation ?? 0,
-            deviceId,
-          },
-        });
-        return await handleLocalControlPlaneSetLocalAgentEnabled({
-          localAdapterContainer,
-          onAttempt,
-          payload,
-          presenter: input.presenter,
-          requestActiveRouteCatalogSync,
-        });
-      },
+      setLocalAgentEnabledHandler: async (payload) =>
+        await executionHost.call("setEnabled", payload),
       shutdownHandler: async (payload, lifecycle) => {
+        // Read local work through its owner, not a network session's registry.
+        // This observation grants no admission; the existing account-checked
+        // coordinator below still owns Stop and its pre-commit refusal proof.
+        await executionHost.call("health", {});
         const admissionId = payload.accountAdmissionId;
         return await controlledShutdown.request({
           ...payload,
@@ -995,19 +936,13 @@ const runAccountBoundDaemonServiceLoop = async (
           },
         });
       },
-      serviceUpdateReadinessHandler: () => {
-        const unacknowledgedResultCount =
-          listDispatchResultOutboxPendingAcknowledgementKeys({
-            ledgerPaths,
-          }).length;
-        const acceptedWakeCount = inflightDispatchMetaByTaskId.size;
+      serviceUpdateReadinessHandler: async () => {
+        const observed = await executionHost.call("health", {});
         return {
-          acceptedWakeCount,
-          safeToSwitch: !hasUndrainedLocalWork({
-            inflightDispatchMetaByTaskId,
-            ledgerPaths,
-          }),
-          unacknowledgedResultCount,
+          acceptedWakeCount: observed.activeCount + observed.pendingCount,
+          safeToSwitch:
+            observed.localQuiescent && observed.unacknowledgedResultCount === 0,
+          unacknowledgedResultCount: observed.unacknowledgedResultCount,
         };
       },
       statusPayload: {
@@ -1018,11 +953,17 @@ const runAccountBoundDaemonServiceLoop = async (
         runtimeRoot: daemonRuntimeRootPath(),
       },
     }),
+  }).catch(async (error: unknown) => {
+    await executionHost.close();
+    localComponentsObservation.dispose();
+    await localFolderPicker.close();
+    throw error;
   });
   try {
     await runtimeStateTracker.touchRuntimeState({}, { forcePersist: true });
   } catch (error) {
     await controlPlaneServer.close();
+    await executionHost.close();
     throw error;
   }
 
@@ -1048,26 +989,6 @@ const runAccountBoundDaemonServiceLoop = async (
   process.on("SIGINT", onSigint);
   process.on("SIGTERM", onSigterm);
 
-  await refreshManagedAgentActivityIntegrations()
-    .then((result) => {
-      if (result.status !== "ready") {
-        return;
-      }
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_activity_integrations_ready",
-        text: "Managed Agent integrations are ready.",
-        payload: result.integrations,
-      });
-    })
-    .catch((error) => {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_activity_integration_refresh_failed",
-        text: `Managed Agent integration refresh failed: ${toErrorMessage(error)}`,
-      });
-    });
-
   const stopRegistrationReconcile = startDaemonServiceRegistrationReconcileLoop(
     {
       isStopRequested: () => stopRequested,
@@ -1092,76 +1013,8 @@ const runAccountBoundDaemonServiceLoop = async (
     { executeUpdates: false }
   );
 
-  const agentActivitySync = startLocalAgentActivitySyncLoop({
-    onError: (error) => {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_activity_sync_failed",
-        text: `Agent Activity sync failed: ${toErrorMessage(error)}`,
-      });
-    },
-    onResult: (result) => {
-      if (result.status === "idle") {
-        return;
-      }
-      emitRunLine({
-        presenter: input.presenter,
-        code:
-          result.status === "submitted"
-            ? "daemon.run.agent_activity_sync"
-            : "daemon.run.agent_activity_sync_unavailable",
-        text:
-          result.status === "submitted"
-            ? `Local Agent reporting submitted ${String(result.submittedCount)} activity event(s), ${String(result.controllerTaskEventSubmittedCount)} task callback event(s), and ${String(result.sessionInventory.submittedSourceCount)} Session Inventory source(s).`
-            : `Agent Activity sync deferred: ${result.reason ?? "unavailable"}.`,
-        payload: {
-          ...result.health,
-          controllerTaskEventSubmittedCount:
-            result.controllerTaskEventSubmittedCount,
-          controllerTaskHealth: result.controllerTaskHealth,
-          observedCount: result.observedCount,
-          reason: result.reason,
-          sessionInventory: result.sessionInventory,
-          status: result.status,
-          submittedCount: result.submittedCount,
-        },
-      });
-    },
-  });
-  requestAgentActivitySync = () => {
-    agentActivitySync.requestSync({
-      reconcile: true,
-      refreshContext: true,
-    });
-  };
-  const agentActivityIntegrationRefresh =
-    createManagedAgentActivityIntegrationRefreshScheduler({
-      onError: (error) => {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.agent_activity_integration_refresh_failed",
-          text: `Managed Agent integration refresh failed: ${toErrorMessage(error)}`,
-        });
-      },
-      onResult: (result) => {
-        if (result.status !== "ready") {
-          return;
-        }
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.agent_activity_integrations_ready",
-          text: "Managed Agent integrations are ready.",
-          payload: result.integrations,
-        });
-      },
-    });
-  const refreshAgentActivityForProjectConnectionChange = () => {
-    agentActivitySync.requestSync({
-      reconcile: true,
-      refreshContext: true,
-    });
-    agentActivityIntegrationRefresh.request();
-  };
+  const refreshAgentActivityForProjectConnectionChange = () =>
+    requestAgentActivitySync(true);
 
   const unsubscribeCredentialAvailability = onAuthSessionCredentialAvailable(
     () => {
@@ -1188,9 +1041,7 @@ const runAccountBoundDaemonServiceLoop = async (
         durationMs: null,
         errorCode: null,
         heartbeatIntervalMs,
-        localAdapterIds: localAdapterContainer
-          .listAdapters()
-          .map((entry) => entry.adapterId),
+        localAdapterIds: executionHost.snapshot()?.adapterIds ?? [],
         ownerUserId,
         profileId: null,
         profileIds: routeCatalogState.profileIds,
@@ -1263,26 +1114,19 @@ const runAccountBoundDaemonServiceLoop = async (
             attachRouteCatalogSyncInvoker: (invoker) => {
               requestActiveRouteCatalogSync = invoker;
             },
-            contextStore,
+            executionHost,
             computerFileAccessStorePath: resolveComputerFileAccessStorePath(
               runtimePaths.dataRootPath
             ),
-            currentSocketRef,
             daemonSessionId,
             deviceId,
             serviceContractGeneration: daemonServiceContract?.generation ?? 0,
             foregroundActive: mode === "foreground",
             heartbeatIntervalMs,
-            inflightDispatchMetaByTaskId,
-            inflightTaskControlRegistry,
-            pendingAgentInteractionRegistry,
             isRouteCatalogResolved: routeCatalogLoader.isResolved,
             lane,
-            ledgerPaths,
             loadRouteCatalog: routeCatalogLoader.load,
-            localAdapterContainer,
             localComponentsObservation,
-            localExecutionSlots,
             onRuntimeReportingAuthenticationFailure: async (failure) => {
               await requestRuntimeReportingAuthenticationRecovery({
                 expectedSocket: ws,
@@ -1294,17 +1138,8 @@ const runAccountBoundDaemonServiceLoop = async (
               refreshAgentActivityForProjectConnectionChange,
             openMeldToolsUpdateCoordinator,
             ownerUserId,
-            profileOwnerName,
             presenter: input.presenter,
-            persistRouteCatalogCache: async (catalog) => {
-              await persistDaemonRouteCatalogCache({
-                lane,
-                ownerUserId,
-                presenter: input.presenter,
-                routeCatalog: catalog,
-                serviceBundleId,
-              });
-            },
+            persistRouteCatalogCache: routeCatalogLoader.persist,
             reconnectAttempt,
             routeCatalogState,
             selectLocalFolders: localFolderPicker.selectFolders,
@@ -1325,15 +1160,9 @@ const runAccountBoundDaemonServiceLoop = async (
         });
 
         activeSocket = null;
-        if (currentSocketRef.socket === ws) {
-          currentSocketRef.socket = null;
-          currentSocketRef.connectionGeneration = null;
-        }
         requestActiveRouteCatalogSync = null;
       } catch (error) {
         activeSocket = null;
-        currentSocketRef.socket = null;
-        currentSocketRef.connectionGeneration = null;
         requestActiveRouteCatalogSync = null;
         if (stopRequested) {
           break;
@@ -1363,14 +1192,18 @@ const runAccountBoundDaemonServiceLoop = async (
     controlledShutdown.failOutstanding();
     process.off("SIGINT", onSigint);
     process.off("SIGTERM", onSigterm);
-    await Promise.all([
-      controlPlaneServer.close(),
-      clearDaemonServiceRuntimeState(),
-      localFolderPicker.close(),
-      agentActivityIntegrationRefresh.stop(),
-      agentActivitySync.stop(),
-      stopRegistrationReconcile(),
-    ]);
+    try {
+      // Do not clear the runtime or report stopped while its accepted work is
+      // still draining. A lost Host fails explicitly instead of claiming exit.
+      await executionHost.close();
+      await clearDaemonServiceRuntimeState();
+    } finally {
+      await Promise.all([
+        controlPlaneServer.close(),
+        localFolderPicker.close(),
+        stopRegistrationReconcile(),
+      ]);
+    }
   }
 
   emitRunLine({
@@ -1386,6 +1219,7 @@ export async function loadFreshDaemonRouteCatalog(input: {
   ownerUserId: string;
   presenter: Presenter;
 }): Promise<RouteCatalog> {
+  const { loadDaemonRouteCatalog } = await import("../routing/route-catalog");
   return await loadDaemonRouteCatalog({
     ...input,
     allowEmpty: true,
@@ -1415,133 +1249,6 @@ export function createRouteCatalogSyncLoader(deps: {
       return catalog;
     },
   };
-}
-
-async function loadInitialDaemonRouteCatalog(input: {
-  allowEmpty: boolean;
-  lane: string;
-  localAdapterContainer: LocalDaemonAdapterContainer;
-  ownerUserId: string;
-  presenter: Presenter;
-  serviceBundleId: string | null;
-}): Promise<RouteCatalog> {
-  const loadStartedAt = Date.now();
-  const phaseTimings: RouteCatalogLoadPhaseTimings = {};
-  await emitInitialRouteCatalogLoadEvent({
-    result: "started",
-    metadata: {},
-  });
-  try {
-    const catalog = await loadDaemonRouteCatalog({
-      allowEmpty: input.allowEmpty,
-      localAdapterContainer: input.localAdapterContainer,
-      localReplyStateMode: "check",
-      ownerUserId: input.ownerUserId,
-      phaseTimings,
-      presenter: input.presenter,
-    });
-    await emitInitialRouteCatalogLoadEvent({
-      result: "completed",
-      metadata: {
-        durationMs: Date.now() - loadStartedAt,
-        phaseTimings,
-        profileCount: catalog.profileIds.length,
-        skippedProfileCount: catalog.skippedProfiles.length,
-      },
-    });
-    return catalog;
-  } catch (error) {
-    const cached = await readDaemonRouteCatalogCache({
-      lane: input.lane,
-      ownerUserId: input.ownerUserId,
-      serviceBundleId: input.serviceBundleId,
-    });
-    if (!cached) {
-      // A startup-time network failure must not kill the service: an empty
-      // catalog enters the main loop in the documented waiting-for-profiles
-      // state and the periodic catalog sync re-registers everything as soon
-      // as the gateway is reachable again. Exiting here turned transient
-      // network faults into launchd crash loops with no degraded state.
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.route_catalog_initial_load_failed",
-        text: `initial route catalog load failed; starting with an empty catalog and retrying via catalog sync: ${toErrorMessage(error)}`,
-        payload: {
-          reason: "initial_load_failed_no_cache",
-        },
-      });
-      await emitInitialRouteCatalogLoadEvent({
-        result: "failed_empty_start",
-        metadata: {
-          durationMs: Date.now() - loadStartedAt,
-          errorMessage: toErrorMessage(error),
-          phaseTimings,
-        },
-      });
-      return {
-        profileIds: [],
-        routeByProfileId: new Map(),
-        skippedProfiles: [],
-      };
-    }
-    emitRunLine({
-      presenter: input.presenter,
-      code: "daemon.run.route_catalog_cache_recovered",
-      text: `using last known route catalog after initial catalog load failed: ${toErrorMessage(error)}`,
-      payload: {
-        profileIds: cached.profileIds,
-        reason: "initial_load_failed",
-      },
-    });
-    await emitInitialRouteCatalogLoadEvent({
-      result: "cache_recovered",
-      metadata: {
-        durationMs: Date.now() - loadStartedAt,
-        errorMessage: toErrorMessage(error),
-        phaseTimings,
-        profileCount: cached.profileIds.length,
-      },
-    });
-    return cached;
-  }
-}
-
-// The background presenter does not persist run lines, so the initial catalog
-// load also lands in the lifecycle journal with phase durations. This is the
-// durable record that explains where daemon startup time went; journal write
-// failures must never block or kill the load itself.
-async function emitInitialRouteCatalogLoadEvent(input: {
-  result: string;
-  metadata: Record<string, unknown>;
-}): Promise<void> {
-  await emitDaemonLifecycleEvent({
-    type: "route_catalog.initial_load",
-    result: input.result,
-    metadata: input.metadata,
-  }).catch(() => undefined);
-}
-
-async function persistDaemonRouteCatalogCache(input: {
-  lane: string;
-  ownerUserId: string;
-  presenter: Presenter;
-  routeCatalog: RouteCatalog;
-  serviceBundleId: string | null;
-}): Promise<void> {
-  try {
-    await writeDaemonRouteCatalogCache({
-      lane: input.lane,
-      ownerUserId: input.ownerUserId,
-      routeCatalog: input.routeCatalog,
-      serviceBundleId: input.serviceBundleId,
-    });
-  } catch (error) {
-    emitRunLine({
-      presenter: input.presenter,
-      code: "daemon.run.route_catalog_cache_write_failed",
-      text: `route catalog cache write failed: ${toErrorMessage(error)}`,
-    });
-  }
 }
 
 function resolveDaemonServiceLane(
@@ -1583,109 +1290,6 @@ type LocalControlSyncRouteCatalogPayload = Extract<
   OpenMeldDaemonControlPlaneResponse,
   { code: "service.sync_route_catalog" }
 >["payload"];
-type LocalControlSetLocalAgentEnabledPayload = Extract<
-  OpenMeldDaemonControlPlaneResponse,
-  { code: "service.set_local_agent_enabled" }
->["payload"];
-
-async function handleLocalControlPlaneSetLocalAgentEnabled(input: {
-  localAdapterContainer: LocalDaemonAdapterContainer;
-  onAttempt: RuntimeReportingAttemptObserver;
-  payload: OpenMeldDaemonSetLocalAgentEnabledRequestPayload;
-  presenter: Presenter;
-  requestActiveRouteCatalogSync:
-    | ((reason: string) => Promise<RouteCatalogSyncResult>)
-    | null;
-}): Promise<LocalControlSetLocalAgentEnabledPayload> {
-  try {
-    const result = await setAgentRegistrationEnabled({
-      agentId: input.payload.agentId,
-      enabled: input.payload.enabled,
-    });
-    let reportSyncStatus: LocalControlSetLocalAgentEnabledPayload["reportSyncStatus"] =
-      "failed";
-    try {
-      const reportSync = await syncLocalServiceRuntimeAgentControllerReports({
-        localAdapterContainer: input.localAdapterContainer,
-        onAttempt: input.onAttempt,
-        probePolicy: "fresh",
-      });
-      reportSyncStatus = reportSync.status;
-    } catch (error) {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_agent_enabled_report_sync_failed",
-        text: `local agent report sync failed after enabled update: ${toErrorMessage(error)}`,
-      });
-    }
-
-    if (result.changed && input.requestActiveRouteCatalogSync) {
-      await input
-        .requestActiveRouteCatalogSync("local_agent_enabled_changed")
-        .catch((error) => {
-          emitRunLine({
-            presenter: input.presenter,
-            code: "daemon.run.local_agent_enabled_route_sync_failed",
-            text: `route catalog sync failed after enabled update: ${toErrorMessage(error)}`,
-          });
-        });
-    }
-
-    emitRunLine({
-      presenter: input.presenter,
-      code: "daemon.run.local_agent_enabled_updated",
-      text: `${result.displayName} is ${result.enabled ? "enabled" : "disabled"}.`,
-      payload: {
-        agentControllerRef: result.agentControllerRef,
-        agentId: result.agentId,
-        changed: result.changed,
-        enabled: result.enabled,
-        reportSyncStatus,
-      },
-    });
-
-    return {
-      accepted: true,
-      agentControllerRef: result.agentControllerRef,
-      agentId: result.agentId,
-      changed: result.changed,
-      enabled: result.enabled,
-      reportSyncStatus,
-      status: result.status,
-    };
-  } catch (error) {
-    const message = toErrorMessage(error);
-    emitRunLine({
-      presenter: input.presenter,
-      code: "daemon.run.local_agent_enabled_rejected",
-      text: `local agent enabled update rejected: ${message}`,
-      payload: {
-        agentId: input.payload.agentId,
-        enabled: input.payload.enabled,
-        reasonCode: resolveLocalAgentEnabledErrorCode(error),
-      },
-    });
-    return {
-      accepted: false,
-      agentId: input.payload.agentId,
-      changed: false,
-      enabled: input.payload.enabled,
-      message,
-      reasonCode: resolveLocalAgentEnabledErrorCode(error),
-      reportSyncStatus: "failed",
-      status: "rejected",
-    };
-  }
-}
-
-function resolveLocalAgentEnabledErrorCode(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "agents.unexpected_error";
-  }
-  const [code] = error.message.split(":", 1);
-  const normalized = code?.trim();
-  return normalized?.includes(".") ? normalized : "agents.unexpected_error";
-}
 
 async function handleLocalControlPlaneRouteCatalogSync(input: {
   payload: OpenMeldDaemonSyncRouteCatalogRequestPayload;
@@ -2013,3 +1617,8 @@ function resolveConnectingReason(
 ): "reconnecting" | null {
   return reconnectAttempt > 0 ? "reconnecting" : null;
 }
+
+import {
+  SESSION_HISTORY_CAPABILITY_HEADER,
+  SESSION_HISTORY_RUNTIME_CAPABILITY,
+} from "@openmeld/schemas";

@@ -7,11 +7,91 @@ import {
   publishLarkPlatformIdentityLinkCard,
   publishLarkPlatformReply,
   readLarkPlatformChannelContext,
+  readLarkPlatformPluginSourceProof,
   requestLarkPlatformTenantAccessToken,
   updateLarkPlatformStreamingCardContent,
 } from "../src/remote-agent/application/lark-platform-openapi-client";
 
+import {
+  assertPluginChannelSourceUnchanged,
+  buildPluginChannelSourceProof,
+} from "../src/remote-agent/application/plugin-channel-source-proof";
+
 describe("Lark-platform OpenAPI publication", () => {
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("reads an exact full original %s message with the webhook's same normalization and edit proof", async (provider) => {
+    const originalText = `@_user_1 review ${"x".repeat(20_000)}MIDDLE${"y".repeat(20_000)}`;
+    const item = {
+      message_id: "om_original",
+      chat_id: "oc_chat",
+      root_id: "om_root",
+      msg_type: "text",
+      create_time: "100",
+      update_time: "100",
+      deleted: false,
+      updated: false,
+      sender: { id: "ou_user", id_type: "open_id", sender_type: "user" },
+      body: { content: JSON.stringify({ text: originalText }) },
+      mentions: [{ id: "ou_bot", id_type: "open_id", key: "@_user_1" }],
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+      String(url).includes("tenant_access_token")
+        ? Response.json({
+            code: 0,
+            expire: 7200,
+            tenant_access_token: "secret-never-in-proof",
+          })
+        : Response.json({ code: 0, data: { items: [item] } })
+    );
+    const input = {
+      provider,
+      appId: `proof-${provider}`,
+      appSecret: "secret",
+      botOpenId: "ou_bot",
+      messageId: "om_original",
+      chatId: "oc_chat",
+      rootMessageId: "om_root",
+      fetchImpl,
+    };
+    const proof = await readLarkPlatformPluginSourceProof(input);
+    const expected = await buildPluginChannelSourceProof({
+      provider,
+      messageId: "om_original",
+      providerUserId: "ou_user",
+      text: originalText.replace("@_user_1", "").trim(),
+      resourceIds: [],
+    });
+    expect(proof).toEqual(expected);
+    expect(
+      fetchImpl.mock.calls.some(([url]) =>
+        String(url).endsWith("/im/v1/messages/om_original?user_id_type=open_id")
+      )
+    ).toBe(true);
+    item.update_time = "200";
+    expect(() =>
+      assertPluginChannelSourceUnchanged(expected, {
+        ...expected,
+        revision: "200",
+      })
+    ).toThrow("original_request_changed");
+    expect(await readLarkPlatformPluginSourceProof(input)).toMatchObject({
+      revision: "200",
+    });
+    item.deleted = true;
+    expect(await readLarkPlatformPluginSourceProof(input)).toBeNull();
+    item.deleted = false;
+    item.chat_id = "other";
+    item.chat_id = "oc_chat";
+    item.updated = true;
+    expect(await readLarkPlatformPluginSourceProof(input)).toBeNull();
+    item.updated = false;
+    item.chat_id = "other";
+    expect(await readLarkPlatformPluginSourceProof(input)).toBeNull();
+    expect(JSON.stringify(proof)).not.toContain("secret");
+  });
+
   it("invokes the provider transport without an object receiver", async () => {
     const fetchImpl = vi.fn<typeof fetch>(function (this: unknown) {
       if (this !== undefined) {

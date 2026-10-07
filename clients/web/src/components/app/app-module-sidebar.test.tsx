@@ -1,8 +1,17 @@
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { rememberClientSidebarState } from "#/lib/sidebar-width-cookie";
+import {
+	OUTER_SIDEBAR_DEFAULT_STATE,
+	rememberClientSidebarState,
+} from "#/lib/sidebar-width-cookie";
 import {
 	AppModuleSidebar,
 	AppModuleSidebarProvider,
@@ -30,16 +39,25 @@ afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
 });
-function mount(scope = "org:profile:conversations", onMount = vi.fn()) {
+function mount(
+	scope = "org:profile:conversations",
+	onMount = vi.fn(),
+	defaultOpen = false
+) {
 	function Conversation() {
 		useEffect(onMount, []);
 		return <textarea aria-label="Draft" defaultValue="Keep my draft" />;
 	}
 	return render(
 		<TooltipProvider>
-			<AppModuleSidebarProvider available preferenceKey="conversations">
+			<AppModuleSidebarProvider
+				available
+				defaultOpen={defaultOpen}
+				preferenceKey="conversations"
+			>
 				<aside aria-label="Applications">Spaces · Team</aside>
 				<AppModuleSidebar label="Spaces" scrollKey={scope}>
+					<AppModuleSidebarToggle placement="sidebar" />
 					<a href="/conversation">Existing conversation</a>
 				</AppModuleSidebar>
 				<main>
@@ -50,15 +68,58 @@ function mount(scope = "org:profile:conversations", onMount = vi.fn()) {
 		</TooltipProvider>
 	);
 }
+it("uses route defaults until an explicit choice, then keeps that choice across surfaces", () => {
+	rememberClientSidebarState("outer", OUTER_SIDEBAR_DEFAULT_STATE);
+	let view = mount();
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+	view.unmount();
+	view = mount(undefined, undefined, true);
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("expanded");
+	view.unmount();
+	view = mount();
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+	fireEvent.click(
+		within(screen.getByRole("main")).getByRole("button", {
+			name: "Show sidebar",
+		})
+	);
+	view.unmount();
+	view = mount();
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("expanded");
+	fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+	view.unmount();
+	mount(undefined, undefined, true);
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+});
 it("collapses only the middle list, retaining application navigation and the mounted conversation draft", () => {
 	const mounted = vi.fn();
 	mount(undefined, mounted);
 	const draft = screen.getByRole("textbox", { name: "Draft" });
 	fireEvent.change(draft, { target: { value: "Unsent work" } });
-	fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+	const sidebar = screen.getByTestId("app-module-sidebar");
 	expect(
-		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
-	).toBe("hidden");
+		within(sidebar).getByRole("button", { name: "Hide sidebar" })
+	).toBeTruthy();
+	expect(screen.queryByRole("button", { name: "Show sidebar" })).toBeNull();
+	fireEvent.click(
+		within(sidebar).getByRole("button", { name: "Hide sidebar" })
+	);
+	expect(sidebar.getAttribute("data-state")).toBe("hidden");
+	expect(
+		within(screen.getByRole("main")).getByRole("button", {
+			name: "Show sidebar",
+		})
+	).toBeTruthy();
 	expect(
 		screen.getByRole("complementary", { name: "Applications" })
 	).toBeTruthy();
@@ -68,7 +129,12 @@ it("collapses only the middle list, retaining application navigation and the mou
 	expect(
 		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
 	).toBe("hidden");
-	fireEvent.click(screen.getByText("Expand sidebar"));
+	fireEvent.click(
+		within(
+			sidebar.querySelector('[data-sidebar="panel"]') as HTMLElement
+		).getByRole("button", { name: "Show sidebar" })
+	);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
 	expect(
 		screen.getByRole("link", { name: "Existing conversation" })
 	).toBeTruthy();

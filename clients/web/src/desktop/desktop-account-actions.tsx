@@ -10,47 +10,61 @@ import { buildOrganizationAccountSettingsPath } from "#/lib/organizations/organi
 import { openDesktopWeb } from "./platform";
 
 export function DesktopSignOutMenuItem({ index }: { index: number }) {
-	const signOut = useSignOut();
-	const navigate = useNavigate();
+	const signOut = useDesktopSignOutAction();
 	return (
 		<FluidDropdownMenuItem
 			disabled={signOut.isPending}
 			index={index}
-			onClick={() =>
-				signOut.mutate(undefined, {
-					onSuccess: () => navigate({ to: "/desktop-shell", replace: true }),
-					onError: (error) =>
-						toast.error(error.message || "Unable to sign out. Try again."),
-				})
-			}
+			onClick={signOut.run}
 		>
 			<SignOutIcon />
-			Sign out
+			Log out
 		</FluidDropdownMenuItem>
 	);
 }
 
-export function DesktopAccountActions() {
+function useDesktopSignOutAction() {
 	const signOut = useSignOut();
 	const navigate = useNavigate();
+	return {
+		isPending: signOut.isPending,
+		run: () =>
+			signOut.mutate(undefined, {
+				onSuccess: () => navigate({ to: "/desktop-shell", replace: true }),
+				onError: (error) =>
+					toast.error(error.message || "Unable to sign out. Try again."),
+			}),
+	};
+}
+
+export function DesktopAccountLogOutButton({
+	variant = "destructive",
+}: {
+	variant?: "destructive" | "outline";
+}) {
+	const signOut = useDesktopSignOutAction();
+	return (
+		<Button
+			disabled={signOut.isPending}
+			onClick={signOut.run}
+			size="sm"
+			variant={variant}
+		>
+			<SignOutIcon aria-hidden="true" data-icon="inline-start" />
+			{signOut.isPending ? "Logging out…" : "Log out"}
+		</Button>
+	);
+}
+
+export function DesktopAccountActions() {
 	const { currentOrganization } = useAppOrganization();
 	const [openError, setOpenError] = useState<string | null>(null);
 	return (
 		<section className="space-y-3">
-			<h2 className="font-medium text-sm">Desktop sign-in</h2>
+			<h2 className="font-medium text-sm">More account settings</h2>
 			<p className="text-muted-foreground text-sm">
-				Manage sign-in security, CLI access, and other sessions in the OpenMeld
-				web app. To use another account here, sign out and sign in with your
-				browser.
+				Manage sign-in, security, and account deletion in OpenMeld on the web.
 			</p>
-			<p className="text-muted-foreground text-sm">
-				Signing out of Desktop leaves this computer’s OpenMeld Service running.
-			</p>
-			{signOut.error && (
-				<p className="text-destructive text-sm" role="alert">
-					{signOut.error.message}
-				</p>
-			)}
 			{openError && (
 				<p className="text-destructive text-sm" role="alert">
 					{openError}
@@ -71,18 +85,7 @@ export function DesktopAccountActions() {
 				}}
 				variant="outline"
 			>
-				Open account settings in browser
-			</Button>
-			<Button
-				disabled={signOut.isPending}
-				onClick={() =>
-					signOut.mutate(undefined, {
-						onSuccess: () => navigate({ to: "/desktop-shell", replace: true }),
-					})
-				}
-				variant="outline"
-			>
-				{signOut.isPending ? "Signing out…" : "Sign out"}
+				Open account settings on the web
 			</Button>
 		</section>
 	);

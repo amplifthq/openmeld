@@ -19,6 +19,7 @@ export const desktopNotificationReferenceSchema = z.strictObject({
 export const desktopTrayComputerSchema = z.strictObject({
   available: z.boolean(),
   statusLabel: z.string().trim().min(1).max(120),
+  statusTone: z.enum(["connected", "offline", "attention"]).optional(),
 });
 export const desktopNotificationRequestSchema =
   desktopNotificationReferenceSchema.extend({
@@ -36,6 +37,10 @@ export const desktopNotificationTestSchema = z.strictObject({
   soundEnabled: z.boolean(),
 });
 export const desktopInboxAttentionSchema = z.strictObject({
+  priorityCount: z.number().int().nonnegative().safe().optional(),
+  needsActionCount: z.number().int().nonnegative().safe().optional(),
+  needsReviewCount: z.number().int().nonnegative().safe().optional(),
+  unreadPriorityUpdateCount: z.number().int().nonnegative().safe().optional(),
   ordinaryUnreadCount: z.number().int().nonnegative().safe(),
   unreadMentionCount: z.number().int().nonnegative().safe(),
   unreadUrgentUpdateCount: z.number().int().nonnegative().safe(),

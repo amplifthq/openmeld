@@ -8,7 +8,6 @@ import {
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 } from "@openmeld/space";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
-import { SparkleIcon } from "@phosphor-icons/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
@@ -18,11 +17,18 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SetupRecallButton } from "./space-onboarding-banner";
+
+vi.hoisted(() => {
+	// This existing header fixture describes the production product. Compiled
+	// isolation and its Home are covered by compiled-cli-target.test.mjs.
+	vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
+	vi.stubEnv("VITE_OPENMELD_HOME", "");
+});
 
 const JOINED_AS_LABEL_TEXT = /Joined as/;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
@@ -161,42 +167,6 @@ describe("SpaceHeader", () => {
 		expect(
 			within(titleRow as HTMLElement).queryByTestId("space-live-status")
 		).toBeNull();
-	});
-
-	it("shows loading in the header, gives connection recovery priority, and clears when idle", () => {
-		const onReconnectLiveUpdates = vi.fn();
-		const view = render(
-			createSpaceHeader({ liveState: "connecting", onReconnectLiveUpdates })
-		);
-		expect(screen.queryByTestId("space-live-status")).toBeNull();
-		view.rerender(
-			createSpaceHeader({ liveState: "connected", isLoadingMessages: true })
-		);
-		expect(screen.getByText("Loading")).toBeTruthy();
-		view.rerender(
-			createSpaceHeader({
-				liveState: "degraded",
-				isLoadingMessages: true,
-				onReconnectLiveUpdates,
-			})
-		);
-		expect(screen.getByText("Reconnecting…")).toBeTruthy();
-		expect(screen.queryByText("Loading")).toBeNull();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Reconnect live updates now" })
-		);
-		expect(onReconnectLiveUpdates).toHaveBeenCalledOnce();
-		view.rerender(
-			createSpaceHeader({ liveState: "stale", onReconnectLiveUpdates })
-		);
-		expect(screen.getByText("Syncing…")).toBeTruthy();
-		expect(
-			screen.queryByRole("button", { name: "Reconnect live updates now" })
-		).toBeNull();
-		view.rerender(
-			createSpaceHeader({ liveState: "connected", onReconnectLiveUpdates })
-		);
-		expect(screen.queryByTestId("space-live-status")).toBeNull();
 	});
 
 	it("renders space actions without the old app navigation tabs", () => {
@@ -434,26 +404,20 @@ describe("SpaceHeader", () => {
 		).toBeTruthy();
 	});
 
-	it("consolidates Center Agent destinations and conversation information into one menu", async () => {
+	it("keeps chat settings in the Center Agent conversation menu", async () => {
 		render(
 			createSpaceHeader({
 				isCenterAgentDirectMessage: true,
-				menuItems: [
-					{
-						icon: SparkleIcon,
-						label: "Skills",
-						to: "/o/acme/center-agent/skills",
-					},
-				],
+				showChatSettingsMenu: true,
 			})
 		);
 
 		expect(screen.queryByRole("button", { name: "Space settings" })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
-		expect(
-			await screen.findByRole("menuitem", { name: "Skills" })
-		).toBeTruthy();
-		fireEvent.click(screen.getByRole("menuitem", { name: "Chat settings" }));
+		expect(screen.queryByRole("menuitem", { name: "Memory" })).toBeNull();
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Chat settings" })
+		);
 
 		expect(await screen.findByRole("dialog")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
@@ -461,7 +425,7 @@ describe("SpaceHeader", () => {
 		expect(screen.queryByText("About")).toBeNull();
 	});
 
-	it("hides ordinary Space access and membership controls for Center Agent DMs", () => {
+	it("hides ordinary Space access and membership controls for Center Agent DMs", async () => {
 		render(
 			createSpaceHeader({
 				accessMode: "public",
@@ -477,7 +441,10 @@ describe("SpaceHeader", () => {
 		expect(screen.queryByRole("button", { name: "Share space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Members" })).toBeNull();
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Chat settings" })
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		const dialog = screen.getByRole("dialog");
 
@@ -500,7 +467,7 @@ describe("SpaceHeader", () => {
 		).toBeNull();
 	});
 
-	it("keeps ordinary Direct Message metadata and lifecycle controls read-only", () => {
+	it("keeps ordinary Direct Message metadata and lifecycle controls read-only", async () => {
 		render(
 			createSpaceHeader({
 				accessMode: "members_only",
@@ -510,7 +477,10 @@ describe("SpaceHeader", () => {
 		);
 
 		expect(screen.queryByText("Local Agent")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Chat menu" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Chat settings" })
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		const dialog = screen.getByRole("dialog");
 
@@ -1149,9 +1119,6 @@ describe("SpaceHeader", () => {
 function createSpaceHeader(
 	input: {
 		accessMode?: SpaceAccessMode;
-		liveState?: ComponentProps<typeof SpaceHeader>["liveState"];
-		isLoadingMessages?: boolean;
-		onReconnectLiveUpdates?: () => void;
 		currentProfileName?: string | null;
 		directMessageOwnerVisibilityLabel?: string | null;
 		onSetAccessMode?: (input: {
@@ -1164,7 +1131,7 @@ function createSpaceHeader(
 		onLeaveSpace?: () => void;
 		isCenterAgentDirectMessage?: boolean;
 		memberCount?: number;
-		menuItems?: ComponentProps<typeof SpaceHeader>["menuItems"];
+		showChatSettingsMenu?: boolean;
 		membersControl?: ReactNode;
 		passwordProtected?: boolean;
 		linkJoinPolicy?: SpaceLinkJoinPolicy;
@@ -1194,10 +1161,8 @@ function createSpaceHeader(
 					isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
 					isDeleteSpacePending={false}
 					isLeaveSpacePending={false}
-					isLoadingMessages={input.isLoadingMessages}
 					isSpaceNamePending={false}
 					leaveSpaceErrorMessage={null}
-					liveState={input.liveState}
 					membersControl={
 						input.membersControl === undefined ? (
 							<button type="button">Members</button>
@@ -1205,12 +1170,9 @@ function createSpaceHeader(
 							input.membersControl
 						)
 					}
-					menuItems={input.menuItems}
-					menuLabel="Center Agent menu"
 					notificationControl={<button type="button">Notifications</button>}
 					onDeleteSpace={input.onDeleteSpace ?? vi.fn()}
 					onLeaveSpace={input.onLeaveSpace ?? vi.fn()}
-					onReconnectLiveUpdates={input.onReconnectLiveUpdates}
 					onSetAccessMode={
 						input.onSetAccessMode ?? vi.fn(async () => undefined)
 					}
@@ -1219,6 +1181,7 @@ function createSpaceHeader(
 					}
 					renderFrame={input.renderFrame}
 					setupRecallAction={input.setupRecallAction}
+					showChatSettingsMenu={input.showChatSettingsMenu}
 					showDeleteSpaceAction={input.showDeleteSpaceAction ?? true}
 					spaceNameErrorMessage={null}
 					status={createSpaceStatus({

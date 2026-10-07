@@ -10,16 +10,29 @@ const boundedReasonCodeSchema = z.string().trim().min(1).max(160);
 const boundedSelectorIdSchema = z.string().trim().min(1).max(512);
 const wakeStopReasonSchema = z.string().trim().min(1).max(512);
 
+/** Internal Core -> Space read; not exposed as a public HTTP endpoint. */
+export const spaceWakeStopIntentQuerySchema = z.strictObject({
+  spaceId: boundedSelectorIdSchema,
+  dispatchId: boundedSelectorIdSchema,
+  targetProfileId: boundedSelectorIdSchema,
+});
+
+export const spaceWakeStopIntentResponseSchema = z.strictObject({
+  status: z.enum(["not_found", "not_requested", "requested"]),
+});
+
 export const spaceWakeStopSelectorSchema = z.discriminatedUnion("by", [
   z.strictObject({
     by: z.literal("source_signal"),
     sourceSignalId: boundedSelectorIdSchema,
     targetProfileId: boundedSelectorIdSchema,
+    dispatchId: boundedSelectorIdSchema.optional(),
   }),
   z.strictObject({
     by: z.literal("client_message"),
     clientMessageId: clientMessageIdSchema,
     targetProfileId: boundedSelectorIdSchema,
+    dispatchId: boundedSelectorIdSchema.optional(),
   }),
 ]);
 

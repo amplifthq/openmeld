@@ -1,5 +1,7 @@
+import { modelCatalogSchema } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import hostedCatalog from "../../../release/vendor-models.json";
 import {
   AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION,
   listAgentControllerCollaborationModeOptions,
@@ -82,6 +84,18 @@ const CATALOG: ModelCatalog = {
 };
 
 describe("resolveAgentProfileEditCapabilities", () => {
+  it("lets personal Remote Agents edit models from the shared hosted catalog", () => {
+    const capabilities = resolveAgentProfileEditCapabilities({
+      agentControllerRef: "hosted:remote-agent",
+      modelCatalog: modelCatalogSchema.parse(hostedCatalog),
+    });
+    expect(capabilities.modelSelection.editable).toBe(true);
+    expect(
+      capabilities.modelSelection.models.map((model) => model.id)
+    ).toContain("anthropic/claude-fable-5.1");
+    expect(capabilities.permissionMode.editable).toBe(false);
+  });
+
   it("resolves claude-code edit capabilities from the permission resolver and model catalog", () => {
     const capabilities = resolveAgentProfileEditCapabilities({
       agentControllerRef: "builtin:claude-code",
@@ -302,8 +316,34 @@ describe("resolveAgentProfileEditCapabilities", () => {
 });
 
 describe("resolveAgentProfileEditApplicationTiming", () => {
+  it("limits Codex live changes to reviewers and Cursor live changes to ACP session modes", () => {
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:codex",
+        field: "permission_mode",
+        currentPermissionMode: "codex:askForApproval",
+        nextPermissionMode: "codex:approveForMe",
+      })
+    ).toBe("applies_now");
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:codex",
+        field: "permission_mode",
+        currentPermissionMode: "codex:approveForMe",
+        nextPermissionMode: "codex:fullAccess",
+      })
+    ).toBe("applies_next_wake");
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:cursor",
+        field: "permission_mode",
+        currentPermissionMode: "cursor:default",
+        nextPermissionMode: "cursor:force",
+      })
+    ).toBe("applies_next_wake");
+  });
   it("keeps the provider timing matrix explicit and versioned", () => {
-    expect(AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION).toBe(1);
+    expect(AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION).toBe(2);
     expect(
       resolveAgentProfileEditApplicationTiming({
         agentControllerRef: "builtin:claude-code",
@@ -314,6 +354,8 @@ describe("resolveAgentProfileEditApplicationTiming", () => {
       resolveAgentProfileEditApplicationTiming({
         agentControllerRef: "builtin:cursor",
         field: "permission_mode",
+        currentPermissionMode: "cursor:default",
+        nextPermissionMode: "cursor:plan",
       })
     ).toBe("applies_now");
     expect(

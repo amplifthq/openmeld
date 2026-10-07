@@ -1,27 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-18T12:17:09.549Z",
+  "updatedAt": "2026-10-07T09:39:16.259Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.213",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
+      "packageVersion": "0.3.247",
       "updatePolicy": "available",
-      "reason": "Advisory connection recovery and split update targets preserve existing setup and update contracts; publish only after cloud receivers are deployed."
+      "reason": "Existing CLI commands remain compatible; deploy cloud readers before publishing optional Plugin and session history commands."
     },
     "service": {
-      "bundleHash": "448d205e5f151ed60aef4deee63adbbd105a43f8d21bc864ff31ba2646f0d5da",
-      "bundleVersion": "0.3.213",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
+      "bundleHash": "b0aebc4526d2f2a10112500f150b6e030237b64bfe2c16d434a84bca71d0e9d8",
+      "portableBundleHash": "9b420e3cb237e71a9be0adcc15b2a206bf710d9d5c48c493388f90c5c25fd4dd",
+      "bundleVersion": "0.3.247",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Advisory keepalive and controlled-stop fixes preserve accepted work and existing update recovery; new runtime receivers deploy before this Service."
+      "reason": "Old Services retain safe existing workflows; new permission fields and session history capability require cloud receivers first and remain opt-in."
     },
     "skills": {
-      "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
+      "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The plugin guide adds optional commands without changing existing Wake or reply instructions; publish after the compatible cloud receivers."
+      "reason": "Computer, Plugin and project guidance is additive and keeps existing Wake and Space action contracts."
     }
   }
 }

@@ -2,16 +2,22 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
-  DESKTOP_AUTH_SCHEME,
+  DESKTOP_CONTRACT_HEADER,
+  DESKTOP_CONTRACT_VERSION,
+  DESKTOP_UPDATE_OBSERVATION_PATH,
+  DESKTOP_WEB_BUILD_HEADER,
   type DesktopComputerConnectionProgress,
   type DesktopComputerDisconnectResult,
   type DesktopComputerOperation,
   type DesktopInboxAttention,
   type DesktopInstalledTarget,
+  desktopAuthIdentity,
   desktopComputerConnectionRequestSchema,
   desktopComputerDisconnectRequestSchema,
   desktopInstalledTargetSchema,
   desktopPlatformSchema,
+  desktopUpdateObservationResponseSchema,
+  desktopUpdateObservationSchema,
 } from "@openmeld/schemas";
 import {
   app,
@@ -34,8 +40,10 @@ import {
   resolveDesktopEnvPreset,
   resolveDesktopWebUrl,
 } from "./desktop-environment";
+import { applyDesktopDevelopmentContext } from "./development-context";
 import { installedCommandEnvironment } from "./installed-environment";
 import { createLocalComputerReader } from "./local-computer";
+import { createPilotAccountStreams } from "./pilot-account-stream";
 import { resolvePilotAssets } from "./pilot-assets";
 import { createPilotAuth } from "./pilot-auth";
 import { observePilotWindow } from "./pilot-diagnostics";
@@ -43,13 +51,20 @@ import { createPilotNotifications } from "./pilot-notifications";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
 import { installPilotTransport } from "./pilot-transport";
 import {
+  configureDesktopCredentialStorage,
   configureInstalledUserData,
   configurePilotUserData,
 } from "./pilot-user-data";
+import { createTransportDiagnostics } from "./transport-diagnostics";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
+declare const __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__: unknown;
 declare const __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: boolean;
 declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | null;
+const developmentContext =
+  typeof __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__ === "undefined"
+    ? null
+    : __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__;
 
 export function initializeDesktopPilot(
   getWindow: () => BrowserWindow | null,
@@ -67,6 +82,9 @@ export function initializeDesktopPilot(
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
     : undefined;
+  if (!installedTarget) {
+    applyDesktopDevelopmentContext(developmentContext, process.env);
+  }
   const sharedAssets = resolvePilotAssets({
     privatePackage: __OPENMELD_DESKTOP_PRIVATE_PACKAGE__,
     resourcesPath: process.resourcesPath,
@@ -118,7 +136,9 @@ export function initializeDesktopPilot(
   };
   protocol.registerSchemesAsPrivileged([
     {
-      scheme: installedTarget?.authScheme ?? DESKTOP_AUTH_SCHEME,
+      scheme:
+        installedTarget?.authScheme ??
+        desktopAuthIdentity(false, undefined, webOrigin).authScheme,
       privileges: { standard: false, secure: true },
     },
     {
@@ -136,13 +156,27 @@ export function initializeDesktopPilot(
   } else {
     configurePilotUserData(app, process.env);
   }
+  configureDesktopCredentialStorage(app, {
+    installed: Boolean(installedTarget),
+    lane,
+    platform: process.platform,
+    webOrigin,
+  });
   let sessionRevision = 0;
+  const transportDiagnostics = createTransportDiagnostics({
+    directory: join(app.getPath("userData"), "diagnostics"),
+    version: app.getVersion(),
+    webBuild: platform.webBuild,
+  });
+  let desktopUpdateAccountChanged: (() => void) | null = null;
   const auth = createPilotAuth(
     webOrigin,
     getWindow,
     () => {
       sessionRevision += 1;
+      desktopUpdateAccountChanged?.();
       streams.closeAll();
+      accountStreams.closeAll();
       notifications.clear();
       const owner = getWindow()?.webContents;
       if (owner && !owner.isDestroyed()) {
@@ -152,6 +186,14 @@ export function initializeDesktopPilot(
     installedTarget
   );
   const streams = createPilotSpaceStreams({
+    webOrigin,
+    webBuild: platform.webBuild,
+    cookie: auth.cookie,
+    installed: Boolean(installedTarget),
+    ensureCompatible,
+    observe: transportDiagnostics.record,
+  });
+  const accountStreams = createPilotAccountStreams({
     webOrigin,
     webBuild: platform.webBuild,
     cookie: auth.cookie,
@@ -178,9 +220,42 @@ export function initializeDesktopPilot(
   let disposeTransport: (() => void) | undefined;
   let notificationPoll: ReturnType<typeof setInterval> | undefined;
   const diagnosticsEnabled =
-    !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
+    (!app.isPackaged || Boolean(developmentContext)) &&
+    !installedTarget &&
+    process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
     activateNotification: notifications.activate,
+    setDesktopUpdateAccountListener(listener: () => void) {
+      desktopUpdateAccountChanged = listener;
+    },
+    async reportDesktopUpdateObservation(
+      raw: import("@openmeld/schemas/types").DesktopUpdateObservation
+    ) {
+      const observation = desktopUpdateObservationSchema.parse(raw);
+      await ensureCompatible();
+      const response = await auth.cloudRequest(
+        DESKTOP_UPDATE_OBSERVATION_PATH,
+        {
+          method: "PUT",
+          headers: new Headers({
+            "content-type": "application/json",
+            origin: DESKTOP_APP_ORIGIN,
+            [installedTarget
+              ? DESKTOP_CONTRACT_HEADER
+              : DESKTOP_WEB_BUILD_HEADER]: installedTarget
+              ? DESKTOP_CONTRACT_VERSION
+              : platform.webBuild,
+          }),
+          body: new TextEncoder().encode(JSON.stringify(observation)).buffer,
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Desktop observation rejected (${response.status})`);
+      }
+      return desktopUpdateObservationResponseSchema.parse(
+        await response.json()
+      );
+    },
     auth,
     installedTarget,
     diagnosticsEnabled,
@@ -191,6 +266,7 @@ export function initializeDesktopPilot(
       return transportSession;
     },
     dispose() {
+      desktopUpdateAccountChanged = null;
       clearInterval(notificationPoll);
       notifications.clear();
       disposeTransport?.();
@@ -235,6 +311,7 @@ export function initializeDesktopPilot(
           cloudRequest: auth.cloudRequest,
           readLocalComputer,
           ensureCompatible,
+          observe: transportDiagnostics.record,
         }
       );
       let latestConnectionProgress: DesktopComputerConnectionProgress | null =
@@ -272,6 +349,7 @@ export function initializeDesktopPilot(
           latestConnectionOperation = null;
           notifications.clear();
           streams.closeAll();
+          accountStreams.closeAll();
           return auth.signIn();
         },
         [PILOT_IPC.signOut]: () => {
@@ -279,6 +357,7 @@ export function initializeDesktopPilot(
           latestConnectionOperation = null;
           notifications.clear();
           streams.closeAll();
+          accountStreams.closeAll();
           return auth.signOut();
         },
       };
@@ -516,9 +595,13 @@ export function initializeDesktopPilot(
         const frame = event.senderFrame;
         if (!observedOwners.has(owner)) {
           observedOwners.add(owner);
-          owner.once("destroyed", streams.closeAll);
-          owner.on("did-navigate", streams.closeAll);
-          owner.on("render-process-gone", streams.closeAll);
+          const closeStreams = () => {
+            streams.closeAll();
+            accountStreams.closeAll();
+          };
+          owner.once("destroyed", closeStreams);
+          owner.on("did-navigate", closeStreams);
+          owner.on("render-process-gone", closeStreams);
         }
         return streams.open(raw, (value) => {
           if (
@@ -537,6 +620,43 @@ export function initializeDesktopPilot(
       ipcMain.handle(PILOT_IPC.spaceStreamPing, (event, raw: unknown) => {
         authorize(event);
         streams.ping(raw);
+      });
+      ipcMain.handle(PILOT_IPC.accountStreamOpen, (event, raw: unknown) => {
+        authorize(event);
+        const owner = event.sender;
+        const frame = event.senderFrame;
+        if (!observedOwners.has(owner)) {
+          observedOwners.add(owner);
+          owner.once("destroyed", () => {
+            streams.closeAll();
+            accountStreams.closeAll();
+          });
+          owner.on("did-navigate", () => {
+            streams.closeAll();
+            accountStreams.closeAll();
+          });
+          owner.on("render-process-gone", () => {
+            streams.closeAll();
+            accountStreams.closeAll();
+          });
+        }
+        return accountStreams.open(raw, (value) => {
+          if (
+            !owner.isDestroyed() &&
+            getWindow()?.webContents === owner &&
+            owner.mainFrame === frame
+          ) {
+            owner.send(PILOT_IPC.accountStreamEvent, value);
+          }
+        });
+      });
+      ipcMain.handle(PILOT_IPC.accountStreamClose, (event, raw: unknown) => {
+        authorize(event);
+        accountStreams.close(raw);
+      });
+      ipcMain.handle(PILOT_IPC.accountStreamPing, (event, raw: unknown) => {
+        authorize(event);
+        accountStreams.ping(raw);
       });
     },
   };

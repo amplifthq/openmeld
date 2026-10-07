@@ -8,6 +8,7 @@ import {
 	buildProfileHomeRoutes,
 } from "#/lib/profile-routes";
 import type { WakeFailureDisplay } from "#/lib/spaces/wake-failure-display";
+import { AgentModelRecoveryAction } from "./agent-model-recovery-action";
 
 export function SpaceWakeFailureActionControl(input: {
 	className?: string;
@@ -20,6 +21,15 @@ export function SpaceWakeFailureActionControl(input: {
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
 	if (input.display.actionTarget === null) {
 		return null;
+	}
+	if (input.display.primaryActionId === "change_model") {
+		return (
+			<AgentModelRecoveryAction
+				className={input.className}
+				orgSlug={orgSlug}
+				profileId={input.targetProfileId}
+			/>
+		);
 	}
 	if (input.display.actionTarget === "cursor_account") {
 		return (

@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   listOwnedDeviceRegistryRecords,
+  listOwnedDeviceRegistryRecordsForUsers,
   readOwnedDeviceRegistryRecord,
   upsertOwnedDeviceRegistryRecord,
-} from "../src/start/infrastructure/d1/owned-device-registry-repo";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/start/infrastructure/postgresql/owned-device-registry-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("owned device registry repo write-side", () => {
   it("writes and reads a canonical owned device registry row", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await upsertOwnedDeviceRegistryRecord({
         db: harness.db,
@@ -46,12 +47,12 @@ describe("owned device registry repo write-side", () => {
         updatedAtMs: Date.parse("2026-04-14T09:05:00.000Z"),
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("lists owned device registry rows ordered by updatedAtMs descending", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await upsertOwnedDeviceRegistryRecord({
         db: harness.db,
@@ -117,8 +118,24 @@ describe("owned device registry repo write-side", () => {
           updatedAtMs: Date.parse("2026-04-14T09:00:00.000Z"),
         },
       ]);
+      const records = await listOwnedDeviceRegistryRecordsForUsers({
+        db: harness.db,
+        userIds: ["owner-1", "missing-owner"],
+      });
+      expect(
+        records.map((record) => [record.ownerUserId, record.deviceId])
+      ).toEqual([
+        ["owner-1", "device-newer"],
+        ["owner-1", "device-older"],
+      ]);
+      expect(
+        await listOwnedDeviceRegistryRecordsForUsers({
+          db: harness.db,
+          userIds: ["other-owner"],
+        })
+      ).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

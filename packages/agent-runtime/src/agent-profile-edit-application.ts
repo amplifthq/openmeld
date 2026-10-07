@@ -1,6 +1,7 @@
+import type { AgentControllerPermissionMode } from "@openmeld/schemas/types";
 import { parseAgentControllerRef } from "./agent-controller-ref";
 
-export const AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION = 1;
+export const AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION = 2;
 
 export type AgentProfileEditApplicationTiming =
   | "applies_now"
@@ -64,10 +65,27 @@ const AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX = {
 export function resolveAgentProfileEditApplicationTiming(input: {
   agentControllerRef: string;
   field: AgentProfileRuntimeEditField;
+  currentPermissionMode?: AgentControllerPermissionMode | null;
+  nextPermissionMode?: AgentControllerPermissionMode | null;
 }): AgentProfileEditApplicationTiming {
   const parsedRef = parseAgentControllerRef(input.agentControllerRef);
   if (parsedRef?.kind !== "builtin") {
     return "not_supported";
+  }
+  if (
+    input.field === "permission_mode" &&
+    (parsedRef.id === "codex" || parsedRef.id === "cursor")
+  ) {
+    const liveModes: readonly AgentControllerPermissionMode[] =
+      parsedRef.id === "codex"
+        ? ["codex:askForApproval", "codex:approveForMe"]
+        : ["cursor:default", "cursor:ask", "cursor:plan"];
+    return input.currentPermissionMode &&
+      input.nextPermissionMode &&
+      liveModes.includes(input.currentPermissionMode) &&
+      liveModes.includes(input.nextPermissionMode)
+      ? "applies_now"
+      : APPLIES_TO_NEXT_WAKE;
   }
   const controllerCapabilities =
     AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX[

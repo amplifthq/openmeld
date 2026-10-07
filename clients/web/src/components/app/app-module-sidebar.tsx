@@ -10,7 +10,6 @@ import {
 	SidebarProvider,
 	useSidebar,
 } from "@openmeld/ui/fluid/sidebar-state";
-import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import {
 	createContext,
 	type ReactNode,
@@ -34,6 +33,7 @@ const scrollPositions = new Map<string, number>();
 export function AppModuleSidebarProvider(input: {
 	children: ReactNode;
 	available: boolean;
+	defaultOpen?: boolean;
 	initialState?: SidebarPersistedState;
 	preferenceKey: string;
 }) {
@@ -45,11 +45,15 @@ export function AppModuleSidebarProvider(input: {
 		)
 	);
 	const width = state.pageWidths?.[input.preferenceKey] ?? state.width;
+	const open = state.useRouteDefault
+		? (input.defaultOpen ?? false)
+		: state.tier === "expanded";
 	const onGeometryChange = useCallback(
 		(geometry: SidebarGeometry) => {
 			setState((current) => {
 				const next = {
 					...current,
+					useRouteDefault: false,
 					tier: geometry.mode === "icon" ? ("hidden" as const) : geometry.mode,
 					width: `${geometry.width}px`,
 					pageWidths: {
@@ -67,7 +71,7 @@ export function AppModuleSidebarProvider(input: {
 		<ModuleSidebarContext.Provider value={input.available}>
 			<SidebarProvider
 				geometry={{
-					mode: state.tier === "expanded" ? "expanded" : "hidden",
+					mode: open ? "expanded" : "hidden",
 					width: Number.parseFloat(width) * (width.endsWith("rem") ? 16 : 1),
 				}}
 				keyboardShortcuts={!desktop}
@@ -96,11 +100,29 @@ export function useHasModuleSidebar() {
 	return useContext(ModuleSidebarContext);
 }
 
-export function AppModuleSidebarToggle() {
+export function AppModuleSidebarToggle(
+	input: { placement?: "header" | "sidebar" } = {}
+) {
 	const available = useContext(ModuleSidebarContext);
 	const desktop = useDesktopTitlebar();
 	return available && !desktop ? (
-		<SidebarTrigger className="hidden size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted lg:inline-flex" />
+		<AppModuleSidebarToggleWithState placement={input.placement ?? "header"} />
+	) : null;
+}
+
+function AppModuleSidebarToggleWithState(input: {
+	placement: "header" | "sidebar";
+}) {
+	const { state, isPeeking } = useSidebar();
+	const visible =
+		input.placement === "sidebar"
+			? state === "expanded" || isPeeking
+			: state !== "expanded";
+	return visible ? (
+		<SidebarTrigger
+			className="hidden size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted lg:inline-flex"
+			tooltipSide={input.placement === "sidebar" ? "bottom" : "right"}
+		/>
 	) : null;
 }
 
@@ -110,8 +132,6 @@ export function AppModuleSidebar(input: {
 	scrollKey: string;
 }) {
 	const { presentation } = useAppNavigationPresentation();
-	const desktop = useDesktopTitlebar();
-	const { isPeeking } = useSidebar();
 	const restoreScroll = useCallback(
 		(node: HTMLDivElement | null) => {
 			if (node) {
@@ -122,7 +142,7 @@ export function AppModuleSidebar(input: {
 	);
 	const content = (
 		<SidebarContent
-			contentClassName="px-3 py-5"
+			contentClassName="px-3 pt-2.5 pb-5"
 			viewportProps={{
 				onScroll: (event) =>
 					scrollPositions.set(input.scrollKey, event.currentTarget.scrollTop),
@@ -148,14 +168,6 @@ export function AppModuleSidebar(input: {
 			className="h-full border-border border-r bg-sidebar text-sidebar-foreground [&_[data-sidebar=panel]]:bg-sidebar [&_[data-sidebar=restore]]:hidden [&_[data-sidebar=reveal]]:w-8"
 			data-testid="app-module-sidebar"
 		>
-			{isPeeking && !desktop && (
-				<div className="flex shrink-0 justify-end px-3 pt-3">
-					<SidebarTrigger className="flex h-7 items-center gap-2 rounded-md px-2 text-muted-foreground text-xs hover:bg-muted hover:text-foreground">
-						<SidebarSimpleIcon aria-hidden="true" className="size-4" />
-						Expand sidebar
-					</SidebarTrigger>
-				</div>
-			)}
 			{content}
 		</Sidebar>
 	);

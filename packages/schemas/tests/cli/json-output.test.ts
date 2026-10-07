@@ -826,6 +826,7 @@ describe("cli --json output envelope contract", () => {
       "projects.connections.remove",
       "activity.read",
       "activity.sessions",
+      "activity.history",
       "activity.install",
       "activity.uninstall",
       "activity.status",
@@ -849,6 +850,7 @@ describe("cli --json output envelope contract", () => {
       "organization.invite_link.create",
       "organization.invite_link.revoke",
       "skills.list",
+      "skills.scan",
       "skills.show",
       "skills.load",
     ]);

@@ -7,10 +7,14 @@ import {
 } from "@openmeld/gateway-contract";
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+  LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
+  OPENMELD_COMPUTER_CARE_HEADER,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
 import { logAuditEvent } from "../audit";
@@ -136,6 +140,27 @@ function forwardRecognizedLocalCapabilityHeaders(input: {
   source: Headers;
   target: Headers;
 }): void {
+  if (input.source.get(OPENMELD_COMPUTER_CARE_HEADER) === "1") {
+    input.target.set(OPENMELD_COMPUTER_CARE_HEADER, "1");
+  }
+  if (
+    input.source.get(SESSION_HISTORY_CAPABILITY_HEADER) ===
+    SESSION_HISTORY_RUNTIME_CAPABILITY
+  ) {
+    input.target.set(
+      SESSION_HISTORY_CAPABILITY_HEADER,
+      SESSION_HISTORY_RUNTIME_CAPABILITY
+    );
+  }
+  if (input.source.get(OPENMELD_EXECUTION_ADMISSION_HEADER) === "1") {
+    input.target.set(OPENMELD_EXECUTION_ADMISSION_HEADER, "1");
+  }
+  if (input.source.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1") {
+    input.target.set(SPACE_WORK_HANDOFF_CAPABILITY_HEADER, "1");
+  }
+  if (input.source.get(LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER) === "1") {
+    input.target.set(LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER, "1");
+  }
   if (input.source.get(OPENMELD_REASONING_STREAM_HEADER) === "1") {
     input.target.set(OPENMELD_REASONING_STREAM_HEADER, "1");
   }
@@ -192,3 +217,8 @@ const isTimeoutError = (error: unknown): boolean => {
   const message = toErrorMessage(error).toLowerCase();
   return message.includes("timeout");
 };
+
+import {
+  SESSION_HISTORY_CAPABILITY_HEADER,
+  SESSION_HISTORY_RUNTIME_CAPABILITY,
+} from "@openmeld/schemas";

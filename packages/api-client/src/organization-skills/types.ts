@@ -1,15 +1,26 @@
 import type {
+  BeginOrganizationSkillImportBatchBody,
+  BeginOrganizationSkillImportBatchResponse,
   CreateOrganizationSkillBody,
   CreateOrganizationSkillResponse,
   DeleteOrganizationSkillBody,
   DeleteOrganizationSkillResponse,
+  GetOrganizationSkillImportBatchResponse,
   GetOrganizationSkillResponse,
+  ImportOrganizationSkillFromFilesBody,
+  ImportOrganizationSkillFromFilesResponse,
   ImportOrganizationSkillFromGitHubBody,
   ImportOrganizationSkillFromGitHubResponse,
+  ListOrganizationSkillImportBatchesResponse,
   ListOrganizationSkillsResponse,
   OpenMeldRequestContext,
+  OrganizationSkillRuntimeCatalogResponse,
+  PreviewOrganizationSkillFromFilesBody,
+  PreviewOrganizationSkillFromFilesResponse,
   PreviewOrganizationSkillFromGitHubBody,
   PreviewOrganizationSkillFromGitHubResponse,
+  PreviewOrganizationSkillRepositoryBody,
+  PreviewOrganizationSkillRepositoryResponse,
   SetOrganizationSkillEnabledBody,
   SetOrganizationSkillEnabledResponse,
   SetOrganizationSkillMaintainersBody,
@@ -30,22 +41,49 @@ type OrganizationSkillMutationTarget = {
 };
 
 export type OrganizationSkillsApi = {
+  beginImportBatch: (
+    input: OrganizationSkillRequestInput & BeginOrganizationSkillImportBatchBody
+  ) => Promise<BeginOrganizationSkillImportBatchResponse>;
+  getImportBatch: (
+    input: OrganizationSkillRequestInput & { batchId: string }
+  ) => Promise<GetOrganizationSkillImportBatchResponse>;
+  listImportBatches: (
+    input?: OrganizationSkillRequestInput
+  ) => Promise<ListOrganizationSkillImportBatchesResponse>;
   list: (
     input?: OrganizationSkillRequestInput
   ) => Promise<ListOrganizationSkillsResponse>;
   get: (
-    input: OrganizationSkillRequestInput & OrganizationSkillMutationTarget
+    input: OrganizationSkillRequestInput &
+      OrganizationSkillMutationTarget & { releaseId?: string }
   ) => Promise<GetOrganizationSkillResponse>;
+  getCatalog: (
+    input: OrganizationSkillRequestInput & OrganizationSkillMutationTarget
+  ) => Promise<OrganizationSkillRuntimeCatalogResponse>;
+  readResource: (
+    input: OrganizationSkillRequestInput &
+      OrganizationSkillMutationTarget & { releaseId: string; path: string }
+  ) => Promise<Uint8Array>;
   create: (
     input: OrganizationSkillRequestInput & CreateOrganizationSkillBody
   ) => Promise<CreateOrganizationSkillResponse>;
   importFromGitHub: (
     input: OrganizationSkillRequestInput & ImportOrganizationSkillFromGitHubBody
   ) => Promise<ImportOrganizationSkillFromGitHubResponse>;
+  importFromFiles: (
+    input: OrganizationSkillRequestInput & ImportOrganizationSkillFromFilesBody
+  ) => Promise<ImportOrganizationSkillFromFilesResponse>;
+  previewFromFiles: (
+    input: OrganizationSkillRequestInput & PreviewOrganizationSkillFromFilesBody
+  ) => Promise<PreviewOrganizationSkillFromFilesResponse>;
   previewFromGitHub: (
     input: OrganizationSkillRequestInput &
       PreviewOrganizationSkillFromGitHubBody
   ) => Promise<PreviewOrganizationSkillFromGitHubResponse>;
+  previewRepositoryFromGitHub: (
+    input: OrganizationSkillRequestInput &
+      PreviewOrganizationSkillRepositoryBody
+  ) => Promise<PreviewOrganizationSkillRepositoryResponse>;
   update: (
     input: OrganizationSkillRequestInput &
       OrganizationSkillMutationTarget &

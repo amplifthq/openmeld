@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { slackMessagePermalinkSchema } from "../runtime/message-channel";
 
 export const INBOX_TITLE_MAX_CHARS = 160;
@@ -34,6 +35,63 @@ export const inboxViewSchema = z.enum([
 export const inboxPresentationSchema = z.enum(["attention"]);
 export const inboxAttentionSchema = z.enum(["update", "action_required"]);
 export const inboxImportanceSchema = z.enum(["normal", "urgent"]);
+export const inboxRecipientReasonSchema = z.enum([
+  "human_mention",
+  "thread_reply",
+  "requester",
+  "direct_message",
+  "space_member",
+  "agent_owner",
+  "device_owner",
+]);
+const inboxAgentProfileIdsSchema = z.array(identifierSchema).max(100);
+
+/** Source-owned relevance, not authorization or notification-channel consent. */
+export const inboxSourceFactsSchema = z
+  .strictObject({
+    version: z.literal(1),
+    agentProfileIds: inboxAgentProfileIdsSchema.optional(),
+    personalAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
+    mentionedAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
+    firstContactAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
+    recipientReasons: z.array(inboxRecipientReasonSchema).min(1).max(7),
+    requestCategory: z.enum(["action", "review"]).optional(),
+  })
+  .superRefine((facts, context) => {
+    const agents = new Set(facts.agentProfileIds ?? []);
+    const personalAgents = new Set(facts.personalAgentProfileIds ?? []);
+    for (const field of [
+      "personalAgentProfileIds",
+      "mentionedAgentProfileIds",
+    ] as const) {
+      if (facts[field]?.some((id) => !agents.has(id))) {
+        context.addIssue({
+          code: "custom",
+          message: "Agent relevance must name an actual Agent in this event.",
+          path: [field],
+        });
+      }
+    }
+    if (
+      facts.firstContactAgentProfileIds?.some((id) => !personalAgents.has(id))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "First contact must name the recipient's personal Agent.",
+        path: ["firstContactAgentProfileIds"],
+      });
+    }
+    if (
+      personalAgents.size > 0 &&
+      !facts.recipientReasons.includes("agent_owner")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Personal Agent relevance requires an owner relationship.",
+        path: ["recipientReasons"],
+      });
+    }
+  });
 export const inboxResolutionStatusSchema = z.enum([
   "not_applicable",
   "open",
@@ -49,6 +107,8 @@ export const inboxItemKindSchema = z.enum([
   "document_review",
   "organization_request",
   "system_issue",
+  "computer_connection",
+  "desktop_update",
 ]);
 const inboxItemWireKindSchema = z.union([
   inboxItemKindSchema,
@@ -65,6 +125,8 @@ export const inboxSourceKindSchema = z.enum([
   "organization_member_request",
   "agent_profile_work_recovery",
   "system_attention_event",
+  "computer_connection",
+  "desktop_update",
 ]);
 
 export const centerAgentAttentionImpactSchema = z.enum([
@@ -113,7 +175,32 @@ export const slackInboxSourceTargetSchema = z.strictObject({
   threadRootMessageId: identifierSchema,
 });
 
+export const computerInboxSourceTargetSchema = z.strictObject({
+  kind: z.literal("computer_connection"),
+  computerId: identifierSchema,
+  deviceId: identifierSchema,
+  incidentId: identifierSchema,
+  lane: daemonServiceLaneSchema,
+  state: z.enum(["disconnected", "restored", "deactivated"]),
+});
+
+export const desktopUpdateInboxSourceTargetSchema = z.strictObject({
+  kind: z.literal("desktop_update"),
+  installationId: identifierSchema,
+  lane: daemonServiceLaneSchema,
+  deviceName: z.string().trim().min(1).max(120),
+  version: z.string().trim().min(1).max(100),
+  platform: z.enum(["darwin", "win32", "linux"]),
+  state: z.enum(["available", "installed", "superseded"]),
+});
+
 export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("plugin_action_request"),
+    requestId: identifierSchema,
+  }),
+  computerInboxSourceTargetSchema,
+  desktopUpdateInboxSourceTargetSchema,
   z.strictObject({
     kind: z.literal("organization_join_request"),
     requestId: identifierSchema,
@@ -164,16 +251,31 @@ export const inboxItemWireSchema = z
     importance: inboxImportanceSchema,
     kind: inboxItemWireKindSchema,
     occurredAt: isoDateTimeSchema,
-    organizationId: identifierSchema,
+    organizationId: identifierSchema.nullable(),
     preview: previewSchema,
     readAt: isoDateTimeSchema.nullable(),
     recipientUserId: identifierSchema,
     resolutionStatus: inboxResolutionStatusSchema,
+    sourceFacts: inboxSourceFactsSchema.optional(),
     sourceTarget: inboxSourceTargetSchema,
     title: titleSchema,
     updatedAt: isoDateTimeSchema,
   })
   .superRefine((item, context) => {
+    const accountTarget =
+      item.sourceTarget.kind === "computer_connection" ||
+      item.sourceTarget.kind === "desktop_update";
+    if (
+      (item.organizationId === null) !== accountTarget ||
+      (accountTarget && item.kind !== item.sourceTarget.kind)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Account Inbox scope is reserved for a matching typed device event.",
+        path: ["organizationId"],
+      });
+    }
     const validResolution =
       item.attention === "update"
         ? item.resolutionStatus === "not_applicable"
@@ -192,6 +294,34 @@ export const inboxItemSchema = inboxItemWireSchema.transform((item) => ({
   ...item,
   kind: normalizeInboxItemWireKind(item.kind),
 }));
+
+export const inboxNotificationObservationCursorSchema = z
+  .strictObject({
+    version: z.literal(1),
+    organizationId: identifierSchema,
+    recipientUserId: identifierSchema,
+    afterRowId: z.number().int().nonnegative(),
+    throughRowId: z.number().int().nonnegative(),
+  })
+  .refine((cursor) => cursor.afterRowId <= cursor.throughRowId);
+
+/** A read position over insertions, not a delivery receipt or an unread store. */
+export const inboxNotificationObservationsQuerySchema = z.strictObject({
+  cursor: z.string().trim().min(1).max(4096).optional(),
+  limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),
+});
+
+export const inboxNotificationObservationsResponseSchema = z.strictObject({
+  organizationId: identifierSchema,
+  items: z.array(inboxItemSchema).max(INBOX_LIST_MAX_LIMIT),
+  cursor: z.string().min(1).max(4096),
+  hasMore: z.boolean(),
+});
+
+export const observeInboxNotificationsRpcInputSchema =
+  inboxNotificationObservationsQuerySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
 
 export const listInboxItemsQuerySchema = z.strictObject({
   cursor: z.string().trim().min(1).max(1024).optional(),
@@ -218,6 +348,11 @@ export const listInboxItemsWireResponseSchema = z.strictObject({
 });
 
 export const inboxSummaryResponseSchema = z.strictObject({
+  // Opt-in version-9 source facts: priority is not synonymous with open work.
+  priorityCount: z.number().int().nonnegative().optional(),
+  needsActionCount: z.number().int().nonnegative().optional(),
+  needsReviewCount: z.number().int().nonnegative().optional(),
+  unreadPriorityUpdateCount: z.number().int().nonnegative().optional(),
   organizationId: identifierSchema,
   totalUnreadCount: z.number().int().nonnegative(),
   unresolvedActionCount: z.number().int().nonnegative(),
@@ -263,12 +398,21 @@ export const spaceInboxSummaryResponseSchema = z.strictObject({
 });
 
 export const spaceInboxUnreadTargetSchema = z.strictObject({
+  itemId: identifierSchema.optional(),
   occurredAtMs: timestampMsSchema,
   signalId: identifierSchema,
   threadRootSignalId: identifierSchema.nullable(),
 });
 
 export const spaceInboxUnreadTargetsResponseSchema = z.strictObject({
+  scopes: z
+    .array(
+      z.strictObject({
+        threadRootSignalId: identifierSchema.nullable(),
+        unreadCount: z.number().int().nonnegative(),
+      })
+    )
+    .optional(),
   hasMoreTargets: z.boolean(),
   organizationId: identifierSchema,
   spaceId: identifierSchema,
@@ -302,6 +446,52 @@ export const markSpaceInboxReadThroughResponseSchema = z.strictObject({
   markedReadCount: z.number().int().nonnegative(),
   readThroughAt: isoDateTimeSchema,
 });
+
+export const mutateSpaceInboxReadBodySchema = z.discriminatedUnion(
+  "operation",
+  [
+    z.strictObject({
+      spaceId: identifierSchema,
+      operation: z.literal("prepare"),
+    }),
+    z.strictObject({
+      spaceId: identifierSchema,
+      operation: z.literal("read"),
+      items: z
+        .array(
+          z.strictObject({
+            itemId: identifierSchema,
+            occurredAtMs: timestampMsSchema,
+          })
+        )
+        .min(1)
+        .max(500),
+    }),
+    z.strictObject({
+      spaceId: identifierSchema,
+      operation: z.literal("clear"),
+      snapshotId: identifierSchema,
+    }),
+  ]
+);
+export const mutateSpaceInboxReadRpcInputSchema = z.strictObject({
+  body: mutateSpaceInboxReadBodySchema,
+  context: openMeldRequestContextSchema,
+});
+export const mutateSpaceInboxReadResponseSchema = z.discriminatedUnion(
+  "operation",
+  [
+    z.strictObject({
+      operation: z.literal("prepare"),
+      snapshotId: identifierSchema,
+      unreadCount: z.number().int().nonnegative(),
+    }),
+    z.strictObject({
+      operation: z.literal("read"),
+      markedReadCount: z.number().int().nonnegative(),
+    }),
+  ]
+);
 
 export const inboxNotificationPreferencesResponseSchema = z.strictObject({
   updatedAt: isoDateTimeSchema.nullable(),
@@ -402,6 +592,7 @@ const inboxSourceCandidateWireSchema = z.strictObject({
   recipientUserId: identifierSchema,
   sourceKey: identifierSchema,
   sourceKind: inboxSourceKindSchema,
+  sourceFacts: inboxSourceFactsSchema.optional(),
   sourceTarget: inboxSourceTargetSchema,
   title: titleSchema,
 });
@@ -421,9 +612,12 @@ function normalizeInboxItemWireKind(
 export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
   context: openMeldRequestContextSchema,
   includeReplyToRecipient: z.boolean().optional(),
+  includeSourceFacts: z.boolean().optional(),
+  includeAccountItems: z.boolean().optional(),
 });
 export const getInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  includeAccountItems: z.boolean().optional(),
   presentation: inboxPresentationSchema.optional(),
 });
 export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({
@@ -433,6 +627,7 @@ export const getSpaceInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
 });
 export const getSpaceInboxUnreadTargetsRpcInputSchema = z.strictObject({
+  includeItemIds: z.boolean().optional(),
   context: openMeldRequestContextSchema,
   spaceId: identifierSchema,
 });
@@ -447,16 +642,21 @@ export const markSpaceInboxReadThroughRpcInputSchema =
 export const getInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend({
   context: openMeldRequestContextSchema,
   includeReplyToRecipient: z.boolean().optional(),
+  includeSourceFacts: z.boolean().optional(),
+  includeAccountItems: z.boolean().optional(),
 });
 export const dismissInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend(
   {
     context: openMeldRequestContextSchema,
+    includeAccountItems: z.boolean().optional(),
   }
 );
 export const markInboxItemReadRpcInputSchema =
   markInboxItemReadBodySchema.extend({
     context: openMeldRequestContextSchema,
     includeReplyToRecipient: z.boolean().optional(),
+    includeSourceFacts: z.boolean().optional(),
+    includeAccountItems: z.boolean().optional(),
     itemId: identifierSchema,
   });
 export const markAllInboxItemsReadRpcInputSchema = z.strictObject({

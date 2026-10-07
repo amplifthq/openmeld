@@ -4,10 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import {
-  assertCurrentVersionedReleaseBranch,
-  isVersionedReleaseBranchRef,
-} from "./release-branch-policy.mjs";
+import { isReleaseBranchRef } from "./release-branch-policy.mjs";
 import { selectPrePushReleaseVerificationPaths } from "./release-ready-paths.mjs";
 
 const MAIN_REF = "refs/heads/main";
@@ -36,15 +33,18 @@ const REPOSITORY_LOCAL_GIT_ENV_VARS = [
 
 export function resolvePrePushReleaseMode(input) {
   const updates = parsePushUpdates(input);
-  if (!updates || updates.length === 0) {
+  if (!updates) {
     return "strict";
+  }
+  if (updates.length === 0) {
+    return "skip";
   }
 
   if (
     updates.some(
       (update) =>
         update.remoteRef === MAIN_REF ||
-        isVersionedReleaseBranchRef(update.remoteRef) ||
+        isReleaseBranchRef(update.remoteRef) ||
         !update.remoteRef.startsWith(BRANCH_REF_PREFIX)
     )
   ) {
@@ -139,12 +139,6 @@ export function parsePushUpdates(input) {
   return updates;
 }
 
-function resolveExactBaseSha() {
-  const requestedBase =
-    process.env.OPENMELD_AFFECTED_BASE?.trim() || "origin/main";
-  return resolveGitCommitSha(requestedBase);
-}
-
 function resolveGitCommitSha(value) {
   return execFileSync(
     process.platform === "win32" ? "git.exe" : "git",
@@ -190,23 +184,11 @@ function run() {
   const pushUpdates = readFileSync(0, "utf8");
   const mode = resolvePrePushReleaseMode(pushUpdates);
   if (mode === "skip") {
-    process.stdout.write(
-      "No release artifact check for this development push; focused checks run next.\n"
-    );
+    process.stdout.write("Development push: release artifact check skipped.\n");
     return;
   }
   assertPushedObjectsMatchHead(pushUpdates);
   assertReleaseVerificationWorktreeClean();
-
-  const releaseBranchName =
-    resolvePushedVersionedReleaseBranchName(pushUpdates);
-  const baseSha = releaseBranchName ? resolveExactBaseSha() : null;
-  if (releaseBranchName) {
-    assertCurrentVersionedReleaseBranch({
-      baseSha,
-      branchName: releaseBranchName,
-    });
-  }
 
   const args = ["run", "verify:release-ready"];
   process.stdout.write(
@@ -221,27 +203,6 @@ function run() {
     throw result.error;
   }
   process.exitCode = result.status ?? 1;
-}
-
-function resolvePushedVersionedReleaseBranchName(input) {
-  const updates = parsePushUpdates(input) ?? [];
-  const branchNames = [
-    ...new Set(
-      updates
-        .filter(
-          (update) =>
-            !ZERO_SHA_PATTERN.test(update.localSha) &&
-            isVersionedReleaseBranchRef(update.remoteRef)
-        )
-        .map((update) => update.remoteRef.slice(BRANCH_REF_PREFIX.length))
-    ),
-  ];
-  if (branchNames.length > 1) {
-    throw new Error(
-      "A single push cannot designate more than one versioned release branch."
-    );
-  }
-  return branchNames[0] ?? null;
 }
 
 if (

@@ -16,7 +16,11 @@ const boundary = vi.hoisted(() => ({
   }),
 }));
 vi.mock("electron", () => ({
-  app: { isPackaged: false },
+  app: {
+    isPackaged: false,
+    getPath: () => "/unused-pilot-operation-test",
+    getVersion: () => "0.1.6",
+  },
   BrowserWindow: {},
   dialog: { showMessageBox: boundary.confirm },
   ipcMain: {
@@ -44,6 +48,7 @@ vi.mock("../src/main/desktop-environment", () => ({
 }));
 vi.mock("../src/main/pilot-assets", () => ({ resolvePilotAssets: vi.fn() }));
 vi.mock("../src/main/pilot-user-data", () => ({
+  configureDesktopCredentialStorage: vi.fn(),
   configurePilotUserData: vi.fn(),
   configureInstalledUserData: vi.fn(),
 }));

@@ -1,3 +1,4 @@
+import { normalizeMessagePreview } from "@openmeld/protocol";
 import {
 	ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS,
 	sanitizeSignalTextPreview,
@@ -19,14 +20,17 @@ import {
 	type AccountSpaceSections,
 	listAccountSpaceItems,
 } from "#/lib/spaces/account-spaces";
-import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
-import { baseQueryOptions } from "#/query/query-config";
-import { spaceQueryKeys } from "./status";
+import {
+	baseQueryOptions,
+	DISPLAY_REVISIT_GC_TIME_MS,
+} from "#/query/query-config";
+import { spaceActiveWakeProgressSummaryQueryOptions } from "./active-wake-progress";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
-// Newly invited members have no live connection to that Space yet. Refresh
-// the shared directory every five seconds while the app is in the foreground.
-export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 5000;
+// The account invalidation stream covers unopened Spaces and new memberships.
+// Foreground polling repairs missed events without repeatedly scanning an idle
+// account; focus and stream reconnect also revalidate immediately.
+export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 30_000;
 
 type AccountSpaceActiveWakePresentationSnapshot = {
 	browserRequestStartedAtMonotonicMs: number | null;
@@ -68,7 +72,9 @@ export function updateAccountSpaceAcceptedMessage(
 						profileId: signal.profile.profileId,
 						timestamp: signal.ts,
 						text: (
-							sanitizeSignalTextPreview(signal.data.text) ?? "Message"
+							sanitizeSignalTextPreview(
+								normalizeMessagePreview(signal.data.text)
+							) ?? "Message"
 						).slice(0, 240),
 					})
 				: current
@@ -89,7 +95,7 @@ export function accountSpaceItemsQueryOptions(input: {
 				scope,
 			}),
 		enabled: input.enabled,
-		gcTime: baseQueryOptions.gcTime,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 		retry: baseQueryOptions.retry,
 		refetchInterval: ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS,
 		refetchIntervalInBackground: false,
@@ -112,35 +118,20 @@ export function accountSpaceActiveWakeSummaryQueryOptions(input: {
 				data: { profileId: input.profileId },
 			});
 			if (import.meta.env.DEV) {
-				const api = createUnscopedWebSpaceApi({
-					openMeldProfileId: input.profileId,
-				});
 				const local = await withLocalAccountRuntimeFixtures(
 					summary,
 					input.profileId,
 					(spaceId) =>
-						api.getActiveWakeProgress({
-							spaceId,
-							includeTiming: true,
-							includeSourceContext: true,
-							includePreviewText: true,
-							includeWaitReason: true,
-							includeDeviceWait: true,
-							includePageInfo: true,
-							includeWakeStopEligibility: true,
-						})
+						client.fetchQuery(
+							spaceActiveWakeProgressSummaryQueryOptions({
+								enabled: true,
+								spaceId,
+								openMeldProfileId: input.profileId,
+							})
+						)
 				);
-				// Publish detailed snapshots before exposing their account-level entries,
-				// so Priority never needs a visit to discover an approval or working state.
-				for (const snapshot of local.progress) {
-					client.setQueryData(
-						spaceQueryKeys.activeWakeProgressSummary(
-							snapshot.spaceId,
-							input.profileId
-						),
-						snapshot.data
-					);
-				}
+				// Use the normal detail reader so account refreshes retain the same
+				// presentation lifetime and outcome evidence as opened Spaces.
 				return { browserRequestStartedAtMonotonicMs, summary: local.summary };
 			}
 			return { browserRequestStartedAtMonotonicMs, summary };
@@ -173,6 +164,16 @@ export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
 	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
 	isError: boolean;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
+	return useAccountSpaceActiveWakeSummaryDisplay(input).items;
+}
+
+export function useAccountSpaceActiveWakeSummaryDisplay(input: {
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
+	isError: boolean;
+}): {
+	available: boolean;
+	items: AccountSpaceActiveWakeSummaryResponse["items"];
+} {
 	const [observation, setObservation] = useState(() =>
 		createAccountSpaceActiveWakeSummaryObservation(input)
 	);
@@ -217,12 +218,16 @@ export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
 		return () => window.clearTimeout(timeout);
 	}, [observation]);
 
-	return selectObservedAccountSpaceActiveWakeSummaryItems({
+	const selection = {
 		data: observation.data,
 		isError: input.isError,
 		isExpired: observation.isExpired,
 		nowMonotonicMs: readBrowserMonotonicNowMs(),
-	});
+	};
+	return {
+		available: isAccountSpaceActiveWakeSummaryUsable(selection),
+		items: selectObservedAccountSpaceActiveWakeSummaryItems(selection),
+	};
 }
 
 function createAccountSpaceActiveWakeSummaryObservation(input: {
@@ -240,9 +245,20 @@ function selectObservedAccountSpaceActiveWakeSummaryItems(input: {
 	isExpired: boolean;
 	nowMonotonicMs: number | null;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
+	return isAccountSpaceActiveWakeSummaryUsable(input)
+		? (input.data?.summary.items ?? [])
+		: [];
+}
+
+function isAccountSpaceActiveWakeSummaryUsable(input: {
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
+	isError: boolean;
+	isExpired: boolean;
+	nowMonotonicMs: number | null;
+}): boolean {
 	const requestStartedAtMs =
 		input.data?.browserRequestStartedAtMonotonicMs ?? null;
-	if (
+	return !(
 		input.isError ||
 		!input.data ||
 		input.isExpired ||
@@ -253,10 +269,7 @@ function selectObservedAccountSpaceActiveWakeSummaryItems(input: {
 		requestStartedAtMs > input.nowMonotonicMs ||
 		requestStartedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS <
 			input.nowMonotonicMs
-	) {
-		return [];
-	}
-	return input.data.summary.items;
+	);
 }
 
 function readBrowserMonotonicNowMs(): number | null {

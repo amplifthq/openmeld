@@ -1,4 +1,6 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SpaceAccessContext } from "@openmeld/space";
 import {
   getSpaceAccessPassword,
@@ -28,12 +30,12 @@ import {
 
 const sourceProfileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const targetProfileId = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-
 describe("device waiting Wake Space authority", () => {
   it.each([
     "members_only",
     "protected",
   ] as const)("rechecks live access and preserves member authorization across password rotation (%s)", async (accessMode) => {
+    await ensureOrganizationMember();
     const namespace = (env as CoreBindings).OPENMELD_SPACES;
     const id = namespace.newUniqueId();
     const spaceId = id.toString();
@@ -171,7 +173,6 @@ describe("device waiting Wake Space authority", () => {
         allowed: false,
       });
       upsertSpaceMemberRecord(state.storage.sql, target);
-
       let permission: PasswordAuthorizationResult = { ok: true, meta };
       const authorize = vi.fn(
         async (
@@ -258,3 +259,71 @@ describe("device waiting Wake Space authority", () => {
     });
   });
 });
+async function ensureOrganizationMember(): Promise<void> {
+  const nowMs = Date.now();
+  const db = getPostgresDatabase(env as CoreBindings);
+  if (!db) {
+    throw new Error("Expected OPENMELD_DB in the Core test environment.");
+  }
+  await db.transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."users" (
+          id,
+          name,
+          email,
+          email_verified,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, 'Device Wait Requester', $2, 1, $3, $4) ON CONFLICT DO NOTHING`,
+            values: [],
+          },
+          values: [
+            "requester-owner",
+            "device-wait-requester@openmeld.test",
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+        VALUES ('org-device-wait', 'Device Wait Test', 'device-wait-test', $1) ON CONFLICT DO NOTHING`,
+            values: [],
+          },
+          values: [nowMs],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."members" (
+          id,
+          organization_id,
+          user_id,
+          role,
+          created_at
+        )
+        VALUES (
+          'member-device-wait-requester',
+          'org-device-wait',
+          'requester-owner',
+          'member',
+          $1
+        ) ON CONFLICT DO NOTHING`,
+            values: [],
+          },
+          values: [nowMs],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
+}

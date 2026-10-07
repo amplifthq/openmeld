@@ -20,6 +20,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   ComputerFileAccessPolicy,
+  ExecutionContextGitMetadata,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
 import { z } from "zod/v4";
@@ -29,7 +30,20 @@ import {
   releaseLock,
   runWithHeldLock,
 } from "../../config/lock";
+import {
+  type ClaudeProjectContainerRuntime,
+  runClaudeProjectContainerCommand,
+  stopClaudeProjectContainersForContext,
+} from "../file-access/claude-project-container";
+import { createServiceGitEnvironment } from "../projects/service-git-environment";
 import { createLedgerIo } from "../state/ledger-io";
+import {
+  auditExecutionContextGitConfig,
+  captureExecutionContextGitConfig,
+  type ExecutionContextGitConfigAudit,
+  readExecutionContextGitConfigBaseline,
+  saveExecutionContextGitConfigBaseline,
+} from "./execution-context-git-config";
 
 const execFileAsync = promisify(execFile);
 const syncDirectory = createLedgerIo().syncPath;
@@ -56,6 +70,15 @@ const manifestSchema = z
       .optional(),
     copiedUncommittedFiles: z.literal(false),
     processSupervisionId: z.uuid().optional(),
+    activeDispatchId: z.string().min(1).optional(),
+    activeAttemptId: z.string().min(1).optional(),
+    containerRuntime: z
+      .strictObject({
+        binary: z.string().min(1),
+        engineIdentity: z.string().min(1),
+        kind: z.enum(["docker", "podman"]),
+      })
+      .optional(),
     retirement: z
       .strictObject({
         path: z.string(),
@@ -69,6 +92,9 @@ const manifestSchema = z
       ((manifest.status === "preparing" || manifest.status === "completed") &&
         !manifest.pristineFingerprint &&
         !manifest.processSupervisionId &&
+        !manifest.activeDispatchId &&
+        !manifest.activeAttemptId &&
+        !manifest.containerRuntime &&
         !manifest.retirement)
   )
   .refine((manifest) =>
@@ -81,6 +107,7 @@ const manifestSchema = z
   );
 type Manifest = z.infer<typeof manifestSchema>;
 export type ExecutionContextWorkspace = {
+  gitMetadata?: ExecutionContextGitMetadata;
   workingDirectory: string;
   boundaryRoot: string;
   sourceWorkingDirectory?: string;
@@ -218,6 +245,12 @@ async function reconcileRetainedWorkspace(
     await runWithHeldLock({
       lock: await acquireWorkspaceExecutionLock(ledgerRoot, record.identity.id),
       run: async () => {
+        if (record.containerRuntime) {
+          await stopClaudeProjectContainersForContext({
+            contextId: record.identity.id,
+            runtime: record.containerRuntime,
+          });
+        }
         if (
           !record.processSupervisionId ||
           (
@@ -231,7 +264,13 @@ async function reconcileRetainedWorkspace(
           throw failure("workspace_execution_quiescence_unconfirmed");
         }
         await verifyRetainedWorkspace(record);
-        await writeManifest(path, { ...record, status: "completed" }, "r+");
+        const {
+          activeAttemptId: _activeAttemptId,
+          activeDispatchId: _activeDispatchId,
+          containerRuntime: _containerRuntime,
+          ...reconciled
+        } = record;
+        await writeManifest(path, { ...reconciled, status: "completed" }, "r+");
       },
     });
   }
@@ -390,6 +429,9 @@ export type ExecutionContextWorkspaceUse = {
 export async function markExecutionContextWorkspaceInUse(input: {
   ledgerRootPath: string;
   context?: ExecutionContextTask;
+  containerRuntime?: ClaudeProjectContainerRuntime | null;
+  dispatchId?: string;
+  attemptId?: string;
 }): Promise<ExecutionContextWorkspaceUse | null> {
   const context = input.context;
   if (
@@ -417,9 +459,27 @@ export async function markExecutionContextWorkspaceInUse(input: {
       if (record?.status !== "completed") {
         throw failure("workspace_execution_quiescence_unconfirmed");
       }
+      await saveExecutionContextGitConfigBaseline(
+        root,
+        context.id,
+        await captureExecutionContextGitConfig(record.boundaryRoot, git)
+      );
       await writeManifest(
         path,
-        { ...record, status: "in_use", processSupervisionId },
+        {
+          ...record,
+          status: "in_use",
+          processSupervisionId,
+          ...(input.containerRuntime && input.dispatchId && input.attemptId
+            ? {
+                activeDispatchId: input.dispatchId,
+                activeAttemptId: input.attemptId,
+              }
+            : {}),
+          ...(input.containerRuntime
+            ? { containerRuntime: input.containerRuntime }
+            : {}),
+        },
         "r+"
       );
     });
@@ -430,7 +490,7 @@ export async function markExecutionContextWorkspaceInUse(input: {
   }
 }
 
-export type ExecutionContextWorkspaceRelease =
+export type ExecutionContextWorkspaceRelease = (
   | { status: "released" }
   | {
       status: "retained";
@@ -440,7 +500,28 @@ export type ExecutionContextWorkspaceRelease =
         | "baseline_unverified"
         | "cleanup_incomplete"
         | "source_commit_unavailable";
-    };
+    }
+) & { gitConfigAudit?: ExecutionContextGitConfigAudit };
+
+async function auditWorkspaceGitConfig(input: {
+  use: ExecutionContextWorkspaceUse | null | undefined;
+  ledgerRoot: string;
+  contextId: string;
+  boundaryRoot: string;
+}): Promise<ExecutionContextGitConfigAudit | undefined> {
+  if (!input.use) {
+    return undefined;
+  }
+  const audit = await auditExecutionContextGitConfig({
+    root: input.boundaryRoot,
+    baseline: await readExecutionContextGitConfigBaseline(
+      input.ledgerRoot,
+      input.contextId
+    ),
+    run: git,
+  });
+  return Object.values(audit).some((count) => count > 0) ? audit : undefined;
+}
 
 export async function releaseExecutionContextWorkspace(input: {
   ledgerRootPath: string;
@@ -464,43 +545,148 @@ export async function releaseExecutionContextWorkspace(input: {
       if (!(record && ["completed", "in_use"].includes(record.status))) {
         throw failure("workspace_creation_incomplete");
       }
+      if (record.containerRuntime) {
+        await stopClaudeProjectContainersForContext({
+          contextId: record.identity.id,
+          runtime: record.containerRuntime,
+        });
+      }
       if (!input.ownedProcessesQuiescent) {
         return {
           status: "retained",
           reason: "execution_quiescence_unconfirmed",
         };
       }
-      const completed: Manifest = { ...record, status: "completed" };
+      const gitConfigAudit = await auditWorkspaceGitConfig({
+        use: input.use,
+        boundaryRoot: record.boundaryRoot,
+        ledgerRoot: root,
+        contextId: input.context.id,
+      });
+      const {
+        activeAttemptId: _activeAttemptId,
+        activeDispatchId: _activeDispatchId,
+        containerRuntime: _containerRuntime,
+        ...quiescentRecord
+      } = record;
+      const completed: Manifest = { ...quiescentRecord, status: "completed" };
       await writeManifest(path, completed, "r+");
       record = await removePristineRetirement(completed, path);
       if (record.retirement) {
-        return { status: "retained", reason: "cleanup_incomplete" };
+        return {
+          status: "retained",
+          reason: "cleanup_incomplete",
+          gitConfigAudit,
+        };
       }
       // Old records have no pre-execution baseline. Never infer one from a task's
       // current files, including apparently clean commits or ignored outputs.
       if (!record.pristineFingerprint) {
-        return { status: "retained", reason: "baseline_unverified" };
+        return {
+          status: "retained",
+          reason: "baseline_unverified",
+          gitConfigAudit,
+        };
       }
       await verifyRetainedWorkspace(record);
       if (
         (await fingerprintDirectory(record.boundaryRoot)) !==
         record.pristineFingerprint
       ) {
-        return { status: "retained", reason: "workspace_changed" };
+        return {
+          status: "retained",
+          reason: "workspace_changed",
+          gitConfigAudit,
+        };
       }
       if (record.sourceWorkingDirectory && !(await sourceHasCommit(record))) {
-        return { status: "retained", reason: "source_commit_unavailable" };
+        return {
+          status: "retained",
+          reason: "source_commit_unavailable",
+          gitConfigAudit,
+        };
       }
       const retired = await retirePristineWorkspace(record, path);
       return retired.status === "released"
-        ? { status: "released" }
-        : { status: "retained", reason: "workspace_changed" };
+        ? { status: "released", gitConfigAudit }
+        : { status: "retained", reason: "workspace_changed", gitConfigAudit };
     });
   } finally {
     if (input.use) {
       await releaseLock(input.use.lock);
     }
   }
+}
+
+export async function assertExecutionContextWorkspaceUse(input: {
+  ledgerRootPath: string;
+  contextId: string;
+  dispatchId: string;
+  attemptId: string;
+}): Promise<void> {
+  if (
+    !executionContextAssignmentSchema.shape.id.safeParse(input.contextId)
+      .success
+  ) {
+    throw failure("workspace_identity_mismatch");
+  }
+  const root = await canonicalDirectory(input.ledgerRootPath);
+  const record = await readManifest(
+    join(root, "execution-context-workspace-records", `${input.contextId}.json`)
+  );
+  if (
+    record?.status !== "in_use" ||
+    record.identity.id !== input.contextId ||
+    record.activeDispatchId !== input.dispatchId ||
+    record.activeAttemptId !== input.attemptId ||
+    !record.containerRuntime
+  ) {
+    throw failure("workspace_execution_authority_mismatch");
+  }
+}
+
+export async function runExecutionContextWorkspaceProjectShell(input: {
+  ledgerRootPath: string;
+  contextId: string;
+  dispatchId: string;
+  attemptId: string;
+  boundaryRoot: string;
+  workspacePath: string;
+  runtime: ClaudeProjectContainerRuntime;
+  command: string;
+}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const root = await canonicalDirectory(input.ledgerRootPath);
+  return await withWorkspaceLock(root, input.contextId, async () => {
+    await assertExecutionContextWorkspaceUse({
+      ledgerRootPath: root,
+      contextId: input.contextId,
+      dispatchId: input.dispatchId,
+      attemptId: input.attemptId,
+    });
+    const record = await readManifest(
+      join(
+        root,
+        "execution-context-workspace-records",
+        `${input.contextId}.json`
+      )
+    );
+    if (
+      record?.boundaryRoot !== input.boundaryRoot ||
+      record.workingDirectory !== input.workspacePath ||
+      record.containerRuntime?.binary !== input.runtime.binary ||
+      record.containerRuntime.engineIdentity !== input.runtime.engineIdentity ||
+      record.containerRuntime.kind !== input.runtime.kind
+    ) {
+      throw failure("workspace_execution_authority_mismatch");
+    }
+    return await runClaudeProjectContainerCommand({
+      command: input.command,
+      contextId: input.contextId,
+      runtime: input.runtime,
+      boundaryRoot: input.boundaryRoot,
+      workspacePath: input.workspacePath,
+    });
+  });
 }
 
 async function retirePristineWorkspace(
@@ -750,7 +936,21 @@ async function acquireWorkspaceExecutionLock(root: string, contextId: string) {
 }
 
 function workspaceResult(manifest: Manifest): ExecutionContextWorkspace {
+  const repository = join(manifest.boundaryRoot, "repository.git");
+  const gitDirectory = join(repository, "worktrees", "worktree");
   return {
+    ...(manifest.sourceWorkingDirectory
+      ? {
+          gitMetadata: {
+            commonDirectoryPointerPath: join(gitDirectory, "commondir"),
+            configPath: join(repository, "config"),
+            gitDirectoryPointerPath: join(gitDirectory, "gitdir"),
+            hooksPath: join(repository, "hooks"),
+            worktreeConfigPath: join(gitDirectory, "config.worktree"),
+            worktreeGitPointerPath: join(manifest.workingDirectory, ".git"),
+          },
+        }
+      : {}),
     workingDirectory: manifest.workingDirectory,
     boundaryRoot: manifest.boundaryRoot,
     ...(manifest.sourceWorkingDirectory
@@ -816,9 +1016,11 @@ async function verifyOwnedRepository(manifest: Manifest): Promise<void> {
     throw failure("workspace_git_metadata_changed");
   }
   const expectedGitDir = join(repository, "worktrees", "worktree");
-  if (
-    (await readFile(gitFile, "utf8")).trim() !== `gitdir: ${expectedGitDir}`
-  ) {
+  const gitDirLine = (await readFile(gitFile, "utf8")).trim();
+  const gitDir = gitDirLine.startsWith("gitdir: ")
+    ? gitDirLine.slice("gitdir: ".length)
+    : null;
+  if (!(gitDir && isAbsolute(gitDir)) || relative(expectedGitDir, gitDir)) {
     throw failure("workspace_git_metadata_changed");
   }
   if (
@@ -959,53 +1161,37 @@ function within(child: string, parent: string): boolean {
   );
 }
 
-const GIT_SETTINGS = {
-  "core.hooksPath": "/dev/null",
-  "core.attributesFile": "/dev/null",
-  "core.fsmonitor": "false",
-  "credential.helper": "",
-  "protocol.allow": "never",
-  "protocol.file.allow": "always",
-  "fetch.recurseSubmodules": "false",
-  "submodule.recurse": "false",
-  "uploadpack.packObjectsHook": "",
-  "gc.auto": "0",
-  "maintenance.auto": "false",
-};
-
 async function git(
   cwd: string,
   args: string[],
   processSupervisionId?: string
 ): Promise<string> {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))
-  );
+  const env = createServiceGitEnvironment();
   Object.assign(env, {
     ...(processSupervisionId
       ? { OPENMELD_PROCESS_SUPERVISION_ID: processSupervisionId }
       : {}),
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_SYSTEM: "/dev/null",
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    GIT_ATTR_NOSYSTEM: "1",
-    GIT_NO_REPLACE_OBJECTS: "1",
-    GIT_NO_LAZY_FETCH: "1",
-    GIT_ALLOW_PROTOCOL: "file",
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_CONFIG_COUNT: String(Object.keys(GIT_SETTINGS).length),
   });
-  for (const [index, [key, value]] of Object.entries(GIT_SETTINGS).entries()) {
-    env[`GIT_CONFIG_KEY_${index}`] = key;
-    env[`GIT_CONFIG_VALUE_${index}`] = value;
-  }
-  const result = await execFileAsync("git", args, {
-    cwd,
-    env,
-    encoding: "utf8",
-    timeout: 30_000,
-    maxBuffer: 1024 * 1024,
-  });
+  const result = await execFileAsync(
+    "git",
+    [
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      ...((await lstat(join(cwd, ".git")).catch(() => null))
+        ? ["-c", `core.worktree=${cwd}`]
+        : []),
+      ...args,
+    ],
+    {
+      cwd,
+      env,
+      encoding: "utf8",
+      timeout: 30_000,
+      maxBuffer: 1024 * 1024,
+    }
+  );
   return result.stdout.trimEnd();
 }
 

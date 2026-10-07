@@ -2,14 +2,20 @@ import type { InboxItem } from "@openmeld/schemas/types";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// biome-ignore lint/performance/noNamespaceImport: Spy on the owned transport boundary, while retaining its default implementation in other cases.
+import * as accountStream from "#/lib/inbox/account-invalidation-transport";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
-const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
+const itemsQueryMock = vi.hoisted(() => vi.fn());
 const itemsRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryQueryMock = vi.hoisted(() => vi.fn());
 const desktopPlatformMock = vi.hoisted(() => vi.fn());
+const currentComputerMock = vi.hoisted(() => vi.fn());
+vi.mock("#/components/app/current-computer", () => ({
+	useCurrentComputer: currentComputerMock,
+}));
 vi.mock("#/desktop/platform", () => ({
 	getDesktopPlatform: desktopPlatformMock,
 }));
@@ -22,7 +28,15 @@ const showInboxNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxFactsMock = vi.hoisted(() => vi.fn());
 const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const getMessagePreferencesMock = vi.hoisted(() => vi.fn());
-const queryClientMock = vi.hoisted(() => ({ fetchQuery: vi.fn() }));
+const queryClientMock = vi.hoisted(() => ({
+	fetchQuery: vi.fn(),
+	invalidateQueries: vi.fn(
+		async (_filters?: {
+			queryKey?: readonly unknown[];
+			predicate?: (query: { queryKey: readonly string[] }) => boolean;
+		}) => undefined
+	),
+}));
 const pendingItemIds = vi.hoisted(() => new Set<string>());
 const notificationSettingsByUserId = vi.hoisted(
 	() => new Map<string, boolean>()
@@ -48,8 +62,10 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-	useInfiniteQuery: useInfiniteQueryMock,
-	useQuery: summaryQueryMock,
+	useQuery: (options: { queryKey?: readonly unknown[] }) =>
+		options.queryKey?.includes("notification-observations")
+			? itemsQueryMock(options)
+			: summaryQueryMock(options),
 	useQueryClient: () => queryClientMock,
 }));
 
@@ -70,6 +86,7 @@ vi.mock("#/lib/inbox/client-notifications", async (importOriginal) => ({
 		userId: string;
 	}) => {
 		pendingItemIds.add(buildPendingItemKey(input));
+		return true;
 	},
 	readPendingInboxNotificationItemIds: (input: {
 		organizationId: string;
@@ -121,7 +138,7 @@ vi.mock("#/query/organizations/inbox", () => ({
 		...(input as object),
 		staleTime: 0,
 	}),
-	inboxItemsInfiniteQueryOptions: (input: unknown) => input,
+	inboxQueryKeys: { organization: (id: string) => ["inbox", id] },
 	inboxSummaryQueryOptions: (input: unknown) => input,
 	invalidateInboxFacts: invalidateInboxFactsMock,
 }));
@@ -129,21 +146,23 @@ vi.mock("#/query/organizations/inbox", () => ({
 describe("InboxNotificationListener", () => {
 	let currentItems: InboxItem[];
 	let itemsDataUpdatedAt: number;
+	let itemsCursor: string;
 	let queryDataItems: InboxItem[] | null;
+	let queryDataCursor: string | null;
 	let queryData:
 		| {
-				pageParams: undefined[];
-				pages: Array<{
-					items: InboxItem[];
-					nextCursor: null;
-					organizationId: string;
-				}>;
+				items: InboxItem[];
+				cursor: string;
+				hasMore: boolean;
+				organizationId: string;
 		  }
 		| undefined;
 
 	beforeEach(() => {
 		navigateMock.mockReset().mockResolvedValue(undefined);
 		desktopPlatformMock.mockReset().mockReturnValue(null);
+		currentComputerMock.mockReset().mockReturnValue(null);
+		vi.spyOn(document, "hasFocus").mockReturnValue(true);
 		summaryRefetch.mockClear();
 		summaryQueryMock.mockReset().mockReturnValue({
 			data: undefined,
@@ -156,7 +175,9 @@ describe("InboxNotificationListener", () => {
 			.mockResolvedValue({ effectiveMode: "mentions_and_replies" });
 		currentItems = [];
 		itemsDataUpdatedAt = 1;
+		itemsCursor = "test-position";
 		queryDataItems = null;
+		queryDataCursor = null;
 		queryData = undefined;
 		pendingItemIds.clear();
 		notificationSettingsByUserId.clear();
@@ -166,21 +187,19 @@ describe("InboxNotificationListener", () => {
 			.mockResolvedValue({ notification: {}, status: "delivered" });
 		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
 		queryClientMock.fetchQuery.mockReset();
+		queryClientMock.invalidateQueries.mockClear();
 		getCurrentInboxItemMock.mockReset();
 		itemsRefetch.mockClear();
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
-		useInfiniteQueryMock.mockReset().mockImplementation(() => {
-			if (queryDataItems !== currentItems) {
+		itemsQueryMock.mockReset().mockImplementation(() => {
+			if (queryDataItems !== currentItems || queryDataCursor !== itemsCursor) {
 				queryDataItems = currentItems;
+				queryDataCursor = itemsCursor;
 				queryData = {
-					pageParams: [undefined],
-					pages: [
-						{
-							items: currentItems,
-							nextCursor: null,
-							organizationId: "organization-123",
-						},
-					],
+					items: currentItems,
+					cursor: itemsCursor,
+					hasMore: false,
+					organizationId: "organization-123",
 				};
 			}
 			return {
@@ -312,6 +331,61 @@ describe("InboxNotificationListener", () => {
 		expect(setNotificationContext).toHaveBeenLastCalledWith(null);
 	});
 
+	it.each([
+		{
+			name: "connected",
+			statusLabel: "Connected",
+			reason: "ready",
+			expectedTone: "connected",
+		},
+		{
+			name: "offline",
+			statusLabel: "Not connected",
+			reason: null,
+			expectedTone: "offline",
+		},
+		{
+			name: "disconnected",
+			statusLabel: "Disconnected",
+			reason: "service_not_connected",
+			expectedTone: "offline",
+		},
+		{
+			name: "needs attention",
+			statusLabel: "Checking OpenMeld status",
+			reason: "checking",
+			expectedTone: "attention",
+		},
+	])("passes $name Computer tone to the native tray", ({
+		statusLabel,
+		reason,
+		expectedTone,
+	}) => {
+		const setNotificationContext = vi.fn(
+			async (_context: unknown) => undefined
+		);
+		desktopPlatformMock.mockReturnValue({
+			setNotificationContext,
+			onNotificationClick: () => () => undefined,
+			onNotificationPoll: () => () => undefined,
+		});
+		currentComputerMock.mockReturnValue({
+			destination: "/o/amplift/computers",
+			status: reason ? { reason } : null,
+			statusLabel,
+		});
+		renderListener();
+		expect(setNotificationContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				computer: {
+					available: true,
+					statusLabel,
+					statusTone: expectedTone,
+				},
+			})
+		);
+	});
+
 	it("refreshes the native preview when Inbox content changes without changing the unread count", () => {
 		const setNotificationContext = vi.fn(async () => undefined);
 		desktopPlatformMock.mockReturnValue({
@@ -333,6 +407,7 @@ describe("InboxNotificationListener", () => {
 		const initialCalls = setNotificationContext.mock.calls.length;
 
 		itemsDataUpdatedAt = 2;
+		itemsCursor = "next-position";
 		view.rerender(
 			<InboxNotificationListener
 				organizationId="organization-123"
@@ -347,7 +422,7 @@ describe("InboxNotificationListener", () => {
 		);
 	});
 
-	it("primes existing items without notifying, then delivers a newly arrived urgent item", () => {
+	it("primes existing items, ignores delayed legacy owner observations and delivers a new urgent item", () => {
 		const existingItem = createInboxItem({ id: "existing-item" });
 		const newItem = createInboxItem({
 			id: "new-item",
@@ -357,8 +432,30 @@ describe("InboxNotificationListener", () => {
 		const view = renderListener();
 
 		expect(showInboxNotificationMock).not.toHaveBeenCalled();
-
-		currentItems = [newItem, existingItem];
+		const legacyOwner = createInboxItem({
+			id: "delayed-owner-outbox",
+			kind: "space_message",
+			attention: "update",
+			importance: "normal",
+			resolutionStatus: "not_applicable",
+			sourceTarget: {
+				kind: "space",
+				spaceId: "space-123",
+				signalId: "legacy",
+				directMessage: true,
+				agentOwnerActivity: true,
+			},
+		});
+		currentItems = [legacyOwner, existingItem];
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
+		currentItems = [newItem, legacyOwner, existingItem];
 		view.rerender(
 			<InboxNotificationListener
 				organizationId="organization-123"
@@ -372,6 +469,9 @@ describe("InboxNotificationListener", () => {
 			organizationId: "organization-123",
 			queryClient: queryClientMock,
 		});
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({ queryKey: ["spaces", "account-spaces"] })
+		);
 		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				item: newItem,
@@ -1034,10 +1134,155 @@ describe("InboxNotificationListener", () => {
 			await vi.advanceTimersByTimeAsync(10_000);
 		});
 
-		expect(useInfiniteQueryMock).toHaveBeenLastCalledWith(
-			expect.objectContaining({ enabled: false })
+		expect(itemsQueryMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({ enabled: true })
 		);
 		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
+	});
+
+	it("uses push while connected, drains pending observations and resumes polling on disconnect", () => {
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		const socket = Object.assign(new EventTarget(), {
+			send: vi.fn(),
+			close: vi.fn(),
+		});
+		vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		).mockReturnValue(socket);
+		renderListener();
+		const interval = (hasMore = false) =>
+			itemsQueryMock.mock.lastCall?.[0].refetchInterval({
+				state: { data: { hasMore } },
+			});
+		expect(interval()).toBe(1000);
+		act(() => socket.dispatchEvent(new Event("open")));
+		expect(interval()).toBe(30_000);
+		expect(interval(true)).toBe(1000);
+		const reads = itemsRefetch.mock.calls.length;
+		act(() =>
+			socket.dispatchEvent(
+				new MessageEvent("message", {
+					data: JSON.stringify({ type: "inbox.changed" }),
+				})
+			)
+		);
+		expect(itemsRefetch.mock.calls.length).toBeGreaterThan(reads);
+		act(() => socket.dispatchEvent(new Event("close")));
+		expect(interval()).toBe(1000);
+	});
+	it("backs off short-lived connections until a keepalive succeeds", async () => {
+		vi.useFakeTimers();
+		const sockets = Array.from({ length: 4 }, () =>
+			Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
+		);
+		const connect = vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		);
+		for (const socket of sockets) {
+			connect.mockReturnValueOnce(socket);
+		}
+		renderListener();
+		act(() => sockets[0]?.dispatchEvent(new Event("open")));
+		const reads = itemsRefetch.mock.calls.length;
+		act(() => sockets[0]?.dispatchEvent(new Event("close")));
+		// Polling already repairs missed changes while disconnected.
+		expect(itemsRefetch).toHaveBeenCalledTimes(reads);
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(2);
+		act(() => sockets[1]?.dispatchEvent(new Event("open")));
+		act(() => sockets[1]?.dispatchEvent(new Event("close")));
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(2);
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(3);
+		act(() => sockets[2]?.dispatchEvent(new Event("open")));
+		await act(() => vi.advanceTimersByTimeAsync(25_000));
+		expect(sockets[2]?.send).toHaveBeenCalledWith("ping");
+		act(() =>
+			sockets[2]?.dispatchEvent(new MessageEvent("message", { data: "pong" }))
+		);
+		act(() => sockets[2]?.dispatchEvent(new Event("close")));
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(4);
+	});
+
+	it("refreshes unopened Space membership from account push without waiting for a poll", async () => {
+		vi.useFakeTimers();
+		notificationSettingsByUserId.set("user-123", false);
+		const socket = Object.assign(new EventTarget(), {
+			send: vi.fn(),
+			close: vi.fn(),
+		});
+		vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		).mockReturnValue(socket);
+		renderListener();
+		act(() => socket.dispatchEvent(new Event("open")));
+		queryClientMock.invalidateQueries.mockClear();
+		act(() =>
+			socket.dispatchEvent(
+				new MessageEvent("message", {
+					data: JSON.stringify({ type: "space_index.changed" }),
+				})
+			)
+		);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(100);
+		});
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({
+				queryKey: ["spaces", "account-spaces"],
+			})
+		);
+	});
+
+	it("refreshes an active Space directory from a new Inbox message even when notifications are off", () => {
+		notificationSettingsByUserId.set("user-123", false);
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		const view = renderListener();
+		const options = itemsQueryMock.mock.lastCall?.[0] as {
+			enabled: boolean;
+			refetchInterval: (query: {
+				state: { data: { hasMore: boolean } };
+			}) => number | false;
+		};
+		expect(options.enabled).toBe(true);
+		expect(
+			options.refetchInterval({ state: { data: { hasMore: false } } })
+		).toBe(1000);
+
+		currentItems = [createInboxItem({ id: "new-space-message" })];
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({ queryKey: ["spaces", "account-spaces"] })
+		);
+		const refreshFilter =
+			queryClientMock.invalidateQueries.mock.lastCall?.[0]?.predicate;
+		expect(
+			refreshFilter?.({
+				queryKey: ["spaces", "account-spaces", "profile-123", "account"],
+			})
+		).toBe(true);
+		expect(
+			refreshFilter?.({
+				queryKey: [
+					"spaces",
+					"account-spaces",
+					"profile-123",
+					"active-wake-summary",
+				],
+			})
+		).toBe(false);
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 	});
 
 	it("does not let a late recovery failure from an old Organization block the current feed retry", async () => {

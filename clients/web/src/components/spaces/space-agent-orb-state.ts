@@ -11,18 +11,13 @@ export const DEFAULT_SPACE_AGENT_ORB_STATE: SpaceAgentOrbState = "solving";
 
 /** Appearance only: the shared Wake presenter owns status and wording. */
 export const WAKE_STATUS_ORB_STATE = {
-	starting: "connecting",
-	sent: "connecting",
-	connecting: "connecting",
-	retrying: "connecting",
 	queued: "breathing",
 	waiting_for_controller: "breathing",
 	waiting_for_device: "breathing",
 	waiting_for_owner: "listening",
 	needs_input: "listening",
+	confirmation_pending: "breathing",
 	working: "solving",
-	replying: "composing",
-	posting: "weaving",
 } as const satisfies Record<WakeProgressStatusKind, SpaceAgentOrbState>;
 
 const SEARCH_WORK_KEYS = new Set<AgentWorkActivity["key"]>([

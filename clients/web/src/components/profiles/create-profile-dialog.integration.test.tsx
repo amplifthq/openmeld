@@ -24,6 +24,10 @@ vi.mock("@openmeld/schemas", async (importOriginal) => ({
 }));
 
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
+import {
+	readAgentCreationIntent,
+	rememberAgentCreationIntent,
+} from "#/lib/profiles/agent-creation-intent";
 import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { startQueryKeys } from "#/query/query-keys";
@@ -245,6 +249,7 @@ vi.mock("#/query/config/model-catalog", () => ({
 			schemaVersion: 1,
 			updatedAt: "2026-06-18T00:00:00.000Z",
 			agentControllers: {
+				antigravity: vendorModelCatalog.agentControllers.antigravity,
 				"center-agent": vendorModelCatalog.agentControllers["center-agent"],
 				codex: {
 					defaultModelId: "gpt-5.5",
@@ -937,7 +942,7 @@ describe("CreateProfileDialog", () => {
 		expect(screen.queryByRole("radio", { name: "A teammate" })).toBeNull();
 	});
 
-	it("replaces cached Agent configuration with the inline connection workflow immediately", async () => {
+	it("keeps every local agent visible and opens connection recovery for the selected one", async () => {
 		const recovery = buildFakeRecovery();
 		const computer =
 			recovery.localRuntimesQuery.data?.peopleComputers.computers[0];
@@ -959,6 +964,8 @@ describe("CreateProfileDialog", () => {
 		readiness.service.connected = false;
 		readiness.service.matchingCurrentRuntime = false;
 		renderCurrentCreateProfileDialog({ recovery });
+		expect(await screen.findAllByRole("radio")).toHaveLength(6);
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 		expect(
 			await screen.findByRole("region", { name: "Inline computer setup" })
 		).toBeTruthy();
@@ -976,7 +983,13 @@ describe("CreateProfileDialog", () => {
 		);
 		expect(screen.getByText("Reconnect Office Mac")).toBeTruthy();
 		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 	});
 
@@ -1558,10 +1571,26 @@ describe("CreateProfileDialog", () => {
 		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
 			target: { value: "New Remote Partner" },
 		});
+		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Provider" }));
+		fireEvent.click(await screen.findByRole("option", { name: "OpenAI" }));
+		expect(
+			screen.getByRole("combobox", { name: "Model" }).textContent
+		).toContain("Choose a model");
+		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		fireEvent.click(await screen.findByRole("option", { name: "GPT-6 Astra" }));
+		fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
 		const readsBeforeCreation = readOrganizationDirectoryMock.mock.calls.length;
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		await waitFor(() => {
-			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						modelId: "openai/gpt-6-astra",
+					}),
+				})
+			);
 			expect(readOrganizationDirectoryMock.mock.calls.length).toBeGreaterThan(
 				readsBeforeCreation
 			);
@@ -2081,7 +2110,8 @@ describe("CreateProfileDialog", () => {
 		try {
 			await waitFor(() => {
 				expect(onAgentRequestCreated).toHaveBeenCalledWith(
-					expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
+					expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID }),
+					null
 				);
 				expect(onOpenChange).toHaveBeenCalledWith(false);
 			});
@@ -2146,7 +2176,8 @@ describe("CreateProfileDialog", () => {
 					createdAgentProfileId: NEW_AGENT_ID,
 					status: "failed",
 					statusReason: "profile_created",
-				})
+				}),
+				null
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
@@ -2260,7 +2291,8 @@ describe("CreateProfileDialog", () => {
 					createdAgentProfileId: NEW_AGENT_ID,
 					status: "failed",
 					statusReason: "profile_created",
-				})
+				}),
+				null
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
@@ -2344,6 +2376,324 @@ describe("CreateProfileDialog", () => {
 		);
 		expect(screen.getByTestId("local-agent-logo-grok-build")).toBeTruthy();
 		expect(screen.queryByText("Adel")).toBeNull();
+	});
+
+	it("opens Antigravity model and permission controls with native choices", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "antigravity",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		fireEvent.click(await screen.findByRole("combobox", { name: "Model" }));
+		expect(
+			await screen.findByRole("option", {
+				name: "Claude Sonnet 4.6 (Thinking)",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByRole("option", { name: "GPT-OSS 120B (Medium)" })
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("option", { name: "Claude Sonnet 4.6 (Thinking)" })
+		);
+		fireEvent.keyDown(document, { key: "Escape" });
+		fireEvent.click(screen.getByRole("button", { name: "Edit Permissions" }));
+		fireEvent.click(
+			await screen.findByRole("combobox", {
+				name: "Antigravity permissions mode",
+			})
+		);
+		expect(
+			await screen.findByRole("option", { name: "Accept edits" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("option", { name: "Bypass permissions" })
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("option", { name: "Accept edits" }));
+		fireEvent.keyDown(document, { key: "Escape" });
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						agentControllerRef: "builtin:antigravity",
+						modelId: "claude-sonnet-4-6",
+						agentControllerPermissionMode: "antigravity:acceptEdits",
+					}),
+				})
+			);
+		});
+	});
+
+	it("links an uninstalled Antigravity selection to its exact guide", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "antigravity",
+					detected: false,
+					enabled: false,
+					launchStatus: "not_detected",
+					selectable: false,
+				}),
+			]),
+		});
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+
+		expect(
+			await screen.findByText("Install Antigravity on this computer.")
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Open install guide" })
+				.getAttribute("href")
+		).toBe("/guides/local-agents/antigravity");
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+	});
+
+	it("lets the user turn on the selected disabled local agent", async () => {
+		const setLocalAgentEnabled = vi.fn().mockResolvedValue(undefined);
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "antigravity",
+				detected: true,
+				enabled: false,
+				launchStatus: "disabled",
+				selectable: false,
+			}),
+		]);
+		Object.assign(recovery, { setLocalAgentEnabled });
+		renderCurrentCreateProfileDialog({ recovery });
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		fireEvent.click(
+			await screen.findByRole("switch", { name: "Enable Antigravity" })
+		);
+
+		await waitFor(() =>
+			expect(setLocalAgentEnabled).toHaveBeenCalledWith({
+				agentId: "antigravity",
+				deviceId: "device-123",
+				enabled: true,
+				runtimeLane: "dev-local",
+			})
+		);
+	});
+
+	it("accepts an enabled local agent after a slow control report refresh", async () => {
+		const setLocalAgentEnabled = vi.fn().mockRejectedValue({
+			code: "local_agent_control.timeout",
+			message: "Local agent control timed out.",
+			status: 504,
+		});
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "antigravity",
+				detected: true,
+				enabled: false,
+				launchStatus: "disabled",
+				selectable: false,
+			}),
+		]);
+		const currentData = recovery.localRuntimesQuery.data;
+		if (!currentData) {
+			throw new Error("Expected the fake Computer inventory.");
+		}
+		const confirmedData = {
+			...currentData,
+			localRuntimes: currentData.localRuntimes.map((computer) => ({
+				...computer,
+				executionTargets: computer.executionTargets.map((target) => ({
+					...target,
+					localAgentCatalog: {
+						entries: target.localAgentCatalog.entries.map((entry) =>
+							entry.agentId === "antigravity"
+								? {
+										...entry,
+										enabled: true,
+										launchStatus: "ready",
+										selectable: true,
+									}
+								: entry
+						),
+					},
+				})),
+			})),
+		};
+		const refetch = vi
+			.fn()
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: confirmedData });
+		Object.assign(recovery, { setLocalAgentEnabled });
+		Object.assign(recovery.localRuntimesQuery, { refetch });
+		renderCurrentCreateProfileDialog({ recovery });
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		const enableSwitch = await screen.findByRole("switch", {
+			name: "Enable Antigravity",
+		});
+		vi.useFakeTimers();
+		try {
+			fireEvent.click(enableSwitch);
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(refetch).toHaveBeenCalledOnce();
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(32_000);
+			});
+			expect(refetch).toHaveBeenCalledTimes(9);
+			expect(enableSwitch.hasAttribute("data-unchecked")).toBe(true);
+			expect(screen.queryByRole("alert")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("reports an explicit enable rejection without polling", async () => {
+		const setLocalAgentEnabled = vi
+			.fn()
+			.mockRejectedValue(new Error("You don’t have permission to do that."));
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "antigravity",
+				detected: true,
+				enabled: false,
+				launchStatus: "disabled",
+				selectable: false,
+			}),
+		]);
+		const refetch = vi.fn();
+		Object.assign(recovery, { setLocalAgentEnabled });
+		Object.assign(recovery.localRuntimesQuery, { refetch });
+		renderCurrentCreateProfileDialog({ recovery });
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		fireEvent.click(
+			await screen.findByRole("switch", { name: "Enable Antigravity" })
+		);
+
+		expect(
+			(
+				await screen.findByText("You don’t have permission to do that.")
+			).getAttribute("role")
+		).toBe("alert");
+		expect(refetch).not.toHaveBeenCalled();
+	});
+
+	it("keeps a slow unconfirmed enable change as still applying", async () => {
+		const controlTimeout = {
+			code: "local_agent_control.timeout",
+			message: "Local agent control timed out.",
+			status: 504,
+		};
+		const setLocalAgentEnabled = vi.fn().mockRejectedValue(controlTimeout);
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "antigravity",
+				detected: true,
+				enabled: false,
+				launchStatus: "disabled",
+				selectable: false,
+			}),
+		]);
+		const refetch = vi
+			.fn()
+			.mockResolvedValue({ data: recovery.localRuntimesQuery.data });
+		Object.assign(recovery, { setLocalAgentEnabled });
+		Object.assign(recovery.localRuntimesQuery, { refetch });
+		renderCurrentCreateProfileDialog({ recovery });
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		const enableSwitch = await screen.findByRole("switch", {
+			name: "Enable Antigravity",
+		});
+		vi.useFakeTimers();
+		try {
+			fireEvent.click(enableSwitch);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(32_000);
+			});
+
+			expect(screen.queryByRole("alert")).toBeNull();
+			expect(
+				screen
+					.getByText(
+						"OpenMeld is still applying this change. Check again in a moment."
+					)
+					.tagName.toLowerCase()
+			).toBe("output");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("shows cached usage without blocking a signed-out local agent selection", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery(
+				[
+					buildCatalogEntry({
+						agentId: "codex",
+						launchStatus: "ready",
+						selectable: true,
+					}),
+				],
+				{
+					agentControllerInterface: {
+						auth: { status: "unauthenticated" },
+						models: [],
+						status: "ready",
+						usageLimits: [
+							{
+								key: "weekly",
+								label: "Weekly usage",
+								observedAt: "2026-09-21T08:00:00.000Z",
+								resetsAt: "2026-09-22T08:00:00.000Z",
+								status: "available",
+								usedPercent: 25,
+							},
+						],
+					},
+				}
+			),
+		});
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+
+		expect(
+			await screen.findByText("Sign in to Codex on this computer.")
+		).toBeTruthy();
+		expect(
+			screen.getByLabelText("Codex usage limits, 75% left, Available")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
+		).toBeTruthy();
 	});
 
 	it("blocks an unbound Agent even when the form is submitted directly", async () => {
@@ -2641,6 +2991,72 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("keeps the Local Agent's custom folder with its retry intent before Core responds", async () => {
+		createAgentProfileCreationRequestMock.mockImplementation((requestInput) => {
+			rememberAgentCreationIntent({
+				fingerprint: "same-local-intent",
+				idempotencyKey: requestInput.idempotencyKey,
+				organizationId: requestInput.organizationId,
+				profileName: requestInput.profileName,
+				scope: "creation-reload-test",
+			});
+			requestInput.onStarted?.({
+				configuration: requestInput.configuration,
+				failureMessage: null,
+				id: `optimistic:${requestInput.idempotencyKey}`,
+				profileName: requestInput.profileName,
+				requestFingerprint: "same-local-intent",
+				status: "creating",
+				targetOwnerUserId: requestInput.targetOwnerUserId,
+			});
+			return buildAgentProfileCreationRequestResult(requestInput);
+		});
+		renderCreateProfileDialog({
+			clearIntentOnAcceptance: false,
+			intentStorageScope: "creation-reload-test",
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+			waitForAgentRequestCompletion: false,
+		});
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		await selectAgentProfileKind();
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
+		fireEvent.focus(
+			await screen.findByRole("option", { name: "On this computer" })
+		);
+		fireEvent.click(
+			await screen.findByRole("option", { name: "On this computer" })
+		);
+		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
+			target: { value: "/tmp/recovered-agent-folder" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
+		);
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledOnce();
+			expect(
+				readAgentCreationIntent("creation-reload-test", "organization-123")
+			).toEqual(
+				expect.objectContaining({
+					customWorkspacePath: "/tmp/recovered-agent-folder",
+					profileName: "Research Agent",
+				})
+			);
+		});
+	});
+
 	it("keeps the committed Agent visible when custom working folder setup fails", async () => {
 		setCurrentAgentProfileWorkspaceMock.mockRejectedValue(
 			new Error("The working folder is temporarily unavailable.")
@@ -2687,7 +3103,8 @@ describe("CreateProfileDialog", () => {
 				expect.objectContaining({
 					createdAgentProfileId: NEW_AGENT_ID,
 					status: "completed",
-				})
+				}),
+				"The working folder is temporarily unavailable."
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});

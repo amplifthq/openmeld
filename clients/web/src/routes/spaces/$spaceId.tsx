@@ -20,6 +20,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -29,6 +30,10 @@ import {
 	SelectLabel,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import {
+	APP_PAGE_FRAME_CLASS_NAME,
+	APP_PAGE_FRAME_PADDING_CLASS_NAME,
+} from "@openmeld/ui/lib/page-frame";
 import { LockKeyIcon, SignInIcon, UserIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
@@ -44,10 +49,6 @@ import {
 } from "react";
 import { z } from "zod/v4";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
-import {
-	APP_PAGE_FRAME_CLASS_NAME,
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
-} from "#/components/app/shell-layout";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import type { SpaceComposerInputRef } from "#/components/spaces/space-composer-editor";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";
@@ -341,7 +342,7 @@ function GuestSpacePage(input: {
 	if (profiles.isPending) {
 		return (
 			<PublicSpaceEntryFrame>
-				<p>Loading your Space…</p>
+				<SkeletonRows label="Loading your Space" rows={1} />
 			</PublicSpaceEntryFrame>
 		);
 	}
@@ -1004,7 +1005,6 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				onSend={noopPromise}
 				onSendStarterPrompt={noopPromise}
 				onSpaceViewChange={input.onSpaceViewChange}
-				presentedWakeProgressItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
 				selfProfileId={PUBLIC_VIEWER_PROFILE_ID}
 				spaceId={input.spaceId}
 				spaceReferencesById={input.spaceReferencesById}
@@ -1045,9 +1045,9 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 			/>
 			<SpaceThreadPanel
 				activeThread={input.activeThread}
-				agentDirectConversationKind={null}
 				agentRecoveryPlansByProfileId={EMPTY_AGENT_RECOVERY_PLANS}
 				agentStreams={[]}
+				automaticWakeConversationKind={null}
 				centerAgentProfileId={input.status?.centerAgentProfileId ?? null}
 				composerBlockedWakeProfileId={null}
 				composerErrorMessage={null}

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -23,6 +23,7 @@ const loader = join(
   "dist",
   "loader.mjs"
 );
+const STOPPED_PROCESS_STATUS = /^T/u;
 
 describe("native Service command lifecycle ownership", () => {
   it.each([
@@ -89,6 +90,13 @@ exec /bin/ps "$@"
           "daemon-service",
           "daemon-service-run.lock"
         );
+        await expect
+          .poll(() =>
+            execFileSync("/bin/ps", ["-o", "stat=", "-p", String(owner.pid)], {
+              encoding: "utf8",
+            }).trim()
+          )
+          .toMatch(STOPPED_PROCESS_STATUS);
         const entries = await readdir(lockPath);
         expect(entries).toHaveLength(pauseAt === 2 ? 1 : 2);
         let nativePid = Number(await readFile(paused, "utf8"));

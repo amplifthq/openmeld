@@ -1,12 +1,29 @@
-import { execFile } from "node:child_process";
-import { win32 } from "node:path";
-import { promisify } from "node:util";
+import { type ExecFileException, execFile } from "node:child_process";
+import { normalizeCommandEnvironment } from "@openmeld/adapter-core/process-environment";
 import {
+  powerShellEncodedArguments,
+  resolveWindowsPowerShellPath,
+} from "@openmeld/adapter-core/windows-system";
+import {
+  type WindowsUserTaskAction,
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
   windowsUserTaskRequestSchema,
   windowsUserTaskStatusSchema,
+  windowsUserTaskStoredActionSchema,
 } from "@openmeld/schemas";
+import { currentDaemonServiceLifecycleLock } from "../../config/daemon-state";
+import {
+  attachLockProcess,
+  type OpenMeldLock,
+  releaseLock,
+} from "../../config/lock";
+import { verifyWindowsServiceSubsystem } from "./windows-service-binary";
+import { readWindowsDirectTaskAction } from "./windows-task-command";
+import {
+  WINDOWS_TASK_HOST_INSTALL_SCRIPT,
+  WINDOWS_TASK_HOST_SUFFIX,
+} from "./windows-task-host";
 
 // Task Scheduler runs in the signed-in user's session, with that user's tokens
 // and ordinary permissions. No password, elevation, or third-party service host.
@@ -16,15 +33,40 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $r = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:OPENMELD_TASK_REQUEST)))
+if ($env:OPENMELD_TASK_GRANT_REQUIRED -eq '1' -and [Console]::In.ReadLine() -ne 'execute') { exit 125 }
+$env:OPENMELD_TASK_GRANT_REQUIRED = $null
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if ($sid -in @('S-1-5-18','S-1-5-19','S-1-5-20')) { throw 'Run OpenMeld setup from your own Windows account, not a system account.' }
 $scheduler = New-Object -ComObject 'Schedule.Service'
 $scheduler.Connect()
 $folder = $scheduler.GetFolder('\')
 $name = $r.name + '-' + $sid
+$hostPath = $r.legacyScript + '${WINDOWS_TASK_HOST_SUFFIX}'
+$runtimeRoot = [IO.Path]::GetDirectoryName($r.legacyScript)
+function Read-OwnedDirectAction($path, $arguments) {
+  if ($arguments -notmatch '(?:^| )--openmeld-windows-task ([A-Za-z0-9+/=]+)$') { return $null }
+  $c = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Matches[1])))
+  $bundles = [IO.Path]::GetFullPath((Join-Path $runtimeRoot 'bundles')) + '\'
+  $fullPath = [IO.Path]::GetFullPath($path)
+  if ($c.executable -ne $path -or !$fullPath.StartsWith($bundles, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($path) -ne 'openmeld.exe' -or !$c.env.OPENMELD_HOME -or [IO.Path]::GetFullPath((Join-Path $c.env.OPENMELD_HOME 'runtime\daemon')) -ne [IO.Path]::GetFullPath($runtimeRoot)) {
+    throw 'The Windows task does not belong to this OpenMeld installation.'
+  }
+  return $c
+}
+$existingDirect = $null
 $task = $null
 try { $task = $folder.GetTask($name) } catch {
   if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw }
+}
+if ($task) {
+  $principal = $task.Definition.Principal
+  $taskSid = $principal.UserId
+  if ($taskSid -notmatch '^S-\d-') { $taskSid = ([Security.Principal.NTAccount]$taskSid).Translate([Security.Principal.SecurityIdentifier]).Value }
+  $actionPath = $task.Definition.Actions.Item(1).Path
+  $existingDirect = Read-OwnedDirectAction $actionPath $task.Definition.Actions.Item(1).Arguments
+  if ($taskSid -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0 -or $task.Definition.Actions.Count -ne 1 -or (!$existingDirect -and $actionPath -ne (Join-Path $PSHOME 'powershell.exe') -and $actionPath -ne $hostPath)) {
+    throw 'An existing OpenMeld task uses a different user or launch configuration. Resolve that installation before continuing.'
+  }
 }
 # Migration only owns the exact legacy script in this lane. Never stop another
 # user's or an administrator-customized service merely because its name matches.
@@ -35,7 +77,16 @@ if ($legacy -and $legacy.PathName.Trim('"') -ne $r.legacyScript) {
 switch ($r.operation) {
   'install' {
     if ($legacy -and $legacy.State -ne 'Stopped') { throw 'The previous OpenMeld Service must finish stopping before migration.' }
-    if ($task -and $task.State -eq 4) { throw 'OpenMeld cannot replace a background task while it is running.' }
+    $nextDirect = Read-OwnedDirectAction $r.executable $r.arguments
+    # A running maintenance invocation keeps its immutable copy and lease. Only
+    # subsequent invocations select the new copy. Main Service replacement still
+    # requires the existing drain and stopped-state proof.
+    $maintenanceUpdate = $r.periodic -and $existingDirect -and $nextDirect -and $existingDirect.args.Count -eq 2 -and $nextDirect.args.Count -eq 2 -and $existingDirect.args[0] -eq 'service' -and $existingDirect.args[1] -eq 'update-worker' -and $nextDirect.args[0] -eq 'service' -and $nextDirect.args[1] -eq 'update-worker'
+    if ($task -and $task.State -eq 4 -and !$maintenanceUpdate) { throw 'OpenMeld cannot replace a background task while it is running.' }
+    if (!$nextDirect) {
+      if ($r.executable -ne (Join-Path $PSHOME 'powershell.exe')) { throw 'OpenMeld tasks require a verified background executable.' }
+      ${WINDOWS_TASK_HOST_INSTALL_SCRIPT}
+    }
     $definition = $scheduler.NewTask(0)
     $definition.RegistrationInfo.Description = 'OpenMeld background process for the signed-in user.'
     $definition.Principal.UserId = $sid
@@ -60,7 +111,7 @@ switch ($r.operation) {
       $timer.Repetition.Interval = 'PT1H'
     }
     $action = $definition.Actions.Create(0)
-    $action.Path = $r.executable
+    $action.Path = $(if ($nextDirect) { $r.executable } else { $hostPath })
     $action.Arguments = $r.arguments
     $action.WorkingDirectory = $r.workingDirectory
     $task = $folder.RegisterTaskDefinition($name, $definition, 6, $sid, $null, 3, $null)
@@ -102,26 +153,21 @@ switch ($r.operation) {
 `;
 
 export function windowsPowerShellPath(): string {
-  const root = process.env.SystemRoot;
-  if (!(root && win32.isAbsolute(root))) {
-    throw new Error("Windows system directory is unavailable.");
-  }
-  return win32.join(
-    root,
-    "System32",
-    "WindowsPowerShell",
-    "v1.0",
-    "powershell.exe"
-  );
+  return resolveWindowsPowerShellPath();
 }
 
-export function windowsTaskActionArguments(input: {
-  executable: string;
-  args: string[];
-  env: Record<string, string>;
-  logPath: string;
-}): string {
-  const data = Buffer.from(JSON.stringify(input)).toString("base64");
+export function windowsTaskActionArguments(
+  input: WindowsUserTaskAction
+): string {
+  // TypeScript's structural type does not strip fields from a spread spec.
+  // Project and validate the actual wire value before encoding it.
+  const action = windowsUserTaskActionSchema.parse({
+    executable: input.executable,
+    args: input.args,
+    env: input.env,
+    logPath: input.logPath,
+  });
+  const data = Buffer.from(JSON.stringify(action)).toString("base64");
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
 $c = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${data}')))
@@ -160,6 +206,10 @@ const ENCODED_ACTION_PATTERN = /-EncodedCommand ([A-Za-z0-9+/=]+)$/u;
 const ACTION_DATA_PATTERN = /FromBase64String\('([A-Za-z0-9+/=]+)'\)/u;
 
 export function readWindowsTaskAction(argumentsText: string) {
+  const direct = readWindowsDirectTaskAction(argumentsText);
+  if (direct) {
+    return direct;
+  }
   const encoded = argumentsText.match(ENCODED_ACTION_PATTERN)?.[1];
   const data =
     encoded &&
@@ -171,7 +221,7 @@ export function readWindowsTaskAction(argumentsText: string) {
       "Windows task does not contain an OpenMeld launch command."
     );
   }
-  const action = windowsUserTaskActionSchema.safeParse(
+  const action = windowsUserTaskStoredActionSchema.safeParse(
     JSON.parse(Buffer.from(data, "base64").toString("utf8"))
   );
   if (!action.success) {
@@ -191,32 +241,79 @@ export async function runWindowsUserTask(
   legacy: boolean;
   actionArguments: string | null;
 }> {
-  const result = await promisify(execFile)(
+  const lock = currentDaemonServiceLifecycleLock();
+  if (request.operation === "install" && request.arguments) {
+    const direct = readWindowsDirectTaskAction(request.arguments);
+    if (direct) {
+      if (request.executable !== direct.executable) {
+        throw new Error(
+          "The Windows task executable does not match its launch envelope."
+        );
+      }
+      await verifyWindowsServiceSubsystem(direct.executable);
+    }
+  }
+  const payload = Buffer.from(
+    JSON.stringify(windowsUserTaskRequestSchema.parse(request))
+  ).toString("base64");
+  let finish!: (value: {
+    error: ExecFileException | null;
+    stdout: string;
+  }) => void;
+  const completed = new Promise<{
+    error: ExecFileException | null;
+    stdout: string;
+  }>((resolve) => {
+    finish = resolve;
+  });
+  const child = execFile(
     windowsPowerShellPath(),
-    [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-EncodedCommand",
-      Buffer.from(TASK_CONTROL, "utf16le").toString("base64"),
-    ],
+    powerShellEncodedArguments(TASK_CONTROL),
     {
+      encoding: "utf8",
       windowsHide: true,
       timeout: 30_000,
       maxBuffer: 1024 * 1024,
       env: {
-        ...process.env,
-        OPENMELD_TASK_REQUEST: Buffer.from(
-          JSON.stringify(windowsUserTaskRequestSchema.parse(request))
-        ).toString("base64"),
+        ...normalizeCommandEnvironment(process.env),
+        OPENMELD_TASK_REQUEST: payload,
+        OPENMELD_TASK_GRANT_REQUIRED: lock ? "1" : "0",
       },
+    },
+    (error, stdout) => finish({ error, stdout })
+  );
+  // EOF before the grant prevents the COM operation. Once granted, this exact
+  // PowerShell instance retains the existing lifecycle fence if its CLI dies.
+  // This is not a Wake Job: the independently scheduled Service must survive it.
+  child.stdin?.on("error", () => undefined);
+  let participant: OpenMeldLock | undefined;
+  try {
+    if (lock) {
+      if (!child.pid) {
+        throw new Error("Windows task control did not establish a process.");
+      }
+      participant = await attachLockProcess(lock, child.pid);
     }
-  );
-  const status = windowsUserTaskStatusSchema.safeParse(
-    JSON.parse(result.stdout.trim())
-  );
-  if (!status.success) {
-    throw new Error("Windows returned an invalid OpenMeld task status.");
+    child.stdin?.end(lock ? "execute\n" : undefined);
+    const result = await completed;
+    if (result.error) {
+      throw result.error;
+    }
+    const status = windowsUserTaskStatusSchema.safeParse(
+      JSON.parse(result.stdout.trim())
+    );
+    if (!status.success) {
+      throw new Error("Windows returned an invalid OpenMeld task status.");
+    }
+    return status.data;
+  } finally {
+    child.stdin?.destroy();
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+    }
+    await completed;
+    if (participant) {
+      await releaseLock(participant);
+    }
   }
-  return status.data;
 }

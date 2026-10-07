@@ -1,8 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
@@ -11,6 +9,12 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
+import {
+	FluidDropdownMenuContent as DropdownMenuContent,
+	FluidDropdownMenuItem as DropdownMenuItem,
+	FluidDropdownMenuGroup,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import {
 	SidebarMenuActions,
@@ -21,7 +25,6 @@ import {
 	ArchiveIcon,
 	ArrowUUpLeftIcon,
 	ChatCircleTextIcon,
-	CloudIcon,
 	DotsThreeIcon,
 	FolderIcon,
 	PencilSimpleIcon,
@@ -31,6 +34,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import { useSortableSidebarItem } from "#/components/app/sidebar-drag";
 import { SidebarRowAction } from "#/components/app/sidebar-row-action";
 import {
@@ -53,6 +57,7 @@ import type {
 	Conversation,
 	ConversationPreview,
 } from "./conversation-sidebar-model";
+import { DirectMessageAvatar } from "./direct-message-avatar";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -68,9 +73,10 @@ import {
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
-import { SpaceProfileIcon } from "./space-profile-icon";
+import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
+	showMessagePreviews?: boolean;
 	attentionTone: "danger" | "warning" | null;
 	index: number;
 	profileId: string;
@@ -98,6 +104,9 @@ type ConversationRowPreview = {
 	previewSignalId?: string;
 };
 
+const CONVERSATION_PREVIEW_CLASS_NAME =
+	"min-h-4 truncate font-normal text-muted-foreground/90 text-xs leading-4 dark:text-muted-foreground/80";
+
 export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 	if (input.conversation.kind === "space") {
 		const item = input.conversation.item;
@@ -105,7 +114,7 @@ export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 			<ConversationSidebarRowContent
 				{...input}
 				previewSignalId={item.messagePreview?.signalId}
-				previewText={item.messagePreview?.text ?? "No messages yet"}
+				previewText={item.messagePreview?.text ?? ""}
 				timestamp={resolveConversationTimestamp(
 					item.messagePreview?.timestamp,
 					item.spaceCreatedAt
@@ -138,15 +147,47 @@ function DirectMessageSidebarRow(input: ConversationSidebarRowProps) {
 	);
 }
 
+function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
+	const nowMs = useNowMs(60_000);
+	return (
+		<SidebarConversationTime
+			hideOlderUntilHover
+			now={new Date(nowMs)}
+			timestamp={timestamp}
+		/>
+	);
+}
+
+function renderConversationPreview(
+	input: ConversationSidebarRowProps & ConversationRowPreview,
+	needsInput: boolean | undefined,
+	statusLabel: string | undefined
+) {
+	if (needsInput) {
+		return (
+			<span className={CONVERSATION_PREVIEW_CLASS_NAME}>{statusLabel}</span>
+		);
+	}
+	if (input.previewSignalId) {
+		return (
+			<ConversationPreviewLink
+				signalId={input.previewSignalId}
+				text={input.previewText}
+				title={input.title}
+				url={input.url}
+			/>
+		);
+	}
+	return (
+		<span className={CONVERSATION_PREVIEW_CLASS_NAME}>{input.previewText}</span>
+	);
+}
+
 function ConversationSidebarRowContent(
 	input: ConversationSidebarRowProps & ConversationRowPreview
 ) {
-	const chat =
-		input.conversation.kind === "direct-message"
-			? input.conversation.chat
-			: null;
 	const { timestamp, previewText } = input;
-	const nowMs = useNowMs(timestamp === null ? null : 60_000);
+	const rowAnchor = useRef<HTMLDivElement>(null);
 	const presentation = input.activeWakeSummary
 		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
 		: null;
@@ -155,15 +196,21 @@ function ConversationSidebarRowContent(
 	const needsInput = input.activeWakeSummary?.statuses?.some(
 		(status) => status.kind === "needs_input"
 	);
+	const hasPreviewLine =
+		needsInput || (input.showMessagePreviews !== false && !!previewText);
 	const drag = useSortableSidebarItem({
 		section: input.section,
 		itemId: input.conversation.spaceId,
 		name: input.title,
 		disabled: input.disabled || !!input.dragDisabled,
 	});
-	return (
+	const row = (
 		<FluidNavMenuItem
-			className="group/chat relative"
+			className={
+				hasPreviewLine
+					? "group/chat relative"
+					: "group/chat relative [&>[data-sidebar=menu-actions]]:top-1/2 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-1/2 [&>[data-sidebar=menu-badge]]:-translate-y-1/2"
+			}
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
@@ -177,6 +224,7 @@ function ConversationSidebarRowContent(
 			>
 				<div
 					className={`relative flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+					ref={rowAnchor}
 				>
 					<Tooltip>
 						<TooltipTrigger
@@ -192,13 +240,21 @@ function ConversationSidebarRowContent(
 									]
 										.filter(Boolean)
 										.join(", ")}
-									className="absolute inset-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									className="flex shrink-0 items-center rounded-md outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-1 focus-visible:before:ring-ring [&_canvas[data-bot-avatar]]:relative"
 									resetScroll={false}
-									to={input.url}
+									{...conversationNavigationTarget(input.url)}
 								/>
 							}
-						/>
+						>
+							<ConversationIcon
+								conversation={input.conversation}
+								memberAppearances={input.memberAppearances}
+								summary={input.activeWakeSummary}
+								title={input.title}
+							/>
+						</TooltipTrigger>
 						<TooltipContent
+							anchor={rowAnchor}
 							className="max-w-sm flex-col items-start whitespace-normal text-left"
 							side="right"
 						>
@@ -207,12 +263,6 @@ function ConversationSidebarRowContent(
 						</TooltipContent>
 					</Tooltip>
 					<span className="pointer-events-none contents">
-						<ConversationIcon
-							conversation={input.conversation}
-							memberAppearances={input.memberAppearances}
-							summary={input.activeWakeSummary}
-							title={input.title}
-						/>
 						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span
 								className="flex min-w-0 items-center gap-2"
@@ -220,33 +270,14 @@ function ConversationSidebarRowContent(
 							>
 								<span className="flex min-w-0 flex-1 items-center gap-1.5">
 									<span
-										className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : ""}`}
+										className={`truncate text-foreground ${hasUnread ? "font-semibold" : ""}`}
 										data-conversation-title="true"
 									>
 										{input.title}
 									</span>
 								</span>
-								{chat?.session && (
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<span
-													aria-label="Agent direct message"
-													className="inline-flex shrink-0 text-muted-foreground"
-													role="img"
-												/>
-											}
-										>
-											<CloudIcon aria-hidden="true" className="size-3" />
-										</TooltipTrigger>
-										<TooltipContent>Agent direct message</TooltipContent>
-									</Tooltip>
-								)}
 								{timestamp !== null && !presentation && (
-									<SidebarConversationTime
-										now={new Date(nowMs)}
-										timestamp={timestamp}
-									/>
+									<ConversationSidebarRowTime timestamp={timestamp} />
 								)}
 								{presentation && input.attentionTone && (
 									<span
@@ -256,18 +287,12 @@ function ConversationSidebarRowContent(
 									/>
 								)}
 							</span>
-							{input.previewSignalId && !needsInput ? (
-								<ConversationPreviewLink
-									signalId={input.previewSignalId}
-									text={previewText}
-									title={input.title}
-									url={input.url}
-								/>
-							) : (
-								<span className="truncate font-normal text-muted-foreground text-xs leading-4">
-									{needsInput ? presentation?.label : previewText}
-								</span>
-							)}
+							{hasPreviewLine &&
+								renderConversationPreview(
+									input,
+									needsInput,
+									presentation?.label
+								)}
 						</span>
 					</span>
 				</div>
@@ -286,17 +311,30 @@ function ConversationSidebarRowContent(
 			) : (
 				(hasUnread || input.attentionTone) && (
 					<SidebarMenuBadge>
-						<span
-							aria-hidden="true"
-							className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-							data-conversation-unread-indicator="true"
-						/>
+						{input.attentionTone ? (
+							<span
+								aria-hidden="true"
+								className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+								data-conversation-unread-indicator="true"
+							/>
+						) : (
+							<SpaceUnreadLink
+								count={input.unreadCount}
+								spaceId={input.conversation.spaceId}
+								url={input.url}
+							/>
+						)}
 					</SidebarMenuBadge>
 				)
 			)}
 
 			<ConversationRowActions {...input} />
 		</FluidNavMenuItem>
+	);
+	return (
+		<FluidContextMenu className="w-56" target={row}>
+			<ConversationRowMenuItems {...input} />
+		</FluidContextMenu>
 	);
 }
 
@@ -309,10 +347,11 @@ function ConversationPreviewLink(input: {
 	const navigate = useNavigate();
 	const currentHref = useLocation({ select: (location) => location.href });
 	const href = buildSpaceMessageFocusHref(input.url, input.signalId);
+	const destination = conversationNavigationTarget(href);
 	return (
 		<Link
 			aria-label={`Open preview message in ${input.title}: ${input.text}`}
-			className="pointer-events-auto relative truncate font-normal text-muted-foreground text-xs leading-4 decoration-muted-foreground/50 underline-offset-2 outline-none hover:underline focus-visible:underline focus-visible:ring-1 focus-visible:ring-ring"
+			className={`pointer-events-auto relative ${CONVERSATION_PREVIEW_CLASS_NAME} decoration-muted-foreground/50 underline-offset-2 outline-none hover:underline focus-visible:underline focus-visible:ring-1 focus-visible:ring-ring`}
 			onClick={(event) => {
 				if (
 					currentHref !== href ||
@@ -326,18 +365,18 @@ function ConversationPreviewLink(input: {
 				}
 				event.preventDefault();
 				navigate({
-					to: input.url,
+					...conversationNavigationTarget(input.url),
 					replace: true,
 					resetScroll: false,
 				})
-					.then(() => navigate({ to: href, resetScroll: false }))
+					.then(() => navigate({ ...destination, resetScroll: false }))
 					.catch((error: unknown) => {
 						console.error("Could not open preview message", error);
 						toast.error("Couldn't open this message. Try again.");
 					});
 			}}
 			resetScroll={false}
-			to={href}
+			{...destination}
 		>
 			{input.text}
 		</Link>
@@ -427,9 +466,16 @@ function ConversationActivityIndicator({
 			}
 			// Reset a previously consumed focus request so repeating this action scrolls again.
 			if (currentHref === destination && destination !== url) {
-				await navigate({ to: url, replace: true, resetScroll: false });
+				await navigate({
+					...conversationNavigationTarget(url),
+					replace: true,
+					resetScroll: false,
+				});
 			}
-			await navigate({ to: destination, resetScroll: false });
+			await navigate({
+				...conversationNavigationTarget(destination),
+				resetScroll: false,
+			});
 		} catch (error) {
 			console.error("Could not open active work", error);
 			toast.error(
@@ -463,7 +509,7 @@ function ConversationActivityIndicator({
 							}
 						}}
 						resetScroll={false}
-						to={href}
+						{...conversationNavigationTarget(href)}
 					/>
 				}
 			>
@@ -483,6 +529,15 @@ function ConversationActivityIndicator({
 	);
 }
 
+function conversationNavigationTarget(href: string) {
+	const url = new URL(href, "https://openmeld.invalid");
+	return {
+		to: url.pathname,
+		search: Object.fromEntries(url.searchParams),
+		hash: url.hash.slice(1),
+	};
+}
+
 function ConversationIcon(input: {
 	conversation: Conversation;
 	title: string;
@@ -493,6 +548,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
+				size="sidebar"
 				summary={input.summary}
 				title={input.title}
 			/>
@@ -503,11 +559,12 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
+				compactSize={24}
 				members={members}
 			/>
 		);
 	}
-	return <ChatCircleTextIcon aria-label="Space" className="size-5 shrink-0" />;
+	return <ChatCircleTextIcon aria-label="Space" className="size-6 shrink-0" />;
 }
 
 export function resolvePreviewText(
@@ -519,21 +576,22 @@ export function resolvePreviewText(
 	if (preview?.isError) {
 		return "Couldn’t load preview. Open chat to retry.";
 	}
-	if (!preview || preview.isPending) {
-		return "Loading message…";
-	}
-	return "No messages yet";
+	return "";
 }
 
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
+	size?: "sm" | "sidebar" | "card";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
 		return (
 			<CenterAgentChatAvatar
+				avatarStyle={input.chat.centerAgentAvatarStyle}
+				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
+				size={({ card: 56, sidebar: 28, sm: 24 } as const)[input.size ?? "sm"]}
 				working={
 					input.summary?.statuses?.some(
 						(status) => status.kind === "working"
@@ -543,13 +601,10 @@ export function ChatIcon(input: {
 		);
 	}
 	return (
-		<SpaceProfileIcon
-			agentControllerRef={input.chat.peer?.agentControllerRef ?? null}
-			avatarImageUrl={input.chat.peer?.avatarUrl}
-			profileId={input.chat.peer?.profileId ?? input.chat.spaceId}
-			profileKind={input.chat.peer?.profileKind ?? "human"}
-			profileName={input.title}
-			size="sm"
+		<DirectMessageAvatar
+			participants={input.chat.participants}
+			peer={input.chat.peer}
+			size={input.size ?? "sm"}
 		/>
 	);
 }
@@ -583,54 +638,77 @@ function ConversationRowActions(input: ConversationSidebarRowProps) {
 					align="end"
 					className="w-56 max-w-[calc(100vw-2rem)]"
 				>
-					{input.onRename && (
-						<DropdownMenuItem
-							disabled={input.disabled}
-							onClick={input.onRename}
-						>
-							<PencilSimpleIcon aria-hidden="true" />
-							Rename
-						</DropdownMenuItem>
-					)}
-					<DropdownMenuItem disabled={input.disabled} onClick={togglePin}>
-						<PushPinIcon
-							aria-hidden="true"
-							weight={input.section === "pinned" ? "fill" : "regular"}
-						/>
-						{input.section === "pinned" ? "Unpin" : "Pin"}
-					</DropdownMenuItem>
-					{input.groups
-						.filter((g) => g.id !== input.section && g.id !== "pinned")
-						.map((g) => (
-							<DropdownMenuItem
-								disabled={input.disabled}
-								key={g.id}
-								onClick={() => input.onMove(g.id)}
-							>
-								<FolderIcon aria-hidden="true" />
-								<span className="truncate" title={`Move to ${g.name}`}>
-									Move to {g.name}
-								</span>
-							</DropdownMenuItem>
-						))}
-					{input.onArchive && (
-						<>
-							<DropdownMenuSeparator />
-							<DropdownMenuItem
-								disabled={input.disabled}
-								onClick={input.onArchive}
-							>
-								{input.archived ? (
-									<ArrowUUpLeftIcon aria-hidden="true" />
-								) : (
-									<ArchiveIcon aria-hidden="true" />
-								)}
-								{input.archived ? "Unarchive" : "Archive"}
-							</DropdownMenuItem>
-						</>
-					)}
+					<ConversationRowMenuItems {...input} />
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</SidebarMenuActions>
+	);
+}
+
+function ConversationRowMenuItems(input: ConversationSidebarRowProps) {
+	const togglePin = () =>
+		input.section === "pinned" ? input.onUnpin() : input.onMove("pinned");
+	return (
+		<>
+			<ObjectMenuItems href={input.url} />
+			<DropdownMenuSeparator />
+			<FluidDropdownMenuGroup>
+				{input.onRename && (
+					<DropdownMenuItem
+						disabled={input.disabled}
+						index={0}
+						onClick={input.onRename}
+					>
+						<PencilSimpleIcon aria-hidden="true" />
+						Rename
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuItem
+					disabled={input.disabled}
+					index={1}
+					onClick={togglePin}
+				>
+					<PushPinIcon
+						aria-hidden="true"
+						weight={input.section === "pinned" ? "fill" : "regular"}
+					/>
+					{input.section === "pinned" ? "Unpin" : "Pin"}
+				</DropdownMenuItem>
+				{input.groups
+					.filter((g) => g.id !== input.section && g.id !== "pinned")
+					.map((g, index) => (
+						<DropdownMenuItem
+							disabled={input.disabled}
+							index={index + 2}
+							key={g.id}
+							onClick={() => input.onMove(g.id)}
+						>
+							<FolderIcon aria-hidden="true" />
+							<span className="truncate" title={`Move to ${g.name}`}>
+								Move to {g.name}
+							</span>
+						</DropdownMenuItem>
+					))}
+			</FluidDropdownMenuGroup>
+			{input.onArchive && (
+				<>
+					<DropdownMenuSeparator />
+					<FluidDropdownMenuGroup>
+						<DropdownMenuItem
+							disabled={input.disabled}
+							index={input.groups.length + 2}
+							onClick={input.onArchive}
+						>
+							{input.archived ? (
+								<ArrowUUpLeftIcon aria-hidden="true" />
+							) : (
+								<ArchiveIcon aria-hidden="true" />
+							)}
+							{input.archived ? "Unarchive" : "Archive"}
+						</DropdownMenuItem>
+					</FluidDropdownMenuGroup>
+				</>
+			)}
+		</>
 	);
 }

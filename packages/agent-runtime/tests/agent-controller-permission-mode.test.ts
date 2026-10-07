@@ -47,7 +47,8 @@ describe("Agent Controller Permission Mode", () => {
     ).toMatchObject({
       fieldLabel: "Codex permissions mode",
       label: "Ask for approval",
-      technicalDetail: "codex -s workspace-write -a untrusted",
+      technicalDetail:
+        'codex -s workspace-write -a on-request -c approvals_reviewer="user"',
       tone: "neutral",
     });
 
@@ -86,6 +87,14 @@ describe("Agent Controller Permission Mode", () => {
 
   it("marks bypass as a warning option that requires explicit confirmation", () => {
     expect(
+      getAgentControllerPermissionModeDisplayMetadata(
+        "antigravity:bypassPermissions",
+        {
+          agentControllerRef: "builtin:antigravity",
+        }
+      )
+    ).toMatchObject({ requiresExplicitConfirmation: true, tone: "warning" });
+    expect(
       getAgentControllerPermissionModeDisplayMetadata("codex:fullAccess", {
         agentControllerRef: "builtin:codex",
       })
@@ -123,8 +132,19 @@ describe("Agent Controller Permission Mode", () => {
       ["codex:askForApproval", "Ask for approval"],
       ["codex:approveForMe", "Approve for me"],
       ["codex:fullAccess", "Full access"],
-      ["codex:customConfig", "Custom (config.toml)"],
     ]);
+
+    // Hiding the retired choice must not silently change saved permissions.
+    expect(
+      resolveNativeAgentControllerPermissionModeForController(
+        "codex:customConfig",
+        { agentControllerRef: "builtin:codex" }
+      )
+    ).toBe("codex:customConfig");
+    expect(
+      getAgentControllerPermissionModeDisplayMetadata("codex:customConfig")
+        .label
+    ).toBe("Previous settings");
 
     expect(
       listAgentControllerPermissionModeOptions({

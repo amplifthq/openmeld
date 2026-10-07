@@ -56,6 +56,9 @@ describe("AppSurfaceLayout", () => {
 		expect(surface?.className).toContain("lg:mt-2");
 		expect(surface?.className).toContain("lg:mr-2");
 		expect(surface?.className).toContain("lg:mb-[var(--app-toolbar-height)]");
+		expect(surface?.className).toContain(
+			"mb-[max(0.5rem,env(safe-area-inset-bottom))]"
+		);
 		expect(surface?.classList.contains("m-2")).toBe(false);
 		expect(surface?.classList.contains("ml-2")).toBe(false);
 		expect(surface?.classList.contains("my-2")).toBe(false);
@@ -108,8 +111,9 @@ describe("AppSurfaceLayout", () => {
 			screen.getByRole("button", { name: "Open app navigation" })
 		);
 		const primaryDrawer = screen.getByRole("dialog", {
-			name: "Plugin navigation",
+			name: "OpenMeld navigation",
 		});
+		expect(primaryDrawer.getAttribute("data-side")).toBe("left");
 		expect(
 			within(primaryDrawer).getByRole("navigation", {
 				name: "Primary test navigation",
@@ -135,6 +139,7 @@ describe("AppSurfaceLayout", () => {
 		const contextualDrawer = screen.getByRole("dialog", {
 			name: "Spaces navigation",
 		});
+		expect(contextualDrawer.getAttribute("data-side")).toBe("right");
 		expect(
 			within(contextualDrawer).getByRole("navigation", {
 				name: "Spaces test navigation",
@@ -158,7 +163,7 @@ describe("AppSurfaceLayout", () => {
 		trigger.focus();
 		fireEvent.click(trigger);
 		expect(
-			screen.getByRole("dialog", { name: "Plugin navigation" })
+			screen.getByRole("dialog", { name: "OpenMeld navigation" })
 		).toBeTruthy();
 
 		fireEvent.keyDown(document, { key: "Escape" });

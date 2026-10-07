@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildOpenMeldNavigationAction,
   type NavigationAction,
@@ -10,7 +11,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../../organizations/organization-context";
-import { insertRemoteAgentMessageChannelIdentityLinkToken } from "../infrastructure/d1/message-channel-identity-link-token-repo";
+import { insertRemoteAgentMessageChannelIdentityLinkToken } from "../infrastructure/postgresql/message-channel-identity-link-token-repo";
 import {
   claimRemoteAgentMessageChannelFinalPublication,
   expireRemoteAgentMessageChannelFinalPublicationAmbiguity,
@@ -24,13 +25,13 @@ import {
   recoverExpiredRemoteAgentMessageChannelFinalPublicationClaim,
   releaseRemoteAgentMessageChannelFinalPublicationClaim,
   scheduleRemoteAgentMessageChannelFinalPublicationRetry,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
+import { projectMessageChannelCardRevision } from "./message-channel-card-revision";
 import {
   advanceRemoteAgentMessageChannelCardRollover,
   type MessageChannelCardRolloverResult,
 } from "./message-channel-card-rollover-service";
-import { splitMessageChannelCardSegment } from "./message-channel-card-segmentation";
 import {
   buildMessageChannelIdentityLinkUrl,
   createMessageChannelIdentityLinkToken,
@@ -49,7 +50,6 @@ import {
   resolveMessageChannelFinalCardSequence,
 } from "./message-channel-terminal-publication";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
-
 export const REMOTE_AGENT_MESSAGE_CHANNEL_FINAL_PUBLICATION_CLAIM_LEASE_MS =
   5 * 60_000;
 export const REMOTE_AGENT_LARK_PLATFORM_REPLY_DEDUPLICATION_WINDOW_MS =
@@ -57,7 +57,6 @@ export const REMOTE_AGENT_LARK_PLATFORM_REPLY_DEDUPLICATION_WINDOW_MS =
 export const REMOTE_AGENT_MESSAGE_CHANNEL_AMBIGUOUS_PUBLICATION_RETRY_DELAY_MS = 1000;
 const PROVIDER_DEDUPLICATED_PUBLICATION_AMBIGUITY_REASON =
   /^(feishu|lark)\.message_reply_(outcome_unknown|result_missing)$/;
-
 export type RemoteAgentMessageChannelPublicationOutcome =
   | {
       delivery: RemoteAgentNativeDeliveryRecord;
@@ -80,11 +79,10 @@ export type RemoteAgentMessageChannelPublicationOutcome =
   | {
       status: "in_progress";
     };
-
 export async function publishRemoteAgentMessageChannelCallback(input: {
   body: RemoteAgentCoreCallbackBody;
   clock?: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord & {
     status: "accepted" | "retry_observed";
   };
@@ -102,7 +100,6 @@ export async function publishRemoteAgentMessageChannelCallback(input: {
   }
   const { adapter, connection, locator, providerPublicationIdempotencyKey } =
     targetResolution.target;
-
   const clock = input.clock ?? Date.now;
   const candidatePayload = buildFinalPublicationPayload({
     body: input.body,
@@ -160,7 +157,6 @@ export async function publishRemoteAgentMessageChannelCallback(input: {
     return preparedDelivery;
   }
   const publicationDelivery = preparedDelivery.delivery;
-
   let publication: MessageChannelTerminalPublicationResult;
   try {
     publication = await publishMessageChannelTerminalResult({
@@ -208,7 +204,6 @@ export async function publishRemoteAgentMessageChannelCallback(input: {
       reasonCode: `${locator.provider}.final_publication_outcome_unknown`,
     });
   }
-
   if (publication.status === "outcome_unknown") {
     if (!isProviderDeduplicatedPublicationAmbiguity(publication.reasonCode)) {
       return await recordPermanentMessageChannelPublicationAmbiguity({
@@ -243,7 +238,6 @@ export async function publishRemoteAgentMessageChannelCallback(input: {
         : { retryAfterMs: publication.retryAfterMs }),
     });
   }
-
   const resultId = publication.resultId;
   const published =
     await markRemoteAgentMessageChannelFinalPublicationPublished({
@@ -302,17 +296,21 @@ export async function publishRemoteAgentMessageChannelCallback(input: {
   }
   return { delivery: published, resultId, status: "published" };
 }
-
 async function resolvePublicationConflictWithPostResultGuidance(input: {
   body: RemoteAgentCoreCallbackBody;
   clock: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings | undefined;
   idempotencyKey: string;
   registry: MessageChannelProviderRegistry;
   submissionId: string;
 }): Promise<
-  Exclude<RemoteAgentMessageChannelPublicationOutcome, { status: "published" }>
+  Exclude<
+    RemoteAgentMessageChannelPublicationOutcome,
+    {
+      status: "published";
+    }
+  >
 > {
   const conflict = await resolveRemoteAgentMessageChannelPublicationConflict({
     db: input.db,
@@ -345,18 +343,22 @@ async function resolvePublicationConflictWithPostResultGuidance(input: {
   return privateNavigationPublication ?? conflict;
 }
 
+import { preparePluginChannelNavigation } from "../../connectors/plugin-channel-navigation";
 export async function publishRemoteAgentMessageChannelPrivateNavigationAfterResult(input: {
   body: RemoteAgentCoreCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   registry: MessageChannelProviderRegistry;
 }): Promise<Extract<
   RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
+  {
+    status: "retryable";
+  }
 > | null> {
   if (
     input.body.status === "failed" ||
-    input.body.navigationTarget?.kind !== "computer_setup"
+    (input.body.navigationTarget?.kind !== "computer_setup" &&
+      input.body.navigationTarget?.kind !== "plugin_connection")
   ) {
     return null;
   }
@@ -398,9 +400,13 @@ export async function publishRemoteAgentMessageChannelPrivateNavigationAfterResu
       status: "retryable",
     };
   }
-  const action = buildOpenMeldNavigationAction({
-    organizationWebUrl,
-    target: input.body.navigationTarget,
+  const action = await preparePluginChannelNavigation({
+    db: input.db,
+    delivery: input.delivery,
+    action: buildOpenMeldNavigationAction({
+      organizationWebUrl,
+      target: input.body.navigationTarget,
+    }),
   });
   const publication =
     await targetResolution.target.adapter.publishPrivateNavigationGuidance({
@@ -413,7 +419,10 @@ export async function publishRemoteAgentMessageChannelPrivateNavigationAfterResu
           publicationKind: "private_navigation",
         }),
       providerUserId: identity.providerUserId,
-      text: buildComputerSetupGuidanceText(action),
+      text:
+        action.target.kind === "plugin_connection"
+          ? "Connect or review this Plugin in OpenMeld, then explicitly continue the original task. Setup does not start work or grant Agent access."
+          : buildComputerSetupGuidanceText(action),
     });
   if (publication.status === "published") {
     return null;
@@ -427,7 +436,6 @@ export async function publishRemoteAgentMessageChannelPrivateNavigationAfterResu
     status: "retryable",
   };
 }
-
 export function buildComputerSetupGuidanceText(
   action: NavigationAction
 ): string {
@@ -442,17 +450,18 @@ export function buildComputerSetupGuidanceText(
   }
   return "Update OpenMeld Service on this computer to use Codex and other local agents.";
 }
-
 export async function publishRemoteAgentMessageChannelIdentityGuidanceAfterResult(input: {
   body: RemoteAgentCoreCallbackBody;
   clock?: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env?: CoreBindings;
   registry: MessageChannelProviderRegistry;
 }): Promise<Extract<
   RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
+  {
+    status: "retryable";
+  }
 > | null> {
   if (
     input.delivery.finalPublicationState !== "published" ||
@@ -480,17 +489,18 @@ export async function publishRemoteAgentMessageChannelIdentityGuidanceAfterResul
     target: targetResolution.target,
   });
 }
-
 async function publishMessageChannelIdentityLinkAfterResult(input: {
   body: RemoteAgentCoreCallbackBody;
   clock: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings | undefined;
   target: MessageChannelPublicationTarget;
 }): Promise<Extract<
   RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
+  {
+    status: "retryable";
+  }
 > | null> {
   if (
     input.body.status === "failed" ||
@@ -516,17 +526,18 @@ async function publishMessageChannelIdentityLinkAfterResult(input: {
         };
   }
 }
-
 async function publishMessageChannelIdentityLink(input: {
   body: RemoteAgentCoreCallbackBody;
   clock: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings | undefined;
   target: MessageChannelPublicationTarget;
 }): Promise<Extract<
   RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
+  {
+    status: "retryable";
+  }
 > | null> {
   if (
     input.body.status === "failed" ||
@@ -557,7 +568,6 @@ async function publishMessageChannelIdentityLink(input: {
       reasonCode: "message_channel.identity_link_context_unavailable",
     });
   }
-
   const claimedByUserId =
     purpose === "continue_request" ? connectToUserId : undefined;
   if (claimedByUserId) {
@@ -586,7 +596,6 @@ async function publishMessageChannelIdentityLink(input: {
       });
     }
   }
-
   const issuedAtMs = input.clock();
   const token = createMessageChannelIdentityLinkToken();
   await insertRemoteAgentMessageChannelIdentityLinkToken({
@@ -631,7 +640,6 @@ async function publishMessageChannelIdentityLink(input: {
       : {}),
   });
 }
-
 function resolveIdentityLinkSpeaker(
   delivery: Pick<
     RemoteAgentNativeDeliveryRecord,
@@ -667,14 +675,15 @@ function resolveIdentityLinkSpeaker(
     },
   };
 }
-
 function handleMessageChannelIdentityLinkFailure(input: {
   purpose: "continue_request" | "optional_setup";
   reasonCode: string;
   retryAfterMs?: number;
 }): Extract<
   RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
+  {
+    status: "retryable";
+  }
 > | null {
   if (input.purpose === "optional_setup") {
     console.warn("[core.message_channel.optional_identity_link_unavailable]", {
@@ -690,17 +699,15 @@ function handleMessageChannelIdentityLinkFailure(input: {
     status: "retryable",
   };
 }
-
 function isProviderDeduplicatedPublicationAmbiguity(
   reasonCode: string
 ): boolean {
   return PROVIDER_DEDUPLICATED_PUBLICATION_AMBIGUITY_REASON.test(reasonCode);
 }
-
 async function prepareTerminalCardDelivery(input: {
   claimId: string;
   clock: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   originalDelivery: RemoteAgentNativeDeliveryRecord & {
     status: "accepted" | "retry_observed";
@@ -715,7 +722,9 @@ async function prepareTerminalCardDelivery(input: {
     }
   | Exclude<
       RemoteAgentMessageChannelPublicationOutcome,
-      { status: "published" }
+      {
+        status: "published";
+      }
     >
 > {
   let publicationDelivery = input.delivery;
@@ -799,11 +808,10 @@ async function prepareTerminalCardDelivery(input: {
     providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
   });
 }
-
 async function fenceTerminalPublicationBeforeProviderIo(input: {
   claimId: string;
   clock: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   providerPublicationIdempotencyKey: string;
 }): Promise<
@@ -813,7 +821,9 @@ async function fenceTerminalPublicationBeforeProviderIo(input: {
     }
   | Exclude<
       RemoteAgentMessageChannelPublicationOutcome,
-      { status: "published" }
+      {
+        status: "published";
+      }
     >
 > {
   if (!requiresMessageChannelFinalCardMutation(input.delivery)) {
@@ -867,7 +877,6 @@ async function fenceTerminalPublicationBeforeProviderIo(input: {
     providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
   });
 }
-
 function requiresTerminalCardRollover(
   delivery: RemoteAgentNativeDeliveryRecord,
   text: string
@@ -886,16 +895,12 @@ function requiresTerminalCardRollover(
     return false;
   }
   return (
-    splitMessageChannelCardSegment({
-      sourceOffset: delivery.providerProgressSourceOffset,
-      text,
-    }).tail.length > 0
+    projectMessageChannelCardRevision(delivery, text).active.tail.length > 0
   );
 }
-
 async function releaseClaimForRetry(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
   providerPublicationIdempotencyKey: string;
@@ -904,7 +909,9 @@ async function releaseClaimForRetry(input: {
 }): Promise<
   Extract<
     RemoteAgentMessageChannelPublicationOutcome,
-    { status: "outcome_unknown" | "retryable" }
+    {
+      status: "outcome_unknown" | "retryable";
+    }
   >
 > {
   const retryAfterMs = resolveConfirmedFailureRetryAfterMs({
@@ -944,7 +951,6 @@ async function releaseClaimForRetry(input: {
       }
     : { status: "outcome_unknown" };
 }
-
 function resolveConfirmedFailureRetryAfterMs(input: {
   ambiguityDeadlineAtMs: number | null;
   nowMs: number;
@@ -961,7 +967,6 @@ function resolveConfirmedFailureRetryAfterMs(input: {
     ? undefined
     : Math.min(input.retryAfterMs, remainingMs);
 }
-
 function assertMessageChannelCallbackAuthority(input: {
   body: RemoteAgentCoreCallbackBody;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -982,7 +987,6 @@ function assertMessageChannelCallbackAuthority(input: {
     );
   }
 }
-
 function assertClaimPreservedMessageChannelAuthority(input: {
   claim: RemoteAgentNativeDeliveryRecord;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -1001,7 +1005,6 @@ function assertClaimPreservedMessageChannelAuthority(input: {
     );
   }
 }
-
 function requireSubmissionId(
   delivery: RemoteAgentNativeDeliveryRecord
 ): string {
@@ -1011,7 +1014,6 @@ function requireSubmissionId(
   }
   return value;
 }
-
 function requireFinalPublicationClaimId(
   delivery: RemoteAgentNativeDeliveryRecord
 ): string {
@@ -1023,13 +1025,11 @@ function requireFinalPublicationClaimId(
   }
   return value;
 }
-
 function normalizeAttachments(
   attachments: readonly SpaceMessageAttachment[] | undefined
 ): readonly SpaceMessageAttachment[] {
   return attachments ?? [];
 }
-
 function buildFinalPublicationPayload(input: {
   body: RemoteAgentCoreCallbackBody;
   resumeStatus: "accepted" | "retry_observed";
@@ -1060,7 +1060,6 @@ function buildFinalPublicationPayload(input: {
     text: content.text,
   };
 }
-
 function requireFinalPublicationPayload(
   delivery: RemoteAgentNativeDeliveryRecord
 ): RemoteAgentFinalPublicationPayload {
@@ -1071,10 +1070,9 @@ function requireFinalPublicationPayload(
   }
   return delivery.finalPublicationPayload;
 }
-
 async function scheduleAmbiguousPublicationRetry(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
   providerProgressSequence: number | null;
@@ -1083,7 +1081,9 @@ async function scheduleAmbiguousPublicationRetry(input: {
 }): Promise<
   Extract<
     RemoteAgentMessageChannelPublicationOutcome,
-    { status: "duplicate" | "in_progress" | "outcome_unknown" | "retryable" }
+    {
+      status: "duplicate" | "in_progress" | "outcome_unknown" | "retryable";
+    }
   >
 > {
   const attemptStartedAtMs =
@@ -1142,10 +1142,9 @@ async function scheduleAmbiguousPublicationRetry(input: {
     submissionId: requireSubmissionId(input.delivery),
   });
 }
-
 async function markMessageChannelPublicationOutcomeUnknown(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
   providerProgressSequence: number | null;
@@ -1161,16 +1160,20 @@ async function markMessageChannelPublicationOutcomeUnknown(input: {
     submissionId: requireSubmissionId(input.delivery),
   });
 }
-
 async function recordPermanentMessageChannelPublicationAmbiguity(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
   providerProgressSequence: number | null;
   providerPublicationIdempotencyKey: string;
 }): Promise<
-  Exclude<RemoteAgentMessageChannelPublicationOutcome, { status: "published" }>
+  Exclude<
+    RemoteAgentMessageChannelPublicationOutcome,
+    {
+      status: "published";
+    }
+  >
 > {
   await markMessageChannelPublicationOutcomeUnknown(input);
   return await resolveRemoteAgentMessageChannelPublicationConflict({
@@ -1180,14 +1183,18 @@ async function recordPermanentMessageChannelPublicationAmbiguity(input: {
     submissionId: requireSubmissionId(input.delivery),
   });
 }
-
 export async function resolveRemoteAgentMessageChannelPublicationConflict(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   idempotencyKey: string;
   nowMs: number;
   submissionId: string;
 }): Promise<
-  Exclude<RemoteAgentMessageChannelPublicationOutcome, { status: "published" }>
+  Exclude<
+    RemoteAgentMessageChannelPublicationOutcome,
+    {
+      status: "published";
+    }
+  >
 > {
   let delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
     db: input.db,
@@ -1278,16 +1285,17 @@ export async function resolveRemoteAgentMessageChannelPublicationConflict(input:
   }
   return { status: "in_progress" };
 }
-
 async function resolveExpiredMessageChannelFinalPublicationClaim(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   idempotencyKey: string;
   nowMs: number;
   submissionId: string;
 }): Promise<Exclude<
   RemoteAgentMessageChannelPublicationOutcome,
-  { status: "published" }
+  {
+    status: "published";
+  }
 > | null> {
   if (
     input.delivery.finalPublicationProviderProgressSequence !== null &&
@@ -1327,7 +1335,6 @@ async function resolveExpiredMessageChannelFinalPublicationClaim(input: {
       }
     : null;
 }
-
 function requireRetryAfterMs(
   delivery: RemoteAgentNativeDeliveryRecord,
   nowMs: number
@@ -1340,7 +1347,6 @@ function requireRetryAfterMs(
   }
   return nextAttemptAtMs - nowMs;
 }
-
 function isConfirmedMessageChannelPublication(
   delivery: RemoteAgentNativeDeliveryRecord | null,
   resultId: string

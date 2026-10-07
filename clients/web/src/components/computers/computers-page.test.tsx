@@ -294,6 +294,9 @@ function buildRecoveryControllerStub(input: {
 					}
 				: { availability: "missing" },
 			isPending: false,
+			isSuccess: true,
+			isError: false,
+			error: null,
 		},
 		currentLocalRuntimeReplyReadinessQuery: {
 			data: input.currentReadiness ?? undefined,
@@ -642,6 +645,7 @@ describe("ComputersPage", () => {
 		expect(useLocalAgentRecoveryControllerMock).toHaveBeenCalledWith({
 			agentExecutionReadinessScope: "bound_runtime",
 			currentLocalRuntimeReplyReadinessRefetchIntervalMs: 10_000,
+			loadAgentExecutionReadiness: false,
 			loadSetupState: false,
 		});
 	});
@@ -736,9 +740,7 @@ describe("ComputersPage", () => {
 		expect(screen.getByText("Version status")).toBeTruthy();
 		expect(screen.getByText("Up to date · v2.1.234")).toBeTruthy();
 		expect(screen.getByText("Launch check")).toBeTruthy();
-		expect(
-			screen.getByText("Can launch · 2 local installs found")
-		).toBeTruthy();
+		expect(screen.getByText("Can launch")).toBeTruthy();
 		expect(screen.getByText("Models")).toBeTruthy();
 		expect(screen.getByText("Claude Sonnet")).toBeTruthy();
 		expect(screen.getByText("Capabilities")).toBeTruthy();

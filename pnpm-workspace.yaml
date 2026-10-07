@@ -4,6 +4,7 @@ packages:
   - runtime/local-execution
   - runtime/local-service
   - runtime/adapters/core
+  - runtime/adapters/antigravity
   - runtime/adapters/claude-code
   - runtime/adapters/codex
   - runtime/adapters/cursor
@@ -30,13 +31,23 @@ allowBuilds:
   workerd: true
 
 catalog:
-  '@cloudflare/workers-types': 5.20260908.1
-  wrangler: 4.130.0
+  '@cloudflare/workers-types': 5.20261001.1
+  wrangler: 4.147.0
+  zod: 4.6.5
 
 minimumReleaseAgeExclude:
   - miniflare
 
 overrides:
+  # Force every @modelcontextprotocol/sdk instance onto the workspace's zod
+  # catalog version. Without this, pnpm can resolve a second, older zod for
+  # the SDK's own peer dependency (e.g. pulled in transitively through
+  # @anthropic-ai/claude-agent-sdk) while callers like the CLI's dispatch MCP
+  # server build tool schemas with the catalog zod. Two zod instances make
+  # every zod-schema `instanceof` check the SDK does at runtime fail, which
+  # surfaces as `McpError: MCP error -32603: Cannot read properties of
+  # undefined (reading 'push')` on the very first tool call.
+  '@modelcontextprotocol/sdk>zod': 'catalog:'
   '@aws-sdk/core': 3.974.28
   '@aws-sdk/credential-provider-env': 3.972.54
   '@aws-sdk/credential-provider-http': 3.972.56
@@ -59,6 +70,12 @@ packageExtensions:
 
 patchedDependencies:
   '@better-auth/electron@1.6.30': patches/@better-auth__electron@1.6.30.patch
-  '@cloudflare/computer@0.2.1': patches/@cloudflare__computer@0.2.1.patch
-  '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch
+  '@cloudflare/computer@0.4.1': patches/@cloudflare__computer@0.4.1.patch
+  '@flue/runtime@2.1.0': patches/@flue__runtime@2.1.0.patch
+  '@tailwindcss/vite@4.2.1': patches/@tailwindcss__vite.patch
+  '@tanstack/history@1.162.1': patches/@tanstack__history@1.162.1.patch
+  '@tanstack/start-plugin-core@1.171.39': patches/@tanstack__start-plugin-core.patch
+  better-sqlite3@13.0.3: patches/better-sqlite3@13.0.3.patch
+  img-fx@0.5.1: patches/img-fx@0.5.1.patch
+  slate-react@0.126.4: patches/slate-react@0.126.4.patch
   thinking-orbs@0.3.1: patches/thinking-orbs@0.3.1.patch

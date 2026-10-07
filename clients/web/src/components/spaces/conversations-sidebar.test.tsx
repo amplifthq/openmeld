@@ -1,6 +1,7 @@
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -12,11 +13,27 @@ import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConversationsSidebar } from "./conversations-sidebar";
 
-vi.mock("./use-conversations", async () => ({
-	useConversations: (
-		await import("#/test-support/conversation-sidebar-fixture")
-	).useConversationSidebarFixture,
-}));
+const sidebarState = vi.hoisted(() => ({ accountIndexPending: false }));
+const navigate = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("./use-conversations", async () => {
+	const { useConversationSidebarFixture } = await import(
+		"#/test-support/conversation-sidebar-fixture"
+	);
+	return {
+		useConversations: () => {
+			const model = useConversationSidebarFixture();
+			return sidebarState.accountIndexPending
+				? {
+						...model,
+						directMessages: {
+							...model.directMessages,
+							spaces: { ...model.directMessages.spaces, isPending: true },
+						},
+					}
+				: model;
+		},
+	};
+});
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
 		currentUserId: "viewer",
@@ -24,7 +41,7 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 vi.mock("@tanstack/react-router", () => ({
-	useNavigate: () => vi.fn(),
+	useNavigate: () => navigate,
 	useLocation: ({
 		select,
 	}: {
@@ -32,18 +49,31 @@ vi.mock("@tanstack/react-router", () => ({
 	}) => select({ href: "/o/acme/spaces" }),
 	Link: ({
 		to,
+		search,
+		hash,
 		children,
 		resetScroll: _resetScroll,
 		...props
 	}: {
 		to: string;
+		search?: Record<string, string>;
+		hash?: string;
 		children: ReactNode;
 		resetScroll?: boolean;
-	}) => (
-		<a href={to} {...props}>
-			{children}
-		</a>
-	),
+	}) => {
+		const href = new URL(to, "https://openmeld.invalid");
+		for (const [key, value] of Object.entries(search ?? {})) {
+			href.searchParams.set(key, value);
+		}
+		if (hash) {
+			href.hash = hash;
+		}
+		return (
+			<a href={`${href.pathname}${href.search}${href.hash}`} {...props}>
+				{children}
+			</a>
+		);
+	},
 }));
 vi.mock("./new-chat-dialog", () => ({
 	NewChatDialog: ({
@@ -71,6 +101,9 @@ vi.mock("../organizations/center-agent-chat-avatar", () => ({
 afterEach(() => {
 	cleanup();
 	localStorage.clear();
+	sidebarState.accountIndexPending = false;
+	navigate.mockClear();
+	vi.useRealTimers();
 });
 function mount() {
 	return render(
@@ -83,9 +116,72 @@ function mount() {
 	);
 }
 async function selectView(name: "Grouped" | "Recent") {
-	fireEvent.click(screen.getByRole("button", { name: "Conversation view" }));
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: "Conversation view" })
+	);
 	fireEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
+
+it("hides previews by default and remembers an explicit choice after remount", async () => {
+	const mounted = mount();
+	const previewName =
+		"Open preview message in Release planning: The release plan is ready to review.";
+	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(
+		await screen.findByRole("menuitemcheckbox", {
+			name: "Show message previews",
+		})
+	);
+	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
+	expect(screen.getByRole("link", { name: "Release planning" })).toBeTruthy();
+	mounted.unmount();
+	const remounted = mount();
+	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	const toggle = await screen.findByRole("menuitemcheckbox", {
+		name: "Show message previews",
+	});
+	expect(toggle.getAttribute("aria-checked")).toBe("true");
+	fireEvent.click(toggle);
+	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
+	remounted.unmount();
+	mount();
+	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
+});
+
+it("refreshes row timestamps across midnight and when the window regains focus", () => {
+	vi.useFakeTimers();
+	const messageDate = new Date(100);
+	vi.setSystemTime(
+		new Date(
+			messageDate.getFullYear(),
+			messageDate.getMonth(),
+			messageDate.getDate(),
+			23,
+			59,
+			30
+		)
+	);
+	mount();
+	const link = screen.getByRole("link", { name: "Release planning" });
+	const time = link.parentElement?.querySelector("time");
+	expect(time?.getAttribute("datetime")).toBe(messageDate.toISOString());
+	expect(time?.classList.contains("hidden")).toBe(false);
+	act(() => vi.advanceTimersByTime(60_000));
+	expect(time?.textContent).toBe("Yesterday");
+	expect(time?.classList.contains("hidden")).toBe(true);
+	vi.setSystemTime(
+		new Date(
+			messageDate.getFullYear(),
+			messageDate.getMonth(),
+			messageDate.getDate() + 2
+		)
+	);
+	fireEvent.focus(window);
+	expect(time?.textContent).toBe("2 days ago");
+});
 
 it("shows Spaces and Direct messages together and keeps the current draft when switching", async () => {
 	mount();
@@ -127,11 +223,20 @@ it("shows Spaces and Direct messages together and keeps the current draft when s
 			.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
 	).toHaveLength(2);
 });
-it("searches both types and retains canonical session destinations", () => {
+
+it("does not present session-only discovery as a complete conversation list", () => {
+	sidebarState.accountIndexPending = true;
+	mount();
+	expect(screen.queryByRole("link", { name: "Launch checklist" })).toBeNull();
+	expect(screen.queryByRole("link", { name: "Product design" })).toBeNull();
+	expect(screen.queryByText("No matching conversations")).toBeNull();
+});
+it("searches both types and applies the nested conversation filter", async () => {
 	mount();
 	const search = screen.getByRole("searchbox", {
 		name: "Search conversations",
 	});
+	expect(search.getAttribute("placeholder")).toBe("Find a space...");
 	fireEvent.change(search, { target: { value: "product" } });
 	expect(
 		screen.getByRole("link", { name: "Product design" }).getAttribute("href")
@@ -144,17 +249,25 @@ it("searches both types and retains canonical session destinations", () => {
 	expect(
 		screen.getByText("No conversations match your search or filters.")
 	).toBeTruthy();
+	fireEvent.change(search, { target: { value: "" } });
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: "Filter conversations" })
+	);
+	fireEvent.click(
+		await screen.findByRole("menuitemcheckbox", { name: "Spaces" })
+	);
+	expect(screen.getByRole("link", { name: "Product design" })).toBeTruthy();
+	expect(screen.queryByRole("link", { name: "Launch checklist" })).toBeNull();
 });
-it("keeps discovery visible in both views and carries an unmatched search into the organization picker", async () => {
+it("keeps the Spaces directory reachable in both views and carries an unmatched search into the organization picker", async () => {
 	mount();
 	expect(
 		screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
 	).toBe("/o/test/spaces");
 	for (const view of ["Grouped", "Recent"] as const) {
 		await selectView(view);
-		expect(
-			screen.getByRole("link", { name: "Browse spaces" }).getAttribute("href")
-		).toBe("/o/test/spaces");
+		expect(screen.queryByRole("link", { name: "Browse spaces" })).toBeNull();
 	}
 	fireEvent.change(
 		screen.getByRole("searchbox", { name: "Search conversations" }),
@@ -166,11 +279,9 @@ it("keeps discovery visible in both views and carries an unmatched search into t
 	).toHaveProperty("value", "Unfamiliar teammate");
 	fireEvent.click(screen.getByRole("button", { name: "Close picker" }));
 	fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
-	expect(
-		(await screen.findByRole("menuitem", { name: "New Space" })).getAttribute(
-			"href"
-		)
-	).toBe("/o/test/new-space");
+	fireEvent.click(await screen.findByRole("menuitem", { name: "New Space" }));
+	expect(navigate).toHaveBeenCalledWith({ to: "/o/test/new-space" });
+	fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
 	fireEvent.click(screen.getByRole("menuitem", { name: "New message" }));
 	expect(
 		screen.getByRole("textbox", { name: "Search people and agents" })

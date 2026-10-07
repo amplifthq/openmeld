@@ -1,3 +1,4 @@
+import type { PostgreSQLBinding } from "@openmeld/db/postgresql";
 import type {
   AgentProfileCreationExecutionMessage,
   AgentTaskContinuationQueueMessage,
@@ -22,6 +23,7 @@ import type {
   EnsureOrganizationJoinLinkOnBehalfOfRpcResponse,
   EnsureSlackWorkspaceMemberOrganizationMembershipRpcInput,
   EnsureSlackWorkspaceMemberOrganizationMembershipRpcResponse,
+  GitHubAppWebhookQueueMessage,
   MessageChannelIngressEnvelope,
   OpenMeldDaemonDispatchQueueMessage,
   OpenMeldRequestContext,
@@ -32,6 +34,8 @@ import type {
   SummarizeAgentActivityDigestRpcInput,
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
+import type { AccountInvalidationHub } from "../account-invalidation/account-invalidation-hub";
+import type { OrganizationFileRoot } from "../files/organization-file-root";
 import type { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
 import type { LarkChannelConnector } from "../remote-agent/transport/lark/lark-channel-connector";
 import type { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
@@ -47,7 +51,6 @@ type AuthAgentProfileRpcResult =
       code: string;
       message: string;
     };
-
 type CoreAuthDispatchBindingRpc = {
   sendInboxUrgentEmail?(
     input: AuthRpcSendInboxUrgentEmailInput
@@ -97,6 +100,7 @@ type CoreAuthDispatchBindingRpc = {
     organizationId?: string | null;
     profileId?: string | null;
     profileName?: string | null;
+    avatarStyle?: string | null;
   }): Promise<AuthAgentProfileRpcResult>;
   updateAgentProfileDefaultProjectInOrganization?(input: {
     defaultProjectId: string | null;
@@ -120,13 +124,27 @@ type CoreAuthDispatchBindingRpc = {
   >;
   resolveProfileById?(input: {
     openMeldProfileId?: string | null;
+    includeAvatarStyle?: boolean;
   }): Promise<AuthRpcResolveProfileByIdResult>;
   resolveProfilesByIds?(
     input: AuthRpcResolveProfilesByIdsInput
   ): Promise<AuthRpcResolveProfilesByIdsResult>;
 };
-
 export type RemoteAgentWorkerBindingRpc = {
+  describePluginConnection?(input: unknown): Promise<unknown>;
+  createPluginComputerConnection?(input: unknown): Promise<unknown>;
+  eraseAccountConversation?(
+    input: import("@openmeld/schemas").AccountDeletionConversation
+  ): Promise<void>;
+  eraseAccountComputer?(
+    input: import("@openmeld/schemas").AccountDeletionComputer
+  ): Promise<void>;
+  cloudComputerOperation?(input: unknown): Promise<unknown>;
+  generateCenterAgentSessionTitle?(
+    input: import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleInput
+  ): Promise<
+    import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleResponse
+  >;
   pluginRuntime?(
     input: import("@openmeld/schemas/types").PluginRuntimeRequest
   ): Promise<import("@openmeld/schemas/types").PluginRuntimeResponse>;
@@ -155,6 +173,21 @@ export type RemoteAgentWorkerBindingRpc = {
   ): Promise<
     import("@openmeld/schemas/types").RemoteAgentWorkerExecutionQueryResponse
   >;
+  readAdmission?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionResponse
+  >;
+  readSubmitTurnCapabilities?(
+    input: import("@openmeld/schemas/types").RemoteAgentWorkerSubmitCapabilitiesRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerSubmitCapabilities
+  >;
+  readAdmissionStop?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionStopResponse
+  >;
   readRuntimeDiagnostics?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerRuntimeDiagnosticsRequest
   ): Promise<
@@ -171,38 +204,38 @@ export type RemoteAgentWorkerBindingRpc = {
     spaceId: string;
   }): Promise<unknown>;
 };
-
 // Keep core bindings local to this package instead of reusing global
 // CloudflareBindings. Gateway typegen imports core source for service RPC
 // typing; using a global env type here causes cross-worker type collisions.
 export type CoreBindings = {
+  OPENMELD_ACCOUNT_DELETION_GATEWAY?: {
+    disconnectAccountConnection(
+      input: import("@openmeld/schemas").AccountDeletionConnection
+    ): Promise<void>;
+  };
+  OPENMELD_ACCOUNT_INVALIDATIONS?: DurableObjectNamespace<AccountInvalidationHub>;
   OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
+  OPENMELD_FILE_ROOTS?: DurableObjectNamespace<OrganizationFileRoot>;
   OPENMELD_RUNTIME_TRANSPORT?: DurableObjectNamespace<RuntimeTransportHub>;
   OPENMELD_PREPARE_SESSION_HUB?: DurableObjectNamespace<PrepareSessionHub>;
-  OPENMELD_DB?: D1Database;
-  // Per-domain bindings (developing/architecture/physical-db-split.md). The 4-way
-  // physical split was attempted and REVERTED 2026-06-14 — these are ALIASED to
-  // OPENMELD_DB (single physical DB) and stay that way. Always read via the domain
-  // accessors below; do not read OPENMELD_DB directly from new code (static-gate
-  // enforced). This keeps the code split-ready for a future observability-only
-  // split (which would flip ONLY OPENMELD_WAKE_EVIDENCE_DB).
-  OPENMELD_LOCAL_STATE_DB?: D1Database;
-  OPENMELD_WAKE_EVIDENCE_DB?: D1Database;
-  OPENMELD_PROJECTIONS_DB?: D1Database;
+  OPENMELD_POSTGRESQL?: PostgreSQLBinding;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
   OPENMELD_AUTH_WORKER?: CoreAuthDispatchBindingRpc;
   OPENMELD_REMOTE_AGENT_WORKER?: RemoteAgentWorkerBindingRpc;
   OPENMELD_SPACE_ATTACHMENTS?: R2Bucket;
   OPENMELD_ORGANIZATION_SKILLS?: R2Bucket;
-  OPENMELD_ROUTINE_RUN_WORKFLOW?: Workflow<{ runId: string }>;
+  OPENMELD_ACCOUNT_AVATARS?: R2Bucket;
+  OPENMELD_SKILL_FILE_BACKED_WRITES?: string;
+  OPENMELD_ROUTINE_RUN_WORKFLOW?: Workflow<{
+    runId: string;
+  }>;
   OPENMELD_ROUTINE_ENGINE_DEFAULT?: string;
   OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED?: string;
   OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS?: string;
   OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS?: string;
-  OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT?: string;
   OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED?: string;
   OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ENABLED?: string;
@@ -212,6 +245,7 @@ export type CoreBindings = {
   OPENMELD_GATEWAY_URL?: string;
   LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY?: string;
   GITHUB_OPENMELD_API_TOKEN?: string;
+  GITHUB_OPENMELD_WEBHOOK_SECRET?: string;
   SLACK_OPENMELD_BOT_TOKEN?: string;
   SLACK_OPENMELD_TOKEN_CRYPTO_KEY?: string;
   WEB_APP_URL?: string;
@@ -222,85 +256,14 @@ export type CoreBindings = {
     | AgentTaskObservationRedriveQueueMessage
     | RemoteAgentNativeDeliveryDeadlineProbeQueueMessage
     | RemoteAgentSlackEventQueueMessage
+    | GitHubAppWebhookQueueMessage
     | OpenMeldDaemonDispatchQueueMessage
   >;
   OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE?: Queue<MessageChannelIngressEnvelope>;
   OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE?: string;
   OPENMELD_WORKER_ENVIRONMENT?: string;
   CORS_ORIGINS?: string;
-  // Reserved for a future observability-only split (physical-db-split.md): when
-  // set "true" it gates the wake-evidence retention sweep. Currently UNSET — the
-  // 4-way split was reverted (single DB), so no split-active deploy exists.
-  OPENMELD_SPLIT_ACTIVE?: string;
 };
-
-// Per-domain D1 accessors. Each returns its domain binding, falling back to the
-// shared OPENMELD_DB. The 4-way physical split was reverted (2026-06-14), so all three
-// bindings are aliased to OPENMELD_DB and these accessors are NO-OPS on the current
-// single physical DB. They are kept as groundwork: a future observability-only
-// split would flip ONLY OPENMELD_WAKE_EVIDENCE_DB, and wakeEvidenceDb() would route
-// there with no further rewiring. The split-gate net (tests-split-gate) still
-// proves the per-domain routing is correct against separate schemas.
-// Domain ownership: developing/architecture/physical-db-split.md.
-export const localStateDb = (
-  env: Pick<CoreBindings, "OPENMELD_LOCAL_STATE_DB" | "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_LOCAL_STATE_DB ?? env.OPENMELD_DB;
-
-export const wakeEvidenceDb = (
-  env: Pick<CoreBindings, "OPENMELD_WAKE_EVIDENCE_DB" | "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_WAKE_EVIDENCE_DB ?? env.OPENMELD_DB;
-
-export const projectionsDb = (
-  env: Pick<CoreBindings, "OPENMELD_PROJECTIONS_DB" | "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_PROJECTIONS_DB ?? env.OPENMELD_DB;
-
-export const identityDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const agentTaskCoordinationDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-// Operational recovery commands must remain on the authoritative Core database.
-// They must not follow wakeEvidenceDb() into a future time-decaying evidence
-// database, where retention is allowed to delete old rows.
-export const dispatchRecoveryDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const feedbackDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const inboxDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const routineDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const agentActivityDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const projectDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const organizationDocumentsDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const organizationSkillsDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
-export const opportunityDb = (
-  env: Pick<CoreBindings, "OPENMELD_DB">
-): D1Database | undefined => env.OPENMELD_DB;
-
 export type HonoBindings = {
   Bindings: CoreBindings;
   Variables: {

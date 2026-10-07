@@ -1,6 +1,7 @@
 import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   computerConnectionIntentSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import { Command, Option } from "commander";
@@ -147,6 +148,7 @@ import { runWhoami } from "./commands/whoami";
 import { runMacOsNativeKeychainHelperIfRequested } from "./config/macos-native-keychain";
 import { resolveOpenMeldEnvironmentTarget } from "./config/openmeld-environment-target";
 import { ensureSystemLayout } from "./config/system-layout";
+import { registerFilesCommands } from "./files/command";
 import { parseNonNegativeIntegerOption } from "./lib/number-options";
 import {
   resolveManagedCliDelegation,
@@ -229,8 +231,11 @@ import {
 } from "./org/command";
 import { runOrganizationInvitationRequests } from "./org/invitation-requests-command";
 import {
+  runOrganizationSkillsAdd,
+  runOrganizationSkillsAddAll,
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
+  runOrganizationSkillsScan,
   runOrganizationSkillsShow,
 } from "./organization-skills/command";
 import { formatAgentControllerPermissionModeHelp } from "./profile/controller-permission-mode-input";
@@ -337,6 +342,7 @@ import { isSpaceCommandOutputHandledError } from "./space/command-output-handled
 import { runSpaceContract } from "./space/contract-command";
 import { runSpaceContractSet } from "./space/contract-set-command";
 import { normalizePublicationModeCliValue } from "./space/contract-set-options";
+import { runDirectMessage } from "./space/direct-message";
 import { registerSpaceFilesCommands } from "./space/files-registration";
 import {
   runSpaceGuideClear,
@@ -353,6 +359,7 @@ import {
   runSpaceSelfServeJoin,
 } from "./space/organization-space-command";
 import { getRemovedCcCliInputMessage } from "./space/removed-addressing";
+import { runSpaceRespond } from "./space/respond-command";
 import { runSpaceResult } from "./space/result-command";
 import {
   resolveSpaceEntryCommandTarget,
@@ -757,7 +764,7 @@ program
   });
 
 // Binary distribution only: install this binary into the managed layout.
-// Called by the install script (curl | sh delegates to `<tmp>/openmeld
+// Called by the downloaded install script (which delegates to `<tmp>/openmeld
 // install-self`) and by `openmeld update`. Hidden and absent under npm.
 if (isBinaryDistribution()) {
   program
@@ -1323,6 +1330,8 @@ registerRoutinesCommands(program, {
       run: async (output) => {
         await runRoutinesCreate({
           ...output,
+          agentProfileId: opts.agent,
+          scope: opts.scope,
           cronExpression: opts.cron,
           dailyTime: opts.daily,
           instructions: opts.instructions,
@@ -1534,6 +1543,7 @@ registerProjectCommands(program, {
 });
 
 registerAgentActivityCommands(program, {
+  history: runAgentActivityHistory,
   context: runActivityContext,
   health: runActivityHealth,
   hook: runActivityHook,
@@ -1584,6 +1594,27 @@ program
 const computerCmd = program
   .command("computer")
   .description("Inspect and name computers in OpenMeld.");
+
+computerCmd
+  .command("cloud")
+  .description(
+    "Read your personal cloud Computer or run a file or command operation."
+  )
+  .option(
+    "--operation <json>",
+    "Computer operation: read, write, edit, list, or command. Commands require a stable invocationId and key."
+  )
+  .action(async (opts: { operation?: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["computer", "cloud"],
+      view,
+      run: async () => {
+        const { runCloudComputer } = await import("./commands/cloud-computer");
+        await runCloudComputer({ operation: opts.operation, view });
+      },
+    });
+  });
 
 computerCmd
   .command("disconnect")
@@ -1682,10 +1713,22 @@ computerCmd
     }
   );
 
+registerFilesCommands(program, (routeTokens, run) =>
+  runCommandWithEntryChecks({
+    routeTokens,
+    view: getGlobalViewOption(),
+    run,
+  })
+);
+
 const skillsCmd = program
   .command("skills")
   .description("Read and load Organization Skills.")
   .option("--json", "Print one machine-readable JSON envelope.", false);
+
+function skillsJsonRequested(opts: { json?: boolean }): boolean {
+  return opts.json === true || skillsCmd.opts().json === true;
+}
 
 registerPluginCommands(program, {
   view: getGlobalViewOption,
@@ -1783,6 +1826,88 @@ registerSkillsTargetSelectionOptions({
   });
 
 skillsCmd
+  .command("add")
+  .description(
+    "Add a local or GitHub Skill, or every eligible Skill in a repository."
+  )
+  .argument(
+    "<source>",
+    "Local Skill directory or GitHub Skill or repository URL"
+  )
+  .option(
+    "--preview",
+    "Show the exact Skill and source commit without adding it"
+  )
+  .option(
+    "--operation-id <id>",
+    "Reuse this ID to safely retry a GitHub install or repository batch"
+  )
+  .option("--all", "Install every eligible Skill in a GitHub repository")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(
+    async (
+      source: string,
+      opts: {
+        all?: boolean;
+        json?: boolean;
+        operationId?: string;
+        preview?: boolean;
+      }
+    ) => {
+      if (opts.all && opts.preview) {
+        throw new Error(
+          "Use skills scan to preview a repository before --all."
+        );
+      }
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["skills", "add"],
+        view,
+        run: async () => {
+          if (opts.all) {
+            await runOrganizationSkillsAddAll({
+              json: skillsJsonRequested(opts),
+              operationId: opts.operationId,
+              source,
+              view,
+            });
+          } else {
+            await runOrganizationSkillsAdd({
+              json: skillsJsonRequested(opts),
+              previewOnly: opts.preview === true,
+              operationId: opts.operationId,
+              source,
+              view,
+            });
+          }
+        },
+      });
+    }
+  );
+
+skillsCmd
+  .command("scan")
+  .description(
+    "List the Skills in a GitHub repository without installing them."
+  )
+  .argument("<url>", "GitHub repository or folder URL")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (url: string, opts: { json?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "scan"],
+      view,
+      run: async () => {
+        await runOrganizationSkillsScan({
+          json: skillsJsonRequested(opts),
+          url,
+          view,
+        });
+      },
+    });
+  });
+
+skillsCmd
   .command("list")
   .alias("ls")
   .description("List Skills in the active Organization.")
@@ -1794,7 +1919,7 @@ skillsCmd
       view,
       run: async () => {
         await runOrganizationSkillsList({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
           view,
         });
         await maybeRunAgentViewRecoveryAfterSuccess({
@@ -1816,7 +1941,7 @@ skillsCmd
       view,
       run: async () => {
         await runOrganizationSkillsShow({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
           skill,
           view,
         });
@@ -1831,15 +1956,20 @@ skillsCmd
   .command("load")
   .description("Load one enabled Skill into the private OpenMeld cache.")
   .argument("<skill>", "Organization Skill name or id")
+  .option(
+    "--release <release-id>",
+    "Load this exact release instead of the active release"
+  )
   .option("--json", "Print one machine-readable JSON envelope.", false)
-  .action(async (skill: string, opts: { json?: boolean }) => {
+  .action(async (skill: string, opts: { json?: boolean; release?: string }) => {
     const view = getGlobalViewOption();
     await runCommandWithEntryChecks({
       routeTokens: ["skills", "load"],
       view,
       run: async () => {
         await runOrganizationSkillsLoad({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
+          releaseId: opts.release,
           skill,
           view,
         });
@@ -2893,6 +3023,12 @@ spaceActionCmd
   .command("reply")
   .description("Record a final Space reply for the current dispatch.")
   .argument("[message...]", "Reply message")
+  .addOption(
+    new Option(
+      "--placement <placement>",
+      "Reply location: thread or conversation"
+    ).choices(["thread", "conversation"])
+  )
   .option(
     "--message-file <path>",
     "Read the UTF-8 reply message from a file; use - for stdin"
@@ -2927,6 +3063,10 @@ spaceActionCmd
       messageFilePath:
         typeof opts.messageFile === "string" ? opts.messageFile : undefined,
       messageParts: Array.isArray(messageParts) ? messageParts : [],
+      placement:
+        opts.placement === "thread" || opts.placement === "conversation"
+          ? opts.placement
+          : undefined,
       mentionTargets: Array.isArray(opts.mention) ? opts.mention : [],
       wakeTargets: Array.isArray(opts.wake) ? opts.wake : [],
       referenceTargets: Array.isArray(opts.reference) ? opts.reference : [],
@@ -2947,9 +3087,10 @@ spaceActionCmd
     });
   });
 
+// Compatibility for frozen/in-flight legacy work; not offered to new Agents.
 spaceActionCmd
-  .command("status")
-  .description("Record a final Space status for the current dispatch.")
+  .command("status", { hidden: true })
+  .description("Record a legacy final Space status for an existing dispatch.")
   .argument("<status>", "Final status: done|blocked|needs_input|handoff")
   .argument("<text...>", "Short status text")
   .action(async (status, textParts) => {
@@ -3191,11 +3332,46 @@ withSpaceProfileOption(
 
 withSpaceProfileOption(
   spaceCmd
+    .command("respond")
+    .description("Review and answer a task waiting for you in this Space.")
+    .argument("<space>", "Space ID (64-character hex)")
+    .option("--execution <id>", "Exact execution from the pending request")
+    .option("--interaction <id>", "Exact interaction from the pending request")
+    .option(
+      "--response <json>",
+      "Explicit response JSON; omit to review the available choices"
+    )
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "respond"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () =>
+      await runSpaceRespond({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: String(space),
+        password: cliOptions.password,
+        view,
+        execution: normalizeOptionalString(opts.execution) ?? undefined,
+        interaction: normalizeOptionalString(opts.interaction) ?? undefined,
+        response: normalizeOptionalString(opts.response) ?? undefined,
+        entryChecksHandled: true,
+      }),
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
     .command("wake-progress")
     .description(
       "Read live Wake progress for this Space; use result or service trace after execution."
     )
-    .argument("<space>", "Space ID (64-character hex)")
+    .argument("<space>", "Space URL or 64-character Space ID")
     .option(
       "--client-message <client-message-id>",
       "Read progress for one client message instead of the active Space summary"
@@ -3211,17 +3387,23 @@ withSpaceProfileOption(
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "wake-progress"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceWakeProgress({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: String(space),
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         clientMessageId:
           normalizeOptionalString(opts.clientMessage) ?? undefined,
         sourceProfileId:
@@ -3242,7 +3424,7 @@ withSpaceProfileOption(
     .description(
       "Request Stop for one live Wake and report only the server-confirmed state."
     )
-    .argument("<space>", "Space ID (64-character hex)")
+    .argument("<space>", "Space URL or 64-character Space ID")
     .option(
       "--client-message <client-message-id>",
       "Select the Wake by client message ID"
@@ -3259,17 +3441,23 @@ withSpaceProfileOption(
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "wake-stop"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceWakeStop({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: String(space),
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         clientMessageId:
           normalizeOptionalString(opts.clientMessage) ?? undefined,
         sourceSignalId: normalizeOptionalString(opts.sourceSignal) ?? undefined,
@@ -3709,6 +3897,46 @@ withSpaceProfileOption(
 
 withSpaceProfileOption(
   spaceCmd
+    .command("dm")
+    .description(
+      "Open a Direct Message with a person or Agent, optionally sending a message."
+    )
+    .argument("<target-profile-id>", "Exact recipient Profile ID")
+    .argument("[text...]", "Message text")
+    .option("--stdin", "Read message text from stdin")
+    .option("--text-file <path>", "Read message text from a UTF-8 file")
+    .option("--wake", "Ask the recipient Agent to start work")
+    .option(
+      "--space <space-id>",
+      "Send to the exact Direct Message from an earlier receipt"
+    )
+    .option(
+      "--message-id <uuid>",
+      "Stable message ID; reuse it when retrying a send"
+    )
+    .option(
+      "--new-chat <uuid>",
+      "Create a separate Human–Center Agent chat; reuse the ID on retries"
+    )
+).action(async (targetProfileId, textParts, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  await runDirectMessage({
+    targetProfileId,
+    text: Array.isArray(textParts) ? textParts.join(" ") : "",
+    stdin: opts.stdin === true,
+    textFile: opts.textFile,
+    profile: cliOptions.profile,
+    baseUrl: cliOptions.gatewayUrl,
+    clientMessageId: opts.messageId,
+    spaceId: opts.space,
+    creationId: opts.newChat,
+    wake: opts.wake === true,
+    view: getGlobalViewOption(),
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
     .command("send")
     .description("Send one message to a Space.")
     .option(
@@ -3768,6 +3996,10 @@ withSpaceProfileOption(
       "--reply-to <signal-id>",
       "Reply into the thread of a message (creates the thread if it does not exist yet)"
     )
+    .option(
+      "--client-message <id>",
+      "Stable request ID for retrying or stopping this send before it starts"
+    )
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, textParts, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
@@ -3790,6 +4022,10 @@ withSpaceProfileOption(
     gatewayUrl: cliOptions.gatewayUrl,
     run: async () => {
       await runSpaceSend({
+        clientMessageId:
+          typeof opts.clientMessage === "string"
+            ? opts.clientMessage
+            : undefined,
         profile: cliOptions.profile,
         baseUrl: cliOptions.gatewayUrl,
         space: spaceValue,
@@ -4349,7 +4585,7 @@ withSpaceProfileOption(
   spaceCmd
     .command("result")
     .description("Read one formal dispatch result scoped to this space.")
-    .argument("[space]", "Space ID (64-character hex)")
+    .argument("[space]", "Space URL or 64-character Space ID")
     .option("--dispatch <dispatch-id>", "Lookup by dispatch ID")
     .option("--result-ref <result-ref>", "Lookup by dispatch result ref")
     .option("--json", "Print canonical JSON", false)
@@ -4369,17 +4605,23 @@ withSpaceProfileOption(
     throw createSpaceResultGuideError();
   }
 
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "result"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceResult({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: spaceValue,
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         ...(dispatchId ? { dispatchId } : {}),
         ...(resultRef ? { resultRef } : {}),
         password: cliOptions.password,
@@ -4980,7 +5222,10 @@ profileCmd
     "--owner <userId>",
     "Agent owner: self (creating for other members is not available)"
   )
-  .option("--computer <computerId>", "Exact Computer for your Agent")
+  .option(
+    "--computer <computerId>",
+    "Exact computerId from `openmeld org computers --view agent`"
+  )
   .option("--project <projectId>", "Default Project for the new Agent")
   .option(
     "--no-default-project",
@@ -5100,6 +5345,7 @@ profileCmd
   });
 
 function shouldUseProfileCreationRequest(input: {
+  agentController?: unknown;
   agentControllerCollaborationMode?: unknown;
   computer?: unknown;
   defaultProject?: unknown;
@@ -5112,6 +5358,7 @@ function shouldUseProfileCreationRequest(input: {
   space?: unknown;
 }): boolean {
   return (
+    input.agentController === HOSTED_REMOTE_AGENT_CONTROLLER_REF ||
     typeof input.owner === "string" ||
     typeof input.computer === "string" ||
     typeof input.project === "string" ||
@@ -5658,12 +5905,10 @@ async function main() {
   // carrier probe must describe this executable, not a newer delegated CLI.
   if (argv.length === 5 && argv[2] === "service" && argv[4] === "--json") {
     if (argv[3] === "control-carrier-capability") {
-      outLine(
-        JSON.stringify({
-          protocol: "account-checked-service-control-v1",
-          executable: process.execPath,
-        })
+      const { readServiceControlCarrierCapability } = await import(
+        "./commands/service-control-carrier-capability"
       );
+      outLine(JSON.stringify(readServiceControlCarrierCapability()));
       return;
     }
     if (argv[3] === "control-capabilities") {
@@ -5948,5 +6193,6 @@ main().catch((error: unknown) => {
   process.exitCode = 1;
 });
 
+import { runAgentActivityHistory } from "./agent-activity/command";
 import { registerPluginCommands } from "./plugins/registration";
 import { resolveSpaceTaskSelection } from "./space/send-input";

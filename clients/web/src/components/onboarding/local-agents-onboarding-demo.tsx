@@ -1,5 +1,6 @@
 "use client";
 
+import { listLocalAgentInstallGuides } from "@openmeld/product-catalog/local-agent-install-guides";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import {
 	ChatCircleIcon,
@@ -7,7 +8,6 @@ import {
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { listLocalAgentInstallGuides } from "#/lib/local-agent-install-guides";
 import { OnboardingDemoLayout } from "./onboarding-demo-layout";
 
 const AGENT_PROFILE_PATH = "M112 60 C 200 60, 252 112, 348 112";

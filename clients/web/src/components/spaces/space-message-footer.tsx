@@ -1,19 +1,15 @@
+import { buildPublicSpaceEntryPath } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuGroup,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { FluidContextMenuContent } from "@openmeld/ui/fluid/context-menu";
 import {
-	Popover,
-	PopoverContent,
-	PopoverTitle,
-	PopoverTrigger,
-} from "@openmeld/ui/components/popover";
-import {
+	FluidDropdownMenuSubTrigger as DropdownMenuSubTrigger,
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
@@ -22,16 +18,25 @@ import {
 	ArrowBendUpLeftIcon,
 	ArrowUUpLeftIcon,
 	ChatCircleIcon,
+	CheckIcon,
 	CheckSquareOffsetIcon,
 	CopyIcon,
 	DotsThreeIcon,
+	InfoIcon,
 	PencilSimpleIcon,
 	PushPinIcon,
 	SmileyIcon,
 	TargetIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import {
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import { copyAppLinkWithFeedback } from "#/lib/copy-app-link";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceDeviceWaitOutcome } from "./space-device-wait-outcome";
@@ -49,6 +54,7 @@ import {
 	type useMessageReactions,
 	useMessageReactionsContext,
 } from "./space-message-reactions";
+import { SpaceMessageTime } from "./space-message-time";
 import { useSpaceMessagePinAction } from "./space-pins";
 import { SpaceMessageWakeRecommendation } from "./space-wake-recommendation";
 
@@ -123,12 +129,12 @@ type SpaceMessageFooterProps = {
 	align?: "end" | "start";
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
-	onCopy: () => void;
-	copyDisabled?: boolean;
+	isDirectMessage?: boolean;
+	layout?: "floating" | "inline";
+	onCopy?: () => Promise<boolean>;
 	reply?: SpaceMessageFooterAction;
 	task?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
-	timestamp: string;
 };
 
 export function SpaceMessageFooter(
@@ -185,7 +191,7 @@ function SpaceMessageFooterContent(
 ) {
 	const { state: reactions } = useMessageReactionsContext();
 	const hasReactions = Boolean(input.reaction && reactions.groups.length);
-	const persistent = Boolean(input.failureSummary);
+	const persistent = Boolean(input.failureSummary || input.details?.hasProblem);
 	const detailsButton = (
 		<MessageFooterDetailsAction
 			details={input.details}
@@ -217,6 +223,74 @@ function SpaceMessageFooterContent(
 	);
 }
 
+type ToolbarPosition = {
+	left: number;
+	placement: "after" | "before" | "overlay";
+	top: number;
+};
+
+export function resolveToolbarPosition(input: {
+	bubble: DOMRect;
+	container: DOMRect;
+	preferredSide: "after" | "before";
+	toolbar: DOMRect;
+	viewport?: DOMRect;
+}): ToolbarPosition {
+	const { bubble, container, preferredSide, toolbar, viewport } = input;
+	const edgeOverlap = 10;
+	const visibleBottom = viewport
+		? Math.min(bubble.bottom, viewport.bottom)
+		: bubble.bottom;
+	const verticalTop = (initialTop: number, bottomOverlap: number) => {
+		if (!viewport) {
+			return initialTop - container.top;
+		}
+		const lowerEdgeTop = Math.min(
+			visibleBottom - toolbar.height + bottomOverlap,
+			viewport.bottom - toolbar.height - 8
+		);
+		return initialTop + toolbar.height <= viewport.top + 8 &&
+			lowerEdgeTop >= viewport.top + 8
+			? lowerEdgeTop - container.top
+			: initialTop - container.top;
+	};
+	for (const side of [
+		preferredSide,
+		preferredSide === "after" ? "before" : "after",
+	] as const) {
+		const available =
+			side === "after"
+				? container.right - bubble.right
+				: bubble.left - container.left;
+		if (available >= toolbar.width + 6) {
+			return {
+				left:
+					side === "after"
+						? bubble.right - container.left + 6
+						: bubble.left - container.left - toolbar.width - 6,
+				placement: side,
+				top: verticalTop(bubble.top, 0),
+			};
+		}
+	}
+	return {
+		left: Math.max(
+			0,
+			Math.min(
+				container.width - toolbar.width,
+				preferredSide === "before"
+					? bubble.left - container.left - toolbar.width + 12
+					: bubble.right - container.left - 12
+			)
+		),
+		placement: "overlay",
+		top: verticalTop(
+			bubble.top - toolbar.height + edgeOverlap,
+			toolbar.height - edgeOverlap
+		),
+	};
+}
+
 function MessageFooterActions({
 	input,
 	reactions,
@@ -235,21 +309,145 @@ function MessageFooterActions({
 }) {
 	const showPicker = input.reaction && !input.reaction.readOnly;
 	const pending = input.item?.deliveryState === "pending";
+	const inline = input.layout === "inline";
+	const hasMessageText = Boolean(input.item?.text.trim());
+	const toolbarRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (inline) {
+			return;
+		}
+		const toolbar = toolbarRef.current;
+		const row = toolbar?.closest<HTMLElement>("[data-message-row-id]");
+		const bubble = row?.querySelector<HTMLElement>(
+			"[data-slot='bubble-content']"
+		);
+		const attachmentStrip = bubble?.querySelector<HTMLElement>(
+			"[data-slot='space-attachment-strip']"
+		);
+		const attachmentViewport = attachmentStrip?.querySelector<HTMLElement>(
+			'[data-slot="scroll-area-viewport"]'
+		);
+		const container = row;
+		const viewport = row?.closest<HTMLElement>(
+			'[data-slot="message-scroller-viewport"]'
+		);
+		if (!(toolbar && row && bubble && container instanceof HTMLElement)) {
+			return;
+		}
+		let observer: ResizeObserver | null = null;
+		const position = () => {
+			const toolbarRect = toolbar.getBoundingClientRect();
+			const textSurface = bubble.querySelector<HTMLElement>(
+				"[data-slot='space-message-text-surface']"
+			);
+			const preferredSide =
+				row.closest('[data-space-self-message="true"]') &&
+				document.documentElement.dataset.spaceSelfMessageAlignment === "right"
+					? "before"
+					: "after";
+			const attachmentItems = attachmentStrip?.querySelector(
+				".space-attachment-strip-items"
+			);
+			const attachmentViewportRect =
+				attachmentViewport?.getBoundingClientRect();
+			const visibleAttachmentPreviews = Array.from(
+				attachmentItems?.children ?? []
+			).filter((preview) => {
+				const rect = preview.getBoundingClientRect();
+				return (
+					!attachmentViewportRect ||
+					(rect.right > attachmentViewportRect.left &&
+						rect.left < attachmentViewportRect.right)
+				);
+			});
+			const attachmentPreview =
+				preferredSide === "before"
+					? visibleAttachmentPreviews[0]
+					: visibleAttachmentPreviews.at(-1);
+			const anchor =
+				hasMessageText && textSurface?.getClientRects().length
+					? textSurface.getBoundingClientRect()
+					: (
+							attachmentPreview ??
+							attachmentStrip ??
+							bubble
+						).getBoundingClientRect();
+			const next = resolveToolbarPosition({
+				bubble: anchor,
+				container: container.getBoundingClientRect(),
+				preferredSide,
+				toolbar: toolbarRect,
+				viewport: viewport?.getBoundingClientRect(),
+			});
+			toolbar.style.insetInlineStart = `${next.left}px`;
+			toolbar.style.insetBlockStart = `${next.top}px`;
+			toolbar.dataset.placement = next.placement;
+		};
+		const activate = () => {
+			position();
+			if (!observer) {
+				observer = new ResizeObserver(position);
+				observer.observe(container);
+				observer.observe(bubble);
+				if (attachmentStrip) {
+					observer.observe(attachmentStrip);
+				}
+				viewport?.addEventListener("scroll", position, { passive: true });
+				attachmentViewport?.addEventListener("scroll", position, {
+					passive: true,
+				});
+				window.addEventListener("resize", position);
+			}
+		};
+		const deactivate = () => {
+			if (
+				persistent ||
+				row.matches(":hover") ||
+				row.contains(document.activeElement)
+			) {
+				return;
+			}
+			observer?.disconnect();
+			observer = null;
+			viewport?.removeEventListener("scroll", position);
+			attachmentViewport?.removeEventListener("scroll", position);
+			window.removeEventListener("resize", position);
+		};
+		const onFocusOut = () => queueMicrotask(deactivate);
+		row.addEventListener("pointerenter", activate);
+		row.addEventListener("pointerleave", deactivate);
+		row.addEventListener("focusin", activate);
+		row.addEventListener("focusout", onFocusOut);
+		if (persistent || window.matchMedia?.("(pointer: coarse)").matches) {
+			activate();
+		}
+		return () => {
+			row.removeEventListener("pointerenter", activate);
+			row.removeEventListener("pointerleave", deactivate);
+			row.removeEventListener("focusin", activate);
+			row.removeEventListener("focusout", onFocusOut);
+			observer?.disconnect();
+			viewport?.removeEventListener("scroll", position);
+			attachmentViewport?.removeEventListener("scroll", position);
+			window.removeEventListener("resize", position);
+		};
+	}, [hasMessageText, inline, persistent]);
 	return (
 		<div
 			className={cn(
-				"@container mt-0.5 flex min-h-7 w-full min-w-0 max-w-full items-center gap-x-1",
-				input.align === "end" ? "justify-end" : "justify-start",
+				"pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
+				inline ? "relative mt-1" : "absolute",
+				persistent && "pointer-events-auto opacity-100",
 				persistent && "gap-2"
 			)}
+			data-layout={inline ? "inline" : "floating"}
 			data-persistent={persistent ? "true" : undefined}
 			data-slot="message-footer"
+			ref={toolbarRef}
 		>
 			<div
 				className={cn(
-					"flex min-w-0 max-w-full shrink-0 items-center gap-0.5 text-muted-foreground text-xs opacity-0 transition-opacity duration-100 ease-out group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 motion-reduce:transition-none [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
-					"has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100",
-					persistent && "pointer-events-auto opacity-100"
+					"flex min-w-0 max-w-full shrink-0 items-center text-muted-foreground text-xs"
 				)}
 				data-slot="message-footer-primary-actions"
 			>
@@ -272,28 +470,47 @@ function MessageFooterActions({
 				) : null}
 				{persistent ? detailsButton : null}
 
-				{persistent ? null : <MessageFooterStandardActions input={input} />}
-				{persistent ? null : detailsButton}
+				{persistent ? null : (
+					<span
+						className="contents"
+						data-slot="message-footer-standard-actions"
+					>
+						<MessageFooterStandardActions input={input} />
+					</span>
+				)}
 				<MessageFooterOverflowActions
 					hasReactions={hasReactions}
 					input={input}
+					onAddReaction={
+						showPicker && !pending
+							? () => reactions.setPickerOpen(true)
+							: undefined
+					}
 					persistent={persistent}
 					reactions={reactions}
+					toolbarRef={toolbarRef}
 				/>
-				<time className="ml-1 @max-[24rem]:hidden shrink-0 tabular-nums">
-					{input.timestamp}
-				</time>
+				{input.item ? (
+					<SpaceMessageTime
+						createdAtMs={input.item.createdAtMs}
+						isDirectMessage={input.isDirectMessage === true}
+						placement="toolbar"
+					/>
+				) : null}
 			</div>
 		</div>
 	);
 }
 
 function MessageFooterOverflowActions({
+	onAddReaction,
 	input,
 	reactions,
 	persistent,
 	hasReactions,
+	toolbarRef,
 }: {
+	onAddReaction?: () => void;
 	input: SpaceMessageFooterProps & {
 		onEdit?: () => void;
 		onRecall?: () => void;
@@ -301,28 +518,68 @@ function MessageFooterOverflowActions({
 	reactions: ReturnType<typeof useMessageReactions>;
 	persistent: boolean;
 	hasReactions: boolean;
+	toolbarRef: RefObject<HTMLDivElement | null>;
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [showToolbarActionsInMenu, setShowToolbarActionsInMenu] =
+		useState(false);
 	const pin = useSpaceMessagePinAction(input.signalId);
+	const item = input.item;
 	const hasOverflowActions =
-		hasReactions || Boolean(input.onEdit || pin || input.task) || persistent;
+		hasReactions ||
+		Boolean(
+			input.onEdit ||
+				pin ||
+				input.task ||
+				input.details ||
+				input.addressingTargets.length
+		) ||
+		persistent ||
+		Boolean(input.onCopy || input.reply || input.thread);
 
 	return hasOverflowActions ? (
 		<MessageFooterMoreMenu
-			addressingTargets={persistent ? input.addressingTargets : []}
-			alwaysVisible={persistent || hasReactions || Boolean(input.onEdit || pin)}
+			addressingTargets={input.addressingTargets}
+			details={input.details}
 			edit={input.onEdit}
-			onCopy={persistent && !input.copyDisabled ? input.onCopy : undefined}
-			onOpenChange={setMenuOpen}
+			hideDetailsInDropdown={persistent}
+			onAddReaction={onAddReaction}
+			onCopy={input.onCopy}
+			onCopyLink={
+				item
+					? () =>
+							copyAppLinkWithFeedback(
+								buildPublicSpaceEntryPath({
+									spaceId: item.spaceId,
+									signalId: item.id,
+								})
+							)
+					: undefined
+			}
+			onOpenChange={(open) => {
+				if (open) {
+					const standardActions =
+						toolbarRef.current?.querySelector<HTMLElement>(
+							'[data-slot="message-footer-standard-actions"]'
+						);
+					setShowToolbarActionsInMenu(
+						persistent ||
+							!standardActions ||
+							getComputedStyle(standardActions).display === "none"
+					);
+				}
+				setMenuOpen(open);
+			}}
 			onViewReactions={
 				hasReactions ? () => reactions.setViewerOpen(true) : undefined
 			}
 			open={menuOpen}
 			pin={pin}
 			recall={input.onRecall}
-			reply={persistent ? input.reply : undefined}
+			reply={input.reply}
+			showToolbarActions={showToolbarActionsInMenu}
 			task={input.task}
-			thread={persistent ? input.thread : undefined}
+			thread={input.thread}
 		/>
 	) : null;
 }
@@ -337,15 +594,7 @@ function MessageFooterStandardActions({
 }) {
 	return (
 		<>
-			{" "}
-			{
-				<MessageFooterIconAction
-					disabled={input.copyDisabled}
-					icon={<CopyIcon aria-hidden="true" />}
-					label="Copy message"
-					onSelect={input.onCopy}
-				/>
-			}
+			{input.onCopy ? <MessageFooterCopyAction onCopy={input.onCopy} /> : null}
 			{input.reply ? (
 				<MessageFooterIconAction
 					disabled={input.reply.disabled}
@@ -361,9 +610,6 @@ function MessageFooterStandardActions({
 					label={input.thread.label}
 					onSelect={input.thread.onSelect}
 				/>
-			) : null}
-			{input.addressingTargets.length > 0 ? (
-				<MessageAddressingPopover targets={input.addressingTargets} />
 			) : null}
 		</>
 	);
@@ -398,6 +644,58 @@ function MessageFooterDetailsAction(input: {
 	) : null;
 }
 
+function MessageFooterCopyAction(input: { onCopy: () => Promise<boolean> }) {
+	const [copied, setCopied] = useState(false);
+	const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			if (resetTimer.current) {
+				clearTimeout(resetTimer.current);
+			}
+		},
+		[]
+	);
+	const label = copied ? "Copied" : "Copy message";
+	return (
+		<MessageActionTooltip label={label}>
+			<Button
+				aria-label={label}
+				className={FOOTER_BUTTON_CLASS_NAME}
+				onClick={async () => {
+					if (!(await input.onCopy().catch(() => false))) {
+						return;
+					}
+					setCopied(true);
+					if (resetTimer.current) {
+						clearTimeout(resetTimer.current);
+					}
+					resetTimer.current = setTimeout(() => setCopied(false), 2000);
+				}}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<span className="relative block size-4">
+					<CopyIcon
+						aria-hidden="true"
+						className={cn(
+							"absolute inset-0 size-4 transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none motion-reduce:transition-opacity",
+							copied ? "scale-95 opacity-0" : "opacity-100"
+						)}
+					/>
+					<CheckIcon
+						aria-hidden="true"
+						className={cn(
+							"absolute inset-0 size-4 transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none motion-reduce:transition-opacity",
+							copied ? "opacity-100" : "scale-95 opacity-0"
+						)}
+					/>
+				</span>
+			</Button>
+		</MessageActionTooltip>
+	);
+}
+
 function MessageFooterIconAction(input: {
 	className?: string;
 	disabled?: boolean;
@@ -422,30 +720,10 @@ function MessageFooterIconAction(input: {
 	);
 }
 
-function MessageAddressingPopover(input: {
-	className?: string;
-	targets: readonly SpaceMessageFooterAddressingTarget[];
-}) {
-	return (
-		<Popover>
-			<MessageActionTooltip label="Message addressing">
-				<PopoverTrigger
-					aria-label="Message addressing"
-					className={cn(FOOTER_BUTTON_CLASS_NAME, input.className)}
-					render={<Button size="icon-sm" type="button" variant="ghost" />}
-				>
-					<TargetIcon aria-hidden="true" />
-				</PopoverTrigger>
-			</MessageActionTooltip>
-			<PopoverContent align="start" className="w-64 rounded-md" sideOffset={6}>
-				<PopoverTitle>Message addressing</PopoverTitle>
-				<MessageAddressingTargetList targets={input.targets} />
-			</PopoverContent>
-		</Popover>
-	);
-}
-
-function MessageFooterMoreMenu(input: {
+type MessageFooterMoreMenuProps = {
+	onAddReaction?: () => void;
+	hideDetailsInDropdown?: boolean;
+	details?: SpaceMessageFooterDetailsAction;
 	edit?: () => void;
 	recall?: () => void;
 	onViewReactions?: () => void;
@@ -453,133 +731,182 @@ function MessageFooterMoreMenu(input: {
 	onOpenChange: (open: boolean) => void;
 	pin?: SpaceMessageFooterAction;
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
-	alwaysVisible?: boolean;
-	onCopy?: () => void;
+	onCopy?: () => Promise<boolean>;
+	onCopyLink?: () => Promise<void>;
 	reply?: SpaceMessageFooterAction;
+	showToolbarActions: boolean;
 	thread?: SpaceMessageFooterAction;
 	task?: SpaceMessageFooterAction;
-}) {
-	const actionIds = [
+};
+
+function resolveMessageFooterMoreActionIds(input: MessageFooterMoreMenuProps) {
+	return [
+		input.showToolbarActions && input.onAddReaction && "add-reaction",
+		input.onCopyLink && "copy-link",
 		input.edit && "edit",
 		input.pin && "pin",
 		input.onViewReactions && "reactions",
-		input.onCopy && "copy",
-		input.reply && "reply",
-		input.thread && "thread",
+		input.showToolbarActions && input.onCopy && "copy",
+		input.details && "details",
+		input.showToolbarActions && input.reply && "reply",
+		input.showToolbarActions && input.thread && "thread",
 		input.task && "task",
+		input.addressingTargets.length > 0 && "addressing",
 		input.recall && "recall",
 	].filter(Boolean);
+}
+
+function MessageFooterMoreMenu(input: MessageFooterMoreMenuProps) {
 	return (
-		<DropdownMenu onOpenChange={input.onOpenChange} open={input.open}>
-			<MessageActionTooltip label="More actions">
-				<DropdownMenuTrigger
-					aria-label="More actions"
-					className={cn(
-						FOOTER_BUTTON_CLASS_NAME,
-						input.alwaysVisible || input.pin ? null : "@min-[36rem]:hidden"
-					)}
-					render={<Button size="icon-sm" type="button" variant="ghost" />}
+		<>
+			<DropdownMenu onOpenChange={input.onOpenChange} open={input.open}>
+				<MessageActionTooltip label="More actions">
+					<DropdownMenuTrigger
+						aria-label="More actions"
+						className={FOOTER_BUTTON_CLASS_NAME}
+						render={<Button size="icon-sm" type="button" variant="ghost" />}
+					>
+						<DotsThreeIcon aria-hidden="true" />
+					</DropdownMenuTrigger>
+				</MessageActionTooltip>
+				<FluidDropdownMenuContent align="start" className="w-52" sideOffset={6}>
+					<MessageFooterMoreMenuItems
+						{...input}
+						details={input.hideDetailsInDropdown ? undefined : input.details}
+					/>
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+			<FluidContextMenuContent className="w-56">
+				<MessageFooterMoreMenuItems {...input} showToolbarActions />
+			</FluidContextMenuContent>
+		</>
+	);
+}
+
+function MessageFooterMoreMenuItems(
+	input: Parameters<typeof MessageFooterMoreMenu>[0]
+) {
+	const actionIds = resolveMessageFooterMoreActionIds(input);
+	return (
+		<DropdownMenuGroup className="flex w-full flex-col">
+			{input.showToolbarActions && input.onAddReaction ? (
+				<FluidDropdownMenuItem
+					index={actionIds.indexOf("add-reaction")}
+					onClick={input.onAddReaction}
 				>
-					<DotsThreeIcon aria-hidden="true" />
-				</DropdownMenuTrigger>
-			</MessageActionTooltip>
-			<FluidDropdownMenuContent align="start" className="w-52" sideOffset={6}>
-				<DropdownMenuGroup className="flex w-full flex-col">
-					{input.edit ? (
-						<FluidDropdownMenuItem
-							className="w-full"
-							index={actionIds.indexOf("edit")}
-							onClick={input.edit}
-						>
-							<PencilSimpleIcon aria-hidden="true" />
-							Edit message
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.pin ? (
-						<FluidDropdownMenuItem
-							disabled={input.pin.disabled}
-							index={actionIds.indexOf("pin")}
-							onClick={input.pin.onSelect}
-						>
-							<PushPinIcon aria-hidden="true" />
-							{input.pin.label}
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.onViewReactions ? (
-						<FluidDropdownMenuItem
-							index={actionIds.indexOf("reactions")}
-							onClick={input.onViewReactions}
-						>
-							<SmileyIcon aria-hidden="true" />
-							View reactions
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.onCopy ? (
-						<FluidDropdownMenuItem
-							index={actionIds.indexOf("copy")}
-							onClick={input.onCopy}
-						>
-							<CopyIcon aria-hidden="true" />
-							Copy message
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.reply ? (
-						<FluidDropdownMenuItem
-							disabled={input.reply.disabled}
-							index={actionIds.indexOf("reply")}
-							onClick={input.reply.onSelect}
-						>
-							<ArrowBendUpLeftIcon aria-hidden="true" />
-							{input.reply.label}
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.thread ? (
-						<FluidDropdownMenuItem
-							disabled={input.thread.disabled}
-							index={actionIds.indexOf("thread")}
-							onClick={input.thread.onSelect}
-						>
-							<ChatCircleIcon aria-hidden="true" />
-							{input.thread.label}
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.task ? (
-						<FluidDropdownMenuItem
-							disabled={input.task.disabled}
-							index={actionIds.indexOf("task")}
-							onClick={input.task.onSelect}
-						>
-							<CheckSquareOffsetIcon aria-hidden="true" />
-							{input.task.label}
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.addressingTargets.length > 0 ? (
-						<DropdownMenuSub>
-							<DropdownMenuSubTrigger>
-								<TargetIcon aria-hidden="true" />
-								Message addressing
-							</DropdownMenuSubTrigger>
-							<DropdownMenuSubContent className="w-64">
-								<MessageAddressingTargetList
-									targets={input.addressingTargets}
-								/>
-							</DropdownMenuSubContent>
-						</DropdownMenuSub>
-					) : null}
-					{input.recall ? (
-						<FluidDropdownMenuItem
-							className="w-full"
-							index={actionIds.indexOf("recall")}
-							onClick={input.recall}
-							variant="destructive"
-						>
-							<ArrowUUpLeftIcon aria-hidden="true" />
-							Recall message
-						</FluidDropdownMenuItem>
-					) : null}
-				</DropdownMenuGroup>
-			</FluidDropdownMenuContent>
-		</DropdownMenu>
+					<SmileyIcon aria-hidden="true" />
+					Add reaction
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.onCopyLink && (
+				<FluidDropdownMenuItem
+					index={actionIds.indexOf("copy-link")}
+					onClick={input.onCopyLink}
+				>
+					<CopyIcon aria-hidden="true" />
+					Copy link
+				</FluidDropdownMenuItem>
+			)}
+			{input.edit ? (
+				<FluidDropdownMenuItem
+					className="w-full"
+					index={actionIds.indexOf("edit")}
+					onClick={input.edit}
+				>
+					<PencilSimpleIcon aria-hidden="true" />
+					Edit message
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.pin ? (
+				<FluidDropdownMenuItem
+					disabled={input.pin.disabled}
+					index={actionIds.indexOf("pin")}
+					onClick={input.pin.onSelect}
+				>
+					<PushPinIcon aria-hidden="true" />
+					{input.pin.label}
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.onViewReactions ? (
+				<FluidDropdownMenuItem
+					index={actionIds.indexOf("reactions")}
+					onClick={input.onViewReactions}
+				>
+					<SmileyIcon aria-hidden="true" />
+					View reactions
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.showToolbarActions && input.onCopy ? (
+				<FluidDropdownMenuItem
+					index={actionIds.indexOf("copy")}
+					onClick={input.onCopy}
+				>
+					<CopyIcon aria-hidden="true" />
+					Copy message
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.details ? (
+				<FluidDropdownMenuItem
+					index={actionIds.indexOf("details")}
+					onClick={input.details.onSelect}
+				>
+					<InfoIcon aria-hidden="true" />
+					Message details
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.showToolbarActions && input.reply ? (
+				<FluidDropdownMenuItem
+					disabled={input.reply.disabled}
+					index={actionIds.indexOf("reply")}
+					onClick={input.reply.onSelect}
+				>
+					<ArrowBendUpLeftIcon aria-hidden="true" />
+					{input.reply.label}
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.showToolbarActions && input.thread ? (
+				<FluidDropdownMenuItem
+					disabled={input.thread.disabled}
+					index={actionIds.indexOf("thread")}
+					onClick={input.thread.onSelect}
+				>
+					<ChatCircleIcon aria-hidden="true" />
+					{input.thread.label}
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.task ? (
+				<FluidDropdownMenuItem
+					disabled={input.task.disabled}
+					index={actionIds.indexOf("task")}
+					onClick={input.task.onSelect}
+				>
+					<CheckSquareOffsetIcon aria-hidden="true" />
+					{input.task.label}
+				</FluidDropdownMenuItem>
+			) : null}
+			{input.addressingTargets.length > 0 ? (
+				<DropdownMenuSub>
+					<DropdownMenuSubTrigger index={actionIds.indexOf("addressing")}>
+						<TargetIcon aria-hidden="true" />
+						Message addressing
+					</DropdownMenuSubTrigger>
+					<DropdownMenuSubContent className="w-64">
+						<MessageAddressingTargetList targets={input.addressingTargets} />
+					</DropdownMenuSubContent>
+				</DropdownMenuSub>
+			) : null}
+			{input.recall ? (
+				<FluidDropdownMenuItem
+					className="w-full"
+					index={actionIds.indexOf("recall")}
+					onClick={input.recall}
+					variant="destructive"
+				>
+					<ArrowUUpLeftIcon aria-hidden="true" />
+					Recall message
+				</FluidDropdownMenuItem>
+			) : null}
+		</DropdownMenuGroup>
 	);
 }
 

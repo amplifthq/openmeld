@@ -16,10 +16,12 @@ describe("api-client Organization Usage API", () => {
     const transport = vi.fn<OpenMeldApiClientTransport>(() =>
       Promise.resolve(
         jsonResponse({
-          centerAgentWakes: {
-            dailyLimit: 200,
+          aiSpend: {
+            dailyLimitNanoUsd: null,
             resetsAt: "2026-07-17T00:00:00.000Z",
-            usedToday: 12,
+            usedNanoUsd: 120_000_000,
+            missingCostRequests: 0,
+            exhausted: false,
           },
           routines: {
             count: 7,
@@ -36,7 +38,7 @@ describe("api-client Organization Usage API", () => {
     );
 
     await expect(api.readOverview()).resolves.toMatchObject({
-      centerAgentWakes: { usedToday: 12 },
+      aiSpend: { usedNanoUsd: 120_000_000 },
       routines: { count: 7 },
     });
     expect(transport).toHaveBeenCalledWith(

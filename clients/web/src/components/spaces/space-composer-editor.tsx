@@ -8,10 +8,8 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
-import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
-import { SpinnerGapIcon, XIcon } from "@phosphor-icons/react";
+import { SpinnerGapIcon, UsersIcon, XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
 import { MotionConfig } from "framer-motion";
 import { PathApi, type TElement, TextApi } from "platejs";
@@ -53,6 +51,7 @@ import {
 } from "#/components/editor/ui/inline-combobox";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
@@ -78,6 +77,12 @@ import {
 import { SpaceAgentAvailabilityIndicator } from "./space-member-inline-status-text";
 import { resolveSpaceMemberStatusTone } from "./space-member-status-tone";
 import { SpaceProfileIcon } from "./space-profile-icon";
+import {
+	SPACE_PROFILE_MENTION_NAME_CLASS_NAME,
+	SPACE_PROFILE_MENTION_RELATION_CLASS_NAME,
+	SPACE_PROFILE_MENTION_TOKEN_CLASS_NAME,
+	SpaceProfileMentionIdentity,
+} from "./space-profile-mention-token";
 import { SpaceWakeSuggestionToken } from "./space-wake-suggestion-token";
 import type {
 	SpaceComposerAddressingTarget,
@@ -263,6 +268,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			text: input.text,
 		};
 		const wasFocused = editor.api.isFocused();
+		recordReactUpdate("composer_editor_external_value");
 		editor.tf.setValue(
 			createSpaceComposerEditorValue({
 				authoredMentions: input.authoredMentions,
@@ -334,15 +340,10 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 
 		const composerHandle: SpaceComposerEditorHandle = {
 			setAgentMentionOnly: (profileIds) => {
-				editor.tf.setNodes(
-					{ relation: "reference" },
-					{
-						at: [],
-						match: (node) =>
-							isSpaceComposerProfileElement(node) &&
-							profileIds.includes(node.profileId) &&
-							node.relation === "wake",
-					}
+				applyComposerReferenceTargets(
+					editor,
+					input.mentionPickerItems,
+					profileIds
 				);
 				focusWhenReady();
 			},
@@ -403,6 +404,15 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				onChange={({ editor: changedEditor }) => {
 					const serialized = serializeSpaceComposerEditorValue(
 						changedEditor.children
+					);
+					recordReactUpdate(
+						serialized.text === input.text &&
+							authoredMentionsEqual(
+								serialized.authoredMentions,
+								input.authoredMentions
+							)
+							? "composer_editor_change_equal"
+							: "composer_editor_change_different"
 					);
 					const pendingExternalValue = pendingExternalValueRef.current;
 					if (
@@ -518,6 +528,46 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			</Plate>
 		</SpaceComposerEditorContext.Provider>
 	);
+}
+
+function applyComposerReferenceTargets(
+	editor: PlateEditor,
+	items: readonly SpaceMentionPickerItem[],
+	profileIds: readonly string[]
+): void {
+	editor.tf.setNodes(
+		{ relation: "reference" },
+		{
+			at: [],
+			match: (node) =>
+				isSpaceComposerProfileElement(node) &&
+				profileIds.includes(node.profileId) &&
+				node.relation === "wake",
+		}
+	);
+	// A Direct Message's default recipient is implicit, not an editor node.
+	// Make the user's opt-out visible and serialize the ordinary Reference.
+	const existing = new Set(
+		serializeSpaceComposerEditorValue(editor.children).authoredMentions.map(
+			(mention) => mention.profileId
+		)
+	);
+	for (const profileId of new Set(profileIds)) {
+		if (existing.has(profileId)) {
+			continue;
+		}
+		const item = items.find(
+			(candidate) => candidate.suggestion.profileId === profileId
+		);
+		if (
+			item?.suggestion.profileKind !== "agent" ||
+			!item.suggestion.allowedRelations.reference
+		) {
+			continue;
+		}
+		editor.tf.select(editor.api.start([]));
+		insertProfile(editor, item, false, "reference");
+	}
 }
 
 function focusEditorAtSelection(
@@ -650,10 +700,45 @@ function SpaceComposerProfileToken(
 	props: PlateElementProps<SpaceComposerProfileElement>
 ) {
 	const { editor, element } = props;
-	const surface = useSurface() + 1;
 	// Moving focus into the portaled menu must not move the draft's caret.
 	const relationSelection = useRef(editor.selection);
 	const context = useSpaceComposerEditorContext();
+	if (element.audience) {
+		return (
+			<PlateElement {...props} as="span">
+				<span
+					className={cn(
+						SPACE_PROFILE_MENTION_TOKEN_CLASS_NAME,
+						"group/profile-token relative content-space-message focus-within:ring-2 focus-within:ring-ring"
+					)}
+					contentEditable={false}
+					data-mention-text={element.mentionText}
+					data-testid="space-composer-audience-token"
+				>
+					<UsersIcon aria-hidden="true" className="size-3.5 shrink-0" />
+					<span className={SPACE_PROFILE_MENTION_NAME_CLASS_NAME}>
+						{element.mentionText}
+					</span>
+					<button
+						aria-label={`Remove ${element.mentionText} from message`}
+						className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+						onClick={(event) => {
+							event.stopPropagation();
+							removeSpaceComposerToken(editor, element);
+						}}
+						onMouseDown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+						type="button"
+					>
+						<XIcon aria-hidden="true" className="size-3" />
+					</button>
+				</span>
+				{props.children}
+			</PlateElement>
+		);
+	}
 	const {
 		target,
 		pickerItem,
@@ -667,9 +752,7 @@ function SpaceComposerProfileToken(
 	let relationControl: ReactNode = null;
 	if (locked) {
 		relationControl = (
-			<span className="inline-flex h-6 items-center border-border border-l px-2 font-medium text-muted-foreground text-xs">
-				Wake
-			</span>
+			<span className={SPACE_PROFILE_MENTION_RELATION_CLASS_NAME}>Wake</span>
 		);
 	} else if (
 		profileKind === "agent" &&
@@ -721,7 +804,10 @@ function SpaceComposerProfileToken(
 				>
 					<SelectTrigger
 						aria-label={`Change relation for ${profileName}`}
-						className="h-6 min-w-0 gap-1 rounded-none border-0 border-border border-l px-1.5 py-0 font-medium text-muted-foreground text-xs max-lg:h-6 max-lg:min-w-0 [&>svg]:size-3"
+						className={cn(
+							SPACE_PROFILE_MENTION_RELATION_CLASS_NAME,
+							"h-5 min-w-0 gap-1 rounded-none border-0 border-l py-0 pr-0 max-lg:h-5 max-lg:min-w-0 [&>svg]:size-3"
+						)}
 						displayValue={
 							<span className="inline-flex items-center gap-1">
 								{composerRelationLabel(
@@ -782,7 +868,7 @@ function SpaceComposerProfileToken(
 		);
 	} else if (isRepeatedAgent) {
 		relationControl = (
-			<span className="inline-flex h-6 items-center border-border border-l px-2 font-medium text-muted-foreground text-xs">
+			<span className={SPACE_PROFILE_MENTION_RELATION_CLASS_NAME}>
 				Mention only
 			</span>
 		);
@@ -792,45 +878,32 @@ function SpaceComposerProfileToken(
 		<PlateElement {...props} as="span">
 			<span
 				className={cn(
-					surfaceClasses(surface),
-					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline focus-within:ring-2 focus-within:ring-ring",
-					isBlockedWake ? "text-muted-foreground" : "text-foreground"
+					SPACE_PROFILE_MENTION_TOKEN_CLASS_NAME,
+					"group/profile-token relative content-space-message focus-within:ring-2 focus-within:ring-ring",
+					isBlockedWake && "text-muted-foreground"
 				)}
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"
 				data-wake-confirmed={element.wakeRecommendationAccepted || undefined}
 			>
-				<span
-					aria-hidden="true"
-					className="shrink-0 font-semibold"
-					data-slot="space-composer-profile-token-at"
+				<SpaceProfileMentionIdentity
+					muted={isBlockedWake}
+					profile={{
+						agentControllerRef:
+							pickerItem?.memberEntry.agentControllerRef ?? null,
+						avatarImageUrl: pickerItem?.memberEntry.avatarUrl ?? null,
+						isCenterAgent: element.profileId === context.centerAgentProfileId,
+						profileId: element.profileId,
+						profileKind,
+						profileName,
+					}}
 				>
-					@
-				</span>
-				<span
-					className={cn(
-						"inline-flex shrink-0",
-						isBlockedWake && "opacity-50 grayscale"
-					)}
-					data-slot="space-composer-profile-token-icon"
-				>
-					<SpaceProfileIcon
-						agentControllerRef={
-							pickerItem?.memberEntry.agentControllerRef ?? null
-						}
-						avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
-						className="size-4"
-						isCenterAgent={element.profileId === context.centerAgentProfileId}
-						profileId={element.profileId}
-						profileKind={profileKind}
+					<SpaceComposerProfileName
+						pickerItem={pickerItem}
 						profileName={profileName}
 					/>
-				</span>
-				<SpaceComposerProfileName
-					pickerItem={pickerItem}
-					profileName={profileName}
-				/>
+				</SpaceProfileMentionIdentity>
 				{relationControl}
 				{locked ? null : (
 					<button
@@ -838,31 +911,7 @@ function SpaceComposerProfileToken(
 						className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 						onClick={(event) => {
 							event.stopPropagation();
-							const path = editor.api.findPath(element);
-							if (!path) {
-								return;
-							}
-							const nextPath = PathApi.next(path);
-							const nextNode = (editor.children as SpaceComposerEditorValue)[
-								nextPath[0]
-							]?.children[nextPath[1] ?? 0];
-
-							editor.tf.withoutNormalizing(() => {
-								if (
-									nextNode &&
-									TextApi.isText(nextNode) &&
-									nextNode.text.startsWith(" ")
-								) {
-									editor.tf.delete({
-										at: {
-											anchor: { offset: 0, path: nextPath },
-											focus: { offset: 1, path: nextPath },
-										},
-									});
-								}
-								editor.tf.removeNodes({ at: path });
-							});
-							editor.tf.focus();
+							removeSpaceComposerToken(editor, element);
 						}}
 						onMouseDown={(event) => {
 							event.preventDefault();
@@ -877,6 +926,32 @@ function SpaceComposerProfileToken(
 			{props.children}
 		</PlateElement>
 	);
+}
+
+function removeSpaceComposerToken(
+	editor: PlateEditor,
+	element: SpaceComposerProfileElement
+): void {
+	const path = editor.api.findPath(element);
+	if (!path) {
+		return;
+	}
+	const nextPath = PathApi.next(path);
+	const nextNode = (editor.children as SpaceComposerEditorValue)[nextPath[0]]
+		?.children[nextPath[1] ?? 0];
+
+	editor.tf.withoutNormalizing(() => {
+		if (nextNode && TextApi.isText(nextNode) && nextNode.text.startsWith(" ")) {
+			editor.tf.delete({
+				at: {
+					anchor: { offset: 0, path: nextPath },
+					focus: { offset: 1, path: nextPath },
+				},
+			});
+		}
+		editor.tf.removeNodes({ at: path });
+	});
+	editor.tf.focus();
 }
 
 function ComposerWakeChecking() {
@@ -956,7 +1031,7 @@ function SpaceComposerProfileName({
 	const trigger = (
 		<button
 			aria-label={`View ${profileName}'s profile`}
-			className="min-w-0 truncate font-medium outline-none"
+			className={cn(SPACE_PROFILE_MENTION_NAME_CLASS_NAME, "outline-none")}
 			data-slot="space-composer-profile-token-name"
 			onMouseDown={(event) => event.preventDefault()}
 			type="button"
@@ -970,7 +1045,7 @@ function SpaceComposerProfileName({
 				profileDetailsPopoverTrigger(trigger)
 			) : (
 				<span
-					className="min-w-0 truncate font-medium"
+					className={SPACE_PROFILE_MENTION_NAME_CLASS_NAME}
 					data-slot="space-composer-profile-token-name"
 				>
 					{profileName}
@@ -1098,12 +1173,15 @@ function resolveMentionPickerRelationLabel(
 function insertProfile(
 	editor: PlateEditor,
 	item: SpaceMentionPickerItem,
-	wakeRecommendationAccepted = false
+	wakeRecommendationAccepted = false,
+	relationOverride?: "reference"
 ): void {
-	const relation = resolveDefaultSpaceComposerMentionRelation(
-		item.suggestion,
-		item.agentMember
-	);
+	const relation =
+		relationOverride ??
+		resolveDefaultSpaceComposerMentionRelation(
+			item.suggestion,
+			item.agentMember
+		);
 	if (!relation) {
 		return;
 	}
@@ -1312,6 +1390,10 @@ function isComposerClipboardMention(
 	}
 	const mention = value as Partial<ComposerDraftAuthoredMention>;
 	return (
+		(mention.audience === undefined ||
+			mention.audience === "people" ||
+			mention.audience === "agents" ||
+			mention.audience === "both") &&
 		typeof mention.profileId === "string" &&
 		typeof mention.text === "string" &&
 		Number.isSafeInteger(mention.start) &&
@@ -1460,6 +1542,7 @@ function authoredMentionsEqual(
 		left.every((mention, index) => {
 			const candidate = right[index];
 			return (
+				candidate?.audience === mention.audience &&
 				candidate?.end === mention.end &&
 				candidate.profileId === mention.profileId &&
 				candidate.relation === mention.relation &&

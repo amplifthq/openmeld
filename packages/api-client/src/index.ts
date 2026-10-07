@@ -76,6 +76,7 @@ export type {
   OpenMeldApiClientRequestOptions,
 } from "./client";
 export { createOpenMeldApiClient } from "./client";
+export { createCloudComputerApi } from "./cloud-computer";
 export { createComputerAuthorizationGrant } from "./computer-authorization";
 export { createComputerFileAccessApi } from "./computer-file-access/api";
 export {
@@ -137,7 +138,10 @@ export type {
   SetCurrentOrganizationFeedbackReportingPolicyInput,
   SubmitFeedbackIssueInput,
 } from "./feedback/types";
+export type { FileRootLocation } from "./file-root/api";
+export { createFileRootApi } from "./file-root/api";
 export { createInboxApi } from "./inbox/api";
+export { isInboxItemInOrganizationScope } from "./inbox/item-scope";
 export {
   inboxMessageNotificationSpaceId,
   isInboxItemVisibleConversation,
@@ -246,11 +250,16 @@ export type {
 } from "./organization-documents/types";
 export { createOrganizationSkillsApi } from "./organization-skills/api";
 export {
+  buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
+  buildOrganizationSkillFilesImportPath,
+  buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
+  buildOrganizationSkillRepositoryPreviewPath,
+  buildOrganizationSkillResourcePath,
   buildOrganizationSkillsPath,
 } from "./organization-skills/routes";
 export type {
@@ -337,6 +346,7 @@ export type {
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
 export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
+export { createSessionHistoryApi } from "./session-history/api";
 export type {
   AddSpaceMembersInput,
   CreateSpaceDiagnosticReportBody,
@@ -362,6 +372,7 @@ export {
   getSpaceFile,
   listSpaceFileRevisions,
   listSpaceFiles,
+  postSpaceWorkHandoff,
   setSpaceAccessMode,
   trashSpaceFileEntry,
   updateSpaceFileContent,
@@ -370,10 +381,12 @@ export {
   uploadSpaceAttachment,
   uploadSpaceFile,
 } from "./space";
+export { readOrUpdateSpaceInputQueue } from "./space/input-queue";
 export {
   readOrUpdateSpaceFilePins,
   readOrUpdateSpaceMessagePins,
 } from "./space/message-pins";
+export { buildSpaceFileContentPath } from "./space/routes";
 export {
   createSpaceTask,
   getSpaceTask,

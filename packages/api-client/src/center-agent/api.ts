@@ -108,19 +108,16 @@ export const createCenterAgentApi: CreateCenterAgentApi = (
       invalidMessage: "Invalid Center Agent model response.",
     }),
   updateModel: async (input) => {
-    const request = validateModelInput(input);
+    const body = requireValidModelBody(input);
     return await client.requestJson({
       url: buildCenterAgentModelPath(),
       operation: "center_agent.model.update",
       method: "PUT",
-      requestContext: request.requestContext,
-      signal: request.signal,
-      timeoutMs: request.timeoutMs,
+      requestContext: input.requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        expectedConfigurationRevision: request.expectedConfigurationRevision,
-        preference: request.preference,
-      }),
+      body: JSON.stringify(body),
       schema: updateCenterAgentModelResponseSchema,
       invalidMessage: "Invalid Center Agent model update response.",
     });
@@ -220,7 +217,10 @@ export const createCenterAgentApi: CreateCenterAgentApi = (
       signal: request.signal,
       timeoutMs: request.timeoutMs,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ profileName: request.profileName }),
+      body: JSON.stringify({
+        ...(request.profileName ? { profileName: request.profileName } : {}),
+        ...(request.avatarStyle ? { avatarStyle: request.avatarStyle } : {}),
+      }),
       schema: centerAgentUpdateProfileResponseSchema,
       invalidMessage: "Invalid Center Agent profile update response.",
     });
@@ -446,12 +446,11 @@ function validateOperatingStateInput(
   return input;
 }
 
-function validateModelInput(
-  input: CenterAgentUpdateModelInput
-): CenterAgentUpdateModelInput {
+function requireValidModelBody(input: CenterAgentUpdateModelInput) {
   const parsed = updateCenterAgentModelBodySchema.safeParse({
     expectedConfigurationRevision: input.expectedConfigurationRevision,
     preference: input.preference,
+    reasoningLevel: input.reasoningLevel,
   });
   if (!parsed.success) {
     throw new Error(
@@ -459,7 +458,7 @@ function validateModelInput(
     );
   }
   validateRequestInput(input);
-  return input;
+  return parsed.data;
 }
 
 function validateAuditJournalInput(
@@ -484,6 +483,7 @@ function validateUpdateProfileInput(
 ): CenterAgentUpdateProfileInput {
   const parsed = centerAgentUpdateProfileBodySchema.safeParse({
     profileName: input.profileName,
+    avatarStyle: input.avatarStyle,
   });
   if (!parsed.success) {
     throw new Error(

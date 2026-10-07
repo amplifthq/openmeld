@@ -9,8 +9,8 @@ import {
   restoreSpaceFileRevisionResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
-  SPACE_FILE_UPLOAD_PART_BYTES,
   spaceFileMimeTypeSchema,
+  spaceFileUploadIdForMutation,
   spaceFileUploadResponseSchema,
   stageSpaceComposerUploadResponseSchema,
   trashSpaceFileEntryResponseSchema,
@@ -35,6 +35,8 @@ import {
   OpenMeldApiClientInvalidResponseError,
   readApiClientTextResponse,
 } from "../errors";
+import { uploadMultipart as uploadMultipartTransport } from "../file-root/multipart-upload";
+import { currentSpaceFileHeaders } from "./addressing-contract";
 import {
   buildSpaceComposerUploadPath,
   buildSpaceComposerUploadPublishPath,
@@ -64,17 +66,6 @@ function bodySize(body: ArrayBuffer | Blob): number {
   return body instanceof Blob ? body.size : body.byteLength;
 }
 
-async function mutationUploadId(mutation: string): Promise<string> {
-  const hash = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(mutation)
-  );
-  const hex = Array.from(new Uint8Array(hash), (b) =>
-    b.toString(16).padStart(2, "0")
-  ).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
 async function uploadMultipart(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput &
@@ -83,108 +74,34 @@ async function uploadMultipart(
   uploadId: string
 ) {
   const body = toRequestBody(input.bytes);
-  const blob = body instanceof Blob ? body : new Blob([body]);
   const url = `/v1/spaces/${encodeURIComponent(input.spaceId)}/file-uploads/${uploadId}`;
   const request = async (
     command: import("@openmeld/schemas/types").SpaceFileUploadCommand,
     part?: Blob
   ) => {
-    return await retryUploadRequest(input.signal, () =>
-      client.requestJson({
-        ...requestFields(input),
-        url:
-          command.action === "part" ? `${url}?part=${command.partNumber}` : url,
-        method: "POST",
-        operation: "space.files.upload",
-        headers: {
-          "content-type": part
-            ? "application/octet-stream"
-            : "application/json",
-        },
-        body: part ?? JSON.stringify(command),
-        schema: spaceFileUploadResponseSchema,
-        invalidMessage: "Invalid file upload response.",
-      })
-    );
+    return await client.requestJson({
+      ...requestFields(input),
+      url:
+        command.action === "part" ? `${url}?part=${command.partNumber}` : url,
+      method: "POST",
+      operation: "space.files.upload",
+      headers: {
+        ...currentSpaceFileHeaders(),
+        "content-type": part ? "application/octet-stream" : "application/json",
+      },
+      body: part ?? JSON.stringify(command),
+      schema: spaceFileUploadResponseSchema,
+      invalidMessage: "Invalid file upload response.",
+    });
   };
-  const partDigests: string[] = [];
-  for (
-    let offset = 0;
-    offset < blob.size;
-    offset += SPACE_FILE_UPLOAD_PART_BYTES
-  ) {
-    input.signal?.throwIfAborted();
-    const hash = await crypto.subtle.digest(
-      "SHA-256",
-      await blob
-        .slice(offset, offset + SPACE_FILE_UPLOAD_PART_BYTES)
-        .arrayBuffer()
-    );
-    partDigests.push(
-      Array.from(new Uint8Array(hash), (b) =>
-        b.toString(16).padStart(2, "0")
-      ).join("")
-    );
-  }
-  let session = await request({
-    action: "start",
-    metadata: {
-      target,
-      mimeType: input.mimeType,
-      sizeBytes: blob.size,
-      partDigests,
-    },
+  return await uploadMultipartTransport({
+    bytes: body,
+    mimeType: input.mimeType,
+    target,
+    signal: input.signal,
+    onProgress: input.onProgress,
+    request,
   });
-  if (session.file || session.upload) {
-    return session;
-  }
-  input.onProgress?.(
-    session.parts.reduce((n, p) => n + p.sizeBytes, 0),
-    blob.size
-  );
-  for (
-    let start = 0, number = 1;
-    start < blob.size;
-    start += session.partSizeBytes, number++
-  ) {
-    if (session.parts.some((p) => p.partNumber === number)) {
-      continue;
-    }
-    session = await request(
-      { action: "part", partNumber: number },
-      blob.slice(start, start + session.partSizeBytes)
-    );
-    input.onProgress?.(
-      session.parts.reduce((n, p) => n + p.sizeBytes, 0),
-      blob.size
-    );
-  }
-  return await request({ action: "complete" });
-}
-
-async function retryUploadRequest<T>(
-  signal: AbortSignal | undefined,
-  request: () => Promise<T>
-): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      signal?.throwIfAborted();
-      return await request();
-    } catch (error) {
-      const status =
-        error && typeof error === "object" && "status" in error
-          ? error.status
-          : undefined;
-      if (
-        signal?.aborted ||
-        attempt >= 2 ||
-        (typeof status === "number" && status < 500 && status !== 429)
-      ) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
-    }
-  }
 }
 
 export async function listSpaceFiles(
@@ -208,6 +125,19 @@ export async function listSpaceFiles(
       schemaIssue: {
         message: "The response view did not match the requested view.",
         path: ["view"],
+      },
+    });
+  }
+  const requestedOrigin = input.query?.origin ?? "artifact";
+  if (response.origin !== requestedOrigin) {
+    throw new OpenMeldApiClientInvalidResponseError({
+      message: `Space Files returned the ${response.origin} filter while ${requestedOrigin} was requested.`,
+      operation: "space.files.list",
+      status: 200,
+      rawBody: JSON.stringify(response),
+      schemaIssue: {
+        message: "The response origin filter did not match the request.",
+        path: ["origin"],
       },
     });
   }
@@ -249,7 +179,10 @@ export async function createSpaceFolder(
     url: buildSpaceFileFoldersPath(input.spaceId),
     operation: "space.files.folder.create",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify(input.body),
     schema: createSpaceFolderResponseSchema,
     invalidMessage: "invalid Space folder create response",
@@ -268,7 +201,10 @@ export async function updateSpaceFileEntry(
     url: buildSpaceFileEntryPath(input.spaceId, input.entryId),
     operation: "space.files.entry.update",
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify(input.body),
     schema: updateSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file update response",
@@ -288,7 +224,10 @@ export async function trashSpaceFileEntry(
     url: buildSpaceFileEntryPath(input.spaceId, input.entryId),
     operation: "space.files.entry.trash",
     method: "DELETE",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
     schema: trashSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file trash response",
@@ -307,7 +246,10 @@ export async function restoreSpaceFileEntry(
     url: buildSpaceFileRestorePath(input.spaceId, input.entryId),
     operation: "space.files.entry.restore",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
     schema: restoreSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file restore response",
@@ -333,7 +275,10 @@ export async function restoreSpaceFileRevision(
     ),
     operation: "space.files.revision.restore",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({
       baseRevision: input.baseRevision,
       clientMutationId: input.clientMutationId,
@@ -351,6 +296,12 @@ export async function uploadSpaceFile(
     clientMutationId: string;
     mimeType: string;
     name: string;
+    /**
+     * The one canonical fact distinguishing a chat upload from an artifact.
+     * Required so every caller of this route makes that choice explicitly
+     * instead of leaving the file unclassified.
+     */
+    origin: "artifact" | "chat_upload";
     parentId?: string | null;
     onProgress?: (uploadedBytes: number, totalBytes: number) => void;
   }
@@ -366,9 +317,10 @@ export async function uploadSpaceFile(
         kind: "file",
         clientMutationId: input.clientMutationId,
         name: input.name,
+        origin: input.origin,
         parentId: input.parentId ?? null,
       },
-      await mutationUploadId(input.clientMutationId)
+      await spaceFileUploadIdForMutation(input.clientMutationId)
     );
     if (!response.file) {
       throw new Error("The upload did not return a file.");
@@ -380,7 +332,10 @@ export async function uploadSpaceFile(
     url: buildSpaceFileUploadPath(input),
     operation: "space.files.upload",
     method: "POST",
-    headers: { "content-type": mimeType },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": mimeType,
+    },
     body,
     schema: uploadSpaceFileResponseSchema,
     invalidMessage: "invalid Space file upload response",
@@ -416,7 +371,10 @@ export async function stageSpaceComposerUpload(
   const response = await client.requestJson({
     ...requestFields(input),
     body,
-    headers: { "content-type": mimeType },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": mimeType,
+    },
     invalidMessage: "invalid Space Composer upload response",
     method: "PUT",
     operation: "space.composer_uploads.stage",
@@ -436,7 +394,10 @@ export async function publishSpaceComposerUpload(
   const response = await client.requestJson({
     ...requestFields(input),
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     invalidMessage: "invalid Space Composer upload publication response",
     method: "POST",
     operation: "space.composer_uploads.publish",
@@ -483,7 +444,7 @@ export async function updateSpaceFileContent(
         fileId: input.fileId,
         baseRevision: input.baseRevision,
       },
-      await mutationUploadId(input.clientMutationId)
+      await spaceFileUploadIdForMutation(input.clientMutationId)
     );
     if (!response.file) {
       throw new Error("The upload did not return a file.");
@@ -498,7 +459,10 @@ export async function updateSpaceFileContent(
     }),
     operation: "space.files.content.update",
     method: "PUT",
-    headers: { "content-type": mimeType },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": mimeType,
+    },
     body,
     schema: uploadSpaceFileResponseSchema,
     invalidMessage: "invalid Space file content update response",
@@ -553,6 +517,7 @@ function requestFields(input: SpaceRequestInput) {
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,
+    headers: currentSpaceFileHeaders(),
     ...(input.spacePassword === undefined
       ? {}
       : { spacePassword: input.spacePassword }),
@@ -579,6 +544,8 @@ function toRequestBody(bytes: SpaceFileContentBytes): ArrayBuffer | Blob {
 function validateSize(body: ArrayBuffer | Blob): void {
   const size = body instanceof Blob ? body.size : body.byteLength;
   if (size > SPACE_FILE_MAX_SIZE_BYTES) {
-    throw new Error("Space files must be 250 MiB or smaller");
+    throw new Error(
+      `Space files must be ${SPACE_FILE_MAX_SIZE_BYTES / (1024 * 1024)} MiB or smaller`
+    );
   }
 }

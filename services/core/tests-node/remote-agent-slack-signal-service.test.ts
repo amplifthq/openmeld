@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ACCOUNT_CONNECTION_REQUIRED_PUBLIC_COPY,
@@ -14,7 +15,7 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import type { UsersInfoResponse } from "@slack/web-api";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-agent/application/native-delivery-admission-watchdog";
 import {
@@ -45,16 +46,16 @@ import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   completeSlackChannelIntroductionAcknowledgement,
   createSlackChannelIntroductionManifest,
-} from "../src/remote-agent/infrastructure/d1/slack-channel-introduction-repo";
-import { readRemoteAgentSlackEventIngress } from "../src/remote-agent/infrastructure/d1/slack-event-ingress-repo";
+} from "../src/remote-agent/infrastructure/postgresql/slack-channel-introduction-repo";
+import { readRemoteAgentSlackEventIngress } from "../src/remote-agent/infrastructure/postgresql/slack-event-ingress-repo";
 import {
   advanceSlackThreadContextCursor,
   readSlackThreadContextCursor,
-} from "../src/remote-agent/infrastructure/d1/slack-thread-context-cursor-repo";
+} from "../src/remote-agent/infrastructure/postgresql/slack-thread-context-cursor-repo";
 import {
   claimSlackIdentityLinkTokenForUser,
   consumeSlackIdentityLinkTokenAndUpsertUserLink,
@@ -62,8 +63,8 @@ import {
   insertSlackUserIdentityLinkIfAbsent,
   readSlackIdentityLinkTokenForUser,
   readSlackUserIdentityLink,
-} from "../src/remote-agent/infrastructure/d1/slack-user-identity-link-repo";
-import { upsertRemoteAgentSlackWorkspaceBinding } from "../src/remote-agent/infrastructure/d1/slack-workspace-binding-repo";
+} from "../src/remote-agent/infrastructure/postgresql/slack-user-identity-link-repo";
+import { upsertRemoteAgentSlackWorkspaceBinding } from "../src/remote-agent/infrastructure/postgresql/slack-workspace-binding-repo";
 import {
   rpcConnectCenterAgentSlackWorkspace,
   rpcConsumeSlackIdentityLink,
@@ -71,13 +72,17 @@ import {
   rpcPreviewSlackIdentityLink,
 } from "../src/rpc/methods";
 import {
-  applyDrizzleMigrationsForTables,
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createAfterMatchingBatchD1Database,
-  createBeforeMatchingBatchD1Database,
-  createFaultInjectingD1Database,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createAfterMatchingPostgresTransaction,
+  createBeforeMatchingPostgresTransaction,
+  createFaultInjectingPostgresDatabase,
+  createPostgresHarness,
+  installPostgresWriteFailure,
+  observeNativePostgresQueries,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
+
+const STATUS_ASSIGNMENT_PATTERN = /\bstatus\s*=\s*\$\d+/u;
+const TOKEN_CONSUMPTION_PATTERN = /SET\s+consumed_at_ms/u;
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const CONVERSATION_ID = buildRemoteAgentSlackConversationId({
@@ -89,17 +94,15 @@ const COMPLETED_SLACK_MARKDOWN =
   "**Done from Slack** with [docs](https://example.com/docs).\n\n```ts\nconst ok = true;\n```";
 const SLACK_IDENTITY_LINK_URL_PATTERN =
   /^https:\/\/openmeld\.ai\/link-slack\?token=slacklink_[a-f0-9]{64}$/u;
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
 describe("Remote Agent Slack signal service", () => {
   it("explains a private channel selection from a structured introduction failure", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const fetchMock = stubSlackFetch({
       conversationsListResponse: {
         channels: [
@@ -115,7 +118,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -123,7 +125,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         submitRemoteAgentSlackChannelIntroduction({
           env: buildEnv(harness.db),
@@ -134,29 +135,26 @@ describe("Remote Agent Slack signal service", () => {
           targetSlackChannelIds: ["C_PRIVATE"],
         })
       ).resolves.toBeUndefined();
-
       expect(readSlackPostBodies(fetchMock)).toEqual([
         expect.objectContaining({
           text: "Choose public channels here. For a private channel, invite the OpenMeld app there first, then message me its name.",
         }),
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not expose an internal introduction error because its prose sounds user-facing", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const fetchMock = stubSlackFetch({
       conversationsListError: new Error(
         "I can’t expose this internal Slack failure"
       ),
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -164,7 +162,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         submitRemoteAgentSlackChannelIntroduction({
           env: buildEnv(harness.db),
@@ -175,21 +172,19 @@ describe("Remote Agent Slack signal service", () => {
           targetSlackChannelIds: ["C_PRODUCT"],
         })
       ).resolves.toBeUndefined();
-
       expect(readSlackPostBodies(fetchMock)).toEqual([
         expect.objectContaining({
           text: "I couldn’t start learning those channels. Open the welcome message and try again. If it still doesn’t work, invite the OpenMeld app to the channel first.",
         }),
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a multi-channel introduction working until every delivery finishes", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -220,7 +215,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -248,7 +242,6 @@ describe("Remote Agent Slack signal service", () => {
           targetSlackChannelIds: ["C_PRODUCT", "C_DESIGN"],
         })
       ).resolves.toBeUndefined();
-
       expect(workerSubmit).toHaveBeenCalledTimes(2);
       const submissions = workerSubmit.mock.calls.map(([request]) => request);
       expect(submissions).toEqual([
@@ -287,9 +280,9 @@ describe("Remote Agent Slack signal service", () => {
         "https://openmeld.ai/join/openmeld-test"
       );
       expect(
-        harness.queryAll({
-          sql: `SELECT slack_channel_id, status
-            FROM slack_channel_introduction_items
+        await harness.queryAll({
+          text: `SELECT slack_channel_id, status
+            FROM "openmeld"."slack_channel_introduction_items"
             ORDER BY position`,
         })
       ).toEqual([
@@ -311,13 +304,12 @@ describe("Remote Agent Slack signal service", () => {
           text: expect.stringContaining("#product and #design work"),
         })
       );
-
-      const [firstDelivery, secondDelivery] = harness.queryAll<{
+      const [firstDelivery, secondDelivery] = await harness.queryAll<{
         idempotency_key: string;
       }>({
-        sql: `SELECT idempotency_key
-          FROM openMeldRemoteAgent_native_delivery_ledger
-          WHERE idempotency_key LIKE 'slack-channel-introduction:T123:V_CHANNELS:%'
+        text: `SELECT idempotency_key
+          FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+          WHERE idempotency_key ILIKE 'slack-channel-introduction:T123:V_CHANNELS:%'
           ORDER BY delivery_id DESC`,
       });
       const firstRequest = submissions.find(
@@ -331,7 +323,6 @@ describe("Remote Agent Slack signal service", () => {
       if (!(firstRequest && secondRequest)) {
         throw new Error("Expected both channel introduction deliveries");
       }
-
       await completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallbackForSubmittedRequest({
@@ -342,7 +333,6 @@ describe("Remote Agent Slack signal service", () => {
       expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
         status: "is working on your request…",
       });
-
       await completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallbackForSubmittedRequest({
@@ -354,15 +344,14 @@ describe("Remote Agent Slack signal service", () => {
         status: "",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a recovered mixed-version multi-channel introduction working across submission ticks", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -393,7 +382,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -430,7 +418,6 @@ describe("Remote Agent Slack signal service", () => {
         nowMs: 1100,
       });
       const env = buildEnv(harness.db, { workerSubmit });
-
       await expect(
         runSlackChannelIntroductionTick({
           db: harness.db,
@@ -440,14 +427,14 @@ describe("Remote Agent Slack signal service", () => {
           nowMs: 1200,
         })
       ).resolves.toEqual({ failed: 0, outcomeUnknown: 0, submitted: 1 });
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           "slack-channel-introduction:T123:V_CHANNELS_RECOVERED:C_PRODUCT",
         ],
-        sql: `
-          UPDATE openMeldRemoteAgent_native_delivery_ledger
+        text: `
+          UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
           SET slack_working_status_turn_id = NULL
-          WHERE idempotency_key = ?
+          WHERE idempotency_key = $1
         `,
       });
       await expect(
@@ -459,7 +446,6 @@ describe("Remote Agent Slack signal service", () => {
           nowMs: 2200,
         })
       ).resolves.toEqual({ failed: 0, outcomeUnknown: 0, submitted: 1 });
-
       const submissions = workerSubmit.mock.calls.map(([request]) => request);
       const firstRequest = submissions[0];
       const recoveredRequest = submissions[1];
@@ -470,7 +456,6 @@ describe("Remote Agent Slack signal service", () => {
           "Expected both recovered channel introduction deliveries"
         );
       }
-
       await upsertRemoteAgentNativeDeliveryRecord({
         attemptId: null,
         bindingId: firstRequest.bindingId,
@@ -499,7 +484,6 @@ describe("Remote Agent Slack signal service", () => {
           threadTs: "1710000001.000200",
         })
       ).resolves.toBe(true);
-
       await completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallbackForSubmittedRequest({
@@ -510,7 +494,6 @@ describe("Remote Agent Slack signal service", () => {
       expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
         status: "is working on your request…",
       });
-
       await completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallbackForSubmittedRequest({
@@ -522,15 +505,14 @@ describe("Remote Agent Slack signal service", () => {
         status: "",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a newer DM turn working when an older channel introduction finishes", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -555,7 +537,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -571,14 +552,12 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       const introductionRequest = workerSubmit.mock.calls[0]?.[0];
       expect(introductionRequest).toBeDefined();
       if (!introductionRequest) {
         throw new Error("Expected the channel introduction to be submitted");
       }
-
       const newerTriggerMessageId = "1710000002.000300";
       await upsertRemoteAgentNativeDeliveryRecord({
         attemptId: null,
@@ -605,7 +584,6 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: "sub_after_introduction",
         workerRequestId: "req_after_introduction",
       });
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db, { workerSubmit }),
@@ -615,20 +593,18 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toMatchObject({ status: "accepted" });
-
       expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
         status: "is working on your request…",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("continues channel introductions when the first acknowledgement checkpoint write fails", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -653,7 +629,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -661,14 +636,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-      const db = createFaultInjectingD1Database({
+      const db = createFaultInjectingPostgresDatabase({
         db: harness.db,
-        matches: (sql, operation) =>
-          operation === "first" &&
-          sql.includes("UPDATE slack_channel_introduction_runs") &&
+        matches: (sql) =>
+          sql.includes('UPDATE "openmeld"."slack_channel_introduction_runs"') &&
           sql.includes("status = 'ready'"),
       });
-
       await expect(
         submitRemoteAgentSlackChannelIntroduction({
           env: buildEnv(db, { workerSubmit }),
@@ -679,12 +652,11 @@ describe("Remote Agent Slack signal service", () => {
           targetSlackChannelIds: ["C_PRODUCT"],
         })
       ).resolves.toBeUndefined();
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, acknowledgement_ts, failure_code
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, acknowledgement_ts, failure_code
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_CHECKPOINT'`,
         })
       ).toEqual({
@@ -693,22 +665,21 @@ describe("Remote Agent Slack signal service", () => {
         status: "ready",
       });
       expect(
-        harness.queryFirst({
-          sql: `SELECT status
-            FROM slack_channel_introduction_items
+        await harness.queryFirst({
+          text: `SELECT status
+            FROM "openmeld"."slack_channel_introduction_items"
             WHERE interaction_id = 'V_CHANNEL_CHECKPOINT'`,
         })
       ).toEqual({ status: "submitted" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("recovers a submitted channel introduction when its item checkpoint stays unavailable", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -733,7 +704,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -741,16 +711,16 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-      const db = createFaultInjectingD1Database({
+      const db = createFaultInjectingPostgresDatabase({
         db: harness.db,
         failureCount: 2,
-        matches: (sql, operation) =>
-          operation === "first" &&
-          sql.includes("UPDATE slack_channel_introduction_items") &&
-          sql.includes("status = ?") &&
-          sql.includes("AND claim_id = ?"),
+        matches: (sql) =>
+          sql.includes(
+            'UPDATE "openmeld"."slack_channel_introduction_items"'
+          ) &&
+          STATUS_ASSIGNMENT_PATTERN.test(sql) &&
+          sql.includes("AND claim_id ="),
       });
-
       await submitRemoteAgentSlackChannelIntroduction({
         env: buildEnv(db, { workerSubmit }),
         interactionId: "V_CHANNEL_ITEM_CHECKPOINT",
@@ -759,45 +729,41 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
-      const pendingCheckpoint = harness.queryFirst<{
+      const pendingCheckpoint = await harness.queryFirst<{
         status: string;
         updated_at_ms: number;
       }>({
-        sql: `SELECT status, updated_at_ms
-          FROM slack_channel_introduction_items
+        text: `SELECT status, updated_at_ms
+          FROM "openmeld"."slack_channel_introduction_items"
           WHERE interaction_id = 'V_CHANNEL_ITEM_CHECKPOINT'`,
       });
       expect(pendingCheckpoint?.status).toBe("submitting");
-
       await runSlackChannelIntroductionTick({
         db: harness.db,
         env: buildEnv(harness.db, { workerSubmit }),
         interactionId: "V_CHANNEL_ITEM_CHECKPOINT",
         nowMs: (pendingCheckpoint?.updated_at_ms ?? 0) + 5 * 60_000 + 1,
       });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, failure_code
-            FROM slack_channel_introduction_items
+        await harness.queryFirst({
+          text: `SELECT status, failure_code
+            FROM "openmeld"."slack_channel_introduction_items"
             WHERE interaction_id = 'V_CHANNEL_ITEM_CHECKPOINT'`,
         })
       ).toEqual({ failure_code: null, status: "submitted" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reconciles a confirmed acknowledgement after its checkpoint stays unavailable", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -837,7 +803,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -845,12 +810,11 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-      const db = createFaultInjectingD1Database({
+      const db = createFaultInjectingPostgresDatabase({
         db: harness.db,
         failureCount: 2,
-        matches: (sql, operation) =>
-          operation === "first" &&
-          sql.includes("UPDATE slack_channel_introduction_runs") &&
+        matches: (sql) =>
+          sql.includes('UPDATE "openmeld"."slack_channel_introduction_runs"') &&
           sql.includes("status = 'ready'"),
       });
       await submitRemoteAgentSlackChannelIntroduction({
@@ -861,16 +825,15 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
-      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+      const submittedAtMs = await readSlackChannelIntroductionCreatedAtMs(
         harness,
         "V_CHANNEL_DURABLE_RECOVERY"
       );
-
       expect(workerSubmit).not.toHaveBeenCalled();
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, acknowledgement_ts, failure_code
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, acknowledgement_ts, failure_code
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_DURABLE_RECOVERY'`,
         })
       ).toEqual({
@@ -878,19 +841,17 @@ describe("Remote Agent Slack signal service", () => {
         failure_code: null,
         status: "ack_pending",
       });
-
       await runSlackChannelIntroductionTick({
         db: harness.db,
         env: buildEnv(harness.db, { workerSubmit }),
         interactionId: "V_CHANNEL_DURABLE_RECOVERY",
         nowMs: submittedAtMs + 5 * 60_000 + 1,
       });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, acknowledgement_ts, failure_code
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, acknowledgement_ts, failure_code
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_DURABLE_RECOVERY'`,
         })
       ).toEqual({
@@ -900,15 +861,14 @@ describe("Remote Agent Slack signal service", () => {
       });
       expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("publishes one durable retry action when concurrent ticks cannot find the acknowledgement", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn();
     stubSlackFetch({
       conversationsListResponse: {
@@ -925,7 +885,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -933,12 +892,11 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-      const db = createFaultInjectingD1Database({
+      const db = createFaultInjectingPostgresDatabase({
         db: harness.db,
         failureCount: 2,
-        matches: (sql, operation) =>
-          operation === "first" &&
-          sql.includes("UPDATE slack_channel_introduction_runs") &&
+        matches: (sql) =>
+          sql.includes('UPDATE "openmeld"."slack_channel_introduction_runs"') &&
           sql.includes("status = 'ready'"),
       });
       await submitRemoteAgentSlackChannelIntroduction({
@@ -949,11 +907,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
-      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+      const submittedAtMs = await readSlackChannelIntroductionCreatedAtMs(
         harness,
         "V_CHANNEL_MISSING_ACK"
       );
-
       let historyRequests = 0;
       let releaseHistoryRequests!: () => void;
       const historyRequestsReady = new Promise<void>((resolve) => {
@@ -982,7 +939,6 @@ describe("Remote Agent Slack signal service", () => {
       );
       vi.stubGlobal("fetch", recoveryFetch);
       const recoveryNowMs = submittedAtMs + 5 * 60_000 + 1;
-
       await Promise.all([
         runSlackChannelIntroductionTick({
           db: harness.db,
@@ -997,7 +953,6 @@ describe("Remote Agent Slack signal service", () => {
           nowMs: recoveryNowMs,
         }),
       ]);
-
       const recoveryPosts = readSlackPostBodies(recoveryFetch);
       expect(recoveryPosts).toEqual([
         expect.objectContaining({
@@ -1010,9 +965,9 @@ describe("Remote Agent Slack signal service", () => {
         }),
       ]);
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, recovery_notice_ts
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, recovery_notice_ts
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_MISSING_ACK'`,
         })
       ).toEqual({
@@ -1020,15 +975,14 @@ describe("Remote Agent Slack signal service", () => {
         status: "recovery_notice_delivered",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("retries a recovery notice that Slack explicitly did not publish", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn();
     stubSlackFetch({
       conversationsListResponse: {
@@ -1045,7 +999,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -1053,12 +1006,11 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-      const db = createFaultInjectingD1Database({
+      const db = createFaultInjectingPostgresDatabase({
         db: harness.db,
         failureCount: 2,
-        matches: (sql, operation) =>
-          operation === "first" &&
-          sql.includes("UPDATE slack_channel_introduction_runs") &&
+        matches: (sql) =>
+          sql.includes('UPDATE "openmeld"."slack_channel_introduction_runs"') &&
           sql.includes("status = 'ready'"),
       });
       await submitRemoteAgentSlackChannelIntroduction({
@@ -1069,11 +1021,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
-      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+      const submittedAtMs = await readSlackChannelIntroductionCreatedAtMs(
         harness,
         "V_CHANNEL_RETRY_NOTICE"
       );
-
       let postAttempt = 0;
       const recoveryFetch = vi.fn((request: RequestInfo | URL): Response => {
         const url = String(request);
@@ -1094,7 +1045,6 @@ describe("Remote Agent Slack signal service", () => {
       });
       vi.stubGlobal("fetch", recoveryFetch);
       const recoveryNowMs = submittedAtMs + 5 * 60_000 + 1;
-
       await runSlackChannelIntroductionTick({
         db: harness.db,
         env: buildEnv(harness.db, { workerSubmit }),
@@ -1102,28 +1052,26 @@ describe("Remote Agent Slack signal service", () => {
         nowMs: recoveryNowMs,
       });
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, recovery_notice_attempt_count
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, recovery_notice_attempt_count
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_RETRY_NOTICE'`,
         })
       ).toEqual({
         recovery_notice_attempt_count: 1,
         status: "recovery_notice_pending",
       });
-
       await runSlackChannelIntroductionTick({
         db: harness.db,
         env: buildEnv(harness.db, { workerSubmit }),
         interactionId: "V_CHANNEL_RETRY_NOTICE",
         nowMs: recoveryNowMs + 60_000,
       });
-
       expect(readSlackPostBodies(recoveryFetch)).toHaveLength(2);
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, recovery_notice_ts, recovery_notice_attempt_count
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, recovery_notice_ts, recovery_notice_attempt_count
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_RETRY_NOTICE'`,
         })
       ).toEqual({
@@ -1132,15 +1080,14 @@ describe("Remote Agent Slack signal service", () => {
         status: "recovery_notice_delivered",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reconciles a confirmed recovery notice after its checkpoint stays unavailable", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn();
     stubSlackFetch({
       conversationsListResponse: {
@@ -1157,7 +1104,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -1165,12 +1111,11 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-      const acknowledgementCheckpointDb = createFaultInjectingD1Database({
+      const acknowledgementCheckpointDb = createFaultInjectingPostgresDatabase({
         db: harness.db,
         failureCount: 2,
-        matches: (sql, operation) =>
-          operation === "first" &&
-          sql.includes("UPDATE slack_channel_introduction_runs") &&
+        matches: (sql) =>
+          sql.includes('UPDATE "openmeld"."slack_channel_introduction_runs"') &&
           sql.includes("status = 'ready'"),
       });
       await submitRemoteAgentSlackChannelIntroduction({
@@ -1181,11 +1126,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
-      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+      const submittedAtMs = await readSlackChannelIntroductionCreatedAtMs(
         harness,
         "V_CHANNEL_RECOVERY_CHECKPOINT"
       );
-
       let historyRequestCount = 0;
       const recoveryFetch = vi.fn((request: RequestInfo | URL): Response => {
         const url = String(request);
@@ -1217,15 +1161,13 @@ describe("Remote Agent Slack signal service", () => {
       });
       vi.stubGlobal("fetch", recoveryFetch);
       const recoveryNowMs = submittedAtMs + 5 * 60_000 + 1;
-      const recoveryCheckpointDb = createFaultInjectingD1Database({
+      const recoveryCheckpointDb = createFaultInjectingPostgresDatabase({
         db: harness.db,
         failureCount: 2,
-        matches: (sql, operation) =>
-          operation === "first" &&
-          sql.includes("UPDATE slack_channel_introduction_runs") &&
+        matches: (sql) =>
+          sql.includes('UPDATE "openmeld"."slack_channel_introduction_runs"') &&
           sql.includes("status = 'recovery_notice_delivered'"),
       });
-
       await runSlackChannelIntroductionTick({
         db: recoveryCheckpointDb,
         env: buildEnv(recoveryCheckpointDb, { workerSubmit }),
@@ -1233,28 +1175,26 @@ describe("Remote Agent Slack signal service", () => {
         nowMs: recoveryNowMs,
       });
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, recovery_notice_ts
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, recovery_notice_ts
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_RECOVERY_CHECKPOINT'`,
         })
       ).toEqual({
         recovery_notice_ts: null,
         status: "recovery_notice_submitting",
       });
-
       await runSlackChannelIntroductionTick({
         db: harness.db,
         env: buildEnv(harness.db, { workerSubmit }),
         interactionId: "V_CHANNEL_RECOVERY_CHECKPOINT",
         nowMs: recoveryNowMs + 5 * 60_000 + 1,
       });
-
       expect(readSlackPostBodies(recoveryFetch)).toHaveLength(1);
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, recovery_notice_ts, recovery_notice_attempt_count
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, recovery_notice_ts, recovery_notice_attempt_count
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_RECOVERY_CHECKPOINT'`,
         })
       ).toEqual({
@@ -1263,15 +1203,14 @@ describe("Remote Agent Slack signal service", () => {
         status: "recovery_notice_delivered",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not replay a recovery notice when Slack publication is ambiguous", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn();
     stubSlackFetch({
       conversationsListResponse: {
@@ -1288,7 +1227,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -1296,12 +1234,11 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-      const acknowledgementCheckpointDb = createFaultInjectingD1Database({
+      const acknowledgementCheckpointDb = createFaultInjectingPostgresDatabase({
         db: harness.db,
         failureCount: 2,
-        matches: (sql, operation) =>
-          operation === "first" &&
-          sql.includes("UPDATE slack_channel_introduction_runs") &&
+        matches: (sql) =>
+          sql.includes('UPDATE "openmeld"."slack_channel_introduction_runs"') &&
           sql.includes("status = 'ready'"),
       });
       await submitRemoteAgentSlackChannelIntroduction({
@@ -1312,11 +1249,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
-      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+      const submittedAtMs = await readSlackChannelIntroductionCreatedAtMs(
         harness,
         "V_CHANNEL_AMBIGUOUS_NOTICE"
       );
-
       let postAttemptCount = 0;
       const recoveryFetch = vi.fn((request: RequestInfo | URL): Response => {
         const url = String(request);
@@ -1335,7 +1271,6 @@ describe("Remote Agent Slack signal service", () => {
       });
       vi.stubGlobal("fetch", recoveryFetch);
       const recoveryNowMs = submittedAtMs + 5 * 60_000 + 1;
-
       await runSlackChannelIntroductionTick({
         db: harness.db,
         env: buildEnv(harness.db, { workerSubmit }),
@@ -1348,12 +1283,11 @@ describe("Remote Agent Slack signal service", () => {
         interactionId: "V_CHANNEL_AMBIGUOUS_NOTICE",
         nowMs: recoveryNowMs + 60_000,
       });
-
       expect(postAttemptCount).toBe(1);
       expect(
-        harness.queryFirst({
-          sql: `SELECT status, recovery_notice_attempt_count
-            FROM slack_channel_introduction_runs
+        await harness.queryFirst({
+          text: `SELECT status, recovery_notice_attempt_count
+            FROM "openmeld"."slack_channel_introduction_runs"
             WHERE interaction_id = 'V_CHANNEL_AMBIGUOUS_NOTICE'`,
         })
       ).toEqual({
@@ -1361,13 +1295,12 @@ describe("Remote Agent Slack signal service", () => {
         status: "recovery_notice_outcome_unknown",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps each Slack thread context cursor monotonic", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const cursorKey = {
       connectionCreatedAtMs: 1000,
       organizationId: "org_1",
@@ -1375,7 +1308,6 @@ describe("Remote Agent Slack signal service", () => {
       slackTeamId: "T123",
       slackThreadTs: "1710000000.000100",
     };
-
     try {
       await advanceSlackThreadContextCursor({
         db: harness.db,
@@ -1391,7 +1323,6 @@ describe("Remote Agent Slack signal service", () => {
         syncedThroughTs: "1710000012.000300",
         ...cursorKey,
       });
-
       await expect(
         readSlackThreadContextCursor({ db: harness.db, ...cursorKey })
       ).resolves.toBe("1710000015.000400");
@@ -1403,10 +1334,9 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each<SlackMembershipStatusField>([
     "deleted",
     "is_restricted",
@@ -1420,22 +1350,19 @@ describe("Remote Agent Slack signal service", () => {
         "ari@example.test"
       ),
     });
-
     const identity = await readSlackUserIdentity({
       botToken: "xoxb-test",
       fetchImpl: fetchMock,
       userId: "U123",
     });
-
     expect(isSlackFullWorkspaceMember({ identity, slackTeamId: "T123" })).toBe(
       true
     );
   });
-
   it("matches Slack app_mention senders when Slack omits an optional membership status", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -1461,7 +1388,6 @@ describe("Remote Agent Slack signal service", () => {
         ],
       },
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -1478,14 +1404,12 @@ describe("Remote Agent Slack signal service", () => {
         source: "explicit",
         openmeldUserId: "user_member",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { queueSend, workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1583,7 +1507,6 @@ describe("Remote Agent Slack signal service", () => {
         source: "explicit",
         openmeldUserId: "user_member",
       });
-
       await processRemoteAgentSlackEvent(
         buildEnv(harness.db, { queueSend, workerSubmit }),
         createAppMentionPayload()
@@ -1596,14 +1519,13 @@ describe("Remote Agent Slack signal service", () => {
       ).toHaveLength(1);
       expect(readSlackThreadStatusBodies(fetchMock)).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("accepts a human Slack app DM as a private Center Agent conversation", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
       async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -1620,7 +1542,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -1628,14 +1549,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createDirectMessagePayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           messages: [
@@ -1693,14 +1612,13 @@ describe("Remote Agent Slack signal service", () => {
         }),
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("submits file-only Slack DMs with structured file and image evidence", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
       async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -1717,7 +1635,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -1725,7 +1642,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
@@ -1754,7 +1670,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       const submitted = workerSubmit.mock.calls[0]?.[0];
       expect(submitted?.messages).toEqual([
         {
@@ -1778,14 +1693,13 @@ describe("Remote Agent Slack signal service", () => {
         source: "slack",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("recovers a content-empty app mention from an exact reply and logs only safe structure", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
       async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -1838,7 +1752,6 @@ describe("Remote Agent Slack signal service", () => {
     const consoleInfoSpy = vi
       .spyOn(console, "info")
       .mockImplementation(() => undefined);
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -1846,7 +1759,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, {
@@ -1860,7 +1772,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       const submitted = workerSubmit.mock.calls[0]?.[0];
       expect(submitted?.messages[0]?.content).toContain(
         "Forwarded launch details"
@@ -1907,14 +1818,13 @@ describe("Remote Agent Slack signal service", () => {
       ).toHaveLength(1);
     } finally {
       consoleInfoSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("adds quoted Slack message text and files from an exact permalink lookup", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
       async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -1964,7 +1874,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -1972,7 +1881,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
@@ -1983,7 +1891,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       const submitted = workerSubmit.mock.calls[0]?.[0];
       expect(submitted?.messages[0]?.content).toContain(
         "Slack quoted message context (untrusted data)"
@@ -2000,14 +1907,13 @@ describe("Remote Agent Slack signal service", () => {
           .map((url) => url.searchParams.get("channel"))
       ).toEqual(["C123", "C123"]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("marks forwarded mention context incomplete when exact history is also empty", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
       async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -2031,7 +1937,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2039,7 +1944,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
@@ -2050,7 +1954,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       const submitted = workerSubmit.mock.calls[0]?.[0];
       expect(submitted?.messages[0]?.content).toContain(
         "Help me with this Slack thread."
@@ -2063,14 +1966,13 @@ describe("Remote Agent Slack signal service", () => {
         sync: { mode: "snapshot", status: "unavailable" },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps the main mention processing and marks rich context unavailable when lookups fail", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
       async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -2089,7 +1991,6 @@ describe("Remote Agent Slack signal service", () => {
       ),
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2097,7 +1998,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
@@ -2108,7 +2008,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       const submitted = workerSubmit.mock.calls[0]?.[0];
       expect(submitted?.messages[0]?.content).toContain(mentionText);
       expect(submitted?.messages[0]?.content).toContain(
@@ -2119,15 +2018,14 @@ describe("Remote Agent Slack signal service", () => {
         sync: { mode: "snapshot", status: "forbidden" },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps follow-up fragments and Slack evidence in one durable Center Agent turn", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -2159,7 +2057,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2167,7 +2064,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, {
@@ -2180,7 +2076,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           messages: [{ content: "Fangyuan", role: "user" }],
@@ -2224,14 +2119,13 @@ describe("Remote Agent Slack signal service", () => {
         )
       ).toBe(false);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a Slack app DM reply inside the thread the user continued", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
       async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -2248,7 +2142,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2266,7 +2159,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       const submittedRequest = workerSubmit.mock.calls[0]?.[0];
       if (!submittedRequest) {
         throw new Error("expected the threaded Slack DM worker request");
@@ -2305,17 +2197,16 @@ describe("Remote Agent Slack signal service", () => {
         "reply_broadcast"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("continues routing an existing historical Personal Workspace Slack binding", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    harness.run({
-      params: [JSON.stringify({ personal: true }), "org_1"],
-      sql: "UPDATE organizations SET metadata = ? WHERE id = ?",
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await harness.query({
+      values: [JSON.stringify({ personal: true }), "org_1"],
+      text: 'UPDATE "openmeld"."organizations" SET metadata = $1 WHERE id = $2',
     });
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
@@ -2325,7 +2216,6 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: "sub_personal_slack_1",
     }));
     stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2333,14 +2223,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2355,25 +2243,23 @@ describe("Remote Agent Slack signal service", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("replies once when the selected Center Agent model is unavailable", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    harness.run({
-      params: ["retired/provider-model", "binding_1"],
-      sql: `
-        UPDATE openMeldDaemon_agent_profile_bindings
-        SET model_id = ?
-        WHERE binding_id = ?
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await harness.query({
+      values: ["retired/provider-model", "binding_1"],
+      text: `
+        UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings"
+        SET model_id = $1
+        WHERE binding_id = $2
       `,
     });
     const workerSubmit = vi.fn();
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2381,14 +2267,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "replied" });
-
       expect(workerSubmit).not.toHaveBeenCalled();
       expect(readSlackPostBodies(fetchMock)).toEqual([
         {
@@ -2398,25 +2282,23 @@ describe("Remote Agent Slack signal service", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not route Slack work through a damaged hosted Binding", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    harness.run({
-      params: ["wrong-thread", "binding_1"],
-      sql: `
-        UPDATE openMeldDaemon_agent_profile_bindings
-        SET agent_controller_conversation_id = ?
-        WHERE binding_id = ?
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await harness.query({
+      values: ["wrong-thread", "binding_1"],
+      text: `
+        UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings"
+        SET agent_controller_conversation_id = $1
+        WHERE binding_id = $2
       `,
     });
     const workerSubmit = vi.fn();
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2424,14 +2306,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "replied" });
-
       expect(workerSubmit).not.toHaveBeenCalled();
       expect(readSlackPostBodies(fetchMock)).toEqual([
         {
@@ -2441,25 +2321,23 @@ describe("Remote Agent Slack signal service", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a top-level Slack DM failure in the request thread", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    harness.run({
-      params: ["retired/provider-model", "binding_1"],
-      sql: `
-        UPDATE openMeldDaemon_agent_profile_bindings
-        SET model_id = ?
-        WHERE binding_id = ?
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await harness.query({
+      values: ["retired/provider-model", "binding_1"],
+      text: `
+        UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings"
+        SET model_id = $1
+        WHERE binding_id = $2
       `,
     });
     const workerSubmit = vi.fn();
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2473,7 +2351,6 @@ describe("Remote Agent Slack signal service", () => {
           createDirectMessagePayload()
         )
       ).resolves.toEqual({ status: "replied" });
-
       expect(workerSubmit).not.toHaveBeenCalled();
       expect(readSlackThreadStatusBodies(fetchMock)).toHaveLength(0);
       expect(readSlackPostBodies(fetchMock)).toEqual([
@@ -2485,15 +2362,14 @@ describe("Remote Agent Slack signal service", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps event-bound Slack search authorization inside the durable turn", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSlackIdentityLink(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(async (_request: unknown) => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -2503,7 +2379,6 @@ describe("Remote Agent Slack signal service", () => {
     }));
     const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
     stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2511,7 +2386,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, {
@@ -2521,7 +2395,6 @@ describe("Remote Agent Slack signal service", () => {
           createAppMentionPayload({ actionToken: "search-action-token" })
         )
       ).resolves.toEqual({ status: "processed" });
-
       const submittedRequest = workerSubmit.mock.calls[0]?.[0] as {
         turnEnvelope: {
           trigger: {
@@ -2558,16 +2431,19 @@ describe("Remote Agent Slack signal service", () => {
         openMeldUserId: "user_member",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("syncs the root and unmentioned thread replies without duplicating the current mention", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
-      async (_input: { turnEnvelope: { channelContext?: unknown } }) => ({
+      async (_input: {
+        turnEnvelope: {
+          channelContext?: unknown;
+        };
+      }) => ({
         accepted: true,
         createdAt: 1_710_000_001,
         requestId: `req_slack_${workerSubmit.mock.calls.length}`,
@@ -2644,7 +2520,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2652,7 +2527,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
@@ -2675,7 +2549,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledTimes(2);
       expect(
         workerSubmit.mock.calls[0]?.[0].turnEnvelope.channelContext
@@ -2739,16 +2612,19 @@ describe("Remote Agent Slack signal service", () => {
       expect(repliesUrls[1]?.searchParams.get("latest")).toBe(secondMentionTs);
       expect(repliesUrls[1]?.searchParams.get("oldest")).toBe(firstMentionTs);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("hydrates recent channel context for a root Slack mention", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
-      async (_input: { turnEnvelope: { channelContext?: unknown } }) => ({
+      async (_input: {
+        turnEnvelope: {
+          channelContext?: unknown;
+        };
+      }) => ({
         accepted: true,
         createdAt: 1_710_000_001,
         requestId: "req_slack_channel_context",
@@ -2799,7 +2675,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2807,7 +2682,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
@@ -2818,7 +2692,6 @@ describe("Remote Agent Slack signal service", () => {
           })
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(
         workerSubmit.mock.calls[0]?.[0].turnEnvelope.channelContext
       ).toEqual({
@@ -2867,16 +2740,19 @@ describe("Remote Agent Slack signal service", () => {
       expect(historyUrls[1]?.searchParams.get("latest")).toBe(currentMentionTs);
       expect(historyUrls[1]?.searchParams.get("limit")).toBe("8");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("continues the current request with explicit rate-limited context", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(
-      async (_input: { turnEnvelope: { channelContext?: unknown } }) => ({
+      async (_input: {
+        turnEnvelope: {
+          channelContext?: unknown;
+        };
+      }) => ({
         accepted: true,
         createdAt: 1_710_000_001,
         requestId: "req_slack_rate_limited",
@@ -2900,7 +2776,6 @@ describe("Remote Agent Slack signal service", () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2908,7 +2783,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
@@ -2937,14 +2811,13 @@ describe("Remote Agent Slack signal service", () => {
       );
     } finally {
       consoleWarnSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not advance Slack thread context after failed worker admission", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const currentMessageTs = "1710000010.000200";
     stubSlackFetch({
       conversationsRepliesResponse: {
@@ -2965,7 +2838,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -2973,7 +2845,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db),
@@ -2996,14 +2867,13 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("continues admitted work when Slack cannot show the thread status", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3018,7 +2888,6 @@ describe("Remote Agent Slack signal service", () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3026,14 +2895,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(readSlackThreadStatusBodies(fetchMock)).toHaveLength(1);
       expect(consoleWarnSpy).toHaveBeenCalledWith(
@@ -3048,14 +2915,13 @@ describe("Remote Agent Slack signal service", () => {
       );
     } finally {
       consoleWarnSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets only one concurrent delivery of the same Slack event enter model admission", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerAck = createDeferred({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3065,7 +2931,6 @@ describe("Remote Agent Slack signal service", () => {
     });
     const workerSubmit = vi.fn(() => workerAck.promise);
     stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3073,7 +2938,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       const first = processRemoteAgentSlackEvent(
         buildEnv(harness.db, { workerSubmit }),
         createAppMentionPayload()
@@ -3085,25 +2949,22 @@ describe("Remote Agent Slack signal service", () => {
       );
       const secondBeforeFirstAck = await Promise.race([
         second,
-        new Promise<{ status: "timed_out" }>((resolve) =>
-          setTimeout(() => resolve({ status: "timed_out" }), 25)
-        ),
+        new Promise<{
+          status: "timed_out";
+        }>((resolve) => setTimeout(() => resolve({ status: "timed_out" }), 25)),
       ]);
-
       workerAck.resolve();
       await Promise.allSettled([first, second]);
-
       expect(secondBeforeFirstAck).toEqual({ status: "duplicate" });
       expect(workerSubmit).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("continues without a channel name when Slack denies conversation details", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3118,7 +2979,6 @@ describe("Remote Agent Slack signal service", () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3126,14 +2986,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           turnEnvelope: expect.objectContaining({
@@ -3153,14 +3011,13 @@ describe("Remote Agent Slack signal service", () => {
       );
     } finally {
       consoleWarnSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("stops waiting for a Slack channel name without delaying message handling", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3175,8 +3032,6 @@ describe("Remote Agent Slack signal service", () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
-    vi.useFakeTimers();
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3184,13 +3039,10 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       const processing = processRemoteAgentSlackEvent(
         buildEnv(harness.db, { workerSubmit }),
         createAppMentionPayload()
       );
-      await vi.advanceTimersByTimeAsync(500);
-
       await expect(processing).resolves.toEqual({ status: "processed" });
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3214,21 +3066,18 @@ describe("Remote Agent Slack signal service", () => {
         })
       );
     } finally {
-      vi.useRealTimers();
       consoleWarnSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("retries identity lookup failures before durably settling the final attempt", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const fetchMock = stubSlackFetch({
       email: "ari@example.test",
       usersInfoResponse: { error: "slack_unavailable", ok: false },
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3236,7 +3085,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db),
@@ -3256,7 +3104,6 @@ describe("Remote Agent Slack signal service", () => {
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "duplicate" });
-
       expect(readSlackPostBodies(fetchMock)).toEqual([
         expect.objectContaining({
           channel: "C123",
@@ -3281,20 +3128,18 @@ describe("Remote Agent Slack signal service", () => {
         state: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("redrives a failed ingress after its failure notice could not be published", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     stubSlackFetch({
       chatPostResponse: { error: "ratelimited", ok: false },
       email: "ari@example.test",
       usersInfoResponse: { error: "slack_unavailable", ok: false },
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3302,7 +3147,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db),
@@ -3316,7 +3160,6 @@ describe("Remote Agent Slack signal service", () => {
           eventKey: "remote-agent-slack:T123:Ev123",
         })
       ).resolves.toMatchObject({ state: "failed" });
-
       stubSlackFetch({
         email: "ari@example.test",
         usersInfoResponse: { error: "slack_unavailable", ok: false },
@@ -3338,20 +3181,18 @@ describe("Remote Agent Slack signal service", () => {
         state: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not redrive an admission failure when Slack publication is outcome unknown", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     stubSlackFetch({
       chatPostError: new TypeError("network connection reset"),
       email: "ari@example.test",
       usersInfoResponse: { error: "slack_unavailable", ok: false },
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3359,7 +3200,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db),
@@ -3383,14 +3223,13 @@ describe("Remote Agent Slack signal service", () => {
         state: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps an unlinked same-email Slack workspace member anonymous", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3402,7 +3241,6 @@ describe("Remote Agent Slack signal service", () => {
       displayName: "Workspace member",
       email: "ari@example.test",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3410,14 +3248,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload({ actionToken: "must-not-be-forwarded" })
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           author: {
@@ -3464,17 +3300,16 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     { isRestricted: true, label: "multi-channel guest" },
     { isUltraRestricted: true, label: "single-channel guest" },
   ])("keeps a Slack $label outside self-join eligibility", async (identity) => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3487,7 +3322,6 @@ describe("Remote Agent Slack signal service", () => {
       email: "ari@example.test",
       ...identity,
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3495,14 +3329,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           onBehalfOf: null,
@@ -3521,14 +3353,13 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a Slack Connect participant external to the installed workspace", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3542,7 +3373,6 @@ describe("Remote Agent Slack signal service", () => {
       isStranger: false,
       teamId: "T_EXTERNAL",
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3550,14 +3380,12 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           onBehalfOf: null,
@@ -3579,14 +3407,13 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("uses an explicit Slack identity link before falling back to Slack email", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3595,7 +3422,6 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: "sub_slack_1",
     }));
     const fetchMock = stubSlackFetch({ email: "wrong@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3612,14 +3438,12 @@ describe("Remote Agent Slack signal service", () => {
         source: "explicit",
         openmeldUserId: "user_member",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3644,14 +3468,13 @@ describe("Remote Agent Slack signal service", () => {
         )
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets a verified Slack member request a fresh account-connection action", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3660,7 +3483,6 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: "sub_slack_1",
     }));
     const fetchMock = stubSlackFetch({ email: "wrong@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3683,7 +3505,6 @@ describe("Remote Agent Slack signal service", () => {
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       await expect(
         completeRemoteAgentNativeDelivery(buildEnv(harness.db), {
           ...createCompletedCallbackBody(),
@@ -3698,9 +3519,12 @@ describe("Remote Agent Slack signal service", () => {
         status: "accepted",
         publishedSignalId: "1710000001.000200",
       });
-
       const postBodies = readSlackPostBodies(fetchMock) as {
-        blocks?: { elements?: { url?: string }[] }[];
+        blocks?: {
+          elements?: {
+            url?: string;
+          }[];
+        }[];
         channel?: string;
       }[];
       expect(postBodies).toHaveLength(2);
@@ -3711,28 +3535,168 @@ describe("Remote Agent Slack signal service", () => {
       const token = new URL(linkUrl ?? "").searchParams.get("token");
       await expect(
         harness.db
-          .prepare(
-            `
+          .query({
+            ...{
+              text: `
               SELECT claimed_by_user_id, source_delivery_id
-              FROM slack_user_identity_link_tokens
-              WHERE token_hash = ?
-            `
-          )
-          .bind(await digestSlackIdentityLinkToken(token ?? ""))
-          .first()
+              FROM "openmeld"."slack_user_identity_link_tokens"
+              WHERE token_hash = $1
+            `,
+              values: [],
+            },
+            values: [await digestSlackIdentityLinkToken(token ?? "")],
+          })
+          .then((result) => result.rows[0] ?? null)
       ).resolves.toEqual({
         claimed_by_user_id: null,
         source_delivery_id: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
+  it.each([
+    "metadata",
+    "token_preparation",
+    "not_published",
+    "unknown",
+  ] as const)("classifies private Plugin guidance %s without rerunning the task or public reply", async (mode) => {
+    const harness = await createPostgresHarness();
 
+    await seedSlackOrganization(harness);
+    await seedSlackIdentityLink(harness);
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: 1_710_000_001,
+      requestId: "req_slack_1",
+      status: "pending" as const,
+      submissionId: "sub_slack_1",
+    }));
+    const fetchMock = stubSlackFetch({ email: "wrong@example.test" });
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload()
+        )
+      ).resolves.toEqual({ status: "processed" });
+      let preparationFailures = 0;
+      let privateAttempts = 0;
+      const faultDb = createFaultInjectingPostgresDatabase({
+        db: harness.db,
+        matches: (sql) => {
+          if (
+            mode !== "metadata" ||
+            !sql.includes("SELECT plugin_connection_metadata_json FROM")
+          ) {
+            return false;
+          }
+          preparationFailures += 1;
+          return true;
+        },
+      });
+      const env = buildEnv(faultDb);
+      vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+        const body =
+          typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        if (
+          String(url).includes("/chat.postMessage") &&
+          body?.channel === "U123"
+        ) {
+          privateAttempts += 1;
+          if (mode === "unknown") {
+            throw new Error("response lost after request");
+          }
+          if (mode === "not_published") {
+            return Response.json(
+              { ok: false, error: "ratelimited" },
+              { status: 429, headers: { "retry-after": "2" } }
+            );
+          }
+        }
+        const response = await fetchMock(url, init);
+        if (
+          mode === "token_preparation" &&
+          String(url).includes("/chat.postMessage") &&
+          body?.channel === "C123"
+        ) {
+          env.SLACK_OPENMELD_BOT_TOKEN = undefined;
+        }
+        return response;
+      });
+      const body = {
+        ...createCompletedCallbackBody(),
+        navigationTarget: {
+          kind: "plugin_connection" as const,
+          service: "github" as const,
+          scope: "choose" as const,
+        },
+        text: "Connect GitHub to continue.",
+        triggerMessageId: "1710000000.000100",
+      };
+      const result = await completeRemoteAgentNativeDelivery(env, body);
+      const posts = readSlackPostBodies(fetchMock) as {
+        channel?: string;
+      }[];
+      expect(posts.filter((post) => post.channel === "C123")).toHaveLength(1);
+      expect(posts.filter((post) => post.channel === "U123")).toHaveLength(0);
+      expect(preparationFailures).toBe(mode === "metadata" ? 1 : 0);
+      expect(privateAttempts).toBe(
+        mode === "unknown" || mode === "not_published" ? 1 : 0
+      );
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      if (mode === "unknown") {
+        // The callback settles the public result, explicitly not private delivery;
+        // it must not schedule a blind resend of a possibly published message.
+        expect(result).toMatchObject({
+          status: "accepted",
+          reasonCode: "slack.private_navigation_outcome_unknown",
+        });
+        expect(result.retryAfterMs).toBeUndefined();
+      } else {
+        expect(result).toMatchObject({
+          status: "retryable",
+          reasonCode:
+            mode === "not_published"
+              ? "slack.private_navigation_ratelimited"
+              : "slack.private_navigation_preparation_failed",
+        });
+        if (mode === "not_published") {
+          expect(result.retryAfterMs).toBe(2000);
+        }
+        vi.stubGlobal("fetch", fetchMock);
+        env.SLACK_OPENMELD_BOT_TOKEN = "xoxb-test";
+        await expect(
+          completeRemoteAgentNativeDelivery(env, body)
+        ).resolves.toMatchObject({
+          status: "duplicate_rejected",
+          publishedSignalId: "1710000001.000200",
+        });
+        const recovered = readSlackPostBodies(fetchMock) as {
+          channel?: string;
+        }[];
+        expect(
+          recovered.filter((post) => post.channel === "C123")
+        ).toHaveLength(1);
+        expect(
+          recovered.filter((post) => post.channel === "U123")
+        ).toHaveLength(1);
+        expect(workerSubmit).toHaveBeenCalledOnce();
+      }
+    } finally {
+      await harness.close();
+    }
+  });
   it("privately gives the verified Slack requester the exact computer setup action", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3742,7 +3706,6 @@ describe("Remote Agent Slack signal service", () => {
     }));
     const fetchMock = stubSlackFetch({ email: "wrong@example.test" });
     const connectedComputerId = "019690bc-6f82-4ee0-9975-7360491fea69";
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3765,7 +3728,6 @@ describe("Remote Agent Slack signal service", () => {
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       await expect(
         completeRemoteAgentNativeDelivery(buildEnv(harness.db), {
           ...createCompletedCallbackBody(),
@@ -3822,14 +3784,13 @@ describe("Remote Agent Slack signal service", () => {
       );
       expect(readSlackEphemeralBodies(fetchMock)).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("repairs a stale Slack identity link after its workspace moves to another organization", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3838,7 +3799,6 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: "sub_slack_1",
     }));
     const fetchMock = stubSlackFetch({ email: "wrong@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3855,14 +3815,12 @@ describe("Remote Agent Slack signal service", () => {
         source: "explicit",
         openmeldUserId: "user_member",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(
         fetchMock.mock.calls.filter(([request]) =>
@@ -3881,15 +3839,14 @@ describe("Remote Agent Slack signal service", () => {
         openmeldUserId: "user_member",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("invalidates a stale Slack identity link when its user is not in the moved workspace organization", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedNonMemberUser(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedNonMemberUser(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3898,7 +3855,6 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: "sub_stale_guest",
     }));
     const fetchMock = stubSlackFetch({ email: "no-member@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3915,14 +3871,12 @@ describe("Remote Agent Slack signal service", () => {
         source: "explicit",
         openmeldUserId: "user_non_member",
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledOnce();
       expect(readSlackPostBodies(fetchMock)).toEqual([]);
       expect(readSlackEphemeralBodies(fetchMock)).toEqual([]);
@@ -3934,14 +3888,13 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a removed linked Slack user as an anonymous member", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -3950,7 +3903,6 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: "sub_removed_guest",
     }));
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -3967,18 +3919,16 @@ describe("Remote Agent Slack signal service", () => {
         source: "explicit",
         openmeldUserId: "user_member",
       });
-      harness.run({
-        params: ["member_1"],
-        sql: "DELETE FROM members WHERE id = ?",
+      await harness.query({
+        values: ["member_1"],
+        text: 'DELETE FROM "openmeld"."members" WHERE id = $1',
       });
-
       await expect(
         processRemoteAgentSlackEvent(
           buildEnv(harness.db, { workerSubmit }),
           createAppMentionPayload()
         )
       ).resolves.toEqual({ status: "processed" });
-
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           onBehalfOf: null,
@@ -3994,14 +3944,13 @@ describe("Remote Agent Slack signal service", () => {
         )
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("pre-claims a Slack connection token for the account selected by Center Agent", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -4024,7 +3973,6 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash,
       });
-
       await expect(
         readSlackIdentityLinkTokenForUser({
           db: harness.db,
@@ -4045,14 +3993,13 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("issues a verified Slack identity link only for the Organization workspace", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -4060,7 +4007,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       const result = await rpcIssueSlackIdentityLinkFromOAuth(
         buildEnv(harness.db),
         {
@@ -4072,7 +4018,6 @@ describe("Remote Agent Slack signal service", () => {
           userId: "user_member",
         }
       );
-
       expect(result).toMatchObject({
         openMeldProfileId: "22222222-2222-4222-8222-222222222222",
         organizationSlug: "openmeld-labs",
@@ -4089,7 +4034,6 @@ describe("Remote Agent Slack signal service", () => {
         slackTeamId: "T123",
         slackUserId: "U123",
       });
-
       await expect(
         rpcIssueSlackIdentityLinkFromOAuth(buildEnv(harness.db), {
           actorProfileId: "22222222-2222-4222-8222-222222222222",
@@ -4104,30 +4048,29 @@ describe("Remote Agent Slack signal service", () => {
         status: 409,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("moves a Slack account after the Slack user proves control with a private token", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     stubSlackFetch({ email: "ari@example.test" });
     const token = `slacklink_${"5".repeat(64)}`;
     const nowMs = Date.now();
     try {
-      harness.run({
-        params: ["user_old", "Old member", "old@example.test", 1, 100, 100],
-        sql: `
-          INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+      await harness.query({
+        values: ["user_old", "Old member", "old@example.test", 1, 100, 100],
+        text: `
+          INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
         `,
       });
-      harness.run({
-        params: ["member_old", "org_1", "user_old", "member", 100],
-        sql: `
-          INSERT INTO members (id, organization_id, user_id, role, created_at)
-          VALUES (?, ?, ?, ?, ?)
+      await harness.query({
+        values: ["member_old", "org_1", "user_old", "member", 100],
+        text: `
+          INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+          VALUES ($1, $2, $3, $4, $5)
         `,
       });
       await upsertRemoteAgentSlackWorkspaceBinding({
@@ -4156,7 +4099,6 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash: await digestSlackIdentityLinkToken(token),
       });
-
       await expect(
         rpcPreviewSlackIdentityLink(buildEnv(harness.db), {
           context: buildHumanContext(),
@@ -4181,14 +4123,13 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toMatchObject({ openmeldUserId: "user_member" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("derives Slack replacement audit from the canonical link inside the consume batch", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     stubSlackFetch({ email: "ari@example.test" });
     const token = `slacklink_${"7".repeat(64)}`;
     const nowMs = Date.now();
@@ -4219,11 +4160,11 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash: await digestSlackIdentityLinkToken(token),
       });
-      const racingDb = createBeforeMatchingBatchD1Database({
-        beforeBatch: () => {
-          harness.run({
-            sql: `
-              UPDATE slack_user_identity_links
+      const racingDb = createBeforeMatchingPostgresTransaction({
+        beforeTransaction: async () => {
+          await harness.query({
+            text: `
+              UPDATE "openmeld"."slack_user_identity_links"
               SET openmeld_user_id = 'user_concurrent'
               WHERE slack_team_id = 'T123' AND slack_user_id = 'U123'
             `,
@@ -4231,10 +4172,9 @@ describe("Remote Agent Slack signal service", () => {
         },
         db: harness.db,
         matches: (sql) =>
-          sql.includes("UPDATE slack_user_identity_link_tokens") &&
+          sql.includes('UPDATE "openmeld"."slack_user_identity_link_tokens"') &&
           sql.includes("consume_nonce"),
       });
-
       await expect(
         rpcConsumeSlackIdentityLink(buildEnv(racingDb), {
           context: buildHumanContext(),
@@ -4246,39 +4186,40 @@ describe("Remote Agent Slack signal service", () => {
         openMeldUserId: "user_member",
       });
       expect(
-        harness.queryFirst<{ audit_count: number }>({
-          sql: `
+        await harness.queryFirst<{
+          audit_count: number;
+        }>({
+          text: `
             SELECT COUNT(*) AS audit_count
-            FROM center_agent_audit_journal
+            FROM "openmeld"."center_agent_audit_journal"
             WHERE action = 'replace_message_channel_identity_link'
           `,
         })
       ).toEqual({ audit_count: 1 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rolls back a Slack identity replacement when its audit write fails", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     stubSlackFetch({ email: "ari@example.test" });
     const token = `slacklink_${"6".repeat(64)}`;
     const nowMs = Date.now();
     try {
-      harness.run({
-        params: ["user_old", "Old member", "old@example.test", 1, 100, 100],
-        sql: `
-          INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+      await harness.query({
+        values: ["user_old", "Old member", "old@example.test", 1, 100, 100],
+        text: `
+          INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
         `,
       });
-      harness.run({
-        params: ["member_old", "org_1", "user_old", "member", 100],
-        sql: `
-          INSERT INTO members (id, organization_id, user_id, role, created_at)
-          VALUES (?, ?, ?, ?, ?)
+      await harness.query({
+        values: ["member_old", "org_1", "user_old", "member", 100],
+        text: `
+          INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+          VALUES ($1, $2, $3, $4, $5)
         `,
       });
       await upsertRemoteAgentSlackWorkspaceBinding({
@@ -4307,17 +4248,13 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash: await digestSlackIdentityLinkToken(token),
       });
-      harness.run({
-        sql: `
-          CREATE TRIGGER fail_identity_link_audit
-          BEFORE INSERT ON center_agent_audit_journal
-          WHEN NEW.action = 'replace_message_channel_identity_link'
-          BEGIN
-            SELECT RAISE(ABORT, 'injected identity-link audit failure');
-          END
-        `,
+      const removeAuditFault = await installPostgresWriteFailure({
+        harness,
+        table: "center_agent_audit_journal",
+        operation: "INSERT",
+        condition: "NEW.action = 'replace_message_channel_identity_link'",
+        message: "injected identity-link audit failure",
       });
-
       await expect(
         rpcConsumeSlackIdentityLink(buildEnv(harness.db), {
           context: buildHumanContext(),
@@ -4331,7 +4268,7 @@ describe("Remote Agent Slack signal service", () => {
           slackUserId: "U123",
         })
       ).resolves.toMatchObject({ openmeldUserId: "user_old" });
-      harness.run({ sql: "DROP TRIGGER fail_identity_link_audit" });
+      await removeAuditFault();
       await expect(
         rpcConsumeSlackIdentityLink(buildEnv(harness.db), {
           context: buildHumanContext(),
@@ -4349,24 +4286,25 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toMatchObject({ linked: true });
       expect(
-        harness.queryFirst<{ audit_count: number }>({
-          sql: `
+        await harness.queryFirst<{
+          audit_count: number;
+        }>({
+          text: `
             SELECT COUNT(*) AS audit_count
-            FROM center_agent_audit_journal
+            FROM "openmeld"."center_agent_audit_journal"
             WHERE action = 'replace_message_channel_identity_link'
           `,
         })
       ).toEqual({ audit_count: 1 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects expired or publicly delivered Slack identity-link tokens and enrolls a verified non-member", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedNonMemberUser(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedNonMemberUser(harness);
     stubSlackFetch({ email: "new-member@example.test" });
     const expiredToken =
       "slacklink_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -4374,7 +4312,6 @@ describe("Remote Agent Slack signal service", () => {
       "slacklink_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const publiclyDeliveredToken =
       "slacklink_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -4418,15 +4355,14 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U888",
         tokenHash: publiclyDeliveredTokenHash,
       });
-      harness.run({
-        params: [publiclyDeliveredTokenHash],
-        sql: `
-          UPDATE slack_user_identity_link_tokens
+      await harness.query({
+        values: [publiclyDeliveredTokenHash],
+        text: `
+          UPDATE "openmeld"."slack_user_identity_link_tokens"
           SET delivery_scope = NULL
-          WHERE token_hash = ?
+          WHERE token_hash = $1
         `,
       });
-
       await expect(
         rpcPreviewSlackIdentityLink(buildEnv(harness.db), {
           context: buildHumanContext(),
@@ -4439,24 +4375,24 @@ describe("Remote Agent Slack signal service", () => {
           token: publiclyDeliveredToken,
         })
       ).rejects.toMatchObject({ code: "slack.identity_link_token_invalid" });
-      const ensureWorkspaceMember = vi.fn(() => {
-        harness.run({
-          params: [
+      const ensureWorkspaceMember = vi.fn(async () => {
+        await harness.query({
+          values: [
             "member_non_member",
             "org_1",
             "user_non_member",
             "member",
             Date.now(),
           ],
-          sql: `
-            INSERT INTO members (
+          text: `
+            INSERT INTO "openmeld"."members" (
               id,
               organization_id,
               user_id,
               role,
               created_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5)
           `,
         });
         return {
@@ -4510,10 +4446,9 @@ describe("Remote Agent Slack signal service", () => {
         openmeldUserId: "user_non_member",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     {
       identity: { isDeleted: true },
@@ -4544,10 +4479,10 @@ describe("Remote Agent Slack signal service", () => {
     identity,
     usersInfoResponse,
   }) => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedNonMemberUser(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedNonMemberUser(harness);
     const token =
       "slacklink_3434343434343434343434343434343434343434343434343434343434343434";
     stubSlackFetch({
@@ -4555,24 +4490,24 @@ describe("Remote Agent Slack signal service", () => {
       ...identity,
       usersInfoResponse,
     });
-    const ensureWorkspaceMember = vi.fn(() => {
-      harness.run({
-        params: [
+    const ensureWorkspaceMember = vi.fn(async () => {
+      await harness.query({
+        values: [
           "member_non_member",
           "org_1",
           "user_non_member",
           "member",
           Date.now(),
         ],
-        sql: `
-            INSERT INTO members (
+        text: `
+            INSERT INTO "openmeld"."members" (
               id,
               organization_id,
               user_id,
               role,
               created_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5)
           `,
       });
       return {
@@ -4584,7 +4519,6 @@ describe("Remote Agent Slack signal service", () => {
         role: "member",
       };
     });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -4603,7 +4537,6 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash: await digestSlackIdentityLinkToken(token),
       });
-
       await expect(
         rpcConsumeSlackIdentityLink(
           buildEnv(harness.db, { ensureWorkspaceMember }),
@@ -4627,18 +4560,17 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("claims an identity-link token before enrolling exactly one competing account", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedNonMemberUser(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedNonMemberUser(harness);
     stubSlackFetch({ email: "new-member@example.test" });
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         "user_competitor",
         "Competing User",
         "competitor@example.test",
@@ -4646,8 +4578,8 @@ describe("Remote Agent Slack signal service", () => {
         100,
         100,
       ],
-      sql: `
-        INSERT INTO users (
+      text: `
+        INSERT INTO "openmeld"."users" (
           id,
           name,
           email,
@@ -4655,12 +4587,11 @@ describe("Remote Agent Slack signal service", () => {
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6)
       `,
     });
     const token =
       "slacklink_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -4680,18 +4611,18 @@ describe("Remote Agent Slack signal service", () => {
         tokenHash: await digestSlackIdentityLinkToken(token),
       });
       const ensureWorkspaceMember = vi.fn(
-        ({ userId }: { organizationId: string; userId: string }) => {
-          harness.run({
-            params: [`member_${userId}`, "org_1", userId, "member", Date.now()],
-            sql: `
-              INSERT INTO members (
+        async ({ userId }: { organizationId: string; userId: string }) => {
+          await harness.query({
+            values: [`member_${userId}`, "org_1", userId, "member", Date.now()],
+            text: `
+              INSERT INTO "openmeld"."members" (
                 id,
                 organization_id,
                 user_id,
                 role,
                 created_at
               )
-              VALUES (?, ?, ?, ?, ?)
+              VALUES ($1, $2, $3, $4, $5)
             `,
           });
           return {
@@ -4721,7 +4652,6 @@ describe("Remote Agent Slack signal service", () => {
           token,
         }),
       ]);
-
       expect(
         results.filter((result) => result.status === "fulfilled")
       ).toHaveLength(1);
@@ -4731,12 +4661,14 @@ describe("Remote Agent Slack signal service", () => {
       expect(ensureWorkspaceMember).toHaveBeenCalledOnce();
       const enrolledUserId = ensureWorkspaceMember.mock.calls[0]?.[0].userId;
       expect(
-        harness.queryFirst<{ enrolled_count: number }>({
-          params: ["org_1"],
-          sql: `
+        await harness.queryFirst<{
+          enrolled_count: number;
+        }>({
+          values: ["org_1"],
+          text: `
             SELECT COUNT(*) AS enrolled_count
-            FROM members
-            WHERE organization_id = ?
+            FROM "openmeld"."members"
+            WHERE organization_id = $1
               AND user_id IN ('user_non_member', 'user_competitor')
           `,
         })
@@ -4749,19 +4681,17 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toMatchObject({ openmeldUserId: enrolledUserId });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reuses the same user's claim after Organization enrollment fails", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedNonMemberUser(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedNonMemberUser(harness);
     stubSlackFetch({ email: "new-member@example.test" });
     const token =
       "slacklink_1212121212121212121212121212121212121212121212121212121212121212";
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -4783,24 +4713,24 @@ describe("Remote Agent Slack signal service", () => {
       const ensureWorkspaceMember = vi
         .fn()
         .mockRejectedValueOnce(new Error("Auth is temporarily unavailable"))
-        .mockImplementationOnce(() => {
-          harness.run({
-            params: [
+        .mockImplementationOnce(async () => {
+          await harness.query({
+            values: [
               "member_non_member",
               "org_1",
               "user_non_member",
               "member",
               Date.now(),
             ],
-            sql: `
-              INSERT INTO members (
+            text: `
+              INSERT INTO "openmeld"."members" (
                 id,
                 organization_id,
                 user_id,
                 role,
                 created_at
               )
-              VALUES (?, ?, ?, ?, ?)
+              VALUES ($1, $2, $3, $4, $5)
             `,
           });
           return {
@@ -4820,7 +4750,6 @@ describe("Remote Agent Slack signal service", () => {
         }),
         token,
       };
-
       await expect(
         rpcConsumeSlackIdentityLink(env, consumeInput)
       ).rejects.toThrow("Auth is temporarily unavailable");
@@ -4833,15 +4762,14 @@ describe("Remote Agent Slack signal service", () => {
       });
       expect(ensureWorkspaceMember).toHaveBeenCalledTimes(2);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets a new private setup action supersede an abandoned claim", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedNonMemberUser(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedNonMemberUser(harness);
     const firstToken =
       "slacklink_1313131313131313131313131313131313131313131313131313131313131313";
     const replacementToken =
@@ -4850,7 +4778,6 @@ describe("Remote Agent Slack signal service", () => {
     const firstTokenHash = await digestSlackIdentityLinkToken(firstToken);
     const replacementTokenHash =
       await digestSlackIdentityLinkToken(replacementToken);
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -4880,7 +4807,6 @@ describe("Remote Agent Slack signal service", () => {
           openmeldUserId: "user_non_member",
         })
       ).resolves.toMatchObject({ status: "claimed" });
-
       await insertSlackIdentityLinkToken({
         db: harness.db,
         deliveryScope: "slack_ephemeral",
@@ -4892,7 +4818,6 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash: replacementTokenHash,
       });
-
       await expect(
         readSlackIdentityLinkTokenForUser({
           db: harness.db,
@@ -4913,14 +4838,13 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toMatchObject({ status: "claimed" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets a new user claim a fresh token after the previous user's token was consumed", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const firstTokenHash = await digestSlackIdentityLinkToken(
       `slacklink_${"1".repeat(64)}`
     );
@@ -4928,7 +4852,6 @@ describe("Remote Agent Slack signal service", () => {
       `slacklink_${"2".repeat(64)}`
     );
     const nowMs = Date.now();
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -4968,7 +4891,6 @@ describe("Remote Agent Slack signal service", () => {
           tokenHash: firstTokenHash,
         })
       ).resolves.toMatchObject({ status: "linked" });
-
       await insertSlackIdentityLinkToken({
         db: harness.db,
         deliveryScope: "slack_ephemeral",
@@ -4980,7 +4902,6 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash: replacementTokenHash,
       });
-
       await expect(
         claimSlackIdentityLinkTokenForUser({
           claimedAtMs: nowMs + 2,
@@ -4993,19 +4914,17 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toMatchObject({ status: "claimed" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("returns the committed Slack link when a newer correction wins before response projection", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const tokenHash = await digestSlackIdentityLinkToken(
       `slacklink_${"3".repeat(64)}`
     );
     const nowMs = Date.now();
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -5025,24 +4944,23 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash,
       });
-      const consumeDb = createAfterMatchingBatchD1Database({
-        afterBatch: () => {
-          harness.run({
-            params: ["user_replacement", "T123", "U123"],
-            sql: `
-              UPDATE slack_user_identity_links
-              SET openmeld_user_id = ?
-              WHERE slack_team_id = ?
-                AND slack_user_id = ?
+      const consumeDb = createAfterMatchingPostgresTransaction({
+        afterTransaction: async () => {
+          await harness.query({
+            values: ["user_replacement", "T123", "U123"],
+            text: `
+              UPDATE "openmeld"."slack_user_identity_links"
+              SET openmeld_user_id = $1
+              WHERE slack_team_id = $2
+                AND slack_user_id = $3
             `,
           });
         },
         db: harness.db,
         matches: (sql) =>
-          sql.includes("UPDATE slack_user_identity_link_tokens") &&
+          sql.includes('UPDATE "openmeld"."slack_user_identity_link_tokens"') &&
           sql.includes("consume_nonce"),
       });
-
       await expect(
         consumeSlackIdentityLinkTokenAndUpsertUserLink({
           audit: {
@@ -5075,18 +4993,16 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toMatchObject({ openmeldUserId: "user_replacement" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a completed identity link when continuation source recovery throws", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     stubSlackFetch({ email: "ari@example.test" });
     const token =
       "slacklink_1515151515151515151515151515151515151515151515151515151515151515";
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -5106,7 +5022,6 @@ describe("Remote Agent Slack signal service", () => {
         sourceDeliveryId: "missing_source_delivery",
         tokenHash: await digestSlackIdentityLinkToken(token),
       });
-
       await expect(
         rpcConsumeSlackIdentityLink(buildEnv(harness.db), {
           context: buildHumanContext(),
@@ -5125,18 +5040,16 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toMatchObject({ openmeldUserId: "user_member" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects an identity-link token after its Slack workspace moves to another Organization", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSecondOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSecondOrganization(harness);
     const token =
       "slacklink_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -5155,15 +5068,14 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         tokenHash: await digestSlackIdentityLinkToken(token),
       });
-      harness.run({
-        params: ["org_2", "T123"],
-        sql: `
-          UPDATE openMeldRemoteAgent_slack_workspace_bindings
-          SET organization_id = ?
-          WHERE slack_team_id = ?
+      await harness.query({
+        values: ["org_2", "T123"],
+        text: `
+          UPDATE "openmeld"."openMeldRemoteAgent_slack_workspace_bindings"
+          SET organization_id = $1
+          WHERE slack_team_id = $2
         `,
       });
-
       await expect(
         rpcPreviewSlackIdentityLink(buildEnv(harness.db), {
           context: buildHumanContext(),
@@ -5171,19 +5083,17 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).rejects.toMatchObject({ code: "slack.identity_link_token_invalid" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("fails closed when the Slack workspace moves during identity-link consumption", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSecondOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
+    await seedSecondOrganization(harness);
     stubSlackFetch({ email: "ari@example.test" });
     const token =
       "slacklink_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -5204,18 +5114,17 @@ describe("Remote Agent Slack signal service", () => {
       });
       const racingDb = moveSlackWorkspaceBeforeIdentityLinkConsume({
         db: harness.db,
-        moveWorkspace: () => {
-          harness.run({
-            params: ["org_2", "T123"],
-            sql: `
-              UPDATE openMeldRemoteAgent_slack_workspace_bindings
-              SET organization_id = ?
-              WHERE slack_team_id = ?
+        moveWorkspace: async () => {
+          await harness.query({
+            values: ["org_2", "T123"],
+            text: `
+              UPDATE "openmeld"."openMeldRemoteAgent_slack_workspace_bindings"
+              SET organization_id = $1
+              WHERE slack_team_id = $2
             `,
           });
         },
       });
-
       await expect(
         rpcConsumeSlackIdentityLink(buildEnv(racingDb), {
           context: buildHumanContext(),
@@ -5230,15 +5139,15 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeNull();
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           consume_nonce: string | null;
           consumed_at_ms: number | null;
         }>({
-          params: [await digestSlackIdentityLinkToken(token)],
-          sql: `
+          values: [await digestSlackIdentityLinkToken(token)],
+          text: `
             SELECT consume_nonce, consumed_at_ms
-            FROM slack_user_identity_link_tokens
-            WHERE token_hash = ?
+            FROM "openmeld"."slack_user_identity_link_tokens"
+            WHERE token_hash = $1
           `,
         })
       ).toEqual({
@@ -5246,16 +5155,14 @@ describe("Remote Agent Slack signal service", () => {
         consumed_at_ms: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("guards Slack workspace binding from being claimed by another organization", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    seedSecondOrganization(harness);
+    const harness = await createPostgresHarness();
 
+    await seedSlackOrganization(harness);
+    await seedSecondOrganization(harness);
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -5263,7 +5170,6 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
-
       await expect(
         rpcConnectCenterAgentSlackWorkspace(buildEnv(harness.db), {
           context: buildHumanContext({ activeOrganizationId: "org_2" }),
@@ -5273,15 +5179,13 @@ describe("Remote Agent Slack signal service", () => {
         code: "slack.workspace_already_bound",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("publishes completed Slack callbacks to the original Slack thread as mrkdwn", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const harness = await createPostgresHarness();
 
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -5322,20 +5226,18 @@ describe("Remote Agent Slack signal service", () => {
         status: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps the canonical GitHub Navigation Action clickable in both Slack representations", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     const action = buildOpenMeldNavigationAction({
       organizationWebUrl: "https://openmeld.ai/o/amplift",
       target: { kind: "organization_app", service: "github" },
     });
     const markdown = `GitHub is not ready. [${action.label}](${action.url}) and try again.`;
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -5349,7 +5251,6 @@ describe("Remote Agent Slack signal service", () => {
       if (!delivery) {
         throw new Error("expected accepted Slack delivery");
       }
-
       await expect(
         completeRemoteAgentNativeDelivery(buildEnv(harness.db), {
           ...createCompletedCallbackBody(),
@@ -5374,23 +5275,20 @@ describe("Remote Agent Slack signal service", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not invent a native Slack button for a generic Project Navigation Action", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
-    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const harness = await createPostgresHarness();
 
+    await seedSlackOrganization(harness);
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
         idempotencyKey: "remote-agent-slack:T123:Ev123",
         submissionId: "sub_slack_1",
       });
-
       await expect(
         completeRemoteAgentNativeDelivery(buildEnv(harness.db), {
           ...createCompletedCallbackBody(),
@@ -5418,10 +5316,9 @@ describe("Remote Agent Slack signal service", () => {
         }),
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     {
       chatGetPermalinkResponse: undefined,
@@ -5452,9 +5349,9 @@ describe("Remote Agent Slack signal service", () => {
     expectedVersion,
     sourceVersion,
   }) => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const fetchMock = stubSlackFetch({
       chatGetPermalinkResponse,
       email: "new-member@example.test",
@@ -5467,7 +5364,6 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: `sub_slack_${workerSubmit.mock.calls.length}`,
     }));
     const env = buildEnv(harness.db, { workerSubmit });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -5486,15 +5382,14 @@ describe("Remote Agent Slack signal service", () => {
       if (!sourceDelivery) {
         throw new Error("expected the anonymous Slack source delivery");
       }
-      harness.run({
-        params: ["deepseek/deepseek-v4-flash", sourceDelivery.bindingId],
-        sql: `
-          UPDATE openMeldDaemon_agent_profile_bindings
-          SET model_id = ?
-          WHERE binding_id = ?
+      await harness.query({
+        values: ["deepseek/deepseek-v4-flash", sourceDelivery.bindingId],
+        text: `
+          UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings"
+          SET model_id = $1
+          WHERE binding_id = $2
         `,
       });
-
       await expect(
         completeRemoteAgentNativeDelivery(env, {
           ...createCompletedCallbackBody(),
@@ -5544,21 +5439,22 @@ describe("Remote Agent Slack signal service", () => {
           ...legacyRequestFields,
           v: 1,
         });
-        harness.run({
-          params: [
+        await harness.query({
+          values: [
             JSON.stringify({ request: legacyRequest, storageVersion: 1 }),
           ],
-          sql: `
-            UPDATE openMeldRemoteAgent_native_delivery_ledger
-            SET execution_recovery_submit_request_json = ?
+          text: `
+            UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+            SET execution_recovery_submit_request_json = $1
             WHERE delivery_id = '${sourceDelivery.deliveryId}'
           `,
         });
       }
-
       const postBodies = readSlackPostBodies(fetchMock) as {
         blocks?: {
-          elements?: { url?: string }[];
+          elements?: {
+            url?: string;
+          }[];
         }[];
         channel?: string;
         text?: string;
@@ -5580,19 +5476,22 @@ describe("Remote Agent Slack signal service", () => {
       const token = new URL(linkUrl ?? "").searchParams.get("token");
       expect(token).not.toBeNull();
       const tokenRow = await harness.db
-        .prepare(
-          `
-            SELECT delivery_scope, organization_id, source_delivery_id
-            FROM slack_user_identity_link_tokens
-            WHERE token_hash = ?
-          `
-        )
-        .bind(await digestSlackIdentityLinkToken(token ?? ""))
-        .first<{
+        .query<{
           delivery_scope: string;
           organization_id: string;
           source_delivery_id: string;
-        }>();
+        }>({
+          ...{
+            text: `
+            SELECT delivery_scope, organization_id, source_delivery_id
+            FROM "openmeld"."slack_user_identity_link_tokens"
+            WHERE token_hash = $1
+          `,
+            values: [],
+          },
+          values: [await digestSlackIdentityLinkToken(token ?? "")],
+        })
+        .then((result) => result.rows[0] ?? null);
       expect(tokenRow).toEqual({
         delivery_scope: "slack_direct_message",
         organization_id: "org_1",
@@ -5644,7 +5543,8 @@ describe("Remote Agent Slack signal service", () => {
           ...(sourceVersion === 4
             ? {
                 modelRoute: expect.objectContaining({
-                  modelId: "z-ai/glm-5.3-flash",
+                  modelId: "anthropic/claude-opus-5.5",
+                  reasoningLevel: "medium",
                 }),
               }
             : {}),
@@ -5679,14 +5579,13 @@ describe("Remote Agent Slack signal service", () => {
       });
       expect(workerSubmit).toHaveBeenCalledTimes(2);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not issue private identity guidance until source publication is confirmed", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const fetchMock = stubSlackFetch({ email: "new-member@example.test" });
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
@@ -5696,7 +5595,6 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: `sub_slack_${workerSubmit.mock.calls.length}`,
     }));
     const env = buildEnv(harness.db, { workerSubmit });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -5713,7 +5611,6 @@ describe("Remote Agent Slack signal service", () => {
       if (!sourceDelivery) {
         throw new Error("expected the anonymous Slack source delivery");
       }
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(failSlackFinalPublicationFinalize(harness.db), {
@@ -5739,24 +5636,25 @@ describe("Remote Agent Slack signal service", () => {
         finalPublicationState: "outcome_unknown",
         status: "accepted",
       });
-
       expect(readSlackEphemeralBodies(fetchMock)).toEqual([]);
       expect(workerSubmit).toHaveBeenCalledTimes(1);
       const tokenCount = await harness.db
-        .prepare(
-          "SELECT count(*) AS count FROM slack_user_identity_link_tokens"
-        )
-        .first<{ count: number }>();
+        .query<{
+          count: number;
+        }>({
+          text: 'SELECT count(*) AS count FROM "openmeld"."slack_user_identity_link_tokens"',
+          values: [],
+        })
+        .then((result) => result.rows[0] ?? null);
       expect(tokenCount?.count).toBe(0);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("retries a known failed continuation with one new deterministic attempt", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    seedSlackOrganization(harness);
+    const harness = await createPostgresHarness();
+
+    await seedSlackOrganization(harness);
     const fetchMock = stubSlackFetch({ email: "new-member@example.test" });
     const workerSubmit = vi.fn((request: { idempotencyKey: string }) => {
       if (workerSubmit.mock.calls.length === 2) {
@@ -5777,7 +5675,6 @@ describe("Remote Agent Slack signal service", () => {
       });
     });
     const env = buildEnv(harness.db, { workerSubmit });
-
     try {
       await upsertRemoteAgentSlackWorkspaceBinding({
         db: harness.db,
@@ -5793,7 +5690,11 @@ describe("Remote Agent Slack signal service", () => {
         triggerMessageId: "1710000000.000100",
       });
       const privateMessages = readSlackPostBodies(fetchMock) as {
-        blocks?: { elements?: { url?: string }[] }[];
+        blocks?: {
+          elements?: {
+            url?: string;
+          }[];
+        }[];
         channel?: string;
       }[];
       const linkUrl = privateMessages.find(
@@ -5804,7 +5705,6 @@ describe("Remote Agent Slack signal service", () => {
         throw new Error("expected a private Slack identity-link token");
       }
       const consumeInput = { context: buildHumanContext(), token };
-
       await expect(
         rpcConsumeSlackIdentityLink(env, consumeInput)
       ).resolves.toMatchObject({
@@ -5819,7 +5719,6 @@ describe("Remote Agent Slack signal service", () => {
         continued: true,
         linked: true,
       });
-
       expect(workerSubmit).toHaveBeenCalledTimes(3);
       const continuationIdentity = `remote-agent-slack-identity-continuation:${
         (
@@ -5836,21 +5735,18 @@ describe("Remote Agent Slack signal service", () => {
         idempotencyKey: `${continuationIdentity}:retry:1`,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps the Slack request timeout shorter than the publication claim lease", () => {
     expect(REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS).toBeLessThan(
       REMOTE_AGENT_SLACK_FINAL_PUBLICATION_CLAIM_LEASE_MS
     );
   });
-
   it("publishes concurrent completed Slack callbacks only once", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const harness = await createPostgresHarness();
 
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -5858,12 +5754,10 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: "sub_slack_1",
       });
       const env = buildEnv(harness.db);
-
       const results = await Promise.all([
         completeRemoteAgentNativeDelivery(env, createCompletedCallbackBody()),
         completeRemoteAgentNativeDelivery(env, createCompletedCallbackBody()),
       ]);
-
       expect(results).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -5888,15 +5782,13 @@ describe("Remote Agent Slack signal service", () => {
         status: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("publishes concurrent failed Slack callbacks only once", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const harness = await createPostgresHarness();
 
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -5904,7 +5796,6 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: "sub_slack_1",
       });
       const env = buildEnv(harness.db);
-
       const results = await Promise.all([
         completeRemoteAgentNativeDelivery(env, createFailedCallbackBody()),
         completeRemoteAgentNativeDelivery(env, {
@@ -5912,7 +5803,6 @@ describe("Remote Agent Slack signal service", () => {
           callbackAttempt: 2,
         }),
       ]);
-
       expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
       expect(results).toContainEqual({
         status: "accepted",
@@ -5930,15 +5820,13 @@ describe("Remote Agent Slack signal service", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not republish a failed callback when publication finalization is interrupted", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const harness = await createPostgresHarness();
 
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -5946,7 +5834,6 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: "sub_slack_1",
       });
       const finalizeFailingDb = failSlackFinalPublicationFinalize(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(finalizeFailingDb),
@@ -5957,7 +5844,6 @@ describe("Remote Agent Slack signal service", () => {
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
       });
       expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -5980,15 +5866,13 @@ describe("Remote Agent Slack signal service", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("returns retryable when a lost Slack publication claim was released before reread", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const harness = await createPostgresHarness();
 
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -5996,7 +5880,6 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: "sub_slack_1",
       });
       const claimLosingDb = skipSlackFinalPublicationClaim(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(claimLosingDb),
@@ -6018,19 +5901,17 @@ describe("Remote Agent Slack signal service", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("marks interrupted Slack publication claims outcome unknown without republishing", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     fetchMock.mockImplementationOnce(
       () => new Promise<Response>(() => undefined)
     );
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(2000);
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6038,7 +5919,6 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: "sub_slack_1",
       });
       const env = buildEnv(harness.db);
-
       const pendingCallback = completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallbackBody()
@@ -6047,7 +5927,6 @@ describe("Remote Agent Slack signal service", () => {
       await vi.waitFor(() => {
         expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
       });
-
       const claimedDelivery =
         await readRemoteAgentNativeDeliveryByIdempotencyKey({
           db: harness.db,
@@ -6070,7 +5949,6 @@ describe("Remote Agent Slack signal service", () => {
         reasonCode: "remote_agent.callback_publication_in_progress",
       });
       expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
-
       const claimExpiresAtMs = (
         claimedDelivery as {
           finalPublicationClaimExpiresAtMs?: number | null;
@@ -6083,7 +5961,6 @@ describe("Remote Agent Slack signal service", () => {
       nowSpy.mockReturnValue(
         Math.max(probe.deadlineAtMs, claimExpiresAtMs + 1)
       );
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -6121,13 +5998,12 @@ describe("Remote Agent Slack signal service", () => {
       });
     } finally {
       nowSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("requeues a due deadline probe while a Slack publication claim is active", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     fetchMock.mockImplementationOnce(
       () => new Promise<Response>(() => undefined)
@@ -6135,7 +6011,6 @@ describe("Remote Agent Slack signal service", () => {
     const probe = createDeadlineProbe();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(probe.deadlineAtMs);
     const queueSend = vi.fn(async () => undefined);
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6143,7 +6018,6 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: probe.submissionId,
       });
       const env = buildEnv(harness.db, { queueSend });
-
       const pendingCallback = completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallbackBody()
@@ -6152,7 +6026,6 @@ describe("Remote Agent Slack signal service", () => {
       await vi.waitFor(() => {
         expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
       });
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -6181,13 +6054,12 @@ describe("Remote Agent Slack signal service", () => {
       });
     } finally {
       nowSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects a due deadline probe when its active claim cannot be requeued", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     fetchMock.mockImplementationOnce(
       () => new Promise<Response>(() => undefined)
@@ -6197,7 +6069,6 @@ describe("Remote Agent Slack signal service", () => {
     const queueSend = vi.fn(() =>
       Promise.reject(new Error("queue unavailable"))
     );
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6205,7 +6076,6 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: probe.submissionId,
       });
       const env = buildEnv(harness.db, { queueSend });
-
       const pendingCallback = completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallbackBody()
@@ -6214,7 +6084,6 @@ describe("Remote Agent Slack signal service", () => {
       await vi.waitFor(() => {
         expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
       });
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -6235,25 +6104,22 @@ describe("Remote Agent Slack signal service", () => {
       });
     } finally {
       nowSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("marks Slack ok responses without a timestamp as publication outcome unknown", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const fetchMock = stubSlackFetch({
       chatPostResponse: { ok: true },
       email: "ari@example.test",
     });
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
         idempotencyKey: "remote-agent-slack:T123:Ev123",
         submissionId: "sub_slack_1",
       });
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -6277,23 +6143,20 @@ describe("Remote Agent Slack signal service", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not retry an ambiguous Slack network failure", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     fetchMock.mockRejectedValueOnce(new TypeError("network connection reset"));
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
         idempotencyKey: "remote-agent-slack:T123:Ev123",
         submissionId: "sub_slack_1",
       });
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -6317,15 +6180,13 @@ describe("Remote Agent Slack signal service", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("records outcome unknown when a successful Slack post cannot finalize in D1", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const harness = await createPostgresHarness();
 
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6333,7 +6194,6 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: "sub_slack_1",
       });
       const finalizeFailingDb = failSlackFinalPublicationFinalize(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(finalizeFailingDb),
@@ -6357,7 +6217,6 @@ describe("Remote Agent Slack signal service", () => {
         publishedSignalId: null,
         status: "accepted",
       });
-
       const probe = createDeadlineProbe();
       const claimExpiresAtMs =
         claimedDelivery?.finalPublicationClaimExpiresAtMs;
@@ -6389,25 +6248,22 @@ describe("Remote Agent Slack signal service", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps Slack callback publish failures retryable", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const fetchMock = stubSlackFetch({
       chatPostResponse: { error: "ratelimited", ok: false },
       email: "ari@example.test",
     });
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
         idempotencyKey: "remote-agent-slack:T123:Ev123",
         submissionId: "sub_slack_1",
       });
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -6429,7 +6285,6 @@ describe("Remote Agent Slack signal service", () => {
         finalPublicationState: null,
         status: "accepted",
       });
-
       fetchMock.mockImplementation(() =>
         Promise.resolve(Response.json({ ok: true, ts: "1710000001.000200" }))
       );
@@ -6455,15 +6310,13 @@ describe("Remote Agent Slack signal service", () => {
         status: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reconciles and keeps accepted Slack deliveries open after a retired deadline probe", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
-    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const harness = await createPostgresHarness();
 
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6489,7 +6342,6 @@ describe("Remote Agent Slack signal service", () => {
         status: "found" as const,
       }));
       const env = buildEnv(harness.db, { queueSend, workerReconcile });
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -6522,7 +6374,6 @@ describe("Remote Agent Slack signal service", () => {
           thread_ts: "1710000000.000100",
         },
       ]);
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -6561,14 +6412,13 @@ describe("Remote Agent Slack signal service", () => {
         submissionId: "sub_slack_1",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not let the Slack status refresh cadence expire an in-flight reconciliation lease", async () => {
     vi.useFakeTimers();
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const probe = createDeadlineProbe();
     const reconciliation = createDeferred({
       execution: {
@@ -6593,7 +6443,6 @@ describe("Remote Agent Slack signal service", () => {
     });
     const queueSend = vi.fn(async () => undefined);
     stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6609,14 +6458,12 @@ describe("Remote Agent Slack signal service", () => {
       });
       await reconciliationStarted.promise;
       expect(workerReconcile).toHaveBeenCalledOnce();
-
       await vi.advanceTimersByTimeAsync(30_000);
       await expect(firstProbe).resolves.toEqual({
         reasonCode: "remote_agent.execution_reconciliation_unavailable",
         status: "skipped",
       });
       expect(queueSend).toHaveBeenCalledOnce();
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -6649,15 +6496,14 @@ describe("Remote Agent Slack signal service", () => {
       });
     } finally {
       reconciliation.resolve();
-      harness.close();
+      await harness.close();
       vi.useRealTimers();
     }
   });
-
   it("keeps a timed-out reconciliation lease when its recovery enqueue fails", async () => {
     vi.useFakeTimers();
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const probe = createDeadlineProbe();
     const firstReconciliation = createDeferred({
       execution: {
@@ -6705,7 +6551,6 @@ describe("Remote Agent Slack signal service", () => {
       .mockRejectedValueOnce(new Error("queue unavailable"))
       .mockResolvedValueOnce(undefined);
     stubSlackFetch({ email: "ari@example.test" });
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6721,7 +6566,6 @@ describe("Remote Agent Slack signal service", () => {
       });
       const firstProbeFailure = firstProbe.catch((error: unknown) => error);
       await reconciliationStarted.promise;
-
       await vi.advanceTimersByTimeAsync(30_000);
       expect(await firstProbeFailure).toEqual(
         expect.objectContaining({ message: "queue unavailable" })
@@ -6736,7 +6580,6 @@ describe("Remote Agent Slack signal service", () => {
           probe.deadlineAtMs +
           REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
       });
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -6751,7 +6594,6 @@ describe("Remote Agent Slack signal service", () => {
         status: "skipped",
       });
       expect(workerReconcile).toHaveBeenCalledOnce();
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -6769,14 +6611,13 @@ describe("Remote Agent Slack signal service", () => {
       expect(queueSend).toHaveBeenCalledTimes(2);
     } finally {
       firstReconciliation.resolve();
-      harness.close();
+      await harness.close();
       vi.useRealTimers();
     }
   });
-
   it("clears a late Slack working-status refresh after the final reply wins", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const probe = createDeadlineProbe();
     const delayedWorkingStatus = createDeferred({ ok: true });
     let heldWorkingStatus = false;
@@ -6806,7 +6647,6 @@ describe("Remote Agent Slack signal service", () => {
       },
       status: "found" as const,
     }));
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6825,7 +6665,6 @@ describe("Remote Agent Slack signal service", () => {
           expect.objectContaining({ status: "is working on your request…" }),
         ])
       );
-
       await expect(
         completeRemoteAgentNativeDelivery(env, createCompletedCallbackBody())
       ).resolves.toEqual({
@@ -6837,7 +6676,6 @@ describe("Remote Agent Slack signal service", () => {
         reasonCode: "remote_agent.execution_reconciled_terminal",
         status: "skipped",
       });
-
       const statusBodies = readSlackThreadStatusBodies(fetchMock) as Array<{
         status?: unknown;
       }>;
@@ -6859,13 +6697,12 @@ describe("Remote Agent Slack signal service", () => {
         status: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not let a later-admitted older Slack message clear the newer turn's working status", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const oldProbe = createDeadlineProbe();
     const newProbe = {
       ...oldProbe,
@@ -6893,7 +6730,6 @@ describe("Remote Agent Slack signal service", () => {
       })
     );
     const env = buildEnv(harness.db, { workerReconcile });
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -6922,19 +6758,17 @@ describe("Remote Agent Slack signal service", () => {
           triggerMessageId: "1710000001.000100",
         })
       );
-
       expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
         status: "is working on your request…",
       });
       expect(workerReconcile).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("converges a stale Slack status correction after a newer turn starts", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     const oldProbe = createDeadlineProbe();
     const newProbe = {
       ...oldProbe,
@@ -6984,7 +6818,6 @@ describe("Remote Agent Slack signal service", () => {
     let refreshProbe: ReturnType<
       typeof processRemoteAgentNativeDeliveryDeadlineProbe
     > | null = null;
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -7002,17 +6835,16 @@ describe("Remote Agent Slack signal service", () => {
           expect.objectContaining({ status: "is working on your request…" }),
         ])
       );
-
-      harness.run({
-        params: [oldProbe.idempotencyKey],
-        sql: `
-          UPDATE openMeldRemoteAgent_native_delivery_ledger
+      await harness.query({
+        values: [oldProbe.idempotencyKey],
+        text: `
+          UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
           SET
             final_publication_state = 'published',
             published_signal_id = '1710000001.000200',
             status = 'completed',
             updated_at_ms = 1500
-          WHERE idempotency_key = ?
+          WHERE idempotency_key = $1
         `,
       });
       delayedWorkingStatus.resolve();
@@ -7021,7 +6853,6 @@ describe("Remote Agent Slack signal service", () => {
           status: "",
         })
       );
-
       await createAcceptedSlackDelivery({
         db: harness.db,
         dispatchId: newProbe.dispatchId,
@@ -7031,7 +6862,6 @@ describe("Remote Agent Slack signal service", () => {
       });
       delayedClearStatus.resolve();
       await reconciliationStarted.promise;
-
       expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
         status: "is working on your request…",
       });
@@ -7041,13 +6871,12 @@ describe("Remote Agent Slack signal service", () => {
     } finally {
       reconciliation.resolve();
       await refreshProbe?.catch(() => undefined);
-      harness.close();
+      await harness.close();
     }
   });
-
   it("releases a failed reconciliation enqueue for scheduled compensation", async () => {
-    const harness = createSqliteD1Harness();
-    applySlackMigrations(harness);
+    const harness = await createPostgresHarness();
+
     stubSlackFetch({ email: "ari@example.test" });
     const probe = createDeadlineProbe();
     const workerReconcile = vi.fn(async () => ({
@@ -7069,7 +6898,6 @@ describe("Remote Agent Slack signal service", () => {
     const failedQueueSend = vi.fn(() =>
       Promise.reject(new Error("queue unavailable"))
     );
-
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
@@ -7093,7 +6921,6 @@ describe("Remote Agent Slack signal service", () => {
           idempotencyKey: probe.idempotencyKey,
         })
       ).resolves.toMatchObject({ acceptedProbeNextDueAtMs: null });
-
       const recoveredQueueSend = vi.fn(async () => undefined);
       await expect(
         retryMissingRemoteAgentAcceptedDeliveryProbes({
@@ -7104,109 +6931,30 @@ describe("Remote Agent Slack signal service", () => {
       ).resolves.toEqual({ enqueued: 1, errors: 0, scanned: 1 });
       expect(recoveredQueueSend).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
 function moveSlackWorkspaceBeforeIdentityLinkConsume(input: {
-  db: D1Database;
-  moveWorkspace(): void;
-}): D1Database {
-  const delegateByStatement = new WeakMap<object, D1PreparedStatement>();
-  const sqlByStatement = new WeakMap<object, string>();
-  let moved = false;
-  const moveOnceForConsume = (sql: string): void => {
-    const normalizedSql = sql.replace(/\s+/gu, " ").trim().toLowerCase();
-    if (
-      moved ||
-      !normalizedSql.includes("update slack_user_identity_link_tokens") ||
-      !normalizedSql.includes("set consumed_at_ms")
-    ) {
-      return;
-    }
-    moved = true;
-    input.moveWorkspace();
-  };
-  const wrapStatement = (
-    delegate: D1PreparedStatement,
-    sql: string
-  ): D1PreparedStatement => {
-    const wrapped = {
-      all: <TRow>() => delegate.all<TRow>(),
-      bind: (...values: unknown[]) =>
-        wrapStatement(delegate.bind(...values), sql),
-      first: <TRow>(columnName?: string) =>
-        columnName === undefined
-          ? delegate.first<TRow>()
-          : delegate.first<TRow>(columnName),
-      run: async () => {
-        moveOnceForConsume(sql);
-        return await delegate.run();
-      },
-    } as D1PreparedStatement;
-    delegateByStatement.set(wrapped, delegate);
-    sqlByStatement.set(wrapped, sql);
-    return wrapped;
-  };
-
-  return {
-    batch: async (statements: D1PreparedStatement[]) => {
-      for (const statement of statements) {
-        moveOnceForConsume(sqlByStatement.get(statement) ?? "");
-      }
-      return await input.db.batch(
-        statements.map(
-          (statement) => delegateByStatement.get(statement) ?? statement
-        )
-      );
+  db: PostgresDatabase;
+  moveWorkspace(): void | Promise<void>;
+}): PostgresDatabase {
+  return createBeforeMatchingPostgresTransaction({
+    db: input.db,
+    matches: (text) =>
+      text.includes('UPDATE "openmeld"."slack_user_identity_link_tokens"') &&
+      TOKEN_CONSUMPTION_PATTERN.test(text),
+    beforeTransaction: async () => {
+      await input.moveWorkspace();
     },
-    prepare: (sql: string) => wrapStatement(input.db.prepare(sql), sql),
-  } as D1Database;
+  });
 }
 
-function applySlackMigrations(
-  input: Parameters<typeof applyMigrationForTable>[0]
+async function seedNonMemberUser(
+  input: Awaited<ReturnType<typeof createPostgresHarness>>
 ) {
-  applyMigrationForTable(input, "openMeldRemoteAgent_native_delivery_ledger");
-  applyMigrationForTable(input, "openMeldRemoteAgent_daily_admissions");
-  applyMigrationForTable(input, "openMeldRemoteAgent_conversation_generations");
-  applyMigrationForTable(input, "openMeldRemoteAgent_slack_event_ingress");
-  applyMigrationForTable(
-    input,
-    "openMeldRemoteAgent_slack_thread_context_cursors"
-  );
-  applyMigrationForTable(input, "openMeldRemoteAgent_slack_workspace_bindings");
-  applyMigrationForTable(input, "center_agent_audit_journal");
-  applyMigrationForTable(input, "slack_channel_introduction_runs");
-  applyMigrationForTable(input, "slack_channel_introduction_items");
-  applyMigrationForTable(input, "slack_workspace_tokens");
-  applyMigrationForTable(input, "slack_user_identity_links");
-  applyMigrationForTable(input, "slack_user_identity_link_tokens");
-  applyMigrationForTable(input, "organization_join_links");
-  applyMigrationForTable(input, "agent_delegation_children");
-  applyMigrationForTable(input, "agent_delegations");
-  applyMigrationForTable(input, "agent_task_completion_subscriptions");
-  applyMigrationForTable(input, "agent_task_terminal_outcomes");
-  applyDrizzleMigrationsForTables(input, [
-    "users",
-    "organizations",
-    "members",
-    "openmeld_profiles",
-    "center_agent_designations",
-    "openMeldDaemon_agent_profile_bindings",
-  ]);
-  applyDrizzleMigrationsForTables(input, [
-    "organization_skill_releases",
-    "organization_skills",
-  ]);
-}
-
-function seedNonMemberUser(
-  input: Parameters<typeof applyMigrationForTable>[0]
-) {
-  input.run({
-    params: [
+  await input.query({
+    values: [
       "user_non_member",
       "No Member",
       "no-member@example.test",
@@ -7214,8 +6962,8 @@ function seedNonMemberUser(
       100,
       100,
     ],
-    sql: `
-      INSERT INTO users (
+    text: `
+      INSERT INTO "openmeld"."users" (
         id,
         name,
         email,
@@ -7223,18 +6971,17 @@ function seedNonMemberUser(
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6)
     `,
   });
 }
-
-function seedSlackIdentityLink(
-  input: Parameters<typeof applyMigrationForTable>[0]
+async function seedSlackIdentityLink(
+  input: Awaited<ReturnType<typeof createPostgresHarness>>
 ) {
-  input.run({
-    params: ["org_1", "T123", "U123", "user_member", "explicit", 100],
-    sql: `
-      INSERT INTO slack_user_identity_links (
+  await input.query({
+    values: ["org_1", "T123", "U123", "user_member", "explicit", 100],
+    text: `
+      INSERT INTO "openmeld"."slack_user_identity_links" (
         organization_id,
         slack_team_id,
         slack_user_id,
@@ -7242,58 +6989,56 @@ function seedSlackIdentityLink(
         source,
         created_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6)
     `,
   });
 }
-
-function seedSecondOrganization(
-  input: Parameters<typeof applyMigrationForTable>[0]
+async function seedSecondOrganization(
+  input: Awaited<ReturnType<typeof createPostgresHarness>>
 ) {
-  input.run({
-    params: [
+  await input.query({
+    values: [
       "org_2",
       "Second Org",
       "second-org",
       JSON.stringify({ personal: false }),
       100,
     ],
-    sql: `
-      INSERT INTO organizations (
+    text: `
+      INSERT INTO "openmeld"."organizations" (
         id,
         name,
         slug,
         metadata,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5)
     `,
   });
-  input.run({
-    params: ["member_2", "org_2", "user_member", "owner", 100],
-    sql: `
-      INSERT INTO members (
+  await input.query({
+    values: ["member_2", "org_2", "user_member", "owner", 100],
+    text: `
+      INSERT INTO "openmeld"."members" (
         id,
         organization_id,
         user_id,
         role,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5)
     `,
   });
 }
-
-function seedSlackOrganization(
-  input: Parameters<typeof applyMigrationForTable>[0]
+async function seedSlackOrganization(
+  input: Awaited<ReturnType<typeof createPostgresHarness>>
 ) {
-  input.run({
-    sql: "INSERT INTO users (id, name, email, created_at, updated_at) VALUES ('user_owner', 'Center Agent Creator', 'creator@example.test', 100, 100)",
+  await input.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, name, email, created_at, updated_at) VALUES ('user_owner', 'Center Agent Creator', 'creator@example.test', 100, 100)",
   });
-  input.run({
-    params: ["user_member", "Ari", "ari@example.test", 1, 100, 100],
-    sql: `
-      INSERT INTO users (
+  await input.query({
+    values: ["user_member", "Ari", "ari@example.test", 1, 100, 100],
+    text: `
+      INSERT INTO "openmeld"."users" (
         id,
         name,
         email,
@@ -7301,43 +7046,43 @@ function seedSlackOrganization(
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6)
     `,
   });
-  input.run({
-    params: [
+  await input.query({
+    values: [
       "org_1",
       "OpenMeld Labs",
       "openmeld-labs",
       JSON.stringify({ personal: false }),
       100,
     ],
-    sql: `
-      INSERT INTO organizations (
+    text: `
+      INSERT INTO "openmeld"."organizations" (
         id,
         name,
         slug,
         metadata,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5)
     `,
   });
-  input.run({
-    params: ["member_1", "org_1", "user_member", "owner", 100],
-    sql: `
-      INSERT INTO members (
+  await input.query({
+    values: ["member_1", "org_1", "user_member", "owner", 100],
+    text: `
+      INSERT INTO "openmeld"."members" (
         id,
         organization_id,
         user_id,
         role,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5)
     `,
   });
-  input.run({
-    params: [
+  await input.query({
+    values: [
       "22222222-2222-4222-8222-222222222222",
       "Ari Human",
       "ari",
@@ -7351,8 +7096,8 @@ function seedSlackOrganization(
       100,
       100,
     ],
-    sql: `
-      INSERT INTO openmeld_profiles (
+    text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -7366,11 +7111,11 @@ function seedSlackOrganization(
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     `,
   });
-  input.run({
-    params: [
+  await input.query({
+    values: [
       AGENT_PROFILE_ID,
       "Center Agent",
       "center-agent",
@@ -7384,8 +7129,8 @@ function seedSlackOrganization(
       100,
       100,
     ],
-    sql: `
-      INSERT INTO openmeld_profiles (
+    text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -7399,23 +7144,23 @@ function seedSlackOrganization(
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     `,
   });
-  input.run({
-    params: ["org_1", AGENT_PROFILE_ID, "user_owner", 100],
-    sql: `
-      INSERT INTO center_agent_designations (
+  await input.query({
+    values: ["org_1", AGENT_PROFILE_ID, "user_owner", 100],
+    text: `
+      INSERT INTO "openmeld"."center_agent_designations" (
         organization_id,
         agent_profile_id,
         designated_by,
         created_at
       )
-      VALUES (?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4)
     `,
   });
-  input.run({
-    params: [
+  await input.query({
+    values: [
       "binding_1",
       "organization",
       "org_1",
@@ -7429,8 +7174,8 @@ function seedSlackOrganization(
       100,
       100,
     ],
-    sql: `
-      INSERT INTO openMeldDaemon_agent_profile_bindings (
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
         binding_id,
         owner_kind,
         owner_id,
@@ -7444,13 +7189,12 @@ function seedSlackOrganization(
         created_at_ms,
         updated_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     `,
   });
 }
-
 function buildEnv(
-  db: D1Database,
+  db: PostgresDatabase,
   input: {
     cryptoKey?: string;
     ensureWorkspaceMember?: ReturnType<typeof vi.fn>;
@@ -7461,8 +7205,7 @@ function buildEnv(
   } = {}
 ): CoreBindings {
   return {
-    OPENMELD_DB: db,
-    OPENMELD_LOCAL_STATE_DB: db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(db),
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
     ...(input.richContextReproEnabled
       ? {
@@ -7471,8 +7214,8 @@ function buildEnv(
         }
       : {}),
     OPENMELD_AUTH_WORKER: {
-      resolveOrganizationAccountIdentity: (request) =>
-        resolveTestOrganizationAccountIdentity(db, request),
+      resolveOrganizationAccountIdentity: async (request) =>
+        await resolveTestOrganizationAccountIdentity(db, request),
       ...(input.ensureWorkspaceMember
         ? {
             ensureSlackWorkspaceMemberOrganizationMembership:
@@ -7505,27 +7248,29 @@ function buildEnv(
     } as unknown as CoreBindings["OPENMELD_SPACES"],
   };
 }
-
 async function resolveTestOrganizationAccountIdentity(
-  db: D1Database,
+  db: PostgresDatabase,
   input: AuthRpcResolveOrganizationAccountIdentityInput
 ): Promise<AuthRpcResolveOrganizationAccountIdentityResult> {
   const organization = await db
-    .prepare(
-      `
-        SELECT id, name, slug, metadata
-        FROM organizations
-        WHERE id = ?
-        LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<{
+    .query<{
       id: string;
       metadata: string | null;
       name: string;
       slug: string;
-    }>();
+    }>({
+      ...{
+        text: `
+        SELECT id, name, slug, metadata
+        FROM "openmeld"."organizations"
+        WHERE id = $1
+        LIMIT 1
+      `,
+        values: [],
+      },
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!organization) {
     return {
       code: "auth.organization_identity_unavailable",
@@ -7534,35 +7279,45 @@ async function resolveTestOrganizationAccountIdentity(
     };
   }
   const memberCountRow = await db
-    .prepare(
-      "SELECT COUNT(*) AS member_count FROM members WHERE organization_id = ?"
-    )
-    .bind(input.organizationId)
-    .first<{ member_count: number }>();
+    .query<{
+      member_count: number;
+    }>({
+      ...{
+        text: 'SELECT COUNT(*) AS member_count FROM "openmeld"."members" WHERE organization_id = $1',
+        values: [],
+      },
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   let account: Extract<
     AuthRpcResolveOrganizationAccountIdentityResult,
-    { ok: true }
+    {
+      ok: true;
+    }
   >["account"] = null;
   if (input.account) {
-    let accountSelection: { sql: string; value: string };
+    let accountSelection: {
+      sql: string;
+      value: string;
+    };
     if (input.account.kind === "email") {
       accountSelection = {
-        sql: "SELECT id, name, email FROM users WHERE lower(email) = lower(?) LIMIT 1",
+        sql: 'SELECT id, name, email FROM "openmeld"."users" WHERE lower(email) = lower($1) LIMIT 1',
         value: input.account.email,
       };
     } else if (input.account.kind === "user_id") {
       accountSelection = {
-        sql: "SELECT id, name, email FROM users WHERE id = ? LIMIT 1",
+        sql: 'SELECT id, name, email FROM "openmeld"."users" WHERE id = $1 LIMIT 1',
         value: input.account.userId,
       };
     } else {
       accountSelection = {
         sql: `
           SELECT users.id, users.name, users.email
-          FROM users
-          INNER JOIN openmeld_profiles AS selected_profile
+          FROM "openmeld"."users"
+          INNER JOIN "openmeld"."openmeld_profiles" AS selected_profile
             ON selected_profile.owner_user_id = users.id
-          WHERE selected_profile.profile_id = ?
+          WHERE selected_profile.profile_id = $1
             AND selected_profile.organization_id IS NULL
             AND selected_profile.profile_kind = 'human'
           LIMIT 1
@@ -7571,32 +7326,53 @@ async function resolveTestOrganizationAccountIdentity(
       };
     }
     const user = await db
-      .prepare(accountSelection.sql)
-      .bind(accountSelection.value)
-      .first<{ email: string; id: string; name: string | null }>();
+      .query<{
+        email: string;
+        id: string;
+        name: string | null;
+      }>({
+        ...{
+          text: accountSelection.sql,
+          values: [],
+        },
+        values: [accountSelection.value],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (user) {
       const [membership, profile] = await Promise.all([
         db
-          .prepare(
-            "SELECT id, role FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
-          )
-          .bind(input.organizationId, user.id)
-          .first<{ id: string; role: "admin" | "member" | "owner" }>(),
+          .query<{
+            id: string;
+            role: "admin" | "member" | "owner";
+          }>({
+            ...{
+              text: 'SELECT id, role FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2 LIMIT 1',
+              values: [],
+            },
+            values: [input.organizationId, user.id],
+          })
+          .then((result) => result.rows[0] ?? null),
         db
-          .prepare(
-            `
+          .query<{
+            profile_id: string;
+            profile_name: string;
+          }>({
+            ...{
+              text: `
               SELECT profile_id, profile_name
-              FROM openmeld_profiles
-              WHERE owner_user_id = ?
+              FROM "openmeld"."openmeld_profiles"
+              WHERE owner_user_id = $1
                 AND organization_id IS NULL
                 AND profile_kind = 'human'
                 AND is_default = 1
                 AND status = 'active'
               LIMIT 1
-            `
-          )
-          .bind(user.id)
-          .first<{ profile_id: string; profile_name: string }>(),
+            `,
+              values: [],
+            },
+            values: [user.id],
+          })
+          .then((result) => result.rows[0] ?? null),
       ]);
       account = {
         defaultHumanProfile: profile
@@ -7614,7 +7390,9 @@ async function resolveTestOrganizationAccountIdentity(
       };
     }
   }
-  let metadata: { personal?: unknown } = {};
+  let metadata: {
+    personal?: unknown;
+  } = {};
   try {
     metadata = JSON.parse(organization.metadata ?? "{}") as {
       personal?: unknown;
@@ -7634,71 +7412,66 @@ async function resolveTestOrganizationAccountIdentity(
     },
   };
 }
-
-function failSlackFinalPublicationFinalize(db: D1Database): D1Database {
-  return overridePreparedStatementRun({
-    db,
-    run: () =>
-      Promise.reject(new Error("simulated Slack publication finalize failure")),
-    sqlIncludes: "final_publication_state = 'published'",
+function failSlackFinalPublicationFinalize(
+  db: PostgresDatabase
+): PostgresDatabase {
+  const fault = observeNativePostgresQueries(({ text }) => {
+    if (
+      text
+        .slice(0, text.indexOf("WHERE"))
+        .includes("final_publication_state = 'published'")
+    ) {
+      throw new Error("simulated Slack publication finalize failure");
+    }
   });
+  onTestFinished(() => fault.mockRestore());
+  return db;
 }
-
-function skipSlackFinalPublicationClaim(db: D1Database): D1Database {
-  return overridePreparedStatementRun({
-    db,
-    run: () =>
-      Promise.resolve({ success: true, meta: { changes: 0 } } as D1Result),
-    sqlIncludes: "final_publication_state = 'claimed'",
-  });
-}
-
-function overridePreparedStatementRun(input: {
-  db: D1Database;
-  run: () => Promise<unknown>;
-  sqlIncludes: string;
-}): D1Database {
-  return new Proxy(input.db, {
-    get(target, property, receiver) {
-      if (property !== "prepare") {
-        const value = Reflect.get(target, property, receiver) as unknown;
-        return typeof value === "function" ? value.bind(target) : value;
+function skipSlackFinalPublicationClaim(
+  db: PostgresDatabase
+): PostgresDatabase {
+  // Another real connection owns the claim when our guarded UPDATE runs, then releases it before reread.
+  const native = PostgresDatabase.prototype.query;
+  let injected = false;
+  const race = vi
+    .spyOn(PostgresDatabase.prototype, "query")
+    .mockImplementation(async function (this: PostgresDatabase, query, values) {
+      const config =
+        typeof query === "string" ? { text: query, values } : query;
+      if (
+        injected ||
+        !config.text
+          .slice(0, config.text.indexOf("WHERE"))
+          .includes("final_publication_state = 'claimed'")
+      ) {
+        return native.call(this, query, values);
       }
-      return (sql: string) => {
-        const statement = target.prepare(sql);
-        return sql.includes(input.sqlIncludes)
-          ? replacePreparedStatementRun(statement, input.run)
-          : statement;
-      };
-    },
-  });
+      injected = true;
+      await native.call(db, {
+        text: `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+      SET final_publication_state = 'claimed', final_publication_claim_id = 'other-claim',
+        final_publication_claimed_at_ms = 1000, final_publication_claim_expires_at_ms = 9007199254740991
+      WHERE idempotency_key = $1`,
+        values: ["remote-agent-slack:T123:Ev123"],
+      });
+      const result = await native.call(this, query, values);
+      await native.call(db, {
+        text: `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+      SET final_publication_state = NULL, final_publication_claim_id = NULL,
+        final_publication_claimed_at_ms = NULL, final_publication_claim_expires_at_ms = NULL
+      WHERE idempotency_key = $1 AND final_publication_claim_id = 'other-claim'`,
+        values: ["remote-agent-slack:T123:Ev123"],
+      });
+      return result;
+    });
+  onTestFinished(() => race.mockRestore());
+  return db;
 }
-
-function replacePreparedStatementRun(
-  statement: D1PreparedStatement,
-  run: () => Promise<unknown>
-): D1PreparedStatement {
-  return new Proxy(statement, {
-    get(target, property, receiver) {
-      if (property === "bind") {
-        return (...values: unknown[]) =>
-          replacePreparedStatementRun(target.bind(...values), run);
-      }
-      if (property === "run") {
-        return run;
-      }
-      const value = Reflect.get(target, property, receiver) as unknown;
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-}
-
 type SlackMembershipStatusField =
   | "deleted"
   | "is_restricted"
   | "is_stranger"
   | "is_ultra_restricted";
-
 function buildSlackUsersInfoResponseWithout(
   missingStatusField: SlackMembershipStatusField,
   email = "new-member@example.test"
@@ -7719,7 +7492,6 @@ function buildSlackUsersInfoResponseWithout(
   delete user[missingStatusField];
   return { ok: true, user };
 }
-
 function stubSlackFetch(input: {
   assistantSearchResponse?: Record<string, unknown>;
   chatEphemeralResponse?: Record<string, unknown>;
@@ -7898,22 +7670,22 @@ function stubSlackFetch(input: {
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
-
 function readSlackPostBodies(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls
     .filter(([request]) => String(request).includes("/chat.postMessage"))
     .map(([, init]) => JSON.parse(String(init?.body ?? "{}")) as unknown);
 }
-
-function readSlackChannelIntroductionCreatedAtMs(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function readSlackChannelIntroductionCreatedAtMs(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   interactionId: string
-): number {
-  const row = harness.queryFirst<{ createdAtMs: number }>({
-    params: [interactionId],
-    sql: `SELECT created_at_ms AS createdAtMs
-      FROM slack_channel_introduction_runs
-      WHERE interaction_id = ?`,
+): Promise<number> {
+  const row = await harness.queryFirst<{
+    createdAtMs: number;
+  }>({
+    values: [interactionId],
+    text: `SELECT created_at_ms AS "createdAtMs"
+      FROM "openmeld"."slack_channel_introduction_runs"
+      WHERE interaction_id = $1`,
   });
   if (!(row && Number.isFinite(row.createdAtMs))) {
     throw new Error(
@@ -7922,13 +7694,11 @@ function readSlackChannelIntroductionCreatedAtMs(
   }
   return row.createdAtMs;
 }
-
 function readSlackEphemeralBodies(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls
     .filter(([request]) => String(request).includes("/chat.postEphemeral"))
     .map(([, init]) => JSON.parse(String(init?.body ?? "{}")) as unknown);
 }
-
 function readSlackThreadStatusBodies(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls
     .filter(([request]) =>
@@ -7936,7 +7706,6 @@ function readSlackThreadStatusBodies(fetchMock: ReturnType<typeof vi.fn>) {
     )
     .map(([, init]) => JSON.parse(String(init?.body ?? "{}")) as unknown);
 }
-
 function buildHumanContext(
   input: {
     activeOrganizationId?: string;
@@ -7958,9 +7727,8 @@ function buildHumanContext(
     },
   };
 }
-
 async function createAcceptedSlackDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId?: string;
   idempotencyKey: string;
   nowMs?: number;
@@ -7994,7 +7762,6 @@ async function createAcceptedSlackDelivery(input: {
     workerRequestId: "req_slack_1",
   });
 }
-
 function createAppMentionPayload(
   overrides: {
     actionToken?: string;
@@ -8024,7 +7791,6 @@ function createAppMentionPayload(
     },
   };
 }
-
 function createDirectMessagePayload(
   overrides: {
     actionToken?: string;
@@ -8063,11 +7829,15 @@ function createDirectMessagePayload(
     },
   };
 }
-
 function createCompletedCallbackForSubmittedRequest(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
   submissionId: string;
-}): Extract<RemoteAgentCoreCallbackBody, { text: string }> {
+}): Extract<
+  RemoteAgentCoreCallbackBody,
+  {
+    text: string;
+  }
+> {
   return {
     agentProfileId: input.request.agentProfileId,
     bindingId: input.request.bindingId,
@@ -8081,7 +7851,6 @@ function createCompletedCallbackForSubmittedRequest(input: {
     triggerMessageId: input.request.triggerMessageId,
   };
 }
-
 function createDeferred<T>(value: T): {
   promise: Promise<T>;
   resolve: () => void;
@@ -8095,10 +7864,14 @@ function createDeferred<T>(value: T): {
     resolve: () => resolvePromise(value),
   };
 }
-
 function createCompletedCallbackBody(
   input: { triggerMessageId?: string } = {}
-): Extract<RemoteAgentCoreCallbackBody, { text: string }> {
+): Extract<
+  RemoteAgentCoreCallbackBody,
+  {
+    text: string;
+  }
+> {
   return {
     agentProfileId: AGENT_PROFILE_ID,
     bindingId: "binding_1",
@@ -8112,7 +7885,6 @@ function createCompletedCallbackBody(
     triggerMessageId: input.triggerMessageId ?? CONVERSATION_ID,
   };
 }
-
 function createFailedCallbackBody(): RemoteAgentCoreCallbackBody {
   return {
     agentProfileId: AGENT_PROFILE_ID,
@@ -8130,7 +7902,6 @@ function createFailedCallbackBody(): RemoteAgentCoreCallbackBody {
     triggerMessageId: CONVERSATION_ID,
   };
 }
-
 function createDeadlineProbe(): RemoteAgentNativeDeliveryDeadlineProbeQueueMessage {
   return {
     deadlineAtMs: 1000 + REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS * 1000,

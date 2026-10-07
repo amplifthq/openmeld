@@ -1,5 +1,10 @@
 import { userInfo } from "node:os";
+import { delimiter } from "node:path";
 import process from "node:process";
+import {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "@openmeld/adapter-core/process-environment";
 import {
   DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
   DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
@@ -15,6 +20,7 @@ import {
 import {
   OPENMELD_HOME_ENV_KEY,
   openMeldManagedVersionBinaryPath,
+  resolveOpenMeldRootDir,
 } from "../../config/paths";
 import { resolveCliSelfVersion } from "../../local-components/managed-install";
 import {
@@ -27,6 +33,7 @@ import {
   daemonServiceLauncherPath,
   ensureDaemonServiceStableBinaryExecutable,
   readDaemonActiveBundleState,
+  resolveAlignedDaemonActiveBundleEntryPath,
   writeDaemonServiceExecutableWrapper,
   writeDaemonServiceLauncher,
 } from "./daemon-service-bundle";
@@ -37,6 +44,8 @@ import type {
 
 const DEFAULT_LAUNCHD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const MACOS_SYSTEM_SHELL = "/bin/sh";
+const DISPATCH_SPACE_ACTION_PATH_PATTERN =
+  /[\\/]runtime[\\/]daemon[\\/]dispatch-space-actions[\\/][^\\/]+[\\/]bin$/u;
 const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
   "HOME",
   "PATH",
@@ -58,7 +67,34 @@ const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
   "OPENMELD_ENV_PRESET",
   "OPENMELD_USER_FACING_CLI_COMMAND",
   "OPENMELD_CLI_BINARY_MANIFEST_URL",
+  "OPENMELD_WINDOWS_INTERNAL_PREVIEW",
 ]);
+
+// Start/account admission/repair reuse the selected GUI Service, never a path
+// reconstructed from the installed CLI's version.
+export async function resolveInstalledDaemonSystemServiceCommandSpec(
+  input: Omit<
+    Parameters<typeof buildDaemonSystemServiceCommandSpec>[0],
+    "binaryExecutablePath"
+  >
+): Promise<DaemonServiceCommandSpec> {
+  if (
+    input.controller !== "windows-service" ||
+    (input.distribution ?? resolveOpenMeldDistribution()) !== "binary"
+  ) {
+    return buildDaemonSystemServiceCommandSpec(input);
+  }
+  const executable = await resolveAlignedDaemonActiveBundleEntryPath();
+  if (!executable) {
+    throw new Error(
+      "The installed Windows Service bundle needs repair before it can start."
+    );
+  }
+  return buildDaemonSystemServiceCommandSpec({
+    ...input,
+    binaryExecutablePath: executable,
+  });
+}
 
 export function buildDaemonSystemServiceCommandSpec(input: {
   accountAdmissionId?: string;
@@ -106,6 +142,11 @@ function resolveDaemonServiceExecutable(input: {
   distribution?: OpenMeldDistribution;
 }): { executable: string; specArgs: string[] } {
   if ((input.distribution ?? resolveOpenMeldDistribution()) === "binary") {
+    if (input.controller === "windows-service" && !input.binaryExecutablePath) {
+      throw new Error(
+        "Windows Service registration requires its selected background executable."
+      );
+    }
     // macOS privacy grants identify a bare CLI by its executable path. Keep the
     // launchd carrier at one physical path across upgrades; the prepared,
     // signed version binary is copied there before registration. Other service
@@ -157,7 +198,9 @@ export async function ensureDaemonSystemServiceCommandFiles(input: {
 function buildSystemServiceEnvironment(): Record<string, string> {
   const env: Record<string, string> = {};
   const runtimeUser = userInfo().username;
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(
+    normalizeCommandEnvironment(process.env)
+  )) {
     if (
       typeof value !== "string" ||
       value.length === 0 ||
@@ -165,10 +208,18 @@ function buildSystemServiceEnvironment(): Record<string, string> {
     ) {
       continue;
     }
-    env[key] = sanitizeDaemonServiceEnvironmentValue(value);
+    env[key] =
+      key === "PATH"
+        ? stripDispatchSpaceActionCliShims(value)
+        : sanitizeDaemonServiceEnvironmentValue(value);
   }
   if (process.platform === "darwin") {
     env.PATH ??= DEFAULT_LAUNCHD_PATH;
+  }
+  if (process.platform === "win32") {
+    // Task ownership checks need the same lane root used to register the task.
+    // The published setup command intentionally leaves OPENMELD_HOME unset.
+    env[OPENMELD_HOME_ENV_KEY] ??= resolveOpenMeldRootDir();
   }
   env.HOME ??= userInfo().homedir;
   env.USER ??= env.LOGNAME ?? runtimeUser;
@@ -176,8 +227,19 @@ function buildSystemServiceEnvironment(): Record<string, string> {
   return env;
 }
 
+function stripDispatchSpaceActionCliShims(value: string): string {
+  return value
+    .split(delimiter)
+    .filter((entry) => !DISPATCH_SPACE_ACTION_PATH_PATTERN.test(entry))
+    .join(delimiter);
+}
+
 function isDaemonServiceEnvironmentKey(key: string): boolean {
-  return DAEMON_SERVICE_ENV_KEY_WHITELIST.has(key);
+  return (
+    DAEMON_SERVICE_ENV_KEY_WHITELIST.has(key) ||
+    (process.platform === "win32" &&
+      WINDOWS_RUNTIME_ENV_KEYS.some((candidate) => candidate === key))
+  );
 }
 
 function sanitizeDaemonServiceEnvironmentValue(value: string): string {

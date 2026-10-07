@@ -25,6 +25,7 @@ import {
   OPENMELD_HEADER_PROFILE_ID,
 } from "../src/shared/context/openmeld-context";
 import type { Space } from "../src/space/transport/do/space";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 const DEFAULT_CONTEXT: OpenMeldRequestContext = {
   activeOrganizationId: "org-1",
@@ -63,32 +64,22 @@ const TEST_REPLY_TO = {
   profileName: "Mira",
   previewText: "Earlier question",
 };
-const MEMBERS_TABLE_QUERY_PATTERN = /\bFROM\s+members\b/i;
-
-function createRpcMethodsDbMock(): D1Database {
-  return {
-    prepare: vi.fn((query: string) => {
-      const statement = {
-        bind: vi.fn(() => statement),
-        first: vi.fn(() => {
-          if (MEMBERS_TABLE_QUERY_PATTERN.test(query)) {
-            return Promise.resolve({ id: "member-owner", role: "owner" });
-          }
-          if (query.includes("FROM space_index_spaces")) {
-            return Promise.resolve({
-              organization_id: "org-1",
-              organization_visibility: "private",
-              space_id: SPACE_ID,
-            });
-          }
-          return Promise.resolve(null);
-        }),
-        all: vi.fn(() => Promise.resolve({ results: [] })),
-        run: vi.fn(() => Promise.resolve({ success: true })),
-      };
-      return statement;
-    }),
-  } as unknown as D1Database;
+function createRpcMethodsPostgresBinding() {
+  return createProjectionPostgresBinding(({ text }) => {
+    if (text.includes('FROM "openmeld"."members"')) {
+      return [{ id: "member-owner", role: "owner" }];
+    }
+    if (text.includes('FROM "openmeld"."space_index_spaces"')) {
+      return [
+        {
+          organization_id: "org-1",
+          organization_visibility: "private",
+          space_id: SPACE_ID,
+        },
+      ];
+    }
+    return [];
+  });
 }
 
 function createBindingsMock() {
@@ -232,7 +223,7 @@ function createBindingsMock() {
 
   return {
     env: {
-      OPENMELD_DB: createRpcMethodsDbMock(),
+      OPENMELD_POSTGRESQL: createRpcMethodsPostgresBinding(),
       OPENMELD_SPACES: namespace,
     } as CoreBindings,
     namespace,

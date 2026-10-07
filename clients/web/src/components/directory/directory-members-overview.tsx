@@ -24,6 +24,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -54,6 +55,7 @@ import {
 	buildPersonalHumanProfileRows,
 	type DirectoryDocumentsStatus,
 	type DirectoryProjectionStatus,
+	resolveCurrentOrganizationComputersProjection,
 	resolveMissingPersonalHumanProfileMessage,
 } from "#/components/directory/directory-human-profile-model";
 import {
@@ -453,7 +455,8 @@ function useDirectoryMembersOverviewModel(
 		isError: documentsQuery.isError,
 		isSuccess: documentsQuery.isSuccess,
 	});
-	const computersStatus = resolveDirectoryProjectionStatus(computersQuery);
+	const { data: organizationComputers, status: computersStatus } =
+		resolveCurrentOrganizationComputersProjection(computersQuery);
 	const currentUserInventoryStatus = resolveDirectoryProjectionStatus(
 		input.recovery.localRuntimesQuery
 	);
@@ -465,13 +468,17 @@ function useDirectoryMembersOverviewModel(
 		});
 	const messageChannelsStatus =
 		resolveDirectoryProjectionStatus(messageChannelsQuery);
-	const computerGroups = resolveOrganizationComputerGroups({
-		currentComputerServiceState: currentComputerServiceProjection.serviceState,
-		currentUserId: input.currentUserId,
-		directory: input.directoryQuery.data ?? null,
-		organizationComputers: computersQuery.data ?? null,
-		ownedComputers: input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
-	});
+	const { computerGroups, strictComputerGroups } =
+		resolveDirectoryComputerGroups({
+			currentComputerServiceState:
+				currentComputerServiceProjection.serviceState,
+			currentUserId: input.currentUserId,
+			directory: input.directoryQuery.data ?? null,
+			organizationComputers: computersQuery.data ?? null,
+			ownedComputers:
+				input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
+			strictOrganizationComputers: organizationComputers,
+		});
 	const memberRows = isPersonalWorkspace
 		? buildPersonalHumanProfileRows({
 				agentProfileSummaries: buildDirectoryAgentProfilesByOwner({
@@ -493,7 +500,7 @@ function useDirectoryMembersOverviewModel(
 				agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 				canManageConnectedAccounts,
 				canManageMessageChannels,
-				computerGroups,
+				computerGroups: strictComputerGroups,
 				computersStatus,
 				currentUserComputersStatus: currentComputerServiceProjection.status,
 				currentUserId: input.currentUserId,
@@ -580,6 +587,7 @@ function useDirectoryMembersOverviewModel(
 			researchErrorMessage: researchErrors.section,
 			selectedProfileId,
 			state: profilesViewState,
+			strictComputerGroups,
 		};
 	return {
 		invitationAccess: resolveDirectoryInvitationAccess({
@@ -593,6 +601,26 @@ function useDirectoryMembersOverviewModel(
 		organization: input.currentOrganization,
 		workspaceProps,
 	};
+}
+
+function resolveDirectoryComputerGroups(
+	input: Parameters<typeof resolveOrganizationComputerGroups>[0] & {
+		strictOrganizationComputers: ReturnType<
+			typeof resolveCurrentOrganizationComputersProjection
+		>["data"];
+	}
+) {
+	// Read-only Agent logos retain the last success; status and detail actions
+	// use only the current projection when the latest request fails.
+	const computerGroups = resolveOrganizationComputerGroups(input);
+	const strictComputerGroups =
+		input.organizationComputers === input.strictOrganizationComputers
+			? computerGroups
+			: resolveOrganizationComputerGroups({
+					...input,
+					organizationComputers: input.strictOrganizationComputers,
+				});
+	return { computerGroups, strictComputerGroups };
 }
 
 function DirectoryMembersOverviewView(input: {
@@ -626,26 +654,31 @@ function DirectoryInviteDialog(input: {
 }) {
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.isOpen}>
-			<DialogContent className="max-h-[min(50rem,calc(100dvh-2rem))] overflow-y-auto sm:max-w-4xl">
-				<DialogHeader>
-					<DialogTitle>Invite Members</DialogTitle>
-					<DialogDescription>
-						Invite teammates by email or share an organization invite link.
-					</DialogDescription>
-				</DialogHeader>
-				{input.access.kind === "personal" ? (
-					<PersonalWorkspaceInvitationGuidance
-						createOrganizationPath={buildOrganizationNewOrganizationPath(
-							input.organization.slug
-						)}
-						title="Create an organization to invite members"
-					/>
-				) : (
-					<DirectoryInvitePanel
-						access={input.access}
-						organizationId={input.organization.id}
-					/>
-				)}
+			<DialogContent className="max-h-[min(50rem,calc(100dvh-2rem))] overflow-hidden p-0 sm:max-w-4xl">
+				<ScrollArea
+					className="max-h-[inherit]"
+					contentClassName="grid gap-4 p-4"
+				>
+					<DialogHeader>
+						<DialogTitle>Invite Members</DialogTitle>
+						<DialogDescription>
+							Invite teammates by email or share an organization invite link.
+						</DialogDescription>
+					</DialogHeader>
+					{input.access.kind === "personal" ? (
+						<PersonalWorkspaceInvitationGuidance
+							createOrganizationPath={buildOrganizationNewOrganizationPath(
+								input.organization.slug
+							)}
+							title="Create an organization to invite members"
+						/>
+					) : (
+						<DirectoryInvitePanel
+							access={input.access}
+							organizationId={input.organization.id}
+						/>
+					)}
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

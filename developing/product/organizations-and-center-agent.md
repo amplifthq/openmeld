@@ -34,13 +34,67 @@ foundation, hosted Center Agent MVP surfaces, and Remote Agent R1 on the Flue
 harness with native delivery, Space reply streaming, Slack channel support, and
 Center Agent memory. Center Agent Routines are a separate
 first-class product surface owned by
-`developing/product/center-agent-routines.md`. The former Session Sync
+`developing/product/routines.md`. The former Session Sync
 direction is now the Agent Activity product owned by
 `developing/product/agent-activity.md`. The Center Agent Web homes and retired
 management-panel mapping are approved target state as of 2026-07-13 and land
 through W-NAV1..5. Further implementation must follow this baseline; deviations
 require Felix, and the change must land here and in `developing/decisions.md` in
 the same PR.
+
+## Member departure and asset boundaries
+
+Leaving an Organization and being removed by an administrator use the same
+member-departure lifecycle. Check Space ownership handoff and Center Agent
+identity, durably prepare private Session Inventory cleanup, then remove the
+membership. Finalize cleanup only after the native membership operation succeeds.
+Failed authorization or a rejected departure must not purge personal memory.
+The inventory cleanup waits for authoritative membership removal and retains its
+existing retry path. Center Agent member memory uses the existing provider
+deletion path and failure logs; this is not a guarantee of completed remote
+erasure when that provider is unavailable.
+
+| Operation / asset | Boundary |
+| --- | --- |
+| Leave a Space or Organization; revoke membership | Remove the access grant, not shared messages, files, revisions, or attribution. Public link access remains an independent grant; close it separately when confidentiality requires it. |
+| Space ownership | Hand over management before leaving. Creator attribution alone grants no access. Keep the existing last-owner protection and restrictive membership references. |
+| Team Files, Space Files, Organization Skills, Center Agent | Keep them with their owning Organization or Space. A creator's departure must not delete them or create a second ownership model. |
+| Member-private Files and local agent sessions | Do not transfer them into Team Files or grant administrators ordinary read access. Private file retention is separate from member removal; see `files.md`. |
+| Private Session Inventory and member-specific Center Agent memory | Use the shared departure cleanup. This does not delete work already published into a shared Space. |
+| Explicit file deletion | Use the existing trash and restore mechanism. An independent copied revision is not deleted with its source. |
+| Explicit Skill removal | Disable use while retaining immutable releases and audit evidence under the existing Skill lifecycle. |
+| Explicit Space deletion | A human Space owner confirms permanent deletion for everyone. Pending Wake work blocks deletion; see `space-collaboration.md`. |
+
+This deliberately separates access revocation, shared work retention, and explicit
+content deletion. It follows the purpose of
+[Slack deactivation](https://slack.com/help/articles/204475027-Deactivate-a-members-account),
+[Slack channel deletion](https://slack.com/help/articles/213185307-Archive-or-delete-a-channel),
+[Lark offboarding](https://www.larksuite.com/hc/en-US/articles/360048487851-admin-delete-members-and-reallocate-resources),
+and [Feishu offboarding](https://www.feishu.cn/hc/zh-CN/articles/360043223853-管理员操作成员离职及转移资源).
+It does not copy their enterprise resource-transfer consoles or promise indefinite
+retention. Existing recall, trash, retention, and permanent deletion rules still apply.
+
+Account deletion is an account-wide operation in Settings > Account. The server
+previews the affected workspaces and checks the same inventory again at acceptance.
+A workspace with other members remains; its last owner must first appoint another
+owner, and Space owners must complete the existing ownership handoff. A workspace
+with no other members closes, including its shared links and guest content.
+
+Acceptance revokes sessions, sign-in credentials, device codes, personal profiles,
+and memberships, and replaces the account identity with a non-signable tombstone.
+Shared messages, published files, Skills, revisions, and audit attribution remain
+with surviving teams. Historical text and author snapshots are not rewritten.
+Private Files roots (including former memberships), personal Computers, private Agent conversations,
+synced Session Inventory, personal memory, and personal App connections are erased
+through their existing owners. Team-level connections remain with a surviving team.
+Closing a workspace also disconnects its Channels and Apps and deletes its assets.
+
+Auth owns acceptance and the durable cleanup request; Core coordinates owner-specific
+erasure. Storage or provider failures remain pending and retry. The success page
+says that the account is closed and cleanup continues, not that every remote byte
+has already disappeared. Legacy Center Agent Computers shared across conversations
+remain team assets while that team exists; isolated private Computers are erased.
+Membership departure alone is not account deletion or complete personal-data erasure.
 
 ## Reading Order For A Fresh Session
 
@@ -315,7 +369,7 @@ docs directly readable against our schema.
   human-only SaaS. Enable only when a real org hits that need.
 - Auto-personal-org lands via a user-create database hook calling server-side
   org creation; the session-create hook sets `activeOrganizationId`. Each Auth
-  user has at most one personal Organization. D1 enforces that invariant with a
+  user has at most one personal Organization. PostgreSQL enforces that invariant with a
   partial unique index over the existing canonical facts:
   `created_by_user_id` where valid Organization metadata has `personal: true`.
   Concurrent first sessions resolve the same winning Organization and converge
@@ -409,7 +463,7 @@ Hard boundary:
 - **Better Auth owns identity**: org, member, invitation, session, role.
 - Better Auth also owns the Organization's current `logo` reference. Gateway
   owns the referenced image bytes and transformation/storage side effects.
-- **Core (D1) owns business resources**: Spaces, Agent Profiles, Bindings,
+- **Core (PostgreSQL) owns business resources**: Spaces, Agent Profiles, Bindings,
   Center Agent designations — each carrying an `organizationId` reference.
 - Do not put business fields into Better Auth tables via `additionalFields`.
   Business mutations need our own validation, audit, and side effects; hiding
@@ -499,8 +553,12 @@ New profiles default to "<Organization name> Center Agent" so they remain
 recognizable across Organizations. A missing or blank Organization name falls
 back to "Center Agent", and an Organization name that already ends with
 "Center Agent" is not given a duplicate suffix. Existing profiles are not
-renamed by ensure. Future Center Agent settings may let an org customize the
-name, role description, avatar, or instructions, but that customization edits
+renamed by ensure. Center Agent settings let an authorized organization owner
+or admin choose a Bot avatar or the abstract fluid avatar on the managed
+profile. An unset avatar uses a stable Bot choice derived from that profile's
+identity, so every member sees the same default. The user previews choices in
+place and explicitly saves the selected avatar. Future customization of the
+role description or instructions also edits
 the same managed profile. It must not create a second Center Agent or turn an
 arbitrary ordinary Agent Profile into the Center Agent. The UI shows a
 badge/label derived from the designation to convey "this is our org's Center
@@ -585,8 +643,10 @@ The Center Agent has one Web product home with complementary destinations:
 
 - **Center Agent** is the product home for the workspace's managed agent and
   owns no secondary sidebar. Its stable header navigation is **Messages,
-  Graph, Files, Routines, Skills, Channels**. The first three preserve the selected
-  conversation surface; Routines owns scheduled work. One compact header menu preserves
+  Graph, Files, Routines, Channels**. The first three preserve the selected
+  conversation surface; Routines owns scheduled work. Skills management belongs
+  to Team at `/o/{orgSlug}/skills`, while Center Agent retains its conversational
+  Skill tools and authorized consumption. One compact header menu preserves
   **Memory, Center Agent settings** and, on the
   conversation, **Conversation information**. There is no separate About
   surface or Slack shortcut. Identity and configuration live in Center Agent
@@ -642,7 +702,7 @@ context. The UI must say **prepared** and **reported loaded** rather than imply
 that the model saw, understood, or relied on every item. Neither entry displays
 message bodies, a local thread or session locator, hidden model state, or
 authorization material. The manifest ledger keeps stable Signal refs and
-hashes instead of copying Chat text into D1. This makes the interaction
+hashes instead of copying Chat text into PostgreSQL. This makes the interaction
 discoverable without turning the Audit Log into a second transcript.
 
 Downstream provenance reuses the existing native-delivery correlation on the
@@ -654,6 +714,25 @@ source ledger. A direct Web, CLI, Slack, or Channel action without that exact
 Local Agent request remains unlabelled rather than being guessed.
 
 ### Computer setup assistance
+
+Computer care reuses these reads and controls. A targeted
+`openmeld_list_computers` read includes path-free Local Agent diagnostics and
+`care`: current connection lookup, last heartbeat, supervisor response
+evidence, and the last acknowledged Execution Host observation when supported.
+Host observations carry their own time and incarnation, not process IDs or
+paths. A missing observation is unknown; an unresponsive Host does not imply
+that accepted work stopped. Local counts do not identify affected cloud tasks.
+
+For a specific task, Center Agent reads the existing Wake progress and execution
+recovery projections, including device wait, pending interaction, stop
+eligibility and pagination. It must not infer the occupying application's
+identity from a conversation writer conflict or attribute all queued work to
+one blocker. It may combine authorized observations to investigate, but does
+not create a second scheduler or maintenance state machine. Existing owner
+controls retain their authorization and confirmation rules; after a mutation,
+Center Agent re-reads its operation or owning projection before claiming repair.
+No arbitrary local shell, process termination, lock deletion, or boundary
+bypass is introduced. Team-safe reads remain separate from private diagnosis.
 
 The Center Agent may help the represented member connect a new computer,
 reconnect an existing computer, or install a required OpenMeld Service update.
@@ -782,7 +861,7 @@ concept. Its surviving destinations use the stable header or its compact menu:
 | Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                                                                                           |
 | Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
 | Plugins       | **Plugins**                                             | The single member and shared App catalog in every workspace.                                                                                                                |
-| Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home.                                                                          |
+| Memory     | **Center Agent → Memory** for member memory; **Settings → Center Agent settings** for Organization memory | Personal recall stays with the member-facing Memory surface. Organization policy stays with the other Organization-owned Center Agent settings. |
 | Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.                                                                                   |
 | Activity   | **Center Agent → Center Agent settings → Audit Log** | Retire the misleading label; this journal records Center Agent tool calls.                                                                                                  |
 | Settings   | **Center Agent → Center Agent settings**             | One configuration home, with mutations role-gated.                                                                                                                          |
@@ -827,7 +906,7 @@ context, mutates Space state, or grants execution authority.
 Center
 Agent Routines are the bounded recurring-work exception and follow their own
 authority, target, scheduling, and native-delivery contract in
-`developing/product/center-agent-routines.md`; do not use them to widen the
+`developing/product/routines.md`; do not use them to widen the
 general concierge tool surface.
 
 ### Goal fulfillment and delegated continuation
@@ -944,6 +1023,19 @@ turn and its new Native Delivery from the observer delivery's frozen locator;
 the subscription never copies or overrides that destination. This also permits
 one Space parent to watch work in another Space without making either Space the
 coordination owner.
+
+If a Space continuation receives no worker ACK during its admission window,
+Core retries that same Native Delivery at most twice after the initial attempt,
+with 15-second and 30-second backoff. Every attempt reuses the frozen worker
+request, delivery id, dispatch id, and idempotency key; it never creates a new
+continuation or consumes the subscription again. A real worker ACK, including
+an already-observed idempotent ACK, closes retry eligibility immediately.
+After three unacknowledged attempts, Core publishes one explicit failure in the
+original result thread and creates one urgent, action-required Inbox item for
+the represented member linked to that result. The member does not need to poll
+or remember to Wake the parent, and accepted or running work is never replayed
+by this admission recovery.
+
 Stopping the parent cancels pending continuations and planned fallbacks, and
 forwards the existing exact Wake Stop request to every active Space Wake child.
 Every cancellation target is attempted even when one fails. Hosted
@@ -1110,8 +1202,8 @@ has two meanings:
   `center-agent.defaultModelId` when a new turn is admitted;
 - present means the Organization selected that exact available catalog model.
 
-The current OpenMeld default is **GLM 5.3 Flash**. The explicit choices are
-**GLM 5.3 Flash**, **Grok 4.6**, **Grok 4.5**, and **DeepSeek V4 Flash**.
+The current OpenMeld default is **Claude Opus 5.5** at `medium` reasoning. Explicit choices come from
+the shared hosted model catalog.
 Changing the system default is intentionally scheme A: existing Organizations
 on OpenMeld default use the new default for their next admitted turn, without
 a migration or per-Organization rollout row.
@@ -1126,15 +1218,17 @@ another execution authority.
 
 GLM 5.3 Flash, Grok 4.6, and Grok 4.5 are provider-declared as text-and-image
 models; DeepSeek V4 Flash is text-only. Regardless of the primary model's
-capability, every current-version image first uses frozen Grok 4.6 as the
+capability, every current-version image first uses frozen GPT-6 Luna as the
 auxiliary image-understanding model. The primary receives its bounded
 untrusted description, not the raw image. An auxiliary or primary model
 failure fails the turn; OpenMeld never switches the primary automatically.
 
-Reasoning is part of the same frozen route, not a second mutable preference.
-The current catalog fixes hosted reasoning to `high`, and the Remote Agent
-Harness consumes that value dynamically. Web does not expose a separate
-reasoning control in this release.
+Reasoning is part of the same frozen route. The hosted Binding stores an
+optional effort alongside the selected model. Absent means that model's
+catalog default; a present value must be supported by the selected model.
+The Remote Agent Harness consumes the effective effort from the frozen route.
+Web exposes the model and reasoning controls together. GLM 5.3 Flash does not
+support `medium`, so its catalog default remains `high` when explicitly chosen.
 
 The Center Agent system prompt receives the friendly effective model name so
 it answers a member's question with that exact full name, without shortening or
@@ -1230,7 +1324,7 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   create, list, update, delete, pause, or resume a Routine; Core applies that
   member's exact owner/admin/member creator scope through the same Routine
   service used by human clients. See
-  `developing/product/center-agent-routines.md`.
+  `developing/product/routines.md`.
 - Every privileged Center Agent action lands in an audit journal from day one:
   actor (the Center Agent), org, action, on-behalf-of attribution.
 - Attribution: when the Center Agent acts on someone's ask (for example waking
@@ -1324,7 +1418,7 @@ Scheduling is an execution mode for existing Center Agent capabilities, not a
 separate agent or authority path. Core reauthorizes the Routine's delegated
 member at Run admission. The default catalog-inheritance rule and its explicit
 Agent Task continuation exception are owned by
-`developing/product/center-agent-routines.md` and
+`developing/product/routines.md` and
 `developing/product/projects.md`; this Organization owner adds no second
 catalog policy. Routine management tools remain available under the represented
 member's authority, and no catalog decision bypasses capability-owned role,
@@ -1344,7 +1438,7 @@ all other App, GitHub, and Message Channel writes remain blocked by the stored
 read-only policy. Its selected-source list is instruction scope, not additional
 connection authority. It cannot create or modify other Routines in the current
 slice. Full product semantics are owned by
-`developing/product/center-agent-routines.md`.
+`developing/product/routines.md`.
 
 ### Channels and Plugins
 
@@ -1699,10 +1793,13 @@ repository outside the installation grant fails visibly with the matching
 remedy.
 
 The installation start is bound to one Organization, installer, Center Agent
-profile, and target connection by a single-use ten-minute opaque state. GitHub
-returns the installation id to OpenMeld's public setup callback. OpenMeld then
-uses a temporary verifier connection to prove that the same signed-in GitHub
-user can see that installation before OpenConnector stores the final
+profile, and target connection by a single-use ten-minute opaque state. For a
+new installation, GitHub returns the installation id to OpenMeld's public setup
+callback. For an App already installed, OpenMeld starts user authorization
+directly and accepts the installation only when that user can access exactly
+one organization installation of the configured App. If several installations
+are accessible, setup must stop instead of guessing an account. Both paths use
+a temporary verifier connection before OpenConnector stores the final
 installation credential. Core stores the installation id and connection
 ownership metadata, never an installation token, App private key, OAuth client
 secret, or user token.
@@ -1924,7 +2021,7 @@ the channel's actual work. Core freezes the selected channels as one immutable
 durable manifest before the acknowledgement is published, then submits one
 idempotent native delivery per channel and checkpoints each item separately.
 The acknowledgement and each private teammate invitation carry stable Slack
-message metadata. A confirmed Slack message followed by a failed D1 checkpoint
+message metadata. A confirmed Slack message followed by a failed PostgreSQL checkpoint
 stays recoverable rather than becoming a false terminal failure: Core first
 retries the checkpoint, then scheduled work reconciles the exact Slack message
 before continuing onboarding or channel publication. Recovery never blindly
@@ -2012,9 +2109,34 @@ of a personal registration does not grant use of its credentials. Connections
 remain scoped to one Organization; personal ownership does not imply cross-Org
 credential reuse.
 
-An absent policy preserves historical Center access and shared personal-Remote
-access, while Local access and personal-Remote access to a member connection
-start disabled. Moving navigation alone never expands existing authority.
+The runtime provider catalog owns service identity and available authentication
+methods. OpenMeld accepts provider service keys through one shared contract,
+renders every supported credential method, and preserves multiline field types.
+Featured catalog entries are presentation metadata, not an execution allowlist.
+Catalog-only providers without an executable connection method cannot be
+connected. Agent discovery lists only active shared connections and the verified
+requester's personal connections, then applies the existing execution policy.
+
+New personal and shared registrations persist explicit `none` for every Agent
+consumer before provider authorization. Provider consent/activation is not an
+Agent grant. The connection owner must explicitly save Agent permissions through
+the existing revisioned, audited access editor. The same editor follows the
+connection form in Plugins, Onboarding and conversation setup.
+
+Historical registrations with an absent policy retain their shipped Center and
+shared personal-Remote access; Local access and personal-Remote access to a member
+connection remain disabled. New inserts must not reuse this legacy null-policy
+compatibility rule. Reauthorization of the same Organization/scope/owner/service
+registration preserves its existing policy but advances its access revision so
+an earlier permission draft cannot overwrite the new authorization. Access may
+only be saved while the connection is active, fenced in the same audit/write
+transaction. Access revisions are monotonic fences, not a count of grant events.
+A different member or Organization has a different registration and starts with
+no access. Shared setup attribution may change between authorized administrators;
+the Organization remains the credential-policy owner, not the last installer.
+These connection-level grants do not attest a provider account identity beyond
+what the existing connector verification proves. Moving navigation alone never
+expands existing authority.
 Read-only access requires trusted action metadata declaring a read. Unknown and
 destructive effects require write permission and exact-action confirmation.
 Personal Remote Agents may use their owner's connection only for a verified
@@ -2056,11 +2178,10 @@ Management location follows the owner instead of repeating mutation controls:
   visibly separate, has no disconnect
   or repair controls, and accepts success only from the owning Core projection.
   Center Agent remains the ongoing management home.
-- The Center Agent Chat page has no Channels or Plugins mutation copy. It may show
-  a read-only status shortcut and compact handoff dialog when context makes the
-  canonical Center Agent destination useful, but the dialog must only
-  deep-link; it must not install, move, disconnect, or otherwise manage the
-  integration.
+- The Center Agent Chat page does not duplicate Channels or Plugins settings.
+  A Plugin connection message may open the same authorized connection and access
+  surface in a compact dialog; it does not implement separate management logic
+  or permissions. Other status shortcuts use the canonical management page.
 - When the Center Agent tells a user to complete or repair App access, it uses a
   structured Navigation Action for the current Organization's canonical App
   page. The reply gives the outcome, one concrete next step, and that direct
@@ -2198,12 +2319,11 @@ than by the model provider:
   verified requesting member, whether the private conversation is an OpenMeld
   DM, Slack DM, Lark DM, or Feishu DM. The member can wipe it without deleting
   messages, Spaces, or shared organization memory.
-- **Organization memory** is on by default. Completed Center Agent turns in
-  shared Spaces and Organization-shared Channels can be used as Organization
-  memory until an organization owner or admin turns it off. Requester-private
-  conversations never write to Organization memory automatically. Externally
-  shared Channels also do not write it automatically unless a future explicit
-  owner policy authorizes that environment. The Center Agent may save an
+- **Organization memory** is on by default for recall and explicit saves.
+  Completed turns in shared Spaces and Organization-shared Channels do not
+  automatically write any memory scope. Requester-private conversations retain
+  automatic Member capture; externally shared conversations capture neither.
+  The Center Agent may save an
   explicit Organization fact only from an `organization_shared` conversation
   while Organization memory is enabled. Remote Agent offers that explicit tool
   only when the frozen environment is present, non-conflicting, and
@@ -2213,8 +2333,7 @@ than by the model provider:
 - For automatic completed-turn capture, Core selects the memory subject from
   the frozen `interactionEnvironment` and a currently verified requester/member
   identity. `requester_private` selects Member memory,
-  `organization_shared` selects enabled Organization memory, and
-  `externally_shared` selects neither. A carrier or provenance source such as
+  `organization_shared` and `externally_shared` select neither. A carrier or provenance source such as
   `slack_conversation` or `message_channel_conversation` never selects the
   subject. Missing, conflicting, or mismatched environment and identity
   evidence fails closed without a memory write. Automatic capture runs after
@@ -2224,6 +2343,17 @@ than by the model provider:
   that produced it. Entering through a different DM, Space, Slack, Lark, or
   Feishu conversation must not relabel the memory as if it came from the
   current conversation.
+- Automatic recall reads existing active subjects without provisioning or
+  reviving deleted memory, then rechecks policy and subject state after the
+  provider returns. Selection preserves rank within each scope and shares both
+  the six-item and 1,600-character budgets. Provider fact validity is a bounded
+  text hint, with unknown times marked explicitly; occurrence time is not an
+  approval time. Current approved documents take precedence over old memory
+  for current work, while historical questions may still use historical facts.
+- A personal preference expressed in a shared conversation is not silently
+  saved to either scope. Acknowledge understanding without claiming durable
+  storage or suggesting team sharing as the default. Explicit personal writes
+  in shared conversations are outside this phase.
 - A verified member keeps member-memory continuity across Center Agent DM,
   Space, Slack, Lark, Feishu, Task continuation, and a future Local Agent
   carrier. The current environment changes disclosure behavior, not who the
@@ -2253,12 +2383,53 @@ than by the model provider:
 Core owns scope, authorization, enabled state, subject identity, and deletion
 lifecycle. `developing/architecture/data-and-observability.md` owns storage and
 provider boundaries; `developing/product/remote-agent-runtime.md` owns recall
-and turn-envelope behavior. **Center Agent → Memory** owns both the current
-member-memory wipe entry and ongoing Organization policy management as clearly
-separated sections. **Settings → Personal → Privacy** links there instead of
-owning a second mutation surface. Setup Studio presents the Core-owned default
-as enabled without manufacturing a user choice. It does not own another policy
-or ongoing management surface.
+and turn-envelope behavior. In a multi-member Organization, **Center Agent →
+Memory** owns the current member-memory wipe entry, while **Settings → Center
+Agent settings** owns ongoing Organization policy management. A Personal
+Workspace keeps both Workspace memory and member memory on **Center Agent →
+Memory** because there is no separate Organization administration boundary.
+**Settings → Personal → Privacy** links to the member-facing Memory page instead
+of owning a second mutation surface. Setup Studio presents the Core-owned
+default as enabled without manufacturing a user choice. It does not own another
+policy or ongoing management surface.
+
+### Explicit retained-memory search and bounded audit reads
+
+`openmeld_search_center_agent_memory` is a query-driven read over existing
+active member memory and enabled Organization memory, not universal conversation
+search. Core accepts a verified interactive member in an OpenMeld DM or Space;
+Routine and external-channel callers are not supported by this reader. The
+query is trimmed and limited to 400 characters; at most six remembered summaries
+are returned. Reads never create/revive subjects, enable policy, capture another
+conversation, or change automatic recall.
+
+Every returned fact retains all of its bounded supporting origins. Core checks
+current member authority, current reply audience, source Space access, and the
+exact source message through the owning Space APIs. A fact with any inaccessible,
+missing, revoked, unverifiable, or audience-unsafe support is withheld as a whole,
+without hidden-source identifiers or omitted-result counts. A previously private
+DM converted into a shared conversation does not retain private disclosure
+rights. The currently supported provenance is retained `ca_dm` and
+`space_conversation` evidence; Slack, Lark/Feishu, and legacy `explicit_tool`
+origins without a verified conversation source remain explicitly unsupported by
+this reader, independently of existing capture support.
+
+Results are remembered summaries, not quotes or proof of current approval.
+`no_match` is not proof that a conversation never happened. Provider failure
+produces `partial` or `unavailable`, rather than an empty successful recall.
+Source occurrence times remain available for checking reversals; verify current
+decisions against readable original sources and current Organization Document
+revisions. Historical source instructions confer no new action authority.
+
+`openmeld_read_center_agent_activity` reads the existing Audit Log through a
+private member-attributed adapter, not the human membership endpoint. Core keeps
+the designated Agent principal and separately verifies the represented member;
+a Routine uses its current delegated member, not a substituted Organization
+owner. The human journal and its action-set compatibility remain unchanged.
+The bounded Agent projection omits context-manifest details and exposes only
+currently readable, audience-safe Space references. Other resource references
+are withheld; absence does not prove that an action or authorization never
+existed. Audit evidence does not create execution, replay, or repair authority.
 
 ### Organization Documents
 
@@ -2311,6 +2482,28 @@ create, rename, edit, delete, approve, and discard across the organization. A
 member may edit only the Markdown body of an existing Profile Report about
 them; that exception does not grant creation, title, deletion, approval, folder
 management, report placement, or other-member access.
+
+Task preparation gives Center, personal Remote, and Local Agents a bounded
+directory of approved non-empty documents with IDs and `updatedAt` versions.
+Bodies remain on demand. An owned active Local Agent reads through the ordinary
+member API in the Space's Organization; the Agent projection contains no draft
+body or edit/manage permissions. The personal Remote Agent uses the existing
+read RPC as the receiving Agent, including Wakes sent by another Agent. Core
+verifies the active delivery, current owned Profile and membership, and frozen
+task audience; it does not borrow the sender's human or writing authority.
+Center requests still require the existing verified speaker. The personal
+Remote Agent's Center-only protected prompt and Computer projection remain
+disabled: ordinary document access does not confer Center
+identity, protected information, or a writable document checkout.
+
+The display uses a 6,000-character starting budget, counts only authorized
+entries, and includes a full-list/read entry for omitted documents and Skills.
+Relevant rules must be read before being applied. Current Center prompt reads
+do not share an Organization-only cache or fall back to earlier bodies after
+denial or transport failure. A failed directory read is marked unavailable;
+ordinary conversation can continue, while work depending on unread rules must
+report the missing context. No index is stored in Core, global Skill directories,
+or repository `AGENTS.md` files.
 
 Every human content save carries the Document `updatedAt` and nullable draft
 version that the editor loaded. Core applies the content only when both still
@@ -2691,7 +2884,7 @@ Generic shareable invite links were removed from this out-of-scope list by the
    and Runs with explicit Space or Slack-thread destinations,
    represented-member management, Core-owned scheduling, and Remote Agent
    native delivery. Its contract lives in
-   `developing/product/center-agent-routines.md`; official-organization
+   `developing/product/routines.md`; official-organization
    configuration and a real dogfood Run remain external validation.
 6. **Center Agent task coordination** — multi-child barriers, partial
    outcome snapshots, failure-only fallback activation, and Parent Stop
@@ -2757,7 +2950,7 @@ A coding agent working in this scope must not:
 8. Grant the Center Agent autonomous destructive or non-additive authority.
    Member-attributed Routine management is allowed only through the verified
    speaker and shared Core authority contract in
-   `developing/product/center-agent-routines.md`; it is not a precedent for a
+   `developing/product/routines.md`; it is not a precedent for a
    broader exception.
 9. Build a DM subsystem (DM = lazy private Space).
 10. Collect prompts, prompt-derived summaries, transcripts, replies, file

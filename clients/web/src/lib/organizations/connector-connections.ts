@@ -86,10 +86,10 @@ export async function listCurrentOrganizationConnectorConnections(input: {
 			operation: `connector.${input.service}.connections.list`,
 			schema: connectorConnectionListResponseSchema,
 			signal: input.signal,
-			url: buildConnectorOrganizationUrl(
+			url: `${buildConnectorOrganizationUrl(
 				buildConnectorPath(input.service, "connections"),
 				input.organizationId
-			),
+			)}&includeConnectionHealth=true`,
 		});
 		requireMatchingOrganization(response.organizationId, input.organizationId);
 		return response;
@@ -111,10 +111,10 @@ export async function listCurrentOrganizationAppConnections(input: {
 			operation: "connector.connections.catalog",
 			schema: connectorConnectionListResponseSchema,
 			signal: input.signal,
-			url: buildConnectorOrganizationUrl(
+			url: `${buildConnectorOrganizationUrl(
 				"/v1/organizations/current/connectors/connections",
 				input.organizationId
-			),
+			)}&includeConnectionHealth=true`,
 		});
 		requireMatchingOrganization(response.organizationId, input.organizationId);
 		return response;
@@ -215,6 +215,7 @@ export async function startCurrentMemberConnectorAuthorization(input: {
 }
 
 export async function startCurrentOrganizationSharedConnectorAuthorization(input: {
+	existingInstallation?: boolean;
 	organizationId: string;
 	service: ConnectorService;
 }): Promise<ConnectorAuthorizationStartResponse> {
@@ -324,6 +325,7 @@ export function startCurrentMemberGitHubAuthorization(input: {
 }
 
 export function startCurrentOrganizationSharedGitHubAuthorization(input: {
+	existingInstallation?: boolean;
 	organizationId: string;
 }): Promise<ConnectorAuthorizationStartResponse> {
 	return startCurrentOrganizationSharedConnectorAuthorization({
@@ -352,6 +354,7 @@ export function disconnectSharedOrganizationGitHubConnection(input: {
 }
 
 async function startConnectorAuthorization(input: {
+	existingInstallation?: boolean;
 	organizationId: string;
 	scope: "member" | "shared";
 	service: ConnectorService;
@@ -360,6 +363,12 @@ async function startConnectorAuthorization(input: {
 		const response = await createConnectorApiFoundation(
 			input.organizationId
 		).requestJson({
+			...(input.existingInstallation
+				? {
+						body: JSON.stringify({ existingInstallation: true }),
+						headers: { "content-type": "application/json" },
+					}
+				: {}),
 			invalidMessage: "Invalid Plugin authorization response.",
 			method: "POST",
 			operation: `connector.${input.service}.${input.scope}_authorization.start`,

@@ -4,11 +4,13 @@ import {
   formatLocalSetupActionDescription,
   formatLocalSetupActionLabel,
   LOCAL_COMPONENTS_SCHEMA_VERSION,
+  localComponentsAvailabilityCatalogSchema,
   localComponentsReleaseManifestSchema,
 } from "@openmeld/schemas";
 import type {
   DaemonServiceLane,
   LocalCliComponentUpdateProjection,
+  LocalComponentsAvailabilityCatalog,
   LocalComponentsReleaseManifest,
   LocalComponentsStatus,
   LocalComponentUpdateProjection,
@@ -28,6 +30,10 @@ declare const OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON:
   | string
   | undefined;
 
+declare const OPENMELD_LOCAL_COMPONENTS_AVAILABILITY_CATALOG_JSON:
+  | string
+  | undefined;
+
 // The installed CLI owns distribution-aware upgrades (managed binary or npm).
 // Cloud status cannot assume Node/npm exists on the selected computer.
 const SEMVER_RE =
@@ -40,7 +46,15 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.198";
+// 0.3.226 reports the strict Agent Controller launch failure reason. Earlier
+// Services cannot satisfy the current launch and readiness contract for new work.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.226";
+// Keep the last published floor active while its replacement is not yet on the
+// stable channel. These historical floors also preserve recovery when a Core
+// projection uses an earlier published manifest.
+const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.224";
+const LEGACY_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.218";
+const EARLIEST_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.217";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
@@ -53,6 +67,7 @@ export function resolveLocalComponentUpdateProjection(input: {
   runtimeLane?: DaemonServiceLane;
   localComponentsStatus?: LocalComponentsStatus | null;
   releaseManifest?: LocalComponentsReleaseManifest | null;
+  availabilityCatalog?: LocalComponentsAvailabilityCatalog | null;
   serviceConnected: boolean;
   serviceVersion: string | null;
 }): LocalComponentUpdateProjection {
@@ -108,12 +123,19 @@ export function resolveLocalComponentUpdateProjection(input: {
     });
   }
 
-  const servicePolicy = manifest.components.service;
-  const cliPolicy = manifest.components.cli;
+  const selectedPolicy = resolveInstallableComponentPolicy({
+    manifest,
+    source: input.localComponentsStatus?.installationSource,
+    catalog:
+      input.availabilityCatalog === undefined
+        ? resolveCoreLocalComponentsAvailabilityCatalog()
+        : input.availabilityCatalog,
+  });
   const skillsPolicy = manifest.components.skills;
   const cli = mergeOpenMeldToolsUpdateFailureReasonCode({
-    projection: resolveCliUpdateProjection({
-      policy: cliPolicy,
+    projection: resolveSourceAwareCliProjection({
+      globalPolicy: manifest.components.cli,
+      selectedPolicy: selectedPolicy?.cli ?? null,
       status: input.localComponentsStatus?.cli ?? null,
     }),
     serviceReasonCodes: serviceCliReasonCodes,
@@ -124,64 +146,16 @@ export function resolveLocalComponentUpdateProjection(input: {
     policy: skillsPolicy,
     status: input.localComponentsStatus?.skills ?? null,
   });
-  if (!input.serviceConnected) {
-    const service = buildServiceUpdateProjection({
-      installedVersion: null,
-      latestVersion: servicePolicy.bundleVersion,
-      reasonCodes: ["service.not_connected"],
-      requiredVersion:
-        servicePolicy.updatePolicy === "required"
-          ? servicePolicy.bundleVersion
-          : null,
-      serviceStatus: "unknown",
-      updatePolicy: servicePolicy.updatePolicy,
-      wakeBlocked: false,
-    });
-    return buildProjection({
-      runtimeLane: input.runtimeLane,
-      cli,
-      generatedAt: input.generatedAt,
-      service,
-      skills,
-      maintenance,
-      updateOperation,
-    });
-  }
-
-  const installedServiceVersion =
-    input.serviceVersion ??
-    input.localComponentsStatus?.service.installedBundleVersion ??
-    null;
-  const minimumRecoveryTargetVersion = resolveMinimumRecoveryTargetVersion({
-    installedVersion: installedServiceVersion,
-    publishedVersion: servicePolicy.bundleVersion,
-  });
-  const requiredVersion = maxServiceVersion(
-    servicePolicy.updatePolicy === "required"
-      ? servicePolicy.bundleVersion
-      : null,
-    minimumRecoveryTargetVersion
-  );
-  const effectiveServicePolicy =
-    requiredVersion === null ? servicePolicy.updatePolicy : "required";
-  const decision = resolveServiceUpdateDecision({
+  const service = resolveSourceAwareServiceProjection({
+    globalPolicy: manifest.components.service,
+    selectedPolicy: selectedPolicy?.service ?? null,
+    connected: input.serviceConnected,
+    installedVersion:
+      input.serviceVersion ??
+      input.localComponentsStatus?.service.installedBundleVersion ??
+      null,
     installedBundleHash:
       input.localComponentsStatus?.service.installedBundleHash ?? null,
-    installedVersion: installedServiceVersion,
-    latestBundleHash: servicePolicy.bundleHash,
-    policy: effectiveServicePolicy,
-    requiredVersion,
-    latestVersion: servicePolicy.bundleVersion,
-  });
-
-  const service = buildServiceUpdateProjection({
-    installedVersion: installedServiceVersion,
-    latestVersion: servicePolicy.bundleVersion,
-    reasonCodes: decision.reasonCodes,
-    requiredVersion,
-    serviceStatus: decision.status,
-    updatePolicy: effectiveServicePolicy,
-    wakeBlocked: decision.wakeBlocked,
   });
   return buildProjection({
     runtimeLane: input.runtimeLane,
@@ -192,6 +166,228 @@ export function resolveLocalComponentUpdateProjection(input: {
     maintenance,
     updateOperation,
   });
+}
+
+function resolveSourceAwareCliProjection(input: {
+  globalPolicy: LocalComponentsReleaseManifest["components"]["cli"];
+  selectedPolicy: LocalComponentsReleaseManifest["components"]["cli"] | null;
+  status: LocalComponentsStatus["cli"] | null;
+}): LocalCliComponentUpdateProjection {
+  const globalRequired = input.globalPolicy.updatePolicy === "required";
+  const policy =
+    globalRequired &&
+    (input.selectedPolicy?.commandContractVersion !==
+      input.globalPolicy.commandContractVersion ||
+      !isLocalComponentVersionAtLeast(
+        input.selectedPolicy.packageVersion,
+        input.globalPolicy.packageVersion
+      ))
+      ? null
+      : input.selectedPolicy;
+  if (policy) {
+    return resolveCliUpdateProjection({
+      policy: {
+        ...policy,
+        ...(globalRequired
+          ? {
+              updatePolicy: "required",
+              commandContractVersion: input.globalPolicy.commandContractVersion,
+            }
+          : {}),
+      },
+      status: input.status,
+    });
+  }
+  // Required package drift remains a fact even when this channel cannot
+  // supply a compatible target. Reuse the owning CLI policy decision.
+  const requiredProjection = globalRequired
+    ? resolveCliUpdateProjection({
+        policy: input.globalPolicy,
+        status: input.status,
+      })
+    : null;
+  return buildCliUpdateProjection({
+    commandContractVersion: input.status?.commandContractVersion ?? null,
+    installedPackageVersion: input.status?.packageVersion ?? null,
+    latestPackageVersion: null,
+    reasonCodes: [
+      ...(requiredProjection?.reasonCodes ??
+        (input.status ? [] : ["cli.status_unavailable"])),
+      "cli.release_target_unavailable",
+    ],
+    requiredCommandContractVersion: globalRequired
+      ? input.globalPolicy.commandContractVersion
+      : null,
+    status:
+      requiredProjection?.status === "update_required"
+        ? "update_required"
+        : "unknown",
+    updatePolicy: input.globalPolicy.updatePolicy,
+  });
+}
+
+function resolveSourceAwareServiceProjection(input: {
+  globalPolicy: LocalComponentsReleaseManifest["components"]["service"];
+  selectedPolicy:
+    | LocalComponentsReleaseManifest["components"]["service"]
+    | null;
+  connected: boolean;
+  installedVersion: string | null;
+  installedBundleHash: string | null;
+}): LocalServiceComponentUpdateProjection {
+  // Screen targets against the active floor independently of installed state.
+  const threshold = maxServiceVersion(
+    input.globalPolicy.updatePolicy === "required"
+      ? input.globalPolicy.bundleVersion
+      : null,
+    resolveMinimumRecoveryTargetVersion({
+      installedVersion: null,
+      publishedVersion: input.globalPolicy.bundleVersion,
+    })
+  );
+  const policy =
+    input.selectedPolicy &&
+    (!threshold ||
+      isLocalComponentVersionAtLeast(
+        input.selectedPolicy.bundleVersion,
+        threshold
+      ))
+      ? input.selectedPolicy
+      : null;
+  const safetyBlocked =
+    input.connected &&
+    threshold !== null &&
+    !(
+      input.installedVersion &&
+      isLocalComponentVersionAtLeast(input.installedVersion, threshold)
+    );
+  const updatePolicy = safetyBlocked
+    ? "required"
+    : (policy?.updatePolicy ?? input.globalPolicy.updatePolicy);
+  if (!input.connected) {
+    return buildDisconnectedServiceProjection({ policy, updatePolicy });
+  }
+  if (!policy) {
+    return buildUnavailableServiceProjection({
+      version: input.installedVersion,
+      safetyBlocked,
+      updatePolicy,
+    });
+  }
+  const requiredVersion =
+    safetyBlocked || policy.updatePolicy === "required"
+      ? policy.bundleVersion
+      : null;
+  const decision = resolveServiceUpdateDecision({
+    installedBundleHash: input.installedBundleHash,
+    installedVersion: input.installedVersion,
+    latestBundleHash: policy.bundleHash,
+    policy: updatePolicy,
+    requiredVersion,
+    latestVersion: policy.bundleVersion,
+  });
+  return buildServiceUpdateProjection({
+    installedVersion: input.installedVersion,
+    latestVersion: policy.bundleVersion,
+    reasonCodes: decision.reasonCodes,
+    requiredVersion,
+    serviceStatus: decision.status,
+    updatePolicy,
+    wakeBlocked: decision.wakeBlocked,
+  });
+}
+
+function buildDisconnectedServiceProjection(input: {
+  policy: LocalComponentsReleaseManifest["components"]["service"] | null;
+  updatePolicy: LocalServiceComponentUpdateProjection["updatePolicy"];
+}): LocalServiceComponentUpdateProjection {
+  return buildServiceUpdateProjection({
+    installedVersion: null,
+    latestVersion: input.policy?.bundleVersion ?? null,
+    reasonCodes: ["service.not_connected"],
+    requiredVersion:
+      input.policy?.updatePolicy === "required"
+        ? input.policy.bundleVersion
+        : null,
+    serviceStatus: "unknown",
+    updatePolicy: input.updatePolicy,
+    wakeBlocked: false,
+  });
+}
+
+function buildUnavailableServiceProjection(input: {
+  version: string | null;
+  safetyBlocked: boolean;
+  updatePolicy: LocalServiceComponentUpdateProjection["updatePolicy"];
+}): LocalServiceComponentUpdateProjection {
+  return buildServiceUpdateProjection({
+    installedVersion: input.version,
+    latestVersion: null,
+    reasonCodes: input.safetyBlocked
+      ? [
+          resolveUnavailableServiceVersionReason(input.version),
+          "service.release_target_unavailable",
+        ]
+      : ["service.release_target_unavailable"],
+    requiredVersion: null,
+    serviceStatus: input.safetyBlocked ? "update_required" : "unknown",
+    updatePolicy: input.updatePolicy,
+    wakeBlocked: input.safetyBlocked,
+  });
+}
+
+function resolveUnavailableServiceVersionReason(
+  version: string | null
+): string {
+  if (!version) {
+    return "service.version_not_reported";
+  }
+  return parseSemver(version) === null
+    ? "service.version_invalid"
+    : "service.version_outdated";
+}
+
+function resolveInstallableComponentPolicy(input: {
+  manifest: LocalComponentsReleaseManifest;
+  source: LocalComponentsStatus["installationSource"];
+  catalog: LocalComponentsAvailabilityCatalog | null;
+}): Pick<
+  LocalComponentsReleaseManifest["components"],
+  "cli" | "service"
+> | null {
+  if (!input.source) {
+    return null;
+  }
+  if (
+    input.source.distribution === "npm" &&
+    input.source.channel === "stable"
+  ) {
+    return {
+      cli: input.manifest.components.cli,
+      service: input.manifest.components.service,
+    };
+  }
+  return (
+    input.catalog?.entries.find(
+      (entry) =>
+        entry.channel === input.source?.channel &&
+        entry.platform === input.source?.platform
+    )?.policy ?? null
+  );
+}
+
+export function resolveCoreLocalComponentsAvailabilityCatalog(): LocalComponentsAvailabilityCatalog | null {
+  if (typeof OPENMELD_LOCAL_COMPONENTS_AVAILABILITY_CATALOG_JSON !== "string") {
+    return null;
+  }
+  try {
+    const parsed = localComponentsAvailabilityCatalogSchema.safeParse(
+      JSON.parse(OPENMELD_LOCAL_COMPONENTS_AVAILABILITY_CATALOG_JSON) as unknown
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 function resolveRequestedReleaseManifest(
@@ -221,11 +417,20 @@ function resolveMinimumRecoveryTargetVersion(input: {
   installedVersion: string | null;
   publishedVersion: string;
 }): string | null {
+  const activeMinimumVersion = [
+    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    LEGACY_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    EARLIEST_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+  ].find((floor) => {
+    const comparison = compareSemver(input.publishedVersion, floor);
+    return comparison !== null && comparison >= 0;
+  });
+  if (!activeMinimumVersion) {
+    return null;
+  }
   const installedVersionComparison = input.installedVersion
-    ? compareSemver(
-        input.installedVersion,
-        MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
-      )
+    ? compareSemver(input.installedVersion, activeMinimumVersion)
     : null;
   if (installedVersionComparison !== null && installedVersionComparison >= 0) {
     return null;
@@ -235,15 +440,12 @@ function resolveMinimumRecoveryTargetVersion(input: {
   // activate the floor once that manifest proves the recovery target exists.
   const publishedVersionComparison = compareSemver(
     input.publishedVersion,
-    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
+    activeMinimumVersion
   );
   if (publishedVersionComparison === null || publishedVersionComparison < 0) {
     return null;
   }
-  return maxServiceVersion(
-    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
-    input.publishedVersion
-  );
+  return activeMinimumVersion;
 }
 
 function resolveServiceUpdateDecision(input: {

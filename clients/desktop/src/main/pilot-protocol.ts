@@ -13,6 +13,7 @@ import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
+  DESKTOP_UPDATE_OBSERVATION_PATH,
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopLocalComputer,
   SPACE_ACCESS_VERSION_HEADER,
@@ -21,6 +22,7 @@ import {
   desktopWorkingFolderTarget,
   isPilotLocalControlRequest,
 } from "./pilot-local-control-policy";
+import type { TransportObservation } from "./transport-diagnostics";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -39,6 +41,8 @@ const FORWARDED_HEADERS = new Set([
   OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
   "accept",
+  "range",
+  "if-range",
   "content-type",
   "x-tsr-redirect",
   "x-tsr-serverfn",
@@ -61,6 +65,7 @@ type PilotProtocolOptions = {
   ) => Promise<Response>;
   ensureCompatible?: () => Promise<void>;
   readLocalComputer?: () => Promise<DesktopLocalComputer>;
+  observe?: (event: TransportObservation) => void;
 };
 
 export function createPilotProtocol(input: PilotProtocolOptions) {
@@ -77,7 +82,11 @@ export function createPilotProtocol(input: PilotProtocolOptions) {
       url.pathname.startsWith("/_serverFn/") ||
       url.pathname.startsWith("/v1/")
     ) {
-      return await forwardCloud(request, url, input);
+      const sourceRefusal = admitRendererCloudPath(url);
+      if (sourceRefusal) {
+        return sourceRefusal;
+      }
+      return await observeCloudRequest(request, url, input);
     }
     if (
       url.pathname.startsWith("/api/") ||
@@ -90,6 +99,56 @@ export function createPilotProtocol(input: PilotProtocolOptions) {
     }
     return await readAsset(request, url, input.assets);
   };
+}
+
+async function observeCloudRequest(
+  request: Request,
+  url: URL,
+  input: PilotProtocolOptions
+) {
+  const started = performance.now();
+  let observed = false;
+  const observe = (event: TransportObservation) => {
+    observed = true;
+    input.observe?.(event);
+  };
+  const admission = (status?: number) => {
+    if (!observed) {
+      observe({
+        kind: "request",
+        pathname: url.pathname,
+        method: request.method,
+        outcome: "admission",
+        status,
+        elapsedMs: performance.now() - started,
+      });
+    }
+  };
+  try {
+    const response = await forwardCloud(request, url, { ...input, observe });
+    admission(response.status);
+    return response;
+  } catch (error) {
+    admission();
+    throw error;
+  }
+}
+
+const TRAILING_SLASHES = /\/+$/u;
+
+function admitRendererCloudPath(url: URL): Response | null {
+  // A trusted renderer is not the authority for Main's native updater facts.
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname).replace(TRAILING_SLASHES, "");
+  } catch {
+    return new Response("Invalid Desktop request path", { status: 403 });
+  }
+  return pathname === DESKTOP_UPDATE_OBSERVATION_PATH
+    ? new Response("Only the native updater can report update observations.", {
+        status: 403,
+      })
+    : null;
 }
 
 async function forwardCloud(
@@ -157,14 +216,68 @@ async function forwardCloud(
       { status: 409 }
     );
   }
-  const upstream =
-    url.pathname.startsWith("/v1/") && input.cloudRequest
-      ? await input.cloudRequest(url.pathname + url.search, cloudRequest)
-      : await input.fetch(new URL(url.pathname + url.search, input.webOrigin), {
-          ...cloudRequest,
-          redirect: "manual",
-        });
-  return sanitizeCloudResponse(upstream, Boolean(nativeAccountRead));
+  return await fetchCloudResponse(
+    request,
+    url,
+    input,
+    cloudRequest,
+    nativeAccountRead
+  );
+}
+
+async function fetchCloudResponse(
+  request: Request,
+  url: URL,
+  input: PilotProtocolOptions,
+  cloudRequest: { method: string; headers: Headers; body?: ArrayBuffer },
+  nativeAccountRead: boolean
+) {
+  const started = performance.now();
+  let upstream: Response;
+  try {
+    upstream =
+      url.pathname.startsWith("/v1/") && input.cloudRequest
+        ? await input.cloudRequest(url.pathname + url.search, cloudRequest)
+        : await input.fetch(
+            new URL(url.pathname + url.search, input.webOrigin),
+            {
+              ...cloudRequest,
+              redirect: "manual",
+            }
+          );
+  } catch (error) {
+    input.observe?.({
+      kind: "request",
+      pathname: url.pathname,
+      method: request.method,
+      outcome: "network",
+      elapsedMs: performance.now() - started,
+    });
+    throw error;
+  }
+  const response = await sanitizeCloudResponse(
+    upstream,
+    Boolean(nativeAccountRead)
+  );
+  input.observe?.({
+    kind: "request",
+    pathname: url.pathname,
+    method: request.method,
+    outcome: httpOutcome(response),
+    status: response.status,
+    requestId:
+      upstream.headers.get("x-openmeld-request-id") ??
+      upstream.headers.get("x-request-id"),
+    elapsedMs: performance.now() - started,
+  });
+  return response;
+}
+
+function httpOutcome(response: Response) {
+  if (response.ok) {
+    return "ok";
+  }
+  return [401, 403].includes(response.status) ? "authentication" : "http";
 }
 
 async function readCloudBody(request: Request) {
@@ -232,6 +345,11 @@ async function sanitizeCloudResponse(
   const responseHeaders = new Headers();
   for (const name of [
     "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "content-disposition",
+    "etag",
     "cache-control",
     "x-openmeld-file-revision",
     "x-request-id",

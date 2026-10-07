@@ -11,6 +11,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -133,7 +134,7 @@ afterEach(() => {
 
 describe("AgentProfilesWorkspace", () => {
 	it("keeps only profile groups in the main sidebar", () => {
-		renderWorkspace({ pendingRequestCount: 2 });
+		renderWorkspace({ creationAttentionCount: 2 });
 		const sidebar = screen.getByTestId("agents-main-sidebar");
 		expect(
 			within(sidebar).queryByRole("button", {
@@ -286,7 +287,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(item.textContent).toContain("high");
 	});
 
-	it("shows the Controller default model when no model is explicitly selected", () => {
+	it("labels an unselected model as Controller default without guessing the active conversation model", () => {
 		const readiness = createReadiness();
 		if (!readiness.primaryBinding) {
 			throw new Error("Expected a primary Binding fixture");
@@ -308,7 +309,7 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
+		expect(item.textContent).toContain("Codex · Controller default");
 	});
 
 	it("keeps Controller branding without repeating an initial runtime check", () => {
@@ -552,8 +553,66 @@ describe("AgentProfilesWorkspace", () => {
 		renderWorkspace({ activeView: "requests", onViewChange });
 
 		expect(screen.getByTestId("agent-requests-panel")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Back to Team" }));
+		fireEvent.click(screen.getByRole("button", { name: "Back to Agents" }));
 		expect(onViewChange).toHaveBeenCalledWith("agents");
+	});
+	it("confirms only visible selected Agents, cancels without deleting, and retains a failed selection", async () => {
+		let finishDeletion!: (
+			failures: { profileId: string; message: string }[]
+		) => void;
+		const onDeleteProfiles = vi.fn(
+			(_profiles: readonly AuthProfileView[]) =>
+				new Promise<{ profileId: string; message: string }[]>((resolve) => {
+					finishDeletion = resolve;
+				})
+		);
+		const onSelectProfile = vi.fn();
+		renderWorkspace({ onDeleteProfiles, onSelectProfile });
+		fireEvent.click(screen.getByRole("button", { name: "Select Agents" }));
+		fireEvent.click(screen.getByLabelText("Select Felix Agent"));
+		expect(onSelectProfile).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Search Agents" }));
+		fireEvent.change(screen.getByRole("searchbox", { name: "Search Agents" }), {
+			target: { value: "Felix Agent" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Select visible" }));
+		fireEvent.click(screen.getByRole("button", { name: "Delete (1)" }));
+		const dialog = screen.getByRole("dialog");
+		expect(within(dialog).getByText("Felix Agent")).toBeTruthy();
+		expect(within(dialog).queryByText("Other Agent")).toBeNull();
+		expect(onDeleteProfiles).not.toHaveBeenCalled();
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+		expect(onDeleteProfiles).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Delete (1)" }));
+		fireEvent.click(
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Delete 1 Agent",
+			})
+		);
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(screen.getByText("Deleting 1 Agent…")).toBeTruthy();
+		expect(screen.queryByLabelText("Select Felix Agent")).toBeNull();
+		await waitFor(() => expect(onDeleteProfiles).toHaveBeenCalledTimes(1));
+		expect(
+			onDeleteProfiles.mock.calls[0]?.[0].map(
+				(profile: AuthProfileView) => profile.openMeldProfileId
+			)
+		).toEqual(["agent-current"]);
+		finishDeletion([
+			{ profileId: "agent-current", message: "Permission changed." },
+		]);
+		expect(
+			await screen.findByText("Felix Agent: Permission changed.")
+		).toBeTruthy();
+		expect(
+			(screen.getByLabelText("Select Felix Agent") as HTMLInputElement).checked
+		).toBe(true);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review failed Agents" })
+		);
+		expect(
+			within(screen.getByRole("dialog")).getByText("Felix Agent")
+		).toBeTruthy();
 	});
 
 	it("omits the Organization-only request entry in a personal workspace", () => {
@@ -580,11 +639,52 @@ describe("AgentProfilesWorkspace", () => {
 	});
 	it("offers creation when a personal Agent list is empty", () => {
 		const onCreateAgent = vi.fn();
-		renderWorkspace({ profiles: [], onCreateAgent });
+		const { rerenderWorkspace } = renderWorkspace({
+			profiles: [],
+			onCreateAgent,
+		});
 		expect(screen.getByText("No Agents yet.")).toBeTruthy();
+		expect(
+			screen.getByText("Create your first Agent to start working together.")
+		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		expect(onCreateAgent).toHaveBeenCalledOnce();
+		rerenderWorkspace({ canCreateAgent: false });
+		expect(
+			screen.queryByText("Create your first Agent to start working together.")
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(screen.getByText("No Agents yet.")).toBeTruthy();
 	});
+	it("keeps navigation and a detail-shaped placeholder while the selected Agent is unresolved", () => {
+		const { rerenderWorkspace } = renderWorkspace({
+			profiles: [],
+			profilesStatus: "loading",
+			selectedProfileId: "agent-other",
+		});
+		expect(screen.getByRole("navigation", { name: "People" })).toBeTruthy();
+		expect(
+			screen.getByRole("link", { name: "Felix’s Agents" }).getAttribute("href")
+		).toBe("/people/person/agents");
+		expect(
+			screen.getByRole("status", { name: "Loading Agent details" })
+		).toBeTruthy();
+		expect(screen.getByText("Usage limits")).toBeTruthy();
+		expect(screen.queryByText("Agent not found")).toBeNull();
+		rerenderWorkspace({
+			profiles: [
+				createProfile("agent-other", "user-other", "Mira", "Other Agent"),
+			],
+			profilesStatus: "ready",
+		});
+		expect(screen.getByTestId("selected-agent-detail").textContent).toBe(
+			"Other Agent"
+		);
+		expect(
+			screen.queryByRole("status", { name: "Loading Agent details" })
+		).toBeNull();
+	});
+
 	it("distinguishes loading, failure, and the ready empty state", () => {
 		const { rerenderWorkspace } = renderWorkspace({
 			profiles: [],
@@ -613,13 +713,13 @@ function renderWorkspace(
 	) => (
 		<AgentProfilesWorkspace
 			activeView="agents"
+			creationAttentionCount={0}
 			currentUserId={CURRENT_USER_ID}
 			initialSidebarStates={undefined}
 			modelCatalog={TEST_MODEL_CATALOG}
 			onCreateAgent={vi.fn()}
 			onSelectProfile={vi.fn()}
 			onViewChange={vi.fn()}
-			pendingRequestCount={0}
 			person={{
 				id: "person",
 				name: "Felix",
@@ -646,6 +746,15 @@ function renderWorkspace(
 			<QueryClientProvider client={client}>{children}</QueryClientProvider>
 		),
 	});
+	// These cases inspect individual cards. The directory now starts with
+	// collapsed controller folders; select the public flat view first.
+	const viewSettings = screen.queryByRole("button", {
+		name: "Agent view settings",
+	});
+	if (viewSettings) {
+		fireEvent.click(viewSettings);
+		fireEvent.click(screen.getByRole("menuitemradio", { name: "None" }));
+	}
 	return {
 		...rendered,
 		rerenderWorkspace: (

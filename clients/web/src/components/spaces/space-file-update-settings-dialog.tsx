@@ -17,7 +17,9 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -183,7 +185,7 @@ export function SpaceFileUpdateSettingsDialog(input: {
 					</DialogDescription>
 				</DialogHeader>
 				{query.isPending || (selected === null && query.isFetching) ? (
-					<p>Loading members…</p>
+					<SkeletonRows label="Loading members" />
 				) : (
 					<>
 						<Input
@@ -192,7 +194,7 @@ export function SpaceFileUpdateSettingsDialog(input: {
 							placeholder="Find people or agents…"
 							value={search}
 						/>
-						<div className="max-h-[min(32rem,calc(100dvh-18rem))] min-h-0 overflow-y-auto">
+						<ScrollArea className="max-h-[min(32rem,calc(100dvh-18rem))] min-h-0">
 							<CheckboxGroup
 								checkedIndices={checkedIndices}
 								className="w-full"
@@ -212,7 +214,7 @@ export function SpaceFileUpdateSettingsDialog(input: {
 									No matching members.
 								</p>
 							) : null}
-						</div>
+						</ScrollArea>
 					</>
 				)}
 				{error ? (

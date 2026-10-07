@@ -1,6 +1,9 @@
-import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
-import { eq } from "drizzle-orm";
-import type { createD1Db } from "../db";
+import {
+  eq,
+  type InferInsertModel,
+  type InferSelectModel,
+} from "@openmeld/db/query";
+import type { createAuthDatabase } from "../db";
 import { openMeldWaitlistEmails } from "../db/waitlist-email.schema";
 
 export type WaitlistEmailRecord = InferSelectModel<
@@ -14,7 +17,7 @@ export type WaitlistRepository = {
   insertEmail: (email: string) => Promise<boolean>;
 };
 
-type WaitlistDatabase = ReturnType<typeof createD1Db>;
+type WaitlistDatabase = ReturnType<typeof createAuthDatabase>;
 
 export function createDrizzleWaitlistRepository(
   db: WaitlistDatabase

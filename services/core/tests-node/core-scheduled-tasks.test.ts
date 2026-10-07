@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PostgresDatabase } from "@openmeld/db/postgresql";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { runAgentActivityDigestTick } from "../src/agent-activity/activity-digest-service";
 import type { deleteExpiredServiceConnectionIncidents } from "../src/computers/service-connection-evidence-repo";
 import type { retryInboxUrgentEmailDeliveries } from "../src/inbox/application/inbox-email-delivery-service";
@@ -10,6 +11,7 @@ import {
   runCoreScheduledTasks,
   WAKE_EVIDENCE_RETENTION_CRON,
 } from "../src/scheduled/core-scheduled-tasks";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const { deleteExpiredConnectionIncidents } = vi.hoisted(() => ({
   deleteExpiredConnectionIncidents:
@@ -20,8 +22,13 @@ vi.mock("../src/computers/service-connection-evidence-repo", () => ({
   deleteExpiredServiceConnectionIncidents: deleteExpiredConnectionIncidents,
 }));
 
+let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 describe("Core scheduled task dispatcher", () => {
-  beforeEach(() => {
+  afterEach(async () => {
+    await harness.close();
+  });
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
     deleteExpiredConnectionIncidents
       .mockReset()
       .mockResolvedValue({ deleted: 0 });
@@ -56,8 +63,6 @@ describe("Core scheduled task dispatcher", () => {
   });
 
   it("routes the minute Cron to Routine scheduling without running retention", async () => {
-    const localStateDatabase = {} as D1Database;
-    const routineDatabase = {} as D1Database;
     const countStrandedSlackIngress = vi.fn(async () => 0);
     const runMemberResearchTick = vi.fn(async () => undefined);
     const runSlackChannelIntroductionTick = vi.fn(async () => ({
@@ -89,9 +94,9 @@ describe("Core scheduled task dispatcher", () => {
       scanned: 0,
     }));
     const retryRoutineWorkflowStarts = vi.fn(async () => ({
+      checked: 0,
       errors: 0,
       scanned: 0,
-      started: 0,
     }));
     const retryAgentTaskContinuations = vi.fn(async () => ({
       enqueuedCount: 1,
@@ -183,8 +188,7 @@ describe("Core scheduled task dispatcher", () => {
     await runCoreScheduledTasks({
       cron: ROUTINE_TICK_CRON,
       env: {
-        OPENMELD_DB: routineDatabase,
-        OPENMELD_LOCAL_STATE_DB: localStateDatabase,
+        OPENMELD_POSTGRESQL: harness.binding,
         OPENMELD_ROUTINE_ENGINE_DEFAULT: "legacy",
         OPENMELD_AUTH_WORKER: {
           resolveOrganizationDirectoryMembers,
@@ -215,41 +219,41 @@ describe("Core scheduled task dispatcher", () => {
 
     expect(runRoutineTick).toHaveBeenCalledTimes(1);
     expect(recoverAgentProfileCreationRequests).toHaveBeenCalledWith({
-      db: routineDatabase,
-      env: expect.objectContaining({ OPENMELD_DB: routineDatabase }),
+      db: expect.any(PostgresDatabase),
+      env: expect.objectContaining({ OPENMELD_POSTGRESQL: harness.binding }),
       nowMs: 1000,
     });
     expect(
       retryAgentProfileCreationRequestInboxProjections
     ).toHaveBeenCalledWith({
-      db: routineDatabase,
+      db: expect.any(PostgresDatabase),
       nowMs: 1000,
     });
     expect(retrySessionInventoryMemberCleanups).toHaveBeenCalledWith({
-      db: routineDatabase,
+      db: expect.any(PostgresDatabase),
       nowMs: 1000,
       resolveMembershipState: expect.any(Function),
     });
     expect(runLarkPlatformRegistrationTick).toHaveBeenCalledWith({
       classifyOrganization: expect.any(Function),
       clock: Date.now,
-      db: localStateDatabase,
+      db: expect.any(PostgresDatabase),
       env: expect.anything(),
       nowMs: 1000,
     });
     expect(runMemberResearchTick).toHaveBeenCalledWith({
-      db: routineDatabase,
+      db: expect.any(PostgresDatabase),
       env: expect.anything(),
       nowMs: 1000,
     });
     expect(runSlackWelcomePreparationTick).toHaveBeenCalledTimes(2);
     expect(runSlackWelcomePreparationTick).toHaveBeenNthCalledWith(1, {
-      db: routineDatabase,
+      db: expect.any(PostgresDatabase),
       env: expect.anything(),
       nowMs: 1000,
     });
     expect(runSlackChannelIntroductionTick).toHaveBeenCalledWith({
-      db: routineDatabase,
+      db: expect.any(PostgresDatabase),
       env: expect.anything(),
       nowMs: 1000,
     });
@@ -261,7 +265,7 @@ describe("Core scheduled task dispatcher", () => {
     expect(retryRoutineFailurePublications).toHaveBeenCalledTimes(1);
     expect(retryRoutineWorkflowStarts).toHaveBeenCalledTimes(1);
     expect(retryInboxEmailDeliveries).toHaveBeenCalledWith({
-      db: routineDatabase,
+      db: expect.any(PostgresDatabase),
       nowMs: 1000,
       resolveOrganizationAccess: expect.any(Function),
       send: expect.any(Function),
@@ -300,11 +304,11 @@ describe("Core scheduled task dispatcher", () => {
     expect(directSendInboxUrgentEmail).toHaveBeenCalledTimes(1);
     expect(reconcileOrganizationDocumentInbox).toHaveBeenCalledWith({
       authWorker: expect.anything(),
-      db: routineDatabase,
+      db: expect.any(PostgresDatabase),
       nowMs: 1000,
     });
     expect(reconcileSlackNativeDeliveryInbox).toHaveBeenCalledWith({
-      db: localStateDatabase,
+      db: expect.any(PostgresDatabase),
       env: expect.anything(),
       nowMs: 1000,
     });
@@ -321,7 +325,7 @@ describe("Core scheduled task dispatcher", () => {
       resolveSignal: expect.any(Function),
     });
     expect(retryPreHeadFailurePublications).toHaveBeenCalledWith({
-      db: routineDatabase,
+      db: expect.any(PostgresDatabase),
       env: expect.anything(),
       nowMs: 1000,
     });
@@ -350,8 +354,7 @@ describe("Core scheduled task dispatcher", () => {
       runCoreScheduledTasks({
         cron: ROUTINE_TICK_CRON,
         env: {
-          OPENMELD_DB: {} as D1Database,
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: harness.binding,
           OPENMELD_ROUTINE_ENGINE_DEFAULT: "legacy",
         } as CoreBindings,
         nowMs: 1400,
@@ -373,7 +376,7 @@ describe("Core scheduled task dispatcher", () => {
       runCoreScheduledTasks({
         cron: ROUTINE_TICK_CRON,
         env: {
-          OPENMELD_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: harness.binding,
           OPENMELD_ROUTINE_ENGINE_DEFAULT: "legacy",
         } as CoreBindings,
         nowMs: 1500,
@@ -406,7 +409,7 @@ describe("Core scheduled task dispatcher", () => {
       runCoreScheduledTasks({
         cron: ROUTINE_TICK_CRON,
         env: {
-          OPENMELD_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: harness.binding,
           OPENMELD_ROUTINE_ENGINE_DEFAULT: "legacy",
         } as CoreBindings,
         nowMs: 1600,
@@ -436,7 +439,7 @@ describe("Core scheduled task dispatcher", () => {
       runCoreScheduledTasks({
         cron: ROUTINE_TICK_CRON,
         env: {
-          OPENMELD_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: harness.binding,
           OPENMELD_ROUTINE_ENGINE_DEFAULT: "legacy",
         } as CoreBindings,
         nowMs: 1700,
@@ -464,7 +467,7 @@ describe("Core scheduled task dispatcher", () => {
     expect(runRoutineTick).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves the split-gated wake-evidence retention responsibility", async () => {
+  it("preserves independent scheduled retention responsibilities through PostgreSQL", async () => {
     const runRoutineTick = vi.fn(async () => emptyRoutineTickSummary());
     const retryRoutineSubmissions = vi.fn(async () => ({
       errors: 0,
@@ -477,15 +480,16 @@ describe("Core scheduled task dispatcher", () => {
       scanned: 0,
     }));
     const retryRoutineWorkflowStarts = vi.fn(async () => ({
+      checked: 0,
       errors: 0,
       scanned: 0,
-      started: 0,
     }));
     const runWakeEvidenceRetention = vi.fn(async () => ({
       ran: false,
       results: [],
     }));
     const runAgentActivityRetention = vi.fn(async () => ({
+      budgetExhausted: false,
       aggregates: 0,
       dailySessionKeys: 0,
       digests: 0,
@@ -508,13 +512,7 @@ describe("Core scheduled task dispatcher", () => {
     await runCoreScheduledTasks({
       cron: WAKE_EVIDENCE_RETENTION_CRON,
       env: {
-        OPENMELD_DB: {
-          owner: "coordination",
-        } as unknown as D1Database,
-        OPENMELD_WAKE_EVIDENCE_DB: {
-          owner: "wake-evidence",
-        } as unknown as D1Database,
-        OPENMELD_SPLIT_ACTIVE: "true",
+        OPENMELD_POSTGRESQL: harness.binding,
       } as CoreBindings,
       nowMs: 2000,
       retryRoutineFailurePublications,
@@ -546,11 +544,11 @@ describe("Core scheduled task dispatcher", () => {
       nowMs: 2000,
     });
     expect(runAgentControllerTaskRetention).toHaveBeenCalledWith({
-      db: expect.objectContaining({ owner: "coordination" }),
+      db: expect.any(PostgresDatabase),
       nowMs: 2000,
     });
     expect(deleteExpiredConnectionIncidents).toHaveBeenCalledWith({
-      db: expect.objectContaining({ owner: "wake-evidence" }),
+      db: expect.any(PostgresDatabase),
       nowMs: 2000,
     });
   });
@@ -579,7 +577,7 @@ describe("Core scheduled task dispatcher", () => {
       cron: ROUTINE_TICK_CRON,
       env: {
         OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED: "true",
-        OPENMELD_DB: {} as D1Database,
+        OPENMELD_POSTGRESQL: harness.binding,
         OPENMELD_REMOTE_AGENT_WORKER: { summarizeAgentActivityDigest },
         OPENMELD_ROUTINE_ENGINE_DEFAULT: "legacy",
       } as unknown as CoreBindings,
@@ -615,6 +613,7 @@ describe("Core scheduled task dispatcher", () => {
       Promise.reject(activityError)
     );
     const runAgentActivityRetention = vi.fn(async () => ({
+      budgetExhausted: false,
       aggregates: 0,
       dailySessionKeys: 0,
       digests: 0,
@@ -637,8 +636,7 @@ describe("Core scheduled task dispatcher", () => {
       runCoreScheduledTasks({
         cron: AGENT_ACTIVITY_RETENTION_CRON,
         env: {
-          OPENMELD_DB: {} as D1Database,
-          OPENMELD_SPLIT_ACTIVE: "true",
+          OPENMELD_POSTGRESQL: harness.binding,
         } as CoreBindings,
         nowMs: 4000,
         runAgentActivityDailyAggregation,
@@ -670,10 +668,7 @@ describe("Core scheduled task dispatcher", () => {
       runCoreScheduledTasks({
         cron: AGENT_ACTIVITY_RETENTION_CRON,
         env: {
-          OPENMELD_DB: { owner: "coordination" } as unknown as D1Database,
-          OPENMELD_WAKE_EVIDENCE_DB: {
-            owner: "wake-evidence",
-          } as unknown as D1Database,
+          OPENMELD_POSTGRESQL: harness.binding,
         } as CoreBindings,
         nowMs: 5000,
         runAgentActivityDailyAggregation: vi.fn(() =>

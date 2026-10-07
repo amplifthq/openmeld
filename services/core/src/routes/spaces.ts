@@ -1,3 +1,13 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
+  OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
 import { MAX_TEXT_LENGTH, normalizeProfileId } from "@openmeld/protocol";
 import {
   centerAgentOrganizationMemoryPolicyResponseSchema,
@@ -19,6 +29,8 @@ import {
   spaceAccessModeSchema,
   spaceFileRevisionNumberSchema,
   spaceOrganizationVisibilitySchema,
+  toLegacySpaceFilesOriginWireValue,
+  toLegacySpaceImageGeometryWireValue,
   trashSpaceFileEntryBodySchema,
   trashSpaceFileEntryResponseSchema,
   updateCenterAgentOrganizationMemoryPolicyBodySchema,
@@ -38,7 +50,7 @@ import type {
 } from "hono/utils/http-status";
 import { readCenterAgentDesignationRecord } from "../center-agent/center-agent-repository";
 import type { HonoBindings } from "../lib/bindings";
-import { identityDb, localStateDb } from "../lib/bindings";
+
 import {
   rpcReadCenterAgentOrganizationMemoryPolicy,
   rpcReadOrganizationInformationProtectionPolicy,
@@ -59,9 +71,9 @@ import {
 import { CORE_LOG_EVENTS } from "../shared/observability/log-events";
 import type { Space } from "../space/transport/do/space";
 import { readCenterAgentDirectMessageProjectionCandidateBySpaceId } from "../space-index/space-index-repository";
+import { mapRpcHttpError } from "./rpc-http-error";
 
 type ErrorStatusCode = ClientErrorStatusCode | ServerErrorStatusCode;
-
 type CreateSpaceBody = {
   name?: string;
   purpose?: string;
@@ -70,7 +82,6 @@ type CreateSpaceBody = {
   accessMode?: SpaceAccessMode;
   password?: string;
 };
-
 type CreateSpaceBodyObject = {
   name?: unknown;
   purpose?: unknown;
@@ -79,7 +90,6 @@ type CreateSpaceBodyObject = {
   accessMode?: unknown;
   password?: unknown;
 };
-
 type SpaceMetaInitializationBody = {
   name?: string;
   purpose?: string;
@@ -94,7 +104,6 @@ type SpaceMetaInitializationBody = {
   guide?: string;
   accessMode?: SpaceAccessMode;
 };
-
 const CREATE_SPACE_ALLOWED_FIELDS = new Set([
   "name",
   "purpose",
@@ -122,7 +131,6 @@ export function registerSpaceRoutes(app: Hono<HonoBindings>) {
   app.put("/v1/organizations/current/information-protection", (c) =>
     handleSetCurrentOrganizationInformationProtectionPolicy(c)
   );
-
   app.delete("/v1/spaces/:spaceId", (c) => forwardToSpace(c, "/space"));
   app.get("/v1/spaces/:spaceId/stream", (c) => forwardToSpace(c, "/stream"));
   app.get("/v1/spaces/:spaceId/signals", (c) => forwardToSpace(c, "/signals"));
@@ -206,7 +214,6 @@ export function registerSpaceRoutes(app: Hono<HonoBindings>) {
     forwardCursorToSpace(c)
   );
 }
-
 async function handleListSpaceFiles(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -216,9 +223,11 @@ async function handleListSpaceFiles(
   }
   const parentId = c.req.query("parentId");
   const view = c.req.query("view");
+  const origin = c.req.query("origin");
   const query = listSpaceFilesQuerySchema.safeParse({
     ...(parentId === undefined ? {} : { parentId }),
     ...(view === undefined ? {} : { view }),
+    ...(origin === undefined ? {} : { origin }),
   });
   if (!query.success) {
     return invalidSpaceFilesPayload(c, query.error.issues[0]?.message);
@@ -229,12 +238,14 @@ async function handleListSpaceFiles(
       spaceId: target.spaceId,
       query: query.data,
     });
-    return c.json(listSpaceFilesResponseSchema.parse(response));
+    return spaceFileJsonResponse(
+      c,
+      listSpaceFilesResponseSchema.parse(response)
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleRestoreSpaceFileEntry(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -255,12 +266,14 @@ async function handleRestoreSpaceFileEntry(
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(restoreSpaceFileEntryResponseSchema.parse(response));
+    return spaceFileJsonResponse(
+      c,
+      restoreSpaceFileEntryResponseSchema.parse(response)
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleRestoreSpaceFileRevision(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -288,12 +301,14 @@ async function handleRestoreSpaceFileRevision(
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(restoreSpaceFileRevisionResponseSchema.parse({ file }));
+    return spaceFileJsonResponse(
+      c,
+      restoreSpaceFileRevisionResponseSchema.parse({ file })
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleCreateSpaceFolder(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -318,7 +333,6 @@ async function handleCreateSpaceFolder(
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleGetSpaceFile(c: Context<HonoBindings>): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
@@ -330,12 +344,11 @@ async function handleGetSpaceFile(c: Context<HonoBindings>): Promise<Response> {
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(getSpaceFileResponseSchema.parse({ file }));
+    return spaceFileJsonResponse(c, getSpaceFileResponseSchema.parse({ file }));
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleListSpaceFileRevisions(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -349,12 +362,14 @@ async function handleListSpaceFileRevisions(
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(listSpaceFileRevisionsResponseSchema.parse(response));
+    return spaceFileJsonResponse(
+      c,
+      listSpaceFileRevisionsResponseSchema.parse(response)
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleUpdateSpaceFileEntry(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -375,12 +390,14 @@ async function handleUpdateSpaceFileEntry(
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(updateSpaceFileEntryResponseSchema.parse(response));
+    return spaceFileJsonResponse(
+      c,
+      updateSpaceFileEntryResponseSchema.parse(response)
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleTrashSpaceFileEntry(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -406,7 +423,6 @@ async function handleTrashSpaceFileEntry(
     return mapRpcHttpError(c, error);
   }
 }
-
 function resolveSpaceFilesTarget(c: Context<HonoBindings>):
   | {
       ok: true;
@@ -414,7 +430,10 @@ function resolveSpaceFilesTarget(c: Context<HonoBindings>):
       spaceId: string;
       stub: DurableObjectStub<Space>;
     }
-  | { ok: false; response: Response } {
+  | {
+      ok: false;
+      response: Response;
+    } {
   const spaceId = c.req.param("spaceId");
   if (!isHexSpaceId(spaceId)) {
     return {
@@ -453,7 +472,6 @@ function resolveSpaceFilesTarget(c: Context<HonoBindings>):
     }),
   };
 }
-
 function invalidSpaceFilesPayload(
   c: Context<HonoBindings>,
   message?: string
@@ -468,7 +486,22 @@ function invalidSpaceFilesPayload(
     400
   );
 }
-
+function spaceFileJsonResponse(
+  c: Context<HonoBindings>,
+  canonicalValue: unknown
+): Response {
+  const geometryValue =
+    c.req.header(OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION) ===
+    OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+      ? canonicalValue
+      : toLegacySpaceImageGeometryWireValue(canonicalValue);
+  const wireValue =
+    c.req.header(OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION) ===
+    OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ? geometryValue
+      : toLegacySpaceFilesOriginWireValue(geometryValue);
+  return c.json(wireValue);
+}
 async function handleReadCurrentOrganizationCenterAgentMemoryPolicy(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -483,7 +516,6 @@ async function handleReadCurrentOrganizationCenterAgentMemoryPolicy(
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleSetCurrentOrganizationCenterAgentMemoryPolicy(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -515,7 +547,6 @@ async function handleSetCurrentOrganizationCenterAgentMemoryPolicy(
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleReadCurrentOrganizationInformationProtectionPolicy(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -531,7 +562,6 @@ async function handleReadCurrentOrganizationInformationProtectionPolicy(
     return mapRpcHttpError(c, error);
   }
 }
-
 async function handleSetCurrentOrganizationInformationProtectionPolicy(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -566,32 +596,6 @@ async function handleSetCurrentOrganizationInformationProtectionPolicy(
     return mapRpcHttpError(c, error);
   }
 }
-
-function mapRpcHttpError(c: Context<HonoBindings>, error: unknown): Response {
-  const structured = (error as { cause?: unknown }).cause as
-    | { code?: unknown; message?: unknown; status?: unknown }
-    | undefined;
-  const status =
-    typeof structured?.status === "number" ? structured.status : 500;
-  const message =
-    typeof structured?.message === "string"
-      ? structured.message
-      : "Request failed.";
-  let code = status >= 500 ? "internal_error" : "request_failed";
-  if (typeof structured?.code === "string") {
-    code = structured.code;
-  }
-  return c.json(
-    {
-      error: {
-        code,
-        message,
-      },
-    },
-    status as ErrorStatusCode
-  );
-}
-
 async function handleWipeCurrentMemberCenterAgentMemory(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -604,7 +608,6 @@ async function handleWipeCurrentMemberCenterAgentMemory(
     return mapRpcHttpError(c, error);
   }
 }
-
 function forwardThreadToSpace(c: Context<HonoBindings>): Promise<Response> {
   const threadId = c.req.param("threadId");
   const pathname = new URL(c.req.url).pathname;
@@ -616,14 +619,12 @@ function forwardThreadToSpace(c: Context<HonoBindings>): Promise<Response> {
   }
   return forwardToSpace(c, `/threads/${encodeURIComponent(threadId)}${suffix}`);
 }
-
 async function handleCreateSpace(c: Context<HonoBindings>): Promise<Response> {
   const bodyResult = await readCreateSpaceBodySafely(c);
   if (!bodyResult.ok) {
     return bodyResult.response;
   }
   const body = bodyResult.body;
-
   const id = resolveSpaceId(c);
   const spaceId = id.toString();
   const stub = c.env.OPENMELD_SPACES.get(id);
@@ -646,7 +647,6 @@ async function handleCreateSpace(c: Context<HonoBindings>): Promise<Response> {
     creator,
     organizationId
   );
-
   const response = hasPassword
     ? await initializeSpaceMetaWithPasswordAtomic(
         stub,
@@ -686,7 +686,6 @@ async function handleCreateSpace(c: Context<HonoBindings>): Promise<Response> {
       statusCode
     );
   }
-
   const initializedMeta = await readSpaceMetaResponseJson(response, spaceId);
   if (!initializedMeta.ok) {
     return c.json(
@@ -702,11 +701,15 @@ async function handleCreateSpace(c: Context<HonoBindings>): Promise<Response> {
   }
   return c.json({ spaceId, meta: initializedMeta.meta });
 }
-
-async function readCreateSpaceBodySafely(
-  c: Context<HonoBindings>
-): Promise<
-  { ok: true; body: CreateSpaceBody } | { ok: false; response: Response }
+async function readCreateSpaceBodySafely(c: Context<HonoBindings>): Promise<
+  | {
+      ok: true;
+      body: CreateSpaceBody;
+    }
+  | {
+      ok: false;
+      response: Response;
+    }
 > {
   try {
     return {
@@ -730,11 +733,12 @@ async function readCreateSpaceBodySafely(
     };
   }
 }
-
 async function mapPasswordUpsertError(
   c: Context<HonoBindings>,
   response: Response,
-  options?: { fallbackMessage?: string }
+  options?: {
+    fallbackMessage?: string;
+  }
 ): Promise<Response> {
   const statusCode = resolveSpaceMetaInitializationStatusCode(response.status);
   const raw = (await response.text().catch(() => "")).trim();
@@ -750,7 +754,6 @@ async function mapPasswordUpsertError(
       statusCode
     );
   }
-
   return c.json(
     {
       ok: false,
@@ -761,31 +764,28 @@ async function mapPasswordUpsertError(
     statusCode
   );
 }
-
 function resolveSpaceMetaInitializationStatusCode(
   status: number
 ): ErrorStatusCode {
   if (isErrorStatusCode(status)) {
     return status;
   }
-
   return status >= 500 ? 500 : 400;
 }
-
 function isErrorStatusCode(status: number): status is ErrorStatusCode {
   return status >= 400 && status < 600;
 }
-
 function resolveSpaceId(c: Context<HonoBindings>): DurableObjectId {
   return resolveNewSpaceId(c.env.OPENMELD_SPACES);
 }
-
 function initializeSpaceMeta(
   stub: DurableObjectStub<Space>,
   spaceId: string,
   body: SpaceMetaInitializationBody,
   context: Context<HonoBindings>["var"]["openMeldRequestContext"],
-  options?: { initializeIfAbsent?: boolean }
+  options?: {
+    initializeIfAbsent?: boolean;
+  }
 ): Promise<Response> {
   const headers = applyResolvedOpenMeldContextHeaders(
     new Headers({
@@ -793,7 +793,6 @@ function initializeSpaceMeta(
     }),
     { context }
   );
-
   return stub.fetch(
     new Request(
       buildSpaceMetaUrl(spaceId, {
@@ -807,7 +806,6 @@ function initializeSpaceMeta(
     )
   );
 }
-
 function initializeSpaceMetaWithPasswordAtomic(
   stub: DurableObjectStub<Space>,
   spaceId: string,
@@ -822,7 +820,6 @@ function initializeSpaceMetaWithPasswordAtomic(
     }),
     { context }
   );
-
   return stub.fetch(
     new Request(buildSpaceMetaInitWithPasswordUrl(spaceId), {
       method: "PATCH",
@@ -834,7 +831,6 @@ function initializeSpaceMetaWithPasswordAtomic(
     })
   );
 }
-
 function buildCreateSpaceMetaInitializationBody(
   body: CreateSpaceBody,
   creator: ReturnType<typeof toSpaceCreator>,
@@ -850,7 +846,6 @@ function buildCreateSpaceMetaInitializationBody(
     ...(body.accessMode ? { accessMode: body.accessMode } : {}),
   };
 }
-
 function serializeSpaceMetaInitializationBody(
   body: SpaceMetaInitializationBody
 ): Record<string, unknown> {
@@ -864,10 +859,11 @@ function serializeSpaceMetaInitializationBody(
     ...(body.accessMode ? { accessMode: body.accessMode } : {}),
   };
 }
-
 function buildSpaceMetaUrl(
   spaceId: string,
-  options?: { initializeIfAbsent?: boolean }
+  options?: {
+    initializeIfAbsent?: boolean;
+  }
 ): string {
   const requestUrl = new URL(
     options?.initializeIfAbsent
@@ -877,7 +873,6 @@ function buildSpaceMetaUrl(
   requestUrl.searchParams.set("space", spaceId);
   return requestUrl.toString();
 }
-
 function buildSpaceMetaInitWithPasswordUrl(spaceId: string): string {
   const requestUrl = new URL(
     "https://openmeld-core.internal/meta/init-with-password"
@@ -885,11 +880,19 @@ function buildSpaceMetaInitWithPasswordUrl(spaceId: string): string {
   requestUrl.searchParams.set("space", spaceId);
   return requestUrl.toString();
 }
-
 async function readSpaceMetaResponseJson(
   response: Response,
   spaceId: string
-): Promise<{ ok: true; meta: unknown } | { ok: false; details: string }> {
+): Promise<
+  | {
+      ok: true;
+      meta: unknown;
+    }
+  | {
+      ok: false;
+      details: string;
+    }
+> {
   try {
     const meta = await response.json();
     return { ok: true, meta };
@@ -904,7 +907,6 @@ async function readSpaceMetaResponseJson(
     return { ok: false, details };
   }
 }
-
 async function forwardPostMembersToSpace(
   c: Context<HonoBindings>
 ): Promise<Response> {
@@ -915,7 +917,6 @@ async function forwardPostMembersToSpace(
   }
   return await forwardToSpace(c, "/members");
 }
-
 async function rejectAdditionalCenterAgentDirectMessageMembers(
   c: Context<HonoBindings>
 ): Promise<Response | null> {
@@ -923,8 +924,7 @@ async function rejectAdditionalCenterAgentDirectMessageMembers(
   if (!isHexSpaceId(spaceId)) {
     return null;
   }
-
-  const spaceIndexDb = localStateDb(c.env);
+  const spaceIndexDb = getPostgresDatabase(c.env);
   if (!spaceIndexDb) {
     return c.json(
       {
@@ -936,7 +936,6 @@ async function rejectAdditionalCenterAgentDirectMessageMembers(
       503
     );
   }
-
   const candidate = await readCenterAgentDirectMessageCandidateForMemberGuard({
     db: spaceIndexDb,
     spaceId,
@@ -944,8 +943,7 @@ async function rejectAdditionalCenterAgentDirectMessageMembers(
   if (!candidate) {
     return null;
   }
-
-  const centerAgentDb = identityDb(c.env);
+  const centerAgentDb = getPostgresDatabase(c.env);
   if (!centerAgentDb) {
     return c.json(
       {
@@ -964,7 +962,6 @@ async function rejectAdditionalCenterAgentDirectMessageMembers(
   if (!designation) {
     return null;
   }
-
   const projection = deriveCenterAgentDirectMessageSpaceProjection({
     centerAgentProfileId: designation.agentProfileId,
     directMessagePairKey: candidate.directMessagePairKey,
@@ -975,7 +972,6 @@ async function rejectAdditionalCenterAgentDirectMessageMembers(
   if (!projection) {
     return null;
   }
-
   const body = await c.req.raw
     .clone()
     .json()
@@ -984,7 +980,6 @@ async function rejectAdditionalCenterAgentDirectMessageMembers(
   if (!parsed.success) {
     return null;
   }
-
   const allowedProfileIds = new Set([
     projection.memberProfileId,
     projection.centerAgentProfileId,
@@ -999,7 +994,6 @@ async function rejectAdditionalCenterAgentDirectMessageMembers(
   if (!hasAdditionalMember) {
     return null;
   }
-
   await c.req.raw.text().catch(() => undefined);
   return c.json(
     {
@@ -1011,9 +1005,8 @@ async function rejectAdditionalCenterAgentDirectMessageMembers(
     403
   );
 }
-
 async function readCenterAgentDirectMessageCandidateForMemberGuard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   spaceId: string;
 }) {
   try {
@@ -1028,9 +1021,8 @@ async function readCenterAgentDirectMessageCandidateForMemberGuard(input: {
     return null;
   }
 }
-
 async function readCenterAgentDesignationForMemberGuard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }) {
   try {
@@ -1046,7 +1038,6 @@ async function readCenterAgentDesignationForMemberGuard(input: {
     return null;
   }
 }
-
 async function forwardToSpace(c: Context<HonoBindings>, path: string) {
   const spaceId = c.req.param("spaceId");
   if (!isHexSpaceId(spaceId)) {
@@ -1060,7 +1051,6 @@ async function forwardToSpace(c: Context<HonoBindings>, path: string) {
       404
     );
   }
-
   const stub = resolveSpaceStub(c.env.OPENMELD_SPACES, spaceId);
   if (!stub) {
     return c.json(
@@ -1073,11 +1063,9 @@ async function forwardToSpace(c: Context<HonoBindings>, path: string) {
       404
     );
   }
-
   const url = new URL(c.req.url);
   url.pathname = path;
   url.searchParams.set("space", spaceId);
-
   const request = new Request(url.toString(), c.req.raw);
   applyResolvedOpenMeldContextHeaders(request.headers, {
     context: c.var.openMeldRequestContext,
@@ -1089,12 +1077,10 @@ async function forwardToSpace(c: Context<HonoBindings>, path: string) {
   if (path === "/stream") {
     return response;
   }
-
   // DO fetch responses can carry immutable headers; clone to allow downstream
   // middleware (e.g., secure headers) to append response headers safely.
   return new Response(response.body, response);
 }
-
 function forwardCursorToSpace(
   c: Context<HonoBindings>
 ): Response | Promise<Response> {
@@ -1111,7 +1097,6 @@ function forwardCursorToSpace(
       400
     );
   }
-
   if (
     profileId !== c.var.openMeldRequestContext.actorContext.openMeldProfileId
   ) {
@@ -1125,10 +1110,8 @@ function forwardCursorToSpace(
       404
     );
   }
-
   return forwardToSpace(c, `/cursors/${encodeURIComponent(profileId)}`);
 }
-
 async function readCreateSpaceBody(
   c: Context<HonoBindings>
 ): Promise<CreateSpaceBody> {
@@ -1136,9 +1119,7 @@ async function readCreateSpaceBody(
   if (rawBody.length === 0) {
     throw new Error("Invalid create payload: expected object");
   }
-
   const obj = parseCreateSpaceBodyObject(rawBody);
-
   const nameRaw = typeof obj.name === "string" ? obj.name.trim() : "";
   if (nameRaw.length > MAX_SPACE_NAME_LENGTH) {
     throw new Error("Invalid name: too long");
@@ -1148,17 +1129,14 @@ async function readCreateSpaceBody(
   if (obj.purpose !== undefined && purpose === null) {
     throw new Error("Invalid purpose");
   }
-
   const guide = readGuide(obj.guide);
   if (obj.guide !== undefined && guide === null) {
     throw new Error("Invalid guide");
   }
-
   const visibility = readCreateSpaceVisibility(obj);
   const password = readCreateSpacePassword(obj);
   const accessMode = readCreateSpaceAccessMode(obj);
   validateCreateSpaceAccessModePasswordContract({ accessMode, password });
-
   return {
     ...(name ? { name } : {}),
     ...(purpose !== undefined && purpose !== null ? { purpose } : {}),
@@ -1168,7 +1146,6 @@ async function readCreateSpaceBody(
     ...(password === undefined ? {} : { password }),
   };
 }
-
 function parseCreateSpaceBodyObject(rawBody: string): CreateSpaceBodyObject {
   let body: unknown;
   try {
@@ -1176,11 +1153,9 @@ function parseCreateSpaceBodyObject(rawBody: string): CreateSpaceBodyObject {
   } catch {
     throw new Error("Invalid create payload: malformed JSON");
   }
-
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new Error("Invalid create payload: expected object");
   }
-
   const obj = body as CreateSpaceBodyObject;
   const unknownFields = Object.keys(obj).filter(
     (key) => !CREATE_SPACE_ALLOWED_FIELDS.has(key)
@@ -1190,10 +1165,8 @@ function parseCreateSpaceBodyObject(rawBody: string): CreateSpaceBodyObject {
       `Invalid create payload: unknown field "${unknownFields[0]}"`
     );
   }
-
   return obj;
 }
-
 function readCreateSpacePassword(
   body: CreateSpaceBodyObject
 ): string | undefined {
@@ -1205,35 +1178,30 @@ function readCreateSpacePassword(
   }
   return body.password;
 }
-
 function readCreateSpaceAccessMode(
   body: CreateSpaceBodyObject
 ): SpaceAccessMode | undefined {
   if (!Object.hasOwn(body, "accessMode")) {
     return undefined;
   }
-
   const parsed = spaceAccessModeSchema.safeParse(body.accessMode);
   if (!parsed.success) {
     throw new Error("Invalid accessMode");
   }
   return parsed.data;
 }
-
 function readCreateSpaceVisibility(
   body: CreateSpaceBodyObject
 ): SpaceOrganizationVisibility {
   if (!Object.hasOwn(body, "visibility")) {
     throw new Error("Visibility required");
   }
-
   const parsed = spaceOrganizationVisibilitySchema.safeParse(body.visibility);
   if (!parsed.success) {
     throw new Error("Invalid visibility");
   }
   return parsed.data;
 }
-
 function validateCreateSpaceAccessModePasswordContract(input: {
   accessMode: SpaceAccessMode | undefined;
   password: string | undefined;
@@ -1248,7 +1216,6 @@ function validateCreateSpaceAccessModePasswordContract(input: {
   ) {
     throw new Error("Password cannot be set for this access");
   }
-
   if (
     input.accessMode !== undefined &&
     accessModeUsesPassword &&
@@ -1257,7 +1224,6 @@ function validateCreateSpaceAccessModePasswordContract(input: {
     throw new Error("Password required for this access");
   }
 }
-
 function readSpacePurpose(value: unknown): string | null | undefined {
   if (value === undefined) {
     return undefined;
@@ -1271,7 +1237,6 @@ function readSpacePurpose(value: unknown): string | null | undefined {
   }
   return purpose;
 }
-
 function readGuide(value: unknown): string | null | undefined {
   if (value === undefined) {
     return undefined;
@@ -1285,7 +1250,6 @@ function readGuide(value: unknown): string | null | undefined {
   }
   return guide;
 }
-
 function parseJsonObject(value: string): unknown | null {
   if (!value) {
     return null;
@@ -1296,7 +1260,6 @@ function parseJsonObject(value: string): unknown | null {
     return null;
   }
 }
-
 function parsePasswordUpsertErrorPayload(raw: string): {
   code?: string;
   message: string;
@@ -1306,7 +1269,6 @@ function parsePasswordUpsertErrorPayload(raw: string): {
   if (!parsed || typeof parsed !== "object") {
     return null;
   }
-
   const payload = parsed as {
     code?: unknown;
     error?: {
@@ -1329,7 +1291,6 @@ function parsePasswordUpsertErrorPayload(raw: string): {
   const requestIdValue =
     (typeof payload.requestId === "string" ? payload.requestId : null) ??
     undefined;
-
   return {
     ...(codeValue ? { code: codeValue } : {}),
     message: messageValue,

@@ -1,3 +1,5 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { webApplicationErrorReportSchema } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const PRIVATE_CONTENT = /token|private|https/;
@@ -14,7 +16,128 @@ describe("browser application error reporting", () => {
 	afterEach(() => {
 		dispose?.();
 		dispose = undefined;
+		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
+	});
+
+	it("reports the incoming route and caught area without sending a URL or error text", async () => {
+		const {
+			recordApplicationErrorNavigation,
+			reportCaughtComponentError,
+			setApplicationErrorRouteReader,
+		} = await import("./application-error-client");
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(1000)
+			.mockReturnValue(1250);
+		setApplicationErrorRouteReader(
+			() => "/o/$orgSlug/_center-agent/chats/center-agent"
+		);
+		recordApplicationErrorNavigation("/o/$orgSlug/inbox");
+		const error = new Error("private token from https://openmeld.ai/o/secret");
+		reportCaughtComponentError(error, "space_conversation");
+		const first = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(first).toMatchObject({
+			routeId: "/o/$orgSlug/_center-agent/chats/center-agent",
+			navigation: { fromRouteId: "/o/$orgSlug/inbox", elapsedMs: 250 },
+			reactBoundary: "space_conversation",
+		});
+		expect(JSON.stringify(first)).not.toMatch(PRIVATE_CONTENT);
+		reportCaughtComponentError(error, "space_conversation");
+		expect(fetch).toHaveBeenCalledOnce();
+		recordApplicationErrorNavigation("/o/private?token=private");
+		reportCaughtComponentError(error, "markdown_editor");
+		const second = JSON.parse(
+			String(vi.mocked(fetch).mock.calls[1]?.[1]?.body)
+		);
+		expect(second.navigation).toBeUndefined();
+		expect(second.reactBoundary).toBe("markdown_editor");
+	});
+
+	it("attaches only recent fixed update labels to a React depth report", async () => {
+		const { recordReactUpdate } = await import("./react-update-trace");
+		const { reportClientApplicationError, submitApplicationErrorReport } =
+			await import("./application-error-client");
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(100)
+			.mockReturnValueOnce(110)
+			.mockReturnValueOnce(120)
+			.mockReturnValue(130);
+		recordReactUpdate("composer_draft_set");
+		recordReactUpdate("composer_editor_external_value");
+		recordReactUpdate("space_timeline_agent_controller_changed");
+		const error = new Error("Minified React error #185; private token");
+		reportClientApplicationError(error, "react_caught");
+		const body = String(vi.mocked(fetch).mock.calls[0]?.[1]?.body);
+		expect(JSON.parse(body)).toMatchObject({
+			error: { code: "react_update_depth" },
+			reactUpdateTrace: [
+				{ event: "composer_draft_set", ageMs: 30 },
+				{ event: "composer_editor_external_value", ageMs: 20 },
+				{ event: "space_timeline_agent_controller_changed", ageMs: 10 },
+			],
+		});
+		expect(body).not.toMatch(PRIVATE_CONTENT);
+		vi.spyOn(performance, "now").mockReturnValue(6200);
+		await submitApplicationErrorReport(error);
+		const manual = JSON.parse(
+			String(vi.mocked(fetch).mock.calls[1]?.[1]?.body)
+		);
+		expect(manual.submission).toBe("user");
+		expect(manual.reactUpdateTrace).toEqual(JSON.parse(body).reactUpdateTrace);
+		await submitApplicationErrorReport(
+			new Error("Minified React error #185; a later private token")
+		);
+		expect(
+			JSON.parse(String(vi.mocked(fetch).mock.calls[2]?.[1]?.body))
+				.reactUpdateTrace
+		).toBeUndefined();
+		reportClientApplicationError(new Error("ordinary failure"), "route");
+		expect(
+			JSON.parse(String(vi.mocked(fetch).mock.calls[3]?.[1]?.body))
+				.reactUpdateTrace
+		).toBeUndefined();
+	});
+
+	it("expires the previous route before a later error or manual report", async () => {
+		const { recordApplicationErrorNavigation, submitApplicationErrorReport } =
+			await import("./application-error-client");
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(1000)
+			.mockReturnValue(601_001);
+		recordApplicationErrorNavigation("/o/$orgSlug/inbox");
+		await submitApplicationErrorReport(new Error("late failure"));
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body.navigation).toBeUndefined();
+	});
+
+	it("reports the catch-up stage with API status, code, and request ID", async () => {
+		const { reportClientQueryError } = await import(
+			"./application-error-client"
+		);
+		reportClientQueryError(
+			new OpenMeldApiClientHttpError({
+				code: "auth.unauthenticated",
+				message: "private response body",
+				rawBody: "private response body",
+				requestId: "req-catch-up-401",
+				status: 401,
+			}),
+			"inbox",
+			"persist"
+		);
+		const body = String(vi.mocked(fetch).mock.calls[0]?.[1]?.body);
+		expect(
+			webApplicationErrorReportSchema.parse(JSON.parse(body)).query
+		).toEqual({
+			category: "inbox",
+			stage: "persist",
+			failure: {
+				code: "auth.unauthenticated",
+				requestId: "req-catch-up-401",
+				status: 401,
+			},
+		});
+		expect(body).not.toContain("private response body");
 	});
 
 	it("captures resource and route failures without suppressing the original error", async () => {
@@ -67,6 +190,61 @@ describe("browser application error reporting", () => {
 		}
 		await Promise.resolve();
 		expect(fetch).toHaveBeenCalledTimes(20);
+	});
+
+	it("sends one sanitized record when Wake progress is rendered without confirmation", async () => {
+		const { reportUnconfirmedWakeProgressPresentation } = await import(
+			"./application-error-client"
+		);
+		const wakeProgress = {
+			spaceId: "space-123",
+			clientMessageId: "message-123",
+			dispatchId: "dispatch-123",
+			sourceSignalId: "signal-123",
+			streamId: null,
+			sourceThreadId: null,
+			replyThreadRootSignalId: null,
+			targetProfileId: "profile-123",
+			phase: "running" as const,
+			updatedAtMs: 100,
+			fromRestoredPresentation: true,
+			fromCachedSpaceSummary: true,
+			fromCachedOwnSummary: false,
+			fromBootstrapStream: false,
+			fromHistoricalSignal: true,
+			spaceSummaryFetchedAfterMount: false,
+			ownSummaryFetchedAfterMount: false,
+			bootstrapFetchedAfterMount: false,
+		};
+		reportUnconfirmedWakeProgressPresentation(wakeProgress);
+		reportUnconfirmedWakeProgressPresentation(wakeProgress);
+		expect(fetch).toHaveBeenCalledOnce();
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body).toMatchObject({
+			source: "wake_progress_presentation",
+			error: { code: "unconfirmed_wake_progress_displayed" },
+			wakeProgress,
+		});
+		expect(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body)).not.toMatch(
+			PRIVATE_CONTENT
+		);
+		reportUnconfirmedWakeProgressPresentation({
+			...wakeProgress,
+			clientMessageId: null,
+			streamId: "stream-123",
+			fromRestoredPresentation: false,
+			fromCachedSpaceSummary: false,
+			fromBootstrapStream: true,
+		});
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(
+			JSON.parse(String(vi.mocked(fetch).mock.calls[1]?.[1]?.body)).wakeProgress
+		).toMatchObject({ streamId: "stream-123", fromBootstrapStream: true });
+		reportUnconfirmedWakeProgressPresentation({
+			...wakeProgress,
+			spaceId: "space-123?token=private",
+		});
+		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
 	it("allows an explicit report after automatic capture and returns its searchable ID", async () => {

@@ -1,5 +1,11 @@
 # Shared local product fixtures
 
+These seed/account scripts target the historical local D1 stack. They are not
+compatible with the current PostgreSQL product lane and must not be used as
+PostgreSQL smoke preparation. Start the current product with
+`pnpm dev:postgresql` and create synthetic data through its normal UI. The
+standalone visual previews below remain separate from backend acceptance.
+
 Run from the isolated checkout:
 
 ```sh
@@ -18,7 +24,14 @@ On a new browser, choose **Not now** for notifications and **Skip setup** to go
 straight to the fixture organization; these browser-local choices remain real UI.
 
 Use `pnpm dev:seed --only people`, `--only spaces`, or `--only messages` to seed
-one area and its directory dependencies. Repeat the command to restore unread
+one area and its directory dependencies. Use `pnpm dev:seed --only inbox` for
+three Spaces with nine Threads each, 426 replies, twelve completed desktop
+updates, eight restored/stopped connection incidents, one resolved system request,
+and two pending setup notices. Connection and system history retains its original
+urgent importance to exercise grouping after resolution. This opt-in scenario prepares real local
+message and Inbox records; it does not prove notification generation or simulate
+Agent execution. The setup notices link to real settings, but have no automated
+source-resolution workflow. Repeat the command to restore unread
 and preview scenarios. Existing sidebar arrangements are preserved; empty People
 and Agents directories receive starter stars and custom groups. The fixtures are
 shared source code, while each worktree owns its database and generated manifest.
@@ -50,6 +63,8 @@ still check access first; real progress takes precedence. No JSX or separate UI
 is added. Account-level discovery, closed Space rows, the conversation, and members
 consume the same scenario state. Detail snapshots are available before the account
 summary is published, so visiting a Space does not discover a new sorting priority.
+Account refreshes use the normal detail query, preserving its presentation
+lifetime and completed-outcome filtering instead of replacing its cache directly.
 Running scenarios refresh progress evidence on reads while retaining their start
 time. Approvals validate through the shared interaction schema;
 Stop uses the normal confirmation dialog and resolves the synthetic Wake in memory.
@@ -59,6 +74,9 @@ validate production UI, not real Agent execution or cross-tab synchronization.
 
 Synthetic conversations use stable IDs and backups; reruns
 replace only these known fixture messages, preserving manually added messages.
+After writing historical messages, the seed also refreshes their indexed sidebar
+preview. This prepares consistent disposable data for unopened Spaces and DMs;
+it is not evidence that normal message publication or runtime execution works.
 
 Fixtures must only provide data to production UI and its normal interaction
 entry points. Never add seed-only status rows, buttons, dialogs, or response

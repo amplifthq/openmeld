@@ -1,7 +1,9 @@
 import path from "node:path";
 import { defineConfig } from "vitest/config";
+import { optionalMediaModules } from "./scripts/optional-media-modules";
 
 export default defineConfig({
+	plugins: [optionalMediaModules()],
 	resolve: {
 		alias: {
 			"@openmeld/agent-profile": path.resolve(
@@ -95,6 +97,8 @@ export default defineConfig({
 		},
 	},
 	test: {
+		// Vite declares the local lane explicitly; the test runner must too.
+		env: { VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev" },
 		environment: "jsdom",
 		include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.{ts,tsx}"],
 		exclude: ["src/**/*.integration.test.{ts,tsx}"],

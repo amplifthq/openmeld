@@ -5,6 +5,7 @@ import {
 	isAgentExecutionReadyOrConnecting,
 } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
+import { LOCAL_AGENTS_GUIDE_PATH } from "@openmeld/product-catalog/local-agent-install-guides";
 import {
 	type ComputerConnectionProgressObservation,
 	canonicalizeAgentControllerRef,
@@ -88,7 +89,6 @@ import {
 	resolveConnectBackTarget,
 	resolveConnectCompletionTarget,
 } from "#/lib/connect/connect-route";
-import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import { createComputerAuthorizationGrant } from "#/query/auth-query";
 import {
@@ -155,6 +155,9 @@ const prepareSessionLoadRequests = new Map<
 
 export type StartBringAgentsSetupPageProps = {
 	autoReturnOnCompletion?: boolean;
+	onCompleted?: (
+		snapshot: Pick<PrepareSessionSnapshot, "deviceId" | "runtimeLane">
+	) => void;
 	observePrepareSessionId?: string;
 	orgSlug?: string;
 	selfRoute?: string;
@@ -164,9 +167,6 @@ export type StartBringAgentsSetupPageProps = {
 
 type ComputerSetupFlowProps = StartBringAgentsSetupPageProps & {
 	onContinue?: () => void;
-	onCompleted?: (
-		snapshot: Pick<PrepareSessionSnapshot, "deviceId" | "runtimeLane">
-	) => void;
 	onNavigationActionAlreadyStarted?: () => void;
 	preferExistingConnection?: boolean;
 	presentation: "conversation" | "embedded" | "page";
@@ -541,9 +541,9 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		if (completionReadinessRefresh.status !== "ready") {
 			return;
 		}
-		// A stale release channel can leave the local-components projection
-		// reporting update_required after the terminal session itself is done.
-		// Auto-return must wait for that projection to confirm the new version
+		// The terminal finishing does not prove both installed components are
+		// current. Auto-return must wait for installed versions with current,
+		// unblocked projections
 		// (or hold on the page's explicit failure card) instead of bouncing the
 		// user back to Computers on a false "Update complete".
 		if (
@@ -1290,8 +1290,8 @@ function projectPrepareTimelineUserSteps(input: {
 
 // update_service completion must not show the green "complete" checkmark
 // merely because the terminal session finished; it must also wait for the
-// local-components projection to confirm the required OpenMeld Service/CLI
-// version landed. "active"/"blocked" are existing PrepareStepState values
+// local-components projection to confirm both installed components are current
+// and unblocked. "active"/"blocked" are existing PrepareStepState values
 // (spinner / warning icon) reused here on purpose so this stays a display
 // override, not a new step-state contract.
 function resolveReadyStepDisplayState(input: {
@@ -1312,14 +1312,14 @@ function resolveReadyStepDisplaySummary(input: {
 	serviceUpdateVerification: ServiceUpdateVerificationState;
 }): string {
 	if (input.serviceUpdateVerification.status === "confirming") {
-		return "Confirming the update reached the required version on this computer...";
+		return "Confirming the installed versions on this computer...";
 	}
 	if (input.serviceUpdateVerification.status === "timed_out") {
 		// Kept distinct from SERVICE_UPDATE_VERIFICATION_FAILURE_TITLE, which
 		// this same "ready" step already renders as the notice block's
 		// headline below -- the row summary only needs to flag that something
 		// needs attention, not repeat the full headline verbatim.
-		return "The update did not finish. See the details below.";
+		return "Couldn't verify the update. See the details below.";
 	}
 	return input.baseSummary;
 }
@@ -1612,9 +1612,9 @@ function buildPrepareCommandRefreshKey(input: {
 
 // Watches the local-components readiness projection after an update_service
 // terminal session completes, re-fetching it until OpenMeld Service and CLI
-// both clear `update_required`. Reaching the timeout window only flips the
+// both report installed versions as current and unblocked. The timeout flips the
 // displayed status to "timed_out"; it does not stop the underlying refetch
-// polling, so projection data that clears `update_required` afterward still
+// polling, so projection data that confirms both components afterward still
 // recovers the display from "timed_out" to "confirmed". This is additive to
 // the terminal-complete signal, not a replacement for it: plain "setup" mode
 // (and update_service before the terminal reports completion) always

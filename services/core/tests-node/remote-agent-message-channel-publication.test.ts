@@ -1,18 +1,24 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   MessageChannelConversationLocator,
   RemoteAgentCoreCallbackBody,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
+  RemoteAgentStreamDeltaCallbackBody,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { createRemoteAgentCallbackContext } from "../../remote-agent/agent-core/callback-context";
+import { createRemoteAgentStreamPublisher } from "../../remote-agent/flue-adapter/streaming";
+import { InMemoryDurableObjectStorage } from "../../remote-agent/tests/storage";
 import {
   readAgentTaskCompletionSubscription,
   registerAgentTaskCompletionSubscription,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   createMessageChannelProviderRegistry,
   type MessageChannelProviderAdapter,
 } from "../src/remote-agent/application/message-channel-adapters";
+import { publishRemoteAgentMessageChannelCardStreamDelta } from "../src/remote-agent/application/message-channel-card-stream-service";
 import { digestMessageChannelIdentityLinkToken } from "../src/remote-agent/application/message-channel-identity-link-token";
 import {
   publishRemoteAgentMessageChannelCallback,
@@ -34,30 +40,477 @@ import {
   markRemoteAgentMessageChannelProviderCardCreated,
   markRemoteAgentMessageChannelProviderCardSendOutcomeUnknown,
   markRemoteAgentMessageChannelProviderCardSent,
-} from "../src/remote-agent/infrastructure/d1/message-channel-provider-progress-repo";
+} from "../src/remote-agent/infrastructure/postgresql/message-channel-provider-progress-repo";
 import {
   markRemoteAgentNativeDeliveryAck,
   persistRemoteAgentWorkerSubmitRequest,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
-  applyDrizzleMigrationForTable,
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const CONVERSATION_ID = "lark:connection_lark_1:chat_lark_1:message_root_1";
 const IDEMPOTENCY_KEY = "message_channel_delivery_1";
 const PROVIDER_PUBLICATION_KEY = "message_channel_publication_1";
 const SUBMISSION_ID = "submission_message_channel_1";
-
 describe("Remote Agent Message Channel publication", () => {
+  it.each([
+    { rollover: false, failure: "first" },
+    { rollover: true, failure: "first" },
+    { rollover: false, failure: "partial" },
+    { rollover: true, failure: "partial" },
+    { rollover: false, failure: "unknown" },
+    { rollover: true, failure: "unknown" },
+  ] as const)("preserves revision backoff and recovery ($failure, rollover=$rollover)", async ({
+    rollover,
+    failure,
+  }) => {
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
+    let nowMs = 2000;
+    let rejectUntilMs = 0;
+    let partialApplied = false;
+    let cardCount = 0;
+    const cards = new Map<string, string>();
+    const mutateCard: MessageChannelProviderAdapter["updateWorkingCard"] = ({
+      cardId,
+      text,
+    }) => {
+      if (nowMs < rejectUntilMs) {
+        if (failure === "unknown") {
+          // The provider applied the request, but its response was lost.
+          cards.set(cardId, text);
+          return Promise.resolve({
+            status: "outcome_unknown",
+            reasonCode: "lark.card_finalize_outcome_unknown",
+          });
+        }
+        if (
+          failure === "partial" &&
+          cardId === "card_working_lark_1" &&
+          !partialApplied
+        ) {
+          partialApplied = true;
+          cards.set(cardId, text);
+          return Promise.resolve({ status: "published" });
+        }
+        return Promise.resolve({
+          status: "failed",
+          reasonCode: "lark.card_finalize_http_429",
+          retryAfterMs: 1000,
+        });
+      }
+      cards.set(cardId, text);
+      return Promise.resolve({ status: "published" });
+    };
+    const adapter = createAdapter("lark", {
+      updateWorkingCard: vi.fn(mutateCard),
+      finalizeWorkingCard: vi.fn(mutateCard),
+      createWorkingCard: vi.fn(({ initialText }) => {
+        const cardId = `continued-card-${++cardCount}`;
+        cards.set(cardId, initialText);
+        return Promise.resolve({ status: "created" as const, cardId });
+      }),
+      publishWorkingCard: vi.fn(async () => ({
+        status: "published" as const,
+        resultId: `continued-message-${cardCount}`,
+      })),
+    });
+    const registry = createMessageChannelProviderRegistry([adapter]);
+    const read = async () => {
+      const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey: IDEMPOTENCY_KEY,
+      });
+      if (!delivery) {
+        throw new Error("Missing delivery.");
+      }
+      return delivery;
+    };
+    const stream = async (sequence: number, textSnapshot: string) =>
+      publishRemoteAgentMessageChannelCardStreamDelta({
+        delivery: await read(),
+        evidenceDb: harness.db,
+        providerDb: harness.db,
+        registry,
+        nowMs,
+        sequence,
+        textSnapshot,
+      });
+    const replacement = rollover ? "B".repeat(62_000) : "Corrected answer.";
+    const expectedDelay = failure === "unknown" ? 40 : 1000;
+    const retryResponse = {
+      status: "retryable",
+      ...(failure === "unknown" ? {} : { retryAfterMs: 1000 }),
+    };
+    const sleep = vi.fn(async (delayMs: number) => {
+      const pending = await read();
+      const fence = {
+        providerProgressState: "update_claimed",
+        providerProgressClaimId: pending.providerProgressClaimId,
+        providerProgressPublicationIdempotencyKey:
+          pending.providerProgressPublicationIdempotencyKey,
+        providerProgressPendingSequence: 2,
+        providerProgressCardHistory: { pendingSnapshot: replacement },
+      };
+      expect(pending).toMatchObject(fence);
+      expect(pending.providerProgressClaimId).toBeTruthy();
+      // Replaying the same operation must retain its frozen snapshot and UUID,
+      // including changes made by an earlier, partially successful attempt.
+      const earlyRetry = await stream(2, replacement);
+      expect(earlyRetry).toMatchObject(retryResponse);
+      if (failure === "unknown") {
+        expect(earlyRetry).not.toHaveProperty("retryAfterMs");
+      }
+      expect(await stream(3, "A newer snapshot.")).toMatchObject({
+        status: "retryable",
+      });
+      expect(await read()).toMatchObject(fence);
+      expect(delayMs).toBe(expectedDelay);
+      nowMs += delayMs;
+    });
+    const publisher = createRemoteAgentStreamPublisher({ sleep });
+    const context = createRemoteAgentCallbackContext({
+      request: createVerifiedMessageChannelWorkerRequest(),
+      nowMs,
+      ack: {
+        accepted: true,
+        createdAt: nowMs,
+        idempotencyKey: IDEMPOTENCY_KEY,
+        requestId: SUBMISSION_ID,
+        submissionId: SUBMISSION_ID,
+        status: "pending",
+      },
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: RemoteAgentStreamDeltaCallbackBody) =>
+        await stream(
+          body.sequence,
+          "snapshot" in body ? body.snapshot : body.textSnapshot
+        )
+    );
+    const push = (delta: string, replaceTextPrefix?: string) =>
+      publisher.push({
+        context,
+        storage,
+        coreWorker: { submitRemoteAgentStreamDelta },
+        kind: "text",
+        delta,
+        replaceTextPrefix,
+        observedAtMs: nowMs,
+      });
+    try {
+      await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
+      expect(await push("X", "X".repeat(30_999))).toMatchObject({
+        status: "published",
+        sequence: 1,
+      });
+      expect((await read()).providerProgressRolloverIndex).toBe(1);
+      rejectUntilMs = nowMs + expectedDelay;
+      if (rollover) {
+        // Long final answers can roll over again after the sender's 32 KiB
+        // stream snapshot limit. Exercise that reachable callback path.
+        const finalize = async () =>
+          completeRemoteAgentNativeDelivery(
+            buildEnv(harness.db),
+            {
+              ...createCompletedCallback(),
+              spaceId: (await read()).spaceId,
+              text: replacement,
+            },
+            {
+              messageChannelNowMs: () => nowMs,
+              messageChannelProviderRegistry: registry,
+            }
+          );
+        const first = await finalize();
+        expect(first).toMatchObject(retryResponse);
+        if (failure === "unknown") {
+          expect(first).not.toHaveProperty("retryAfterMs");
+        }
+        if (failure === "partial") {
+          expect(partialApplied).toBe(true);
+          expect(cards.get("card_working_lark_1")).not.toContain("XXX");
+        }
+        const pending = await read();
+        expect(pending).toMatchObject({
+          providerProgressState: "rollover_finalize_claimed",
+          providerProgressPendingSequence: 2,
+          providerProgressCardHistory: { pendingSnapshot: replacement },
+        });
+        expect(pending.providerProgressClaimId).toBeTruthy();
+        expect(await finalize()).toMatchObject(retryResponse);
+        expect(await read()).toMatchObject({
+          providerProgressState: pending.providerProgressState,
+          providerProgressClaimId: pending.providerProgressClaimId,
+          providerProgressPublicationIdempotencyKey:
+            pending.providerProgressPublicationIdempotencyKey,
+          providerProgressPendingSequence: 2,
+          providerProgressCardHistory: { pendingSnapshot: replacement },
+        });
+        nowMs += expectedDelay;
+        expect(await finalize()).toMatchObject({ status: "accepted" });
+        expect(await read()).toMatchObject({
+          status: "completed",
+          finalPublicationState: "published",
+        });
+        expect([...cards.values()].join("")).toBe(replacement);
+        expect((await read()).providerProgressCardHistory).not.toHaveProperty(
+          "pendingSnapshot"
+        );
+        expect(adapter.publishReply).not.toHaveBeenCalled();
+        return;
+      }
+      if (failure === "partial") {
+        expect(await stream(2, replacement)).toMatchObject(retryResponse);
+        expect(partialApplied).toBe(true);
+        expect(cards.get("card_working_lark_1")).not.toContain("XXX");
+      }
+      submitRemoteAgentStreamDelta.mockClear();
+      expect(
+        await push(replacement.slice(-1), replacement.slice(0, -1))
+      ).toMatchObject({ status: "published", sequence: 2 });
+      expect(sleep).toHaveBeenCalledExactlyOnceWith(expectedDelay);
+      expect(
+        submitRemoteAgentStreamDelta.mock.calls.map(([body]) => body.sequence)
+      ).toEqual([2, 2]);
+      expect(await read()).toMatchObject({
+        providerProgressState: "sent",
+        providerProgressSequence: 2,
+        providerProgressPendingSequence: null,
+      });
+      expect((await read()).providerProgressCardHistory).not.toHaveProperty(
+        "pendingSnapshot"
+      );
+      nowMs += 500;
+      expect(await push(" More details.")).toMatchObject({
+        status: "published",
+        sequence: 3,
+      });
+      expect(sleep).toHaveBeenCalledTimes(1);
+      expect(
+        await completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db),
+          {
+            ...createCompletedCallback(),
+            spaceId: (await read()).spaceId,
+            text: "Final answer.",
+          },
+          {
+            messageChannelNowMs: () => nowMs,
+            messageChannelProviderRegistry: registry,
+          }
+        )
+      ).toMatchObject({ status: "accepted" });
+      expect((await read()).status).toBe("completed");
+      expect([...cards.values()].join("\n")).not.toContain("XXX");
+      expect(cards.get(`continued-card-${cardCount}`)).toBe("Final answer.");
+      expect(adapter.publishReply).not.toHaveBeenCalled();
+    } finally {
+      await harness.close();
+    }
+  });
+  it.each([
+    { provider: "lark", streamReplacement: true, scenario: "short" },
+    { provider: "feishu", streamReplacement: true, scenario: "short" },
+    { provider: "lark", streamReplacement: false, scenario: "short" },
+    { provider: "feishu", streamReplacement: false, scenario: "short" },
+    { provider: "lark", streamReplacement: true, scenario: "same-length" },
+    {
+      provider: "feishu",
+      streamReplacement: false,
+      scenario: "rollover-restart",
+    },
+    { provider: "lark", streamReplacement: false, scenario: "final-retry" },
+    { provider: "feishu", streamReplacement: false, scenario: "legacy" },
+  ] as const)("replaces rolled-over $provider draft cards ($scenario, stream=$streamReplacement)", async ({
+    provider,
+    streamReplacement,
+    scenario,
+  }) => {
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected", provider);
+    const cards = new Map([["card_working_lark_1", "Working"]]);
+    let rejectFinalOnce = scenario === "final-retry";
+    let rejectCreationOnce = scenario === "rollover-restart";
+    const finalizeWorkingCard = vi.fn<
+      MessageChannelProviderAdapter["finalizeWorkingCard"]
+    >(({ cardId, text, outcome }) => {
+      if (rejectFinalOnce && outcome === "completed") {
+        rejectFinalOnce = false;
+        return Promise.resolve({
+          status: "failed",
+          reasonCode: `${provider}.card_finalize_http_429`,
+          retryAfterMs: 1000,
+        });
+      }
+      cards.set(cardId, text);
+      return Promise.resolve({ status: "published" });
+    });
+    const updateWorkingCard = vi.fn<
+      MessageChannelProviderAdapter["updateWorkingCard"]
+    >(({ cardId, text }) => {
+      cards.set(cardId, text);
+      return Promise.resolve({ status: "published" });
+    });
+    const adapter = createAdapter(provider, {
+      finalizeWorkingCard,
+      updateWorkingCard,
+      createWorkingCard: vi.fn<
+        MessageChannelProviderAdapter["createWorkingCard"]
+      >(({ initialText }) => {
+        if (rejectCreationOnce) {
+          rejectCreationOnce = false;
+          return Promise.resolve({
+            status: "failed",
+            reasonCode: `${provider}.card_create_http_429`,
+          });
+        }
+        cards.set("continued-card", initialText);
+        return Promise.resolve({ status: "created", cardId: "continued-card" });
+      }),
+      publishWorkingCard: vi.fn<
+        MessageChannelProviderAdapter["publishWorkingCard"]
+      >(async () => ({
+        status: "published",
+        resultId: "continued-message",
+      })),
+    });
+    const registry = createMessageChannelProviderRegistry([adapter]);
+    const read = async () => {
+      const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey: IDEMPOTENCY_KEY,
+      });
+      if (!delivery) {
+        throw new Error("Missing delivery.");
+      }
+      return delivery;
+    };
+    try {
+      await createAcceptedMessageChannelDeliveryWithSentWorkingCard(
+        harness.db,
+        provider
+      );
+      await expect(
+        publishRemoteAgentMessageChannelCardStreamDelta({
+          delivery: await read(),
+          evidenceDb: harness.db,
+          providerDb: harness.db,
+          registry,
+          nowMs: 2000,
+          sequence: 1,
+          textSnapshot: "X".repeat(31_000),
+        })
+      ).resolves.toMatchObject({
+        status: scenario === "rollover-restart" ? "retryable" : "accepted",
+      });
+      if (scenario === "rollover-restart") {
+        expect(await read()).toMatchObject({
+          providerProgressState: "rollover_finalized",
+          providerProgressCardHistory: { pendingSnapshot: "X".repeat(31_000) },
+        });
+      } else {
+        expect(await read()).toMatchObject({
+          providerProgressSourceOffset: 29_996,
+          providerProgressRolloverIndex: 1,
+        });
+      }
+      if (scenario === "legacy") {
+        // Old deployed rows have no retired card receipts. Their identities
+        // cannot be invented; the active card must explicitly supersede them.
+        await harness.query({
+          text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET provider_progress_card_history_json = NULL WHERE idempotency_key = $1',
+          values: [IDEMPOTENCY_KEY],
+        });
+      }
+      const text =
+        scenario === "same-length"
+          ? "B".repeat(31_000)
+          : "Correct complete answer.";
+      const activeText = scenario === "same-length" ? text.slice(29_996) : text;
+      if (streamReplacement) {
+        await expect(
+          publishRemoteAgentMessageChannelCardStreamDelta({
+            delivery: await read(),
+            evidenceDb: harness.db,
+            providerDb: harness.db,
+            registry,
+            nowMs: 2500,
+            sequence: 2,
+            textSnapshot: text,
+          })
+        ).resolves.toMatchObject({ status: "accepted" });
+        expect(cards.get("continued-card")).toBe(activeText);
+        expect(cards.get("card_working_lark_1")).not.toContain("XXX");
+      }
+      const callback = {
+        ...createCompletedCallback(),
+        spaceId: (await read()).spaceId,
+        text,
+      };
+      if (scenario === "final-retry") {
+        await expect(
+          completeRemoteAgentNativeDelivery(buildEnv(harness.db), callback, {
+            messageChannelNowMs: () => 2800,
+            messageChannelProviderRegistry: registry,
+          })
+        ).resolves.toMatchObject({ status: "retryable" });
+        expect(cards.get("card_working_lark_1")).toContain("replaced");
+        expect((await read()).status).not.toBe("completed");
+      }
+      for (let retry = 0; retry < 2; retry += 1) {
+        await expect(
+          completeRemoteAgentNativeDelivery(buildEnv(harness.db), callback, {
+            messageChannelNowMs: () => 5000,
+            messageChannelProviderRegistry: registry,
+          })
+        ).resolves.toMatchObject({
+          status: retry === 0 ? "accepted" : "duplicate_rejected",
+          publishedSignalId: "message_working_lark_1",
+          ...(retry === 0
+            ? {}
+            : { reasonCode: "remote_agent.callback_completed_submission" }),
+        });
+      }
+      if (scenario === "legacy") {
+        expect(cards.get("continued-card")).toBe(
+          `This response replaces all earlier draft cards for this request.\n\n${text}`
+        );
+        expect(cards.get("card_working_lark_1")).toContain("XXX");
+      } else {
+        expect(cards.get("continued-card")).toBe(activeText);
+        if (scenario === "same-length") {
+          expect(cards.get("card_working_lark_1")).toBe(text.slice(0, 29_996));
+        } else {
+          expect(cards.get("card_working_lark_1")).toContain("replaced");
+        }
+        expect([...cards.values()].join("\n")).not.toContain("XXX");
+      }
+      expect(adapter.publishWorkingCard).toHaveBeenCalledOnce();
+      expect(adapter.publishReply).not.toHaveBeenCalled();
+      expect(await read()).toMatchObject({
+        status: "completed",
+        finalPublicationState: "published",
+      });
+      expect(
+        (await read()).providerProgressCardHistory ?? {}
+      ).not.toHaveProperty("pendingSnapshot");
+    } finally {
+      await harness.close();
+    }
+  });
   it("publishes a hung admission failure once to only the frozen provider", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const publishFailure = vi.fn(async () => ({
       resultId: "message_admission_failure_lark_1",
       status: "published" as const,
@@ -72,7 +525,6 @@ describe("Remote Agent Message Channel publication", () => {
     );
     try {
       await createSubmittedMessageChannelDelivery(harness.db);
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -82,7 +534,6 @@ describe("Remote Agent Message Channel publication", () => {
           probe,
         })
       ).resolves.toEqual({ status: "expired" });
-
       expect(publishFailure).toHaveBeenCalledWith({
         connection: expect.objectContaining({
           connectionId: "connection_lark_1",
@@ -92,7 +543,7 @@ describe("Remote Agent Message Channel publication", () => {
         failureCode: "remote_agent.admission_timeout",
         locator: createLocator(),
         providerPublicationIdempotencyKey: PROVIDER_PUBLICATION_KEY,
-        text: "Center Agent did not accept this request in time. Please try again.",
+        text: "OpenMeld could not confirm whether Center Agent started this request. Open Diagnostics to check its status before starting more work.",
       });
       expect(feishuAdapter.publishFailure).not.toHaveBeenCalled();
       expect(spacesGet).not.toHaveBeenCalled();
@@ -109,7 +560,6 @@ describe("Remote Agent Message Channel publication", () => {
         status: "failed",
         submissionId: null,
       });
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -121,14 +571,13 @@ describe("Remote Agent Message Channel publication", () => {
       ).resolves.toMatchObject({ status: "skipped" });
       expect(publishFailure).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("publishes and terminalizes a completed callback through only the frozen provider adapter", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const larkAdapter = createAdapter("lark", {
       publishReply: vi.fn(async () => ({
         resultId: "message_result_lark_1",
@@ -139,6 +588,8 @@ describe("Remote Agent Message Channel publication", () => {
     const spacesGet = vi.fn();
     const taskTableReads: string[] = [];
     const inboxTableReads: string[] = [];
+    const originalQuery = PostgresDatabase.prototype.query;
+    const queryGuard = vi.spyOn(PostgresDatabase.prototype, "query");
     try {
       await createAcceptedMessageChannelDelivery(harness.db);
       const subscriptionId = await registerMessageChannelDeliverySubscription(
@@ -146,29 +597,26 @@ describe("Remote Agent Message Channel publication", () => {
         "success"
       );
       const env = buildEnv(harness.db, spacesGet);
-      env.OPENMELD_LOCAL_STATE_DB = {
-        prepare: (sql: string) => {
-          if (sql.includes("center_agent_task")) {
-            taskTableReads.push(sql);
-            throw new Error(
-              "ordinary Message Channel callback read a Center Agent Task table"
-            );
-          }
-          return harness.db.prepare(sql);
-        },
-      } as unknown as D1Database;
-      env.OPENMELD_DB = {
-        prepare: (sql: string) => {
-          if (sql.includes("inbox_items")) {
-            inboxTableReads.push(sql);
-            throw new Error(
-              "ordinary Message Channel callback read an Inbox table"
-            );
-          }
-          return harness.db.prepare(sql);
-        },
-      } as unknown as D1Database;
-
+      queryGuard.mockImplementation(function (
+        this: PostgresDatabase,
+        query,
+        values
+      ) {
+        const sql = typeof query === "string" ? query : query.text;
+        if (sql.includes("center_agent_task")) {
+          taskTableReads.push(sql);
+          throw new Error(
+            "ordinary Message Channel callback read a Center Agent Task table"
+          );
+        }
+        if (sql.includes("inbox_items")) {
+          inboxTableReads.push(sql);
+          throw new Error(
+            "ordinary Message Channel callback read an Inbox table"
+          );
+        }
+        return originalQuery.call(this, query, values);
+      });
       await expect(
         completeRemoteAgentNativeDelivery(env, createCompletedCallback(), {
           messageChannelNowMs: () => 2000,
@@ -181,7 +629,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_result_lark_1",
         status: "accepted",
       });
-
       expect(larkAdapter.publishReply).toHaveBeenCalledWith({
         attachments: [],
         connection: expect.objectContaining({
@@ -197,6 +644,7 @@ describe("Remote Agent Message Channel publication", () => {
       expect(spacesGet).not.toHaveBeenCalled();
       expect(taskTableReads).toEqual([]);
       expect(inboxTableReads).toEqual([]);
+      queryGuard.mockRestore();
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
           db: harness.db,
@@ -222,14 +670,14 @@ describe("Remote Agent Message Channel publication", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      queryGuard.mockRestore();
+      await harness.close();
     }
   });
-
   it("replaces an internal identity-boundary explanation with novice-safe copy", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const publishReply = vi.fn(async () => ({
       resultId: "message_identity_boundary_lark_1",
       status: "published" as const,
@@ -237,7 +685,6 @@ describe("Remote Agent Message Channel publication", () => {
     const adapter = createAdapter("lark", { publishReply });
     try {
       await createAcceptedMessageChannelDelivery(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -259,21 +706,19 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "message_channel.identity_link_context_unavailable",
         status: "retryable",
       });
-
       expect(publishReply).toHaveBeenCalledWith(
         expect.objectContaining({
           text: "I need your OpenMeld account before I can continue. OpenMeld will send you a private message with a “Connect my account and continue” button. After you connect, I’ll continue this request automatically.",
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets a verified Message Channel member request a fresh account-connection action", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const publishIdentityLinkGuidance = vi.fn<
       MessageChannelProviderAdapter["publishIdentityLinkGuidance"]
     >(async () => ({
@@ -296,7 +741,6 @@ describe("Remote Agent Message Channel publication", () => {
         workerSubmitRequest: createVerifiedMessageChannelWorkerRequest(),
       });
       await acceptMessageChannelDelivery(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -317,7 +761,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_result_lark_1",
         status: "accepted",
       });
-
       expect(publishIdentityLinkGuidance).toHaveBeenCalledWith(
         expect.objectContaining({
           providerUserId: "open_user_1",
@@ -328,28 +771,30 @@ describe("Remote Agent Message Channel publication", () => {
       const token = new URL(linkUrl ?? "").searchParams.get("token");
       await expect(
         harness.db
-          .prepare(
-            `
+          .query({
+            ...{
+              text: `
               SELECT claimed_by_user_id, link_purpose
-              FROM openMeldRemoteAgent_message_channel_identity_link_tokens
-              WHERE token_hash = ?
-            `
-          )
-          .bind(await digestMessageChannelIdentityLinkToken(token ?? ""))
-          .first()
+              FROM "openmeld"."openMeldRemoteAgent_message_channel_identity_link_tokens"
+              WHERE token_hash = $1
+            `,
+              values: [],
+            },
+            values: [await digestMessageChannelIdentityLinkToken(token ?? "")],
+          })
+          .then((result) => result.rows[0] ?? null)
       ).resolves.toEqual({
         claimed_by_user_id: null,
         link_purpose: "optional_setup",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("publishes an explicit notice instead of retrying an unsupported generated image forever", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const publishReply = vi.fn(async () => ({
       resultId: "message_result_lark_with_image_notice",
       status: "published" as const,
@@ -357,7 +802,6 @@ describe("Remote Agent Message Channel publication", () => {
     const adapter = createAdapter("lark", { publishReply });
     try {
       await createAcceptedMessageChannelDelivery(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -375,7 +819,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_result_lark_with_image_notice",
         status: "accepted",
       });
-
       expect(publishReply).toHaveBeenCalledWith(
         expect.objectContaining({
           attachments: [],
@@ -396,21 +839,19 @@ describe("Remote Agent Message Channel publication", () => {
         status: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("finalizes the visible working card instead of publishing a second reply", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const finalizeWorkingCard = vi.fn(async () => ({
       status: "published" as const,
     }));
     const adapter = createAdapter("lark", { finalizeWorkingCard });
     try {
       await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -425,7 +866,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_working_lark_1",
         status: "accepted",
       });
-
       expect(adapter.publishReply).not.toHaveBeenCalled();
       expect(adapter.publishFailure).not.toHaveBeenCalled();
       expect(finalizeWorkingCard).toHaveBeenCalledWith({
@@ -456,14 +896,13 @@ describe("Remote Agent Message Channel publication", () => {
         status: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps an ambiguous CardKit finalization fail-closed without guessing a retry window", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const finalizeWorkingCard = vi.fn(async () => ({
       reasonCode: "lark.card_finalize_outcome_unknown",
       status: "outcome_unknown" as const,
@@ -478,7 +917,6 @@ describe("Remote Agent Message Channel publication", () => {
     };
     try {
       await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           env,
@@ -499,7 +937,6 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
         status: "rejected",
       });
-
       expect(finalizeWorkingCard).toHaveBeenCalledTimes(1);
       expect(adapter.publishReply).not.toHaveBeenCalled();
       await expect(
@@ -514,14 +951,13 @@ describe("Remote Agent Message Channel publication", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("freezes a CardKit sequence before provider I/O and never replays an expired claim", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     let nowMs = 2000;
     const publication = createDeferred({
       status: "published" as const,
@@ -537,7 +973,6 @@ describe("Remote Agent Message Channel publication", () => {
     };
     try {
       await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
-
       const firstCallback = completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallback(),
@@ -555,7 +990,6 @@ describe("Remote Agent Message Channel publication", () => {
         finalPublicationProviderProgressSequence: 1,
         finalPublicationState: "claimed",
       });
-
       nowMs =
         2000 + REMOTE_AGENT_MESSAGE_CHANNEL_FINAL_PUBLICATION_CLAIM_LEASE_MS;
       await expect(
@@ -568,7 +1002,6 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
         status: "rejected",
       });
-
       publication.resolve();
       await expect(firstCallback).resolves.toEqual({
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
@@ -587,14 +1020,13 @@ describe("Remote Agent Message Channel publication", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not start CardKit provider I/O after the final publication claim expires", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     let clockCallCount = 0;
     const claimStartedAtMs = 2000;
     const claimExpiresAtMs =
@@ -615,7 +1047,6 @@ describe("Remote Agent Message Channel publication", () => {
     };
     try {
       await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -626,7 +1057,6 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
         status: "rejected",
       });
-
       expect(finalizeWorkingCard).not.toHaveBeenCalled();
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -639,21 +1069,19 @@ describe("Remote Agent Message Channel publication", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("finalizes a visible card with an explicit unsupported generated-image notice", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const finalizeWorkingCard = vi.fn(async () => ({
       status: "published" as const,
     }));
     const adapter = createAdapter("lark", { finalizeWorkingCard });
     try {
       await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -671,7 +1099,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_working_lark_1",
         status: "accepted",
       });
-
       expect(adapter.publishReply).not.toHaveBeenCalled();
       expect(finalizeWorkingCard).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -682,14 +1109,13 @@ describe("Remote Agent Message Channel publication", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rolls a long final callback into a follow-up card without truncation", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const finalizeWorkingCard = vi.fn(async () => ({
       status: "published" as const,
     }));
@@ -709,7 +1135,6 @@ describe("Remote Agent Message Channel publication", () => {
     const text = `${"A".repeat(29_900)}\n${"B".repeat(2000)}`;
     try {
       await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -724,7 +1149,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_working_lark_1",
         status: "accepted",
       });
-
       expect(finalizeWorkingCard).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({
@@ -780,14 +1204,13 @@ describe("Remote Agent Message Channel publication", () => {
         status: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("preserves a near-limit callback across three provider cards", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const finalizeWorkingCard = vi.fn<
       MessageChannelProviderAdapter["finalizeWorkingCard"]
     >(async () => ({
@@ -815,7 +1238,6 @@ describe("Remote Agent Message Channel publication", () => {
     const text = "A".repeat(89_500);
     try {
       await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -830,7 +1252,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_working_lark_1",
         status: "accepted",
       });
-
       expect(finalizeWorkingCard).toHaveBeenCalledTimes(3);
       expect(createWorkingCard).toHaveBeenCalledTimes(2);
       expect(publishWorkingCard).toHaveBeenCalledTimes(2);
@@ -854,14 +1275,13 @@ describe("Remote Agent Message Channel publication", () => {
         status: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("never publishes a standalone reply when working-card visibility is unknown", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const finalizeWorkingCard = vi.fn(async () => ({
       status: "published" as const,
     }));
@@ -870,7 +1290,6 @@ describe("Remote Agent Message Channel publication", () => {
       await createAcceptedMessageChannelDeliveryWithUnknownWorkingCardSend(
         harness.db
       );
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -885,7 +1304,6 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
         status: "rejected",
       });
-
       expect(adapter.publishReply).not.toHaveBeenCalled();
       expect(adapter.publishFailure).not.toHaveBeenCalled();
       expect(finalizeWorkingCard).toHaveBeenCalledWith(
@@ -907,14 +1325,13 @@ describe("Remote Agent Message Channel publication", () => {
         providerPublicationResultId: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("records safe diagnostics when terminal card rollover throws", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const sensitiveProviderDetail =
       "Authorization: Bearer provider-secret-token";
     const finalizeWorkingCard = vi.fn(() =>
@@ -924,7 +1341,6 @@ describe("Remote Agent Message Channel publication", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -942,7 +1358,6 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
         status: "rejected",
       });
-
       expect(warn).toHaveBeenCalledWith(
         "[core.remote_agent.message_channel.card_rollover_exception]",
         {
@@ -958,14 +1373,13 @@ describe("Remote Agent Message Channel publication", () => {
       );
     } finally {
       warn.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("finalizes the working card when admission times out", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const finalizeWorkingCard = vi.fn(async () => ({
       status: "published" as const,
     }));
@@ -974,7 +1388,6 @@ describe("Remote Agent Message Channel publication", () => {
     try {
       await createSubmittedMessageChannelDelivery(harness.db);
       await createSentWorkingCard(harness.db);
-
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -986,7 +1399,6 @@ describe("Remote Agent Message Channel publication", () => {
           probe,
         })
       ).resolves.toEqual({ status: "expired" });
-
       expect(adapter.publishFailure).not.toHaveBeenCalled();
       expect(adapter.publishReply).not.toHaveBeenCalled();
       expect(finalizeWorkingCard).toHaveBeenCalledWith({
@@ -1001,7 +1413,7 @@ describe("Remote Agent Message Channel publication", () => {
         sequence: 1,
         outcome: "failed",
         replyDeliveryId: expect.any(String),
-        text: "Center Agent did not accept this request in time. Please try again.",
+        text: "OpenMeld could not confirm whether Center Agent started this request. Open Diagnostics to check its status before starting more work.",
       });
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -1017,14 +1429,13 @@ describe("Remote Agent Message Channel publication", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets only one concurrent callback publish to the frozen provider", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const publication = createDeferred({
       resultId: "message_result_concurrent_1",
       status: "published" as const,
@@ -1040,7 +1451,6 @@ describe("Remote Agent Message Channel publication", () => {
     };
     try {
       await createAcceptedMessageChannelDelivery(harness.db);
-
       const firstCallback = completeRemoteAgentNativeDelivery(
         env,
         createCompletedCallback(),
@@ -1066,17 +1476,15 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_result_concurrent_1",
         status: "accepted",
       });
-
       expect(publishReply).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("publishes a failed callback without changing its frozen destination", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const adapter = createAdapter("lark", {
       publishFailure: vi.fn(async () => ({
         resultId: "message_failure_lark_1",
@@ -1089,7 +1497,6 @@ describe("Remote Agent Message Channel publication", () => {
         harness.db,
         "failure"
       );
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -1109,12 +1516,11 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_failure_lark_1",
         status: "accepted",
       });
-
       expect(adapter.publishFailure).toHaveBeenCalledWith(
         expect.objectContaining({
           failureCode: "provider.some_new_failure",
           locator: createLocator(),
-          text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+          text: "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
         })
       );
       await expect(
@@ -1142,14 +1548,13 @@ describe("Remote Agent Message Channel publication", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps an ambiguous provider outcome retryable and nonterminal inside the provider deduplication window", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     let nowMs = 2000;
     const publishReply = vi.fn(() => {
       nowMs = 12_000;
@@ -1172,7 +1577,6 @@ describe("Remote Agent Message Channel publication", () => {
         harness.db,
         "provider-ambiguity"
       );
-
       await expect(
         completeRemoteAgentNativeDelivery(
           env,
@@ -1184,7 +1588,6 @@ describe("Remote Agent Message Channel publication", () => {
         retryAfterMs: 1000,
         status: "retryable",
       });
-
       expect(publishReply).toHaveBeenCalledTimes(1);
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -1208,14 +1611,13 @@ describe("Remote Agent Message Channel publication", () => {
         state: "pending",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not copy provider exception details into publication diagnostics", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const sensitiveProviderDetail = `Authorization: Bearer provider-secret-token\n${"raw provider response ".repeat(80)}`;
     const publishReply = vi.fn(() =>
       Promise.reject(new Error(sensitiveProviderDetail))
@@ -1224,7 +1626,6 @@ describe("Remote Agent Message Channel publication", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       await createAcceptedMessageChannelDelivery(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -1241,7 +1642,6 @@ describe("Remote Agent Message Channel publication", () => {
           REMOTE_AGENT_MESSAGE_CHANNEL_AMBIGUOUS_PUBLICATION_RETRY_DELAY_MS,
         status: "retryable",
       });
-
       expect(warn).toHaveBeenCalledWith(
         "[core.remote_agent.message_channel.final_publication_exception]",
         {
@@ -1258,14 +1658,13 @@ describe("Remote Agent Message Channel publication", () => {
       expect(diagnostics.length).toBeLessThan(512);
     } finally {
       warn.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("retries the exact frozen provider publication and settles only after confirmation", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     let nowMs = 2000;
     const publishReply = vi
       .fn()
@@ -1291,7 +1690,6 @@ describe("Remote Agent Message Channel publication", () => {
         harness.db,
         "provider-ambiguity-recovery"
       );
-
       await expect(
         completeRemoteAgentNativeDelivery(
           env,
@@ -1328,7 +1726,6 @@ describe("Remote Agent Message Channel publication", () => {
           subscriptionId,
         })
       ).resolves.toMatchObject({ outcome: null, state: "pending" });
-
       nowMs =
         2000 +
         REMOTE_AGENT_MESSAGE_CHANNEL_AMBIGUOUS_PUBLICATION_RETRY_DELAY_MS;
@@ -1345,7 +1742,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_result_after_ambiguous_retry",
         status: "accepted",
       });
-
       expect(publishReply).toHaveBeenCalledTimes(2);
       expect(publishReply.mock.calls[0]?.[0]).toEqual(
         publishReply.mock.calls[1]?.[0]
@@ -1387,14 +1783,13 @@ describe("Remote Agent Message Channel publication", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets only one callback retry an ambiguous publication inside the deduplication window", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     let nowMs = 2000;
     const retryPublication = createDeferred({
       resultId: "message_result_after_concurrent_ambiguous_retry",
@@ -1424,7 +1819,6 @@ describe("Remote Agent Message Channel publication", () => {
           options
         )
       ).resolves.toMatchObject({ status: "retryable" });
-
       nowMs +=
         REMOTE_AGENT_MESSAGE_CHANNEL_AMBIGUOUS_PUBLICATION_RETRY_DELAY_MS;
       const firstRetry = completeRemoteAgentNativeDelivery(
@@ -1447,7 +1841,6 @@ describe("Remote Agent Message Channel publication", () => {
           REMOTE_AGENT_MESSAGE_CHANNEL_FINAL_PUBLICATION_CLAIM_LEASE_MS,
         status: "retryable",
       });
-
       retryPublication.resolve();
       await expect(firstRetry).resolves.toEqual({
         publishedSignalId: "message_result_after_concurrent_ambiguous_retry",
@@ -1455,14 +1848,13 @@ describe("Remote Agent Message Channel publication", () => {
       });
       expect(publishReply).toHaveBeenCalledTimes(2);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("stops provider retries exactly at the official sixty-minute deduplication boundary", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     let nowMs = 2000;
     const ambiguityDeadlineAtMs =
       nowMs + REMOTE_AGENT_LARK_PLATFORM_REPLY_DEDUPLICATION_WINDOW_MS;
@@ -1484,7 +1876,6 @@ describe("Remote Agent Message Channel publication", () => {
         harness.db,
         "provider-ambiguity-expiry"
       );
-
       await expect(
         completeRemoteAgentNativeDelivery(
           env,
@@ -1496,7 +1887,6 @@ describe("Remote Agent Message Channel publication", () => {
           REMOTE_AGENT_MESSAGE_CHANNEL_AMBIGUOUS_PUBLICATION_RETRY_DELAY_MS,
         status: "retryable",
       });
-
       nowMs = ambiguityDeadlineAtMs - 1;
       await expect(
         completeRemoteAgentNativeDelivery(
@@ -1516,7 +1906,6 @@ describe("Remote Agent Message Channel publication", () => {
           subscriptionId,
         })
       ).resolves.toMatchObject({ outcome: null, state: "pending" });
-
       nowMs = ambiguityDeadlineAtMs;
       await expect(
         completeRemoteAgentNativeDelivery(
@@ -1539,7 +1928,6 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
         status: "rejected",
       });
-
       expect(publishReply).toHaveBeenCalledTimes(2);
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -1565,14 +1953,13 @@ describe("Remote Agent Message Channel publication", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not start standalone provider I/O when its fresh claim fence reaches the deduplication deadline", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const ambiguityStartedAtMs = 2000;
     const ambiguityDeadlineAtMs =
       ambiguityStartedAtMs +
@@ -1619,7 +2006,6 @@ describe("Remote Agent Message Channel publication", () => {
           options
         )
       ).resolves.toMatchObject({ status: "retryable" });
-
       raceStarted = true;
       publishReply.mockClear();
       await expect(
@@ -1632,7 +2018,6 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "remote_agent.callback_publication_outcome_unknown",
         status: "rejected",
       });
-
       expect(publishReply).not.toHaveBeenCalled();
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -1657,14 +2042,13 @@ describe("Remote Agent Message Channel publication", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("fences a stale-projection reply retry at the official deduplication deadline", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     let nowMs = 2000;
     const ambiguityDeadlineAtMs =
       nowMs + REMOTE_AGENT_LARK_PLATFORM_REPLY_DEDUPLICATION_WINDOW_MS;
@@ -1719,7 +2103,6 @@ describe("Remote Agent Message Channel publication", () => {
           options
         )
       ).resolves.toMatchObject({ status: "retryable" });
-
       nowMs = ambiguityDeadlineAtMs - 1;
       const activeRetry = publishRemoteAgentMessageChannelCallback({
         body: createCompletedCallback(),
@@ -1731,7 +2114,6 @@ describe("Remote Agent Message Channel publication", () => {
       await vi.waitFor(() => {
         expect(publishReply).toHaveBeenCalledTimes(2);
       });
-
       nowMs = ambiguityDeadlineAtMs;
       await expect(
         completeRemoteAgentNativeDelivery(
@@ -1752,7 +2134,6 @@ describe("Remote Agent Message Channel publication", () => {
         outcome: { status: "publication_failed" },
         state: "settled",
       });
-
       retryPublication.resolve();
       await expect(activeRetry).resolves.toEqual({ status: "outcome_unknown" });
       expect(publishReply).toHaveBeenCalledTimes(2);
@@ -1767,14 +2148,13 @@ describe("Remote Agent Message Channel publication", () => {
         providerPublicationResultId: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("retries with the same provider identity after its local claim fence expires", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     let nowMs = 2000;
     let publicationAttempt = 0;
     const publishReply = vi.fn<MessageChannelProviderAdapter["publishReply"]>(
@@ -1801,7 +2181,6 @@ describe("Remote Agent Message Channel publication", () => {
     };
     try {
       await createAcceptedMessageChannelDelivery(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -1827,7 +2206,6 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_result_after_expiry",
         status: "accepted",
       });
-
       expect(publishReply).toHaveBeenCalledTimes(2);
       expect(publishReply.mock.calls[0]?.[0]).toEqual(
         publishReply.mock.calls[1]?.[0]
@@ -1843,14 +2221,13 @@ describe("Remote Agent Message Channel publication", () => {
         providerPublicationResultId: "message_result_after_expiry",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("releases a confirmed provider failure so the callback can retry", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "connected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
     const publishReply = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1872,7 +2249,6 @@ describe("Remote Agent Message Channel publication", () => {
     };
     try {
       await createAcceptedMessageChannelDelivery(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -1896,7 +2272,6 @@ describe("Remote Agent Message Channel publication", () => {
         status: "retryable",
       });
       expect(publishReply).toHaveBeenCalledTimes(1);
-
       nowMs += 7000;
       await expect(
         completeRemoteAgentNativeDelivery(
@@ -1908,21 +2283,18 @@ describe("Remote Agent Message Channel publication", () => {
         publishedSignalId: "message_result_after_retry",
         status: "accepted",
       });
-
       expect(publishReply).toHaveBeenCalledTimes(2);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not claim publication while the frozen connection is unavailable", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelPublicationMigrations(harness);
-    seedConnection(harness, "disconnected");
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "disconnected");
     const adapter = createAdapter("lark");
     try {
       await createAcceptedMessageChannelDelivery(harness.db);
-
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
@@ -1937,7 +2309,6 @@ describe("Remote Agent Message Channel publication", () => {
         reasonCode: "remote_agent.message_channel_connection_unavailable",
         status: "retryable",
       });
-
       expect(adapter.publishReply).not.toHaveBeenCalled();
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -1950,53 +2321,29 @@ describe("Remote Agent Message Channel publication", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-function applyMessageChannelPublicationMigrations(
-  harness: Parameters<typeof applyDrizzleMigrationForTable>[0]
-): void {
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL
-      )
-    `,
+async function applyMessageChannelPublicationMigrations(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, \"name\", \"email\") VALUES ('user_owner', 'Test User', ('user_owner')::text || '@example.com')",
   });
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL
-      )
-    `,
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org_1\', \'Test Organization\', (\'org_1\')::text, 1700000000000)',
   });
-  harness.run({
-    sql: "INSERT INTO users (id) VALUES ('user_owner')",
-  });
-  harness.run({
-    sql: "INSERT INTO organizations (id) VALUES ('org_1')",
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "openMeldRemoteAgent_native_delivery_ledger",
-    "openMeldRemoteAgent_lark_platform_channel_connections",
-    "openMeldRemoteAgent_message_channel_identity_link_tokens",
-  ]);
-  applyDrizzleMigrationForTable(harness, "agent_delegation_children");
-  applyDrizzleMigrationForTable(harness, "agent_delegations");
-  applyDrizzleMigrationForTable(harness, "agent_task_completion_subscriptions");
-  applyDrizzleMigrationForTable(harness, "agent_task_terminal_outcomes");
 }
-
-function seedConnection(
-  harness: ReturnType<typeof createSqliteD1Harness>,
-  status: "connected" | "disconnected"
-): void {
-  harness.run({
-    params: [status],
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_connections (
+async function seedConnection(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
+  status: "connected" | "disconnected",
+  provider: "lark" | "feishu" = "lark"
+): Promise<void> {
+  await harness.query({
+    values: [provider, status],
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" (
         connection_id,
         organization_id,
         provider,
@@ -2017,13 +2364,13 @@ function seedConnection(
       ) VALUES (
         'connection_lark_1',
         'org_1',
-        'lark',
+        $1,
         'app_lark_1',
         'tenant_lark_1',
         'bot_open_id_1',
         'Center Agent',
         'webhook',
-        ?,
+        $2,
         'user_owner',
         'channel-preset-v1',
         '["messaging"]',
@@ -2036,7 +2383,6 @@ function seedConnection(
     `,
   });
 }
-
 function createDeferred<T>(value: T): {
   promise: Promise<T>;
   resolve: () => void;
@@ -2050,16 +2396,14 @@ function createDeferred<T>(value: T): {
     resolve: () => resolvePromise(value),
   };
 }
-
 async function createAcceptedMessageChannelDelivery(
-  db: D1Database
+  db: PostgresDatabase
 ): Promise<void> {
   await createSubmittedMessageChannelDelivery(db);
   await acceptMessageChannelDelivery(db);
 }
-
 async function registerMessageChannelDeliverySubscription(
-  db: D1Database,
+  db: PostgresDatabase,
   suffix: string
 ): Promise<string> {
   const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -2091,17 +2435,16 @@ async function registerMessageChannelDeliverySubscription(
   });
   return subscriptionId;
 }
-
 async function createAcceptedMessageChannelDeliveryWithSentWorkingCard(
-  db: D1Database
+  db: PostgresDatabase,
+  provider: "lark" | "feishu" = "lark"
 ): Promise<void> {
-  await createSubmittedMessageChannelDelivery(db);
+  await createSubmittedMessageChannelDelivery(db, provider);
   await createSentWorkingCard(db);
   await acceptMessageChannelDelivery(db);
 }
-
 async function createAcceptedMessageChannelDeliveryWithUnknownWorkingCardSend(
-  db: D1Database
+  db: PostgresDatabase
 ): Promise<void> {
   await createSubmittedMessageChannelDelivery(db);
   await createWorkingCard(db);
@@ -2129,8 +2472,7 @@ async function createAcceptedMessageChannelDeliveryWithUnknownWorkingCardSend(
   }
   await acceptMessageChannelDelivery(db);
 }
-
-async function createWorkingCard(db: D1Database): Promise<void> {
+async function createWorkingCard(db: PostgresDatabase): Promise<void> {
   const createClaim = await claimRemoteAgentMessageChannelProviderCardCreation({
     claimExpiresAtMs: 1400,
     claimId: "provider_create_claim_1",
@@ -2155,8 +2497,7 @@ async function createWorkingCard(db: D1Database): Promise<void> {
     throw new Error("Failed to persist the working card identity");
   }
 }
-
-async function createSentWorkingCard(db: D1Database): Promise<void> {
+async function createSentWorkingCard(db: PostgresDatabase): Promise<void> {
   await createWorkingCard(db);
   const sendClaim = await claimRemoteAgentMessageChannelProviderCardSend({
     claimExpiresAtMs: 1600,
@@ -2184,8 +2525,9 @@ async function createSentWorkingCard(db: D1Database): Promise<void> {
     throw new Error("Failed to persist the working card message identity");
   }
 }
-
-async function acceptMessageChannelDelivery(db: D1Database): Promise<void> {
+async function acceptMessageChannelDelivery(
+  db: PostgresDatabase
+): Promise<void> {
   await markRemoteAgentNativeDeliveryAck({
     accepted: true,
     db,
@@ -2195,9 +2537,9 @@ async function acceptMessageChannelDelivery(db: D1Database): Promise<void> {
     workerRequestId: "worker_request_1",
   });
 }
-
 async function createSubmittedMessageChannelDelivery(
-  db: D1Database
+  db: PostgresDatabase,
+  provider: "lark" | "feishu" = "lark"
 ): Promise<void> {
   await upsertRemoteAgentNativeDeliveryRecord({
     attemptId: null,
@@ -2206,7 +2548,7 @@ async function createSubmittedMessageChannelDelivery(
     db,
     dispatchId: "dispatch_message_channel_1",
     idempotencyKey: IDEMPOTENCY_KEY,
-    messageChannelLocator: createLocator(),
+    messageChannelLocator: { ...createLocator(), provider },
     nowMs: 1000,
     onBehalfOfDisplayName: "Ari",
     onBehalfOfProfileId: "22222222-2222-4222-8222-222222222222",
@@ -2214,13 +2556,12 @@ async function createSubmittedMessageChannelDelivery(
     organizationId: "org_1",
     profileId: AGENT_PROFILE_ID,
     providerPublicationIdempotencyKey: PROVIDER_PUBLICATION_KEY,
-    spaceId: CONVERSATION_ID,
+    spaceId: CONVERSATION_ID.replace("lark:", `${provider}:`),
     status: "submitted",
     triggerMessageId: "message_trigger_1",
     triggerText: "Please prepare the launch plan.",
   });
 }
-
 function createAdmissionWatchdogProbe(): RemoteAgentNativeDeliveryDeadlineProbeQueueMessage {
   return {
     deadlineAtMs: 1000 + REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS * 1000,
@@ -2235,7 +2576,6 @@ function createAdmissionWatchdogProbe(): RemoteAgentNativeDeliveryDeadlineProbeQ
     v: 3,
   };
 }
-
 function createAdapter(
   provider: "feishu" | "lark",
   overrides: Partial<MessageChannelProviderAdapter> = {}
@@ -2256,10 +2596,11 @@ function createAdapter(
     ...overrides,
   };
 }
-
 function createLocator(): Extract<
   MessageChannelConversationLocator,
-  { provider: "lark" }
+  {
+    provider: "lark";
+  }
 > {
   return {
     appId: "app_lark_1",
@@ -2271,10 +2612,11 @@ function createLocator(): Extract<
     threadId: null,
   };
 }
-
 function createCompletedCallback(): Exclude<
   RemoteAgentCoreCallbackBody,
-  { status: "failed" }
+  {
+    status: "failed";
+  }
 > {
   return {
     agentProfileId: AGENT_PROFILE_ID,
@@ -2288,7 +2630,6 @@ function createCompletedCallback(): Exclude<
     triggerMessageId: "message_trigger_1",
   };
 }
-
 function createVerifiedMessageChannelWorkerRequest() {
   return {
     agentProfileId: AGENT_PROFILE_ID,
@@ -2360,7 +2701,6 @@ function createVerifiedMessageChannelWorkerRequest() {
     v: 1 as const,
   };
 }
-
 function createImageAttachment() {
   return {
     id: "attachment_generated_1",
@@ -2368,10 +2708,11 @@ function createImageAttachment() {
     sizeBytes: 2048,
   };
 }
-
 function createFailedCallback(): Extract<
   RemoteAgentCoreCallbackBody,
-  { status: "failed" }
+  {
+    status: "failed";
+  }
 > {
   return {
     agentProfileId: AGENT_PROFILE_ID,
@@ -2387,14 +2728,12 @@ function createFailedCallback(): Extract<
     triggerMessageId: "message_trigger_1",
   };
 }
-
 function buildEnv(
-  db: D1Database,
+  db: PostgresDatabase,
   spacesGet: ReturnType<typeof vi.fn> = vi.fn()
 ): CoreBindings {
   return {
-    OPENMELD_DB: db,
-    OPENMELD_WAKE_EVIDENCE_DB: db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(db),
     OPENMELD_SPACES: {
       get: spacesGet,
     } as unknown as CoreBindings["OPENMELD_SPACES"],

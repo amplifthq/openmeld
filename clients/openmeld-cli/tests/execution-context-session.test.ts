@@ -58,6 +58,30 @@ afterEach(async () => {
 });
 
 describe("Execution Context local authority", () => {
+  it("passes the workspace owner's Git metadata facts to the native boundary", () => {
+    const gitMetadata = {
+      commonDirectoryPointerPath:
+        "/task/repository.git/worktrees/worktree/commondir",
+      configPath: "/task/repository.git/config",
+      gitDirectoryPointerPath: "/task/repository.git/worktrees/worktree/gitdir",
+      hooksPath: "/task/repository.git/hooks",
+      worktreeConfigPath:
+        "/task/repository.git/worktrees/worktree/config.worktree",
+      worktreeGitPointerPath: "/task/worktree/.git",
+    };
+    expect(
+      executionContextFileAccessBoundary({
+        context,
+        workingDirectory: "/task/worktree",
+        taskWorkspace: {
+          workingDirectory: "/task/worktree",
+          boundaryRoot: "/task",
+          gitMetadata,
+        },
+        policy: { mode: "local_agent_settings", revision: 1, updatedAtMs: 1 },
+      })
+    ).toMatchObject({ folders: ["/task"], gitMetadata });
+  });
   it("creates distinct canonical task folders and refuses a symlink to another task", async () => {
     const root = await mkdtemp(join(tmpdir(), "openmeld-context-"));
     roots.push(root);
@@ -112,6 +136,26 @@ describe("Execution Context local authority", () => {
         policy,
       })
     ).toThrow("outside_computer_policy");
+    const selected = join(process.cwd(), "allowed");
+    const sibling = join(process.cwd(), "private");
+    expect(() =>
+      executionContextFileAccessBoundary({
+        context: localContext,
+        workingDirectory: sibling,
+        policy: { ...policy, folders: [selected] },
+      })
+    ).toThrow("outside_computer_policy");
+    expect(
+      executionContextFileAccessBoundary({
+        context: localContext,
+        workingDirectory: sibling,
+        policy: {
+          ...policy,
+          mode: "block_selected_folders",
+          folders: [selected],
+        },
+      }).folders
+    ).toEqual([sibling]);
     for (const folder of ["/projects", "/projects/task/private"]) {
       expect(() =>
         executionContextFileAccessBoundary({
@@ -151,6 +195,20 @@ describe("Execution Context local authority", () => {
       revision: 2,
       updatedAtMs: 10,
       executionContextAccess: "space_context",
+    });
+    const copyId = "11111111-1111-4111-8111-111111111111";
+    expect(
+      executionContextFileAccessBoundary({
+        context: { ...context, access: "space_context" },
+        workingDirectory: `${scratch}/handoff-${copyId}`,
+        taskWorkspace: { workingDirectory: scratch, boundaryRoot: scratch },
+        policy,
+        workingCopyId: copyId,
+      })
+    ).toMatchObject({
+      folders: [`${scratch}/handoff-${copyId}`],
+      executionContextAccess: "space_context",
+      workingCopyId: copyId,
     });
   });
 

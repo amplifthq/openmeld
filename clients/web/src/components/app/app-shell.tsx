@@ -1,3 +1,4 @@
+import { APP_PAGE_FRAME_PADDING_CLASS_NAME } from "@openmeld/ui/lib/page-frame";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useMatches } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
@@ -9,6 +10,7 @@ import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visib
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
 import { HumanPresenceProvider } from "#/components/profiles/human-presence";
 import AppSettingsDialog from "#/components/settings/app-settings-dialog";
+import { ConversationNamesProvider } from "#/components/spaces/conversation-names";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
@@ -17,6 +19,7 @@ import {
 	resetAccountScopedQueriesAfterAuthChange,
 	subscribeToAccountAuthChanges,
 } from "#/query/auth-boundary";
+import { AgentAvatarProfilesProvider } from "#/query/profiles/agent-avatar-context";
 import {
 	type AppShellAccount,
 	AppShellAccountContext,
@@ -24,7 +27,6 @@ import {
 import { CrossPageHeader } from "./cross-page-header";
 import { CurrentComputerProvider } from "./current-computer";
 import {
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 	type AppShellSection,
 	resolveAppShellFrameClassName,
 	resolveAppShellSectionFromMatches,
@@ -52,55 +54,62 @@ export function AppShell(input: {
 		<AppShellAccountContext.Provider value={input.account}>
 			<AccountAuthChangeListener />
 			<AppOrganizationProvider scope={input.organizationScope}>
-				<InboxBrowserTab
-					key={`${input.storageScope}:${input.organizationScope.currentOrganization.id}`}
+				<AgentAvatarProfilesProvider
 					organizationId={input.organizationScope.currentOrganization.id}
-				/>
-				<HumanPresenceProvider>
-					<WebMemberActivityReporter
-						currentUserId={input.organizationScope.currentUserId}
+					ownerAccountId={input.organizationScope.currentUserId}
+				>
+					<InboxBrowserTab
+						key={`${input.storageScope}:${input.organizationScope.currentOrganization.id}`}
 						organizationId={input.organizationScope.currentOrganization.id}
-						spaceId={activeSpaceId}
 					/>
-					<StartFlowStateProvider storageScope={input.storageScope}>
-						<CurrentComputerProvider>
-							<InboxVisibleConversationProvider>
-								<AppReadinessInvalidationListener
-									organizationId={
-										input.organizationScope.currentOrganization.id
-									}
-									storageScope={input.storageScope}
-								/>
-								<InboxNotificationListener
-									organizationId={
-										input.organizationScope.currentOrganization.id
-									}
-									organizationSlug={
-										input.organizationScope.currentOrganization.slug
-									}
-									userId={input.organizationScope.currentUserId}
-								/>
-								<OnboardingEntryGate
-									currentOrganization={
-										input.organizationScope.currentOrganization
-									}
-									currentSection={currentSection}
-									hasExplicitSpaceDestination={Boolean(activeSpaceId)}
-									organizations={input.organizationScope.organizations}
-									storageScope={input.storageScope}
-								>
-									{currentSection === "space" && activeSpaceId ? (
-										<InboxBrowserNotificationPrompt
+					<HumanPresenceProvider>
+						<WebMemberActivityReporter
+							currentUserId={input.organizationScope.currentUserId}
+							organizationId={input.organizationScope.currentOrganization.id}
+							spaceId={activeSpaceId}
+						/>
+						<StartFlowStateProvider storageScope={input.storageScope}>
+							<CurrentComputerProvider>
+								<ConversationNamesProvider>
+									<InboxVisibleConversationProvider>
+										<AppReadinessInvalidationListener
+											organizationId={
+												input.organizationScope.currentOrganization.id
+											}
+											storageScope={input.storageScope}
+										/>
+										<InboxNotificationListener
+											organizationId={
+												input.organizationScope.currentOrganization.id
+											}
+											organizationSlug={
+												input.organizationScope.currentOrganization.slug
+											}
 											userId={input.organizationScope.currentUserId}
 										/>
-									) : null}
-									<AppShellScaffold currentSection={currentSection} />
-									<AppSettingsDialog />
-								</OnboardingEntryGate>
-							</InboxVisibleConversationProvider>
-						</CurrentComputerProvider>
-					</StartFlowStateProvider>
-				</HumanPresenceProvider>
+										<OnboardingEntryGate
+											currentOrganization={
+												input.organizationScope.currentOrganization
+											}
+											currentSection={currentSection}
+											hasExplicitSpaceDestination={Boolean(activeSpaceId)}
+											organizations={input.organizationScope.organizations}
+											storageScope={input.storageScope}
+										>
+											{currentSection === "space" && activeSpaceId ? (
+												<InboxBrowserNotificationPrompt
+													userId={input.organizationScope.currentUserId}
+												/>
+											) : null}
+											<AppShellScaffold currentSection={currentSection} />
+											<AppSettingsDialog />
+										</OnboardingEntryGate>
+									</InboxVisibleConversationProvider>
+								</ConversationNamesProvider>
+							</CurrentComputerProvider>
+						</StartFlowStateProvider>
+					</HumanPresenceProvider>
+				</AgentAvatarProfilesProvider>
 			</AppOrganizationProvider>
 		</AppShellAccountContext.Provider>
 	);

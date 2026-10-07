@@ -1,4 +1,6 @@
 import * as z from "zod/v4";
+import { agentProfileIdSchema } from "../protocol/profile";
+import { accountSpaceIndexItemSchema } from "./account-space-index";
 
 const CENTER_AGENT_DIRECT_MESSAGE_SPACE_KIND =
   "center_agent_direct_message_space" as const;
@@ -57,6 +59,7 @@ export const centerAgentSessionListItemSchema =
   centerAgentDirectMessageSpaceProjectionSchema.extend({
     name: z.string().nullable(),
     createdAt: ISO_DATE_TIME_SCHEMA.nullable(),
+    messagePreview: accountSpaceIndexItemSchema.shape.messagePreview,
   });
 
 export const listCenterAgentSessionsResponseSchema = z.strictObject({
@@ -104,6 +107,11 @@ export function deriveCenterAgentDirectMessageSpaceProjection(input: {
   }
 
   const memberProfileId = pair[0] === centerAgentProfileId ? pair[1] : pair[0];
+  // Center–Agent conversations are ordinary DMs. Only a Human gets the
+  // dedicated Center session surface and its immutable membership policy.
+  if (agentProfileIdSchema.safeParse(memberProfileId).success) {
+    return null;
+  }
   return {
     centerAgentProfileId,
     isCenterAgentDirectMessageSpace: true,

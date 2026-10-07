@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
@@ -8,10 +9,10 @@ import type {
   SpaceAgentStreamTerminal,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
-import { localStateDb, wakeEvidenceDb } from "../../lib/bindings";
+
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { publishRemoteAgentMessageChannelCardStreamDelta } from "./message-channel-card-stream-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./message-channel-provider-runtime";
 import { resolveNativeDeliveryReplyPlacement } from "./reply-placement";
@@ -61,11 +62,16 @@ export async function submitRemoteAgentStreamDelta(
   }
 
   try {
-    const placement = await resolveNativeDeliveryReplyPlacement({
-      env,
-      delivery: target.delivery,
-      lock: delta.kind === "text",
-    });
+    // Thinking and progress describe execution, not a reply destination.
+    // Resolving even an unlocked default creates a real Thread in Space.
+    const placement =
+      delta.kind === "text"
+        ? await resolveNativeDeliveryReplyPlacement({
+            env,
+            delivery: target.delivery,
+            lock: false,
+          })
+        : null;
     return remoteAgentStreamDeltaCallbackResponseSchema.parse(
       await target.stub.rpcApplyAgentStreamDelta({
         ...(placement
@@ -81,15 +87,7 @@ export async function submitRemoteAgentStreamDelta(
         profileId: parsed.data.agentProfileId,
         triggerMessageId: parsed.data.triggerMessageId,
         dispatchId: parsed.data.dispatchId,
-        ...(delta.kind === "thinking"
-          ? {
-              kind: "thinking" as const,
-              thinkingSnapshot: delta.snapshot,
-            }
-          : {
-              kind: "text" as const,
-              textSnapshot: delta.snapshot,
-            }),
+        ...projectSpaceStreamContent(delta),
       })
     );
   } catch (error) {
@@ -113,17 +111,17 @@ export async function submitRemoteAgentStreamDelta(
 async function publishMessageChannelStreamDelta(input: {
   body: RemoteAgentStreamDeltaCallbackBody;
   delivery: RemoteAgentNativeDeliveryRecord;
-  delta: { kind: "text" | "thinking"; snapshot: string };
+  delta: { kind: "text" | "thinking" | "progress"; snapshot: string };
   env: CoreBindings;
 }): Promise<RemoteAgentStreamDeltaCallbackResponse> {
-  if (input.delta.kind === "thinking") {
+  if (input.delta.kind !== "text") {
     return remoteAgentStreamDeltaCallbackResponseSchema.parse({
       lastSequence: input.body.sequence,
       status: "accepted",
     });
   }
-  const providerDb = localStateDb(input.env);
-  const evidenceDb = wakeEvidenceDb(input.env);
+  const providerDb = getPostgresDatabase(input.env);
+  const evidenceDb = getPostgresDatabase(input.env);
   const registry = providerDb
     ? createConfiguredMessageChannelProviderRegistry({
         db: providerDb,
@@ -166,10 +164,29 @@ async function publishMessageChannelStreamDelta(input: {
 
 function normalizeRemoteAgentStreamDelta(
   body: RemoteAgentStreamDeltaCallbackBody
-): { kind: "text" | "thinking"; snapshot: string } {
+): { kind: "text" | "thinking" | "progress"; snapshot: string } {
   return body.v === 1
     ? { kind: "text", snapshot: body.textSnapshot }
     : { kind: body.kind, snapshot: body.snapshot };
+}
+
+function projectSpaceStreamContent(delta: {
+  kind: "text" | "thinking" | "progress";
+  snapshot: string;
+}):
+  | { kind: "text"; textSnapshot: string }
+  | { kind: "thinking"; thinkingSnapshot: string }
+  | { kind: "progress"; progressSnapshot: string } {
+  switch (delta.kind) {
+    case "thinking":
+      return { kind: "thinking", thinkingSnapshot: delta.snapshot };
+    case "progress":
+      return { kind: "progress", progressSnapshot: delta.snapshot };
+    case "text":
+      return { kind: "text", textSnapshot: delta.snapshot };
+    default:
+      throw new Error("Unsupported Remote Agent stream content kind.");
+  }
 }
 
 export async function closeRemoteAgentStreamProjection(input: {

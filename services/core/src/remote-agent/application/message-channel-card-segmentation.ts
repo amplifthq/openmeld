@@ -4,20 +4,17 @@ import { MESSAGE_CHANNEL_CARD_MAX_TOTAL_CHARS } from "./message-channel-terminal
 const CODE_FENCE_PATTERN = /^```([^\s`]*)[^\n]*$/u;
 const MARKDOWN_HEADING_PATTERN = /^#{1,6}\s/u;
 const MESSAGE_CHANNEL_CARD_MIN_PREFERRED_FILL_RATIO = 0.6;
-
 export const MESSAGE_CHANNEL_CARD_MAX_SEGMENTS = Math.ceil(
   MESSAGE_CHANNEL_CARD_MAX_TOTAL_CHARS /
     (LARK_PLATFORM_STREAMING_CARD_MAX_CHARS *
       MESSAGE_CHANNEL_CARD_MIN_PREFERRED_FILL_RATIO)
 );
 export { MESSAGE_CHANNEL_CARD_MAX_TOTAL_CHARS };
-
 export type MessageChannelCardSegment = {
   head: string;
   sourceEnd: number;
   tail: string;
 };
-
 export function splitMessageChannelCardSegment(input: {
   sourceOffset: number;
   text: string;
@@ -31,7 +28,6 @@ export function splitMessageChannelCardSegment(input: {
       tail: "",
     };
   }
-
   const prefix = buildReopenedFencePrefix(input.text, input.sourceOffset);
   let sourceEnd = chooseSourceBoundary({
     availableChars: LARK_PLATFORM_STREAMING_CARD_MAX_CHARS - prefix.length - 4,
@@ -69,7 +65,6 @@ export function splitMessageChannelCardSegment(input: {
     }),
   };
 }
-
 export function renderMessageChannelCardText(input: {
   sourceEnd?: number;
   sourceOffset: number;
@@ -93,7 +88,6 @@ export function renderMessageChannelCardText(input: {
       : "";
   return `${prefix}${source}${suffix}`;
 }
-
 export async function hashMessageChannelCardText(
   text: string
 ): Promise<string> {
@@ -104,7 +98,6 @@ export async function hashMessageChannelCardText(
     ""
   );
 }
-
 function assertValidSourceOffset(input: {
   sourceOffset: number;
   text: string;
@@ -117,7 +110,6 @@ function assertValidSourceOffset(input: {
     throw new Error("Message Channel card source offset is invalid");
   }
 }
-
 function buildReopenedFencePrefix(text: string, sourceOffset: number): string {
   if (sourceOffset === 0) {
     return "";
@@ -125,7 +117,6 @@ function buildReopenedFencePrefix(text: string, sourceOffset: number): string {
   const openFence = readOpenFence(text, sourceOffset);
   return openFence === null ? "" : `\`\`\`${openFence}\n`;
 }
-
 function chooseSourceBoundary(input: {
   availableChars: number;
   sourceOffset: number;
@@ -161,7 +152,6 @@ function chooseSourceBoundary(input: {
   }
   return maximumEnd;
 }
-
 function findHeadingBoundary(
   candidate: string,
   minimumPreferredEnd: number
@@ -180,7 +170,6 @@ function findHeadingBoundary(
   }
   return null;
 }
-
 function readOpenFence(text: string, sourceEnd: number): string | null {
   let openFence: string | null = null;
   const source = text.slice(0, sourceEnd);
@@ -193,7 +182,6 @@ function readOpenFence(text: string, sourceEnd: number): string | null {
   }
   return openFence;
 }
-
 function adjustUnicodeBoundary(text: string, offset: number): number {
   if (
     offset > 0 &&
@@ -205,15 +193,12 @@ function adjustUnicodeBoundary(text: string, offset: number): number {
   }
   return offset;
 }
-
 function previousUnicodeBoundary(text: string, offset: number): number {
   return adjustUnicodeBoundary(text, Math.max(0, offset - 1));
 }
-
 function isHighSurrogate(codeUnit: number): boolean {
-  return codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff;
+  return codeUnit >= 55_296 && codeUnit <= 56_319;
 }
-
 function isLowSurrogate(codeUnit: number): boolean {
-  return codeUnit >= 0xdc_00 && codeUnit <= 0xdf_ff;
+  return codeUnit >= 56_320 && codeUnit <= 57_343;
 }

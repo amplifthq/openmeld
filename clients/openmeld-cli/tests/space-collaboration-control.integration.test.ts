@@ -16,7 +16,6 @@ import {
   COLLABORATION_CONTROL_SPACE_ID,
   ORGANIZATION_SPACE_DIRECTORY_FIXTURE,
   SELECTED_WAKE_PROGRESS_FIXTURE,
-  SELECTED_WAKE_PROGRESS_WITHOUT_ELIGIBILITY_FIXTURE,
   SELF_SERVE_SPACE_JOIN_FIXTURE,
   TERMINAL_FAILURE_WAKE_PROGRESS_FIXTURE,
   TERMINAL_WAKE_PROGRESS_FIXTURE,
@@ -498,13 +497,8 @@ describe("Space collaboration control commands", () => {
           response: WAKE_STOP_REQUESTED_FIXTURE,
         },
       });
-      expect(fetchSpy).toHaveBeenCalledTimes(2);
-      const progressUrl = new URL(String(fetchSpy.mock.calls[0]?.[0]));
-      expect(progressUrl.searchParams.get("includeWakeStopEligibility")).toBe(
-        "true"
-      );
-      expect(progressUrl.searchParams.get("includeWaitReason")).toBe("true");
-      const stopInit = fetchSpy.mock.calls[1]?.[1];
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const stopInit = fetchSpy.mock.calls[0]?.[1];
       expect(JSON.parse(String(stopInit?.body))).toEqual({
         reason: "Stop requested by the CLI operator.",
         target: {
@@ -716,7 +710,7 @@ describe("Space collaboration control commands", () => {
           },
         },
       });
-      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -775,44 +769,33 @@ describe("Space collaboration control commands", () => {
     });
   });
 
-  it("fails closed without posting when Stop eligibility is absent", async () => {
+  it("can stop before a progress projection exists using one direct POST", async () => {
     await withTempHome(async () => {
       await initializeProfile();
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(
-          JSON.stringify(SELECTED_WAKE_PROGRESS_WITHOUT_ELIGIBILITY_FIXTURE),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }
-        )
+        new Response(JSON.stringify(WAKE_STOP_CANCELLED_FIXTURE), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
       );
-
       const { plainStdout } = await withCapturedStdio(async () => {
         await runSpaceWakeStop({
           entryChecksHandled: true,
           profile: PROFILE.openMeldProfileId,
           baseUrl: "http://localhost",
           space: COLLABORATION_CONTROL_SPACE_ID,
-          clientMessageId: "client-message-1",
+          clientMessageId: "before-admission",
           targetProfileId: COLLABORATION_CONTROL_AGENT_PROFILE_ID,
           view: "agent",
         });
       });
-
-      expect(process.exitCode).toBe(1);
       expect(JSON.parse(plainStdout.trim())).toMatchObject({
-        type: "result",
-        code: "space.wake_stop.not_eligible",
-        payload: {
-          status: "error",
-          operation: "space.wake_stop",
-          error: {
-            code: "space.wake_stop.not_eligible",
-          },
-        },
+        code: "space.wake_stop",
+        payload: { confirmed: true, terminal: true },
       });
       expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0]?.[1]?.method).toBe("POST");
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain("/wake-stop");
     });
   });
 

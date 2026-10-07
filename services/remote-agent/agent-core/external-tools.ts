@@ -29,10 +29,12 @@ import {
   trim,
 } from "valibot";
 import { emitRemoteAgentToolUsage } from "../flue-adapter/tool-usage-observability";
+import { createMeteredRemoteFetch } from "./ai-usage";
 import {
   appendRemoteAgentOutputAttachment,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
+  readRemoteAgentCallbackContext,
 } from "./callback-context";
 import { callCoreRpc } from "./core-rpc";
 import {
@@ -234,7 +236,7 @@ export function getRemoteAgentExternalToolDefinitions(input: {
     {
       name: "browser_read_page",
       description:
-        "Open a public webpage in headless Chrome, run its JavaScript, and return bounded Markdown. This is a one-shot Browser Run action, not a persistent interactive browser session.",
+        "Fetch and read a known public web page in headless Chrome when web search or web fetch fails, or when the page needs JavaScript rendering. Returns bounded Markdown. This is a one-shot Browser Run action, not a persistent interactive browser session.",
       input: browserReadPageInputSchema,
       execute: async (payload) => {
         const request = parseValibot(browserReadPageInputSchema, payload);
@@ -363,13 +365,41 @@ async function runOpenRouterResearch(input: {
     );
     const requestBody = JSON.stringify({
       model: modelId,
-      messages: [{ role: "user", content: input.prompt }],
+      messages: [
+        {
+          role: "user",
+          content:
+            input.operation === "web_search"
+              ? `Search the live web for this query and answer using the sources you find:\n\n${input.prompt}`
+              : input.prompt,
+        },
+      ],
       provider: REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING,
       tools: [input.serverTool],
-      tool_choice: "required",
     });
     inputBytes = requestBody.length;
-    const response = await (input.fetch ?? globalThis.fetch)(
+    const attribution = await readRemoteAgentCallbackContext(
+      input.storage,
+      input.submissionId
+    );
+    if (!attribution) {
+      throw new Error("Web research requires durable AI usage attribution.");
+    }
+    const response = await createMeteredRemoteFetch({
+      coreWorker: env.OPENMELD_CORE_WORKER,
+      fetch: input.fetch,
+      model: modelId,
+      storage: input.storage,
+      scope: {
+        organizationId: attribution.organizationId,
+        purpose: "web_research",
+        agentProfileId: attribution.agentProfileId,
+        spaceId: attribution.spaceId,
+        taskId: attribution.taskId ?? null,
+        dispatchId: attribution.dispatchId,
+        attemptId: attribution.submissionId,
+      },
+    })(
       `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(env)}/chat/completions`,
       {
         method: "POST",

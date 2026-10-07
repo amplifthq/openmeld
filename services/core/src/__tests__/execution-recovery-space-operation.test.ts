@@ -6,6 +6,7 @@ import type {
   SpaceDispatchTraceSnapshot,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import {
   buildExecutionRecoveryOperationKeys,
   EXECUTION_RECOVERY_OPERATION_LEASE_MS,
@@ -442,6 +443,9 @@ function createSpace(input: {
     return await input.effect(effectInput);
   };
   Object.defineProperties(space, {
+    bindings: {
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    },
     applySpaceRef: { value: vi.fn() },
     ctx: { value: { storage: input.storage } },
     [effectProperty]: { value: runEffect },

@@ -23,6 +23,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { acquireLock, releaseLock } from "../src/config/lock";
 import {
+  assertExecutionContextWorkspaceUse,
   markExecutionContextWorkspaceInUse,
   prepareExecutionContextWorkspace,
   readExecutionContextWorkspace,
@@ -115,6 +116,211 @@ function prepare(
 }
 
 describe("Execution Context workspaces", () => {
+  it("keeps ordinary Git settings and restores executable settings after native quiescence", async () => {
+    await initializeRepository();
+    const workspace = await prepare();
+    const config = join(workspace.boundaryRoot, "repository.git/config");
+    await git(workspace.workingDirectory, [
+      "config",
+      "--file",
+      config,
+      "core.fsmonitor",
+      "false",
+    ]);
+    const use = await markExecutionContextWorkspaceInUse({
+      context,
+      ledgerRootPath: ledger,
+    });
+    const marker = join(root, "must-not-run");
+    await git(workspace.workingDirectory, [
+      "config",
+      "--file",
+      config,
+      "core.fsmonitor",
+      `touch ${marker}`,
+    ]);
+    await git(workspace.workingDirectory, [
+      "config",
+      "--file",
+      config,
+      "alias.probe",
+      `!touch ${marker}`,
+    ]);
+    await git(workspace.workingDirectory, [
+      "config",
+      "--file",
+      config,
+      "filter.probe.clean",
+      `touch ${marker}`,
+    ]);
+    await git(workspace.workingDirectory, [
+      "config",
+      "--file",
+      config,
+      "user.email",
+      "task@example.invalid",
+    ]);
+    await git(workspace.workingDirectory, [
+      "config",
+      "--file",
+      config,
+      "branch.task.remote",
+      "origin",
+    ]);
+    await expect(
+      releaseExecutionContextWorkspace({
+        context,
+        ledgerRootPath: ledger,
+        use,
+        ownedProcessesQuiescent: true,
+      })
+    ).resolves.toMatchObject({
+      status: "retained",
+      gitConfigAudit: {
+        restoredSettings: 3,
+        declaredHookInstallers: 0,
+        unverifiedHookSettings: 0,
+      },
+    });
+    expect(
+      await git(workspace.workingDirectory, [
+        "config",
+        "--file",
+        config,
+        "--get",
+        "core.fsmonitor",
+      ])
+    ).toBe("false");
+    await expect(
+      git(workspace.workingDirectory, [
+        "config",
+        "--file",
+        config,
+        "--get",
+        "alias.probe",
+      ])
+    ).rejects.toThrow();
+    await expect(
+      git(workspace.workingDirectory, [
+        "config",
+        "--file",
+        config,
+        "--get",
+        "filter.probe.clean",
+      ])
+    ).rejects.toThrow();
+    expect(
+      await git(workspace.workingDirectory, [
+        "config",
+        "--file",
+        config,
+        "--get",
+        "user.email",
+      ])
+    ).toBe("task@example.invalid");
+    expect(
+      await git(workspace.workingDirectory, [
+        "config",
+        "--file",
+        config,
+        "--get",
+        "branch.task.remote",
+      ])
+    ).toBe("origin");
+    await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each([
+    true,
+    false,
+  ])("preserves hook-path changes and reports whether the installer was committed: %s", async (declared) => {
+    await initializeRepository();
+    if (declared) {
+      await mkdir(join(source, ".husky"));
+      await writeFile(join(source, ".husky/pre-commit"), "#!/bin/sh\nexit 0\n");
+      await writeFile(
+        join(source, "package.json"),
+        JSON.stringify({ scripts: { prepare: "husky" } })
+      );
+      await git(source, ["add", "."]);
+      await git(source, ["commit", "-m", "Committed hook installer"]);
+    }
+    const workspace = await prepare();
+    const config = join(workspace.boundaryRoot, "repository.git/config");
+    const use = await markExecutionContextWorkspaceInUse({
+      context,
+      ledgerRootPath: ledger,
+    });
+    await git(workspace.workingDirectory, [
+      "config",
+      "--file",
+      config,
+      "core.hooksPath",
+      ".husky",
+    ]);
+    const result = await releaseExecutionContextWorkspace({
+      context,
+      ledgerRootPath: ledger,
+      use,
+      ownedProcessesQuiescent: true,
+    });
+    expect(result).toMatchObject({
+      status: "retained",
+      gitConfigAudit: {
+        restoredSettings: 0,
+        declaredHookInstallers: declared ? 1 : 0,
+        unverifiedHookSettings: declared ? 0 : 1,
+      },
+    });
+    expect(
+      await git(workspace.workingDirectory, [
+        "config",
+        "--file",
+        config,
+        "--get",
+        "core.hooksPath",
+      ])
+    ).toBe(".husky");
+  });
+
+  it("rejects a stale project shell from another dispatch attempt", async () => {
+    await initializeRepository();
+    await prepare();
+    const use = await markExecutionContextWorkspaceInUse({
+      context,
+      ledgerRootPath: ledger,
+      containerRuntime: {
+        binary: "/test/docker",
+        engineIdentity: "test-engine",
+        kind: "docker",
+      },
+      dispatchId: "dispatch-current",
+      attemptId: "attempt-current",
+    });
+    try {
+      await expect(
+        assertExecutionContextWorkspaceUse({
+          ledgerRootPath: ledger,
+          contextId: context.id,
+          dispatchId: "dispatch-current",
+          attemptId: "attempt-current",
+        })
+      ).resolves.toBeUndefined();
+      await expect(
+        assertExecutionContextWorkspaceUse({
+          ledgerRootPath: ledger,
+          contextId: context.id,
+          dispatchId: "dispatch-current",
+          attemptId: "attempt-previous",
+        })
+      ).rejects.toThrow("workspace_execution_authority_mismatch");
+    } finally {
+      if (use) {
+        await releaseLock(use.lock);
+      }
+    }
+  });
+
   it.each([
     "before Git",
     "after init",
@@ -489,6 +695,56 @@ describe("Execution Context workspaces", () => {
       },
     });
     expect(first).toEqual({
+      gitMetadata: {
+        commonDirectoryPointerPath: join(
+          ledger,
+          "execution-context-workspaces",
+          context.id,
+          "repository.git",
+          "worktrees",
+          "worktree",
+          "commondir"
+        ),
+        configPath: join(
+          ledger,
+          "execution-context-workspaces",
+          context.id,
+          "repository.git",
+          "config"
+        ),
+        gitDirectoryPointerPath: join(
+          ledger,
+          "execution-context-workspaces",
+          context.id,
+          "repository.git",
+          "worktrees",
+          "worktree",
+          "gitdir"
+        ),
+        hooksPath: join(
+          ledger,
+          "execution-context-workspaces",
+          context.id,
+          "repository.git",
+          "hooks"
+        ),
+        worktreeConfigPath: join(
+          ledger,
+          "execution-context-workspaces",
+          context.id,
+          "repository.git",
+          "worktrees",
+          "worktree",
+          "config.worktree"
+        ),
+        worktreeGitPointerPath: join(
+          ledger,
+          "execution-context-workspaces",
+          context.id,
+          "worktree",
+          ".git"
+        ),
+      },
       workingDirectory: join(
         ledger,
         "execution-context-workspaces",

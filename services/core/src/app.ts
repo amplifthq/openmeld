@@ -5,11 +5,14 @@ import { prettyJSON } from "hono/pretty-json";
 import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import { trimTrailingSlash } from "hono/trailing-slash";
-import { warnOnSharedDbMigrationDriftOnce } from "./db/migration-drift";
+import { registerAccountInvalidationRoute } from "./account-invalidation/account-invalidation-route";
 import type { HonoBindings } from "./lib/bindings";
 import { resolveActiveOrganizationMembership } from "./organizations/organization-context";
 import { registerConfigRoutes } from "./routes/config";
 import { registerDaemonRoutes } from "./routes/daemon";
+import { registerFileRootContentRoutes } from "./routes/file-root-content";
+import { registerFileRootRoutes } from "./routes/file-roots";
+import { registerOrganizationSkillResourceRoutes } from "./routes/organization-skill-resources";
 import { registerPrepareSessionRoutes } from "./routes/prepare-session";
 import { registerRootRoutes } from "./routes/root";
 import { registerSpaceRoutes } from "./routes/spaces";
@@ -52,16 +55,6 @@ export function createHttpApp() {
       return corsMiddleware(c, next);
     })
     .use("*", requestId())
-    .use("*", async (c, next) => {
-      try {
-        warnOnSharedDbMigrationDriftOnce(c.env, (promise) => {
-          c.executionCtx.waitUntil(promise);
-        });
-      } catch {
-        // The dev-only drift probe must never affect request handling.
-      }
-      await next();
-    })
     .use("*", async (c, next) => {
       const startedAt = Date.now();
       const runtimeEvidence = readCloudflareRequestEvidence(c.req.raw);
@@ -125,6 +118,11 @@ export function createHttpApp() {
         requireActiveOrganization: true,
       });
     })
+    .use("/v1/account/invalidation-stream", (c, next) => {
+      return requireResolvedOpenMeldContext(c, next, {
+        requireActiveOrganization: true,
+      });
+    })
     .use("/v1/daemon", (c, next) => {
       return requireResolvedOpenMeldContext(c, next);
     })
@@ -137,6 +135,10 @@ export function createHttpApp() {
   registerDaemonRoutes(app);
   registerPrepareSessionRoutes(app);
   registerSpaceRoutes(app);
+  registerFileRootRoutes(app);
+  registerFileRootContentRoutes(app);
+  registerOrganizationSkillResourceRoutes(app);
+  registerAccountInvalidationRoute(app);
 
   app.onError((error, c) => {
     const errorMessage = error instanceof Error ? error.message : String(error);

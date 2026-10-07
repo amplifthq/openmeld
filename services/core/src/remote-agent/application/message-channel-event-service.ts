@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildMessageChannelConversationId,
   channelContextSchema,
@@ -8,18 +9,18 @@ import type {
   MessageChannelIngressEnvelope,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
-import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/d1/lark-platform-channel-connection-repo";
-import { upsertRemoteAgentLarkPlatformContextCursor } from "../infrastructure/d1/lark-platform-context-cursor-repo";
+import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
+import { upsertRemoteAgentLarkPlatformContextCursor } from "../infrastructure/postgresql/lark-platform-context-cursor-repo";
 import {
   claimRemoteAgentMessageChannelEventIngress,
   completeRemoteAgentMessageChannelEventIngress,
   failRemoteAgentMessageChannelEventIngress,
   releaseRemoteAgentMessageChannelEventIngressForRetry,
-} from "../infrastructure/d1/message-channel-event-ingress-repo";
+} from "../infrastructure/postgresql/message-channel-event-ingress-repo";
 import {
   claimRemoteAgentMessageChannelAdmissionFailurePublication,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT,
   CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT,
@@ -41,39 +42,61 @@ import {
   type MessageChannelTurnTargetResolution,
   resolveMessageChannelTurnTarget,
 } from "./message-channel-turn-resolution";
+import { buildPluginChannelSourceProof } from "./plugin-channel-source-proof";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 
 const MESSAGE_CHANNEL_EVENT_CLAIM_LEASE_MS = 30_000;
 const MESSAGE_CHANNEL_FAILURE_PUBLICATION_CLAIM_LEASE_MS = 30_000;
 export const REMOTE_AGENT_MESSAGE_CHANNEL_EVENT_MAX_QUEUE_ATTEMPTS = 4;
-
 type LarkPlatformEnvelope = MessageChannelIngressEnvelope & {
   provider: "feishu" | "lark";
 };
-
 type FailedMessageChannelDeliveryResult = Extract<
   RemoteAgentMessageChannelNativeDeliveryResult,
-  { status: "failed" }
+  {
+    status: "failed";
+  }
 >;
 type AdmittedMessageChannelEvent = Extract<
   MessageChannelIngressEnvelope["event"],
-  { kind: "card_action" | "message" }
+  {
+    kind: "card_action" | "message";
+  }
 >;
-
 export type RemoteAgentMessageChannelEventProcessingResult =
-  | { deliveryId: string; status: "submitted" }
-  | { deliveryId: string; status: "failed" | "outcome_unknown" }
-  | { status: "duplicate" }
-  | { reasonCode: string; status: "ignored" | "rejected" };
-
+  | {
+      deliveryId: string;
+      status: "submitted";
+    }
+  | {
+      deliveryId: string;
+      status: "failed" | "outcome_unknown";
+    }
+  | {
+      status: "duplicate";
+    }
+  | {
+      reasonCode: string;
+      status: "ignored" | "rejected";
+    };
 type AdmissionFailureSettlement =
-  | { resultId: string; status: "published" }
-  | { status: "outcome_unknown" }
-  | { reasonCode: string; status: "retryable" };
-
+  | {
+      resultId: string;
+      status: "published";
+    }
+  | {
+      status: "outcome_unknown";
+    }
+  | {
+      reasonCode: string;
+      status: "retryable";
+    };
 type IngressClaimResult =
   | {
-      record: { eventKey: string; state: "processing" };
+      record: {
+        eventKey: string;
+        state: "processing";
+      };
       status: "claimed";
     }
   | {
@@ -83,13 +106,12 @@ type IngressClaimResult =
       };
       status: "duplicate";
     };
-
 export type RemoteAgentMessageChannelEventServiceDependencies = {
   claimIngress(input: {
     claimExpiresAtMs: number;
     claimId: string;
     connectionId: string;
-    db: D1Database;
+    db: PostgresDatabase;
     gatewayRequestId: string;
     nowMs: number;
     provider: "feishu" | "lark";
@@ -111,7 +133,12 @@ export type RemoteAgentMessageChannelEventServiceDependencies = {
     bucket?: Pick<R2Bucket, "delete" | "put">;
     connection: RemoteAgentLarkPlatformChannelConnectionRecord;
     conversationId: string;
-    event: Extract<MessageChannelIngressEnvelope["event"], { kind: "message" }>;
+    event: Extract<
+      MessageChannelIngressEnvelope["event"],
+      {
+        kind: "message";
+      }
+    >;
   }): Promise<MessageChannelInputAttachmentPreparationResult>;
   releaseIngress(
     input: Parameters<
@@ -121,15 +148,15 @@ export type RemoteAgentMessageChannelEventServiceDependencies = {
   resolveTurnTarget(input: {
     authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
     connectionId: string;
-    identityDb: D1Database;
+    identityDb: PostgresDatabase;
     provider: "feishu" | "lark";
     providerUserDisplayName?: string | null;
     providerUserId: string;
     providerUserTenantKey?: string | null;
-    stateDb: D1Database;
+    stateDb: PostgresDatabase;
   }): Promise<MessageChannelTurnTargetResolution>;
   settleAdmissionFailure(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     delivery: FailedMessageChannelDeliveryResult;
     nowMs: number;
     registry: MessageChannelProviderRegistry;
@@ -141,7 +168,6 @@ export type RemoteAgentMessageChannelEventServiceDependencies = {
     input: Parameters<typeof upsertRemoteAgentLarkPlatformContextCursor>[0]
   ): Promise<unknown>;
 };
-
 const DEFAULT_DEPENDENCIES: RemoteAgentMessageChannelEventServiceDependencies =
   {
     async claimIngress(input) {
@@ -177,14 +203,15 @@ const DEFAULT_DEPENDENCIES: RemoteAgentMessageChannelEventServiceDependencies =
     submitNativeDelivery: submitRemoteAgentMessageChannelNativeDelivery,
     upsertContextCursor: upsertRemoteAgentLarkPlatformContextCursor,
   };
-
 export class RemoteAgentMessageChannelEventRetryableError extends Error {
   readonly reasonCode: string;
   readonly retryAfterMs: number | undefined;
-
   constructor(
     reasonCode: string,
-    options: { cause?: unknown; retryAfterMs?: number } = {}
+    options: {
+      cause?: unknown;
+      retryAfterMs?: number;
+    } = {}
   ) {
     super(reasonCode);
     this.name = "RemoteAgentMessageChannelEventRetryableError";
@@ -195,11 +222,14 @@ export class RemoteAgentMessageChannelEventRetryableError extends Error {
     }
   }
 }
-
 export class RemoteAgentMessageChannelEventTerminalError extends Error {
   readonly reasonCode: string;
-
-  constructor(reasonCode: string, options: { cause?: unknown } = {}) {
+  constructor(
+    reasonCode: string,
+    options: {
+      cause?: unknown;
+    } = {}
+  ) {
     super(reasonCode);
     this.name = "RemoteAgentMessageChannelEventTerminalError";
     this.reasonCode = reasonCode;
@@ -208,13 +238,12 @@ export class RemoteAgentMessageChannelEventTerminalError extends Error {
     }
   }
 }
-
 export async function processRemoteAgentMessageChannelEvent(
   input: {
-    db: D1Database;
+    db: PostgresDatabase;
     env: CoreBindings;
     envelope: MessageChannelIngressEnvelope;
-    identityDb: D1Database;
+    identityDb: PostgresDatabase;
     queueAttempts: number | null;
     queueMessageId: string | null;
     registry: MessageChannelProviderRegistry;
@@ -247,7 +276,6 @@ export async function processRemoteAgentMessageChannelEvent(
       "message_channel.ingress_claim_in_progress"
     );
   }
-
   let ingressSettled = false;
   try {
     const result = await processClaimedMessageChannelEvent({
@@ -282,10 +310,9 @@ export async function processRemoteAgentMessageChannelEvent(
     });
   }
 }
-
 async function settleMessageChannelIngressFailure(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dependencies: RemoteAgentMessageChannelEventServiceDependencies;
   error: unknown;
   eventKey: string;
@@ -325,13 +352,11 @@ async function settleMessageChannelIngressFailure(input: {
   }
   throw retryableError;
 }
-
 function isTerminalIngressState(
   state: IngressClaimResult["record"]["state"]
 ): boolean {
   return state === "completed" || state === "failed";
 }
-
 function toMessageChannelEventRetryableError(
   error: unknown
 ): RemoteAgentMessageChannelEventRetryableError {
@@ -342,7 +367,6 @@ function toMessageChannelEventRetryableError(
         { cause: error }
       );
 }
-
 async function resolveAdmittedMessageChannelTarget(
   input: Parameters<typeof processClaimedMessageChannelEvent>[0],
   event: AdmittedMessageChannelEvent
@@ -360,7 +384,6 @@ async function resolveAdmittedMessageChannelTarget(
     stateDb: input.db,
   });
 }
-
 async function resolveAdmittedCardControl(
   input: Omit<
     Parameters<typeof processMessageChannelCardControl>[0],
@@ -380,13 +403,12 @@ async function resolveAdmittedCardControl(
   }
   return { status: "continue" as const, event: input.event };
 }
-
 async function processClaimedMessageChannelEvent(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dependencies: RemoteAgentMessageChannelEventServiceDependencies;
   env: CoreBindings;
   envelope: LarkPlatformEnvelope;
-  identityDb: D1Database;
+  identityDb: PostgresDatabase;
   registry: MessageChannelProviderRegistry;
 }): Promise<RemoteAgentMessageChannelEventProcessingResult> {
   const event = input.envelope.event;
@@ -394,7 +416,6 @@ async function processClaimedMessageChannelEvent(input: {
   if (admission.status === "ignored") {
     return admission;
   }
-
   const targetResolution = await resolveAdmittedMessageChannelTarget(
     input,
     admission.event
@@ -507,6 +528,19 @@ async function processClaimedMessageChannelEvent(input: {
     },
     request: {
       locator,
+      ...(admittedEvent.kind === "message"
+        ? {
+            pluginSourceProof: await buildPluginChannelSourceProof({
+              provider: locator.provider,
+              messageId: admittedEvent.messageId,
+              providerUserId: admittedEvent.senderId,
+              text: admittedEvent.text,
+              resourceIds: admittedEvent.resources.map(
+                (resource) => resource.fileKey
+              ),
+            }),
+          }
+        : {}),
       sourceText:
         admittedEvent.kind === "message"
           ? admittedEvent.text
@@ -536,7 +570,6 @@ async function processClaimedMessageChannelEvent(input: {
     }
     return { deliveryId: delivery.deliveryId, status: "submitted" };
   }
-
   const settlement = await input.dependencies.settleAdmissionFailure({
     db: input.db,
     delivery,
@@ -553,7 +586,6 @@ async function processClaimedMessageChannelEvent(input: {
     status: settlement.status === "published" ? "failed" : "outcome_unknown",
   };
 }
-
 async function publishTargetResolutionFailure(input: {
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   event: AdmittedMessageChannelEvent;
@@ -587,11 +619,9 @@ async function publishTargetResolutionFailure(input: {
     );
   }
 }
-
 function readAdmittedResources(event: AdmittedMessageChannelEvent) {
   return event.kind === "message" ? event.resources : undefined;
 }
-
 async function prepareAdmittedEventInput(input: {
   adapter: ReturnType<MessageChannelProviderRegistry["require"]>;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
@@ -630,12 +660,15 @@ async function prepareAdmittedEventInput(input: {
     ? { attachments: prepared.attachments }
     : {};
 }
-
-function resolveEventAdmission(
-  event: MessageChannelIngressEnvelope["event"]
-):
-  | { event: AdmittedMessageChannelEvent; status: "admitted" }
-  | { reasonCode: string; status: "ignored" } {
+function resolveEventAdmission(event: MessageChannelIngressEnvelope["event"]):
+  | {
+      event: AdmittedMessageChannelEvent;
+      status: "admitted";
+    }
+  | {
+      reasonCode: string;
+      status: "ignored";
+    } {
   if (event.kind === "message") {
     if (
       event.mention !== "direct_message" &&
@@ -661,7 +694,6 @@ function resolveEventAdmission(
     status: "ignored",
   };
 }
-
 function buildPendingChannelContext(input: {
   messageId: string;
   conversationId: string;
@@ -675,15 +707,21 @@ function buildPendingChannelContext(input: {
     sync: { mode: "snapshot", status: "unavailable" },
   });
 }
-
 async function readBoundedChannelContext(input: {
   adapter: ReturnType<MessageChannelProviderRegistry["require"]>;
   connection: Extract<
     MessageChannelTurnTargetResolution,
-    { status: "resolved" }
+    {
+      status: "resolved";
+    }
   >["target"]["connection"];
   conversationId: string;
-  event: Extract<MessageChannelIngressEnvelope["event"], { kind: "message" }>;
+  event: Extract<
+    MessageChannelIngressEnvelope["event"],
+    {
+      kind: "message";
+    }
+  >;
 }): Promise<ChannelContext> {
   try {
     const context = await input.adapter.readChannelContext({
@@ -710,9 +748,8 @@ async function readBoundedChannelContext(input: {
     sync: { mode: "snapshot", status: "unavailable" },
   });
 }
-
 async function settleRemoteAgentMessageChannelAdmissionFailure(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: FailedMessageChannelDeliveryResult;
   nowMs: number;
   registry: MessageChannelProviderRegistry;
@@ -755,14 +792,15 @@ async function settleRemoteAgentMessageChannelAdmissionFailure(input: {
   return await publishRemoteAgentMessageChannelAdmissionFailure({
     claimId,
     db: input.db,
-    delivery: claimed as typeof claimed & { status: "failed" },
+    delivery: claimed as typeof claimed & {
+      status: "failed";
+    },
     failureCode: input.delivery.failureCode,
     failureMessage: input.delivery.text,
     releaseMode: "restore_admission",
     registry: input.registry,
   });
 }
-
 function requireLarkPlatformEnvelope(
   value: MessageChannelIngressEnvelope
 ): LarkPlatformEnvelope {
@@ -772,7 +810,6 @@ function requireLarkPlatformEnvelope(
   }
   return parsed as LarkPlatformEnvelope;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

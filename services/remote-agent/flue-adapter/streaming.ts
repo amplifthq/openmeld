@@ -23,11 +23,8 @@ const STREAM_FLUSH_INTERVAL_MS = 100;
 // CardKit is an external publication path, unlike the Web live projection.
 // Coalesce full snapshots below its per-card limit and avoid per-token D1 writes.
 const MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS = 350;
-const STREAM_SENTENCE_BOUNDARY_MIN_MS = 60;
-const STREAM_CHUNK_TARGET_CHARS = 200;
 const STREAM_CALLBACK_MAX_ATTEMPTS = 2;
 const STREAM_CALLBACK_RETRY_DELAY_MS = 40;
-const SENTENCE_BOUNDARY_PATTERN = /(?:[.!?]\s|\n)$/u;
 
 type RemoteAgentStreamState = {
   disabled: boolean;
@@ -43,12 +40,15 @@ type RemoteAgentStreamState = {
 
 type RemoteAgentTransientStreamState = {
   pendingKindOrder: RemoteAgentStreamDeltaKind[];
-  pendingThinking: string;
+  content: Record<
+    "progress" | "thinking",
+    { pending: string; snapshot: string }
+  >;
+  progressUnsupported: boolean;
   replaceTextSnapshotOnNextText: boolean;
-  thinkingSnapshot: string;
 };
 
-export type RemoteAgentStreamDeltaKind = "text" | "thinking";
+export type RemoteAgentStreamDeltaKind = "text" | "progress" | "thinking";
 
 type RemoteAgentStreamPublishInput = {
   context: RemoteAgentCallbackContext;
@@ -60,6 +60,7 @@ type RemoteAgentStreamPublishInput = {
 type RemoteAgentStreamPushInput = RemoteAgentStreamPublishInput & {
   delta: string;
   kind: RemoteAgentStreamDeltaKind;
+  replaceTextPrefix?: string;
 };
 
 type RemoteAgentStreamPartPushInput = RemoteAgentStreamPublishInput & {
@@ -116,8 +117,11 @@ export function buildRemoteAgentStreamDeltaCallbackBody(input: {
     observedAtMs: input.observedAtMs,
     sequence: input.sequence,
     snapshot: input.snapshot,
-    source:
-      input.kind === "thinking" ? "flue.thinking_delta" : "flue.text_delta",
+    source: {
+      progress: "hosted.public_progress",
+      thinking: "flue.thinking_delta",
+      text: "flue.text_delta",
+    }[input.kind],
     spaceId: input.context.spaceId,
     streamId: buildRemoteAgentStreamId(input.context.submissionId),
     submissionId: input.context.submissionId,
@@ -154,12 +158,20 @@ export function isRemoteAgentStreamEligible(
   context: RemoteAgentCallbackContext
 ): boolean {
   const source = context.turnEnvelope?.trigger.source;
+  const environment = context.turnEnvelope?.interactionEnvironment;
+  // Continuations also target external conversations. Only admit the explicit
+  // Space audience here; Core still validates the persisted delivery identity.
+  const isSpaceContinuation =
+    (source === "task_continuation" || source === "task_watch_continuation") &&
+    (environment === "organization_shared" ||
+      environment === "requester_private");
   return (
     context.callbackStatus === "pending" &&
     !context.replyRecovery &&
     (source === "space_wake" ||
       source === "web_dm" ||
-      source === "message_channel")
+      source === "message_channel" ||
+      isSpaceContinuation)
   );
 }
 
@@ -238,10 +250,13 @@ export function createRemoteAgentStreamPublisher(
     }
     const transientState: RemoteAgentTransientStreamState = {
       pendingKindOrder: state.pendingText.length > 0 ? ["text"] : [],
-      pendingThinking: "",
+      content: {
+        progress: { pending: "", snapshot: "" },
+        thinking: { pending: "", snapshot: "" },
+      },
+      progressUnsupported: false,
       replaceTextSnapshotOnNextText:
         state.textSnapshot.length > 0 || state.pendingText.length > 0,
-      thinkingSnapshot: "",
     };
     transientStates.set(submissionId, transientState);
     return transientState;
@@ -274,7 +289,7 @@ export function createRemoteAgentStreamPublisher(
       transientState,
     });
     const snapshot =
-      kind === "thinking"
+      kind !== "text"
         ? (currentSnapshot + pendingDelta).slice(
             -AGENT_STREAM_SNAPSHOT_MAX_CHARS
           )
@@ -285,16 +300,15 @@ export function createRemoteAgentStreamPublisher(
     ) {
       return handleRemoteAgentStreamLimitExceeded({
         kind,
-        pendingDelta,
         state,
         storage: input.storage,
         transientState,
       });
     }
 
-    if (kind === "thinking") {
-      transientState.pendingThinking = "";
-      transientState.thinkingSnapshot = snapshot;
+    if (kind !== "text") {
+      transientState.content[kind].pending = "";
+      transientState.content[kind].snapshot = snapshot;
     } else {
       state.pendingText = "";
       state.textSnapshot = snapshot;
@@ -302,6 +316,7 @@ export function createRemoteAgentStreamPublisher(
     transientState.pendingKindOrder = transientState.pendingKindOrder.filter(
       (pendingKind) => pendingKind !== kind
     );
+    const previousSequence = state.sequence;
     state.sequence += 1;
     state.lastFlushedAtMs = input.observedAtMs;
     await persistRemoteAgentStreamState(input.storage, state);
@@ -326,6 +341,27 @@ export function createRemoteAgentStreamPublisher(
         status: "dropped",
         sequence: state.sequence,
         streamId: state.streamId,
+      };
+    }
+
+    if (
+      kind === "progress" &&
+      response.status === "rejected" &&
+      response.reasonCode === "agent_stream.invalid"
+    ) {
+      // An older Core rejects this new callback kind before touching its
+      // stream cursor. Keep the last accepted sequence and the text preview.
+      state.sequence = previousSequence;
+      transientState.content.progress = { pending: "", snapshot: "" };
+      transientState.progressUnsupported = true;
+      await persistRemoteAgentStreamState(input.storage, state);
+      return {
+        contentKind: kind,
+        deltaLength: pendingDelta.length,
+        status: "dropped",
+        sequence: state.sequence,
+        streamId: state.streamId,
+        response,
       };
     }
 
@@ -398,6 +434,14 @@ export function createRemoteAgentStreamPublisher(
           input.context.submissionId,
           state
         );
+        if (input.kind === "progress" && transientState.progressUnsupported) {
+          return {
+            contentKind: "progress",
+            status: "dropped",
+            sequence: state.sequence,
+            streamId: state.streamId,
+          };
+        }
         if (state.disabled || input.delta.length === 0) {
           return {
             status: state.disabled ? "disabled" : "buffered",
@@ -406,8 +450,8 @@ export function createRemoteAgentStreamPublisher(
           };
         }
 
-        replaceRecoveredRemoteAgentTextSnapshotIfNeeded({
-          kind: input.kind,
+        const replacingFailedText = prepareRemoteAgentStreamPush({
+          input,
           state,
           transientState,
         });
@@ -425,17 +469,14 @@ export function createRemoteAgentStreamPublisher(
             streamId: state.streamId,
           };
         }
-        const pendingDelta = readPendingRemoteAgentStreamDelta({
-          kind: nextKind,
-          state,
-          transientState,
-        });
         if (
-          !shouldFlushRemoteAgentStream(
-            state,
-            input.observedAtMs,
-            pendingDelta,
-            input.context
+          !(
+            replacingFailedText ||
+            shouldFlushRemoteAgentStream(
+              state,
+              input.observedAtMs,
+              input.context
+            )
           )
         ) {
           return {
@@ -501,6 +542,31 @@ export function createRemoteAgentStreamPublisher(
   };
 }
 
+function prepareRemoteAgentStreamPush(input: {
+  input: RemoteAgentStreamPushInput;
+  state: RemoteAgentStreamState;
+  transientState: RemoteAgentTransientStreamState;
+}): boolean {
+  const replacementPrefix =
+    input.input.kind === "text" ? input.input.replaceTextPrefix : undefined;
+  if (replacementPrefix === undefined) {
+    replaceRecoveredRemoteAgentTextSnapshotIfNeeded({
+      kind: input.input.kind,
+      state: input.state,
+      transientState: input.transientState,
+    });
+    return false;
+  }
+  // Flue supplies the official visible-text projection, not a guessed string
+  // prefix. Drop buffered failed text and retain legitimate earlier narration.
+  input.state.pendingText = "";
+  input.state.textSnapshot = replacementPrefix;
+  input.transientState.replaceTextSnapshotOnNextText = false;
+  input.transientState.pendingKindOrder =
+    input.transientState.pendingKindOrder.filter((kind) => kind !== "text");
+  return true;
+}
+
 function replaceRecoveredRemoteAgentTextSnapshotIfNeeded(input: {
   kind: RemoteAgentStreamDeltaKind;
   state: RemoteAgentStreamState;
@@ -527,13 +593,14 @@ function appendPendingRemoteAgentStreamDelta(input: {
   state: RemoteAgentStreamState;
   transientState: RemoteAgentTransientStreamState;
 }): void {
-  if (input.kind === "thinking") {
-    if (input.transientState.pendingThinking.length === 0) {
+  if (input.kind !== "text") {
+    const content = input.transientState.content[input.kind];
+    if (content.pending.length === 0) {
       input.transientState.pendingKindOrder.push(input.kind);
     }
-    input.transientState.pendingThinking = (
-      input.transientState.pendingThinking + input.delta
-    ).slice(-REMOTE_AGENT_STREAM_DELTA_MAX_CHARS);
+    content.pending = (content.pending + input.delta).slice(
+      -REMOTE_AGENT_STREAM_DELTA_MAX_CHARS
+    );
     return;
   }
   if (input.state.pendingText.length === 0) {
@@ -544,7 +611,6 @@ function appendPendingRemoteAgentStreamDelta(input: {
 
 async function handleRemoteAgentStreamLimitExceeded(input: {
   kind: RemoteAgentStreamDeltaKind;
-  pendingDelta: string;
   state: RemoteAgentStreamState;
   storage: RemoteAgentStorage;
   transientState: RemoteAgentTransientStreamState;
@@ -552,7 +618,8 @@ async function handleRemoteAgentStreamLimitExceeded(input: {
   input.state.disabled = true;
   input.state.pendingText = "";
   input.transientState.pendingKindOrder = [];
-  input.transientState.pendingThinking = "";
+  input.transientState.content.progress.pending = "";
+  input.transientState.content.thinking.pending = "";
   await persistRemoteAgentStreamState(input.storage, input.state);
   return {
     status: "disabled",
@@ -566,8 +633,8 @@ function readPendingRemoteAgentStreamDelta(input: {
   state: RemoteAgentStreamState;
   transientState: RemoteAgentTransientStreamState;
 }): string {
-  return input.kind === "thinking"
-    ? input.transientState.pendingThinking
+  return input.kind !== "text"
+    ? input.transientState.content[input.kind].pending
     : input.state.pendingText;
 }
 
@@ -576,8 +643,8 @@ function readRemoteAgentStreamSnapshot(input: {
   state: RemoteAgentStreamState;
   transientState: RemoteAgentTransientStreamState;
 }): string {
-  return input.kind === "thinking"
-    ? input.transientState.thinkingSnapshot
+  return input.kind !== "text"
+    ? input.transientState.content[input.kind].snapshot
     : input.state.textSnapshot;
 }
 
@@ -632,28 +699,18 @@ function createRemoteAgentStreamState(
 function shouldFlushRemoteAgentStream(
   state: RemoteAgentStreamState,
   observedAtMs: number,
-  pendingDelta: string,
   context: RemoteAgentCallbackContext
 ): boolean {
-  if (context.turnEnvelope?.trigger.source === "message_channel") {
-    // Publish the first words immediately; later snapshots coalesce. The
-    // terminal flush still sends the tail before Core finalizes the same card.
-    return (
-      state.lastFlushedAtMs === null ||
-      observedAtMs - state.lastFlushedAtMs >=
-        MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
-    );
+  // A short answer may arrive in one delta. Send the first words immediately;
+  // coalesce later snapshots and flush the tail at the model-message boundary.
+  if (state.lastFlushedAtMs === null) {
+    return true;
   }
-  const elapsedMs = observedAtMs - (state.lastFlushedAtMs ?? state.startedAtMs);
-  if (state.lastFlushedAtMs !== null && elapsedMs < STREAM_FLUSH_INTERVAL_MS) {
-    return false;
-  }
-  return (
-    elapsedMs >= STREAM_FLUSH_INTERVAL_MS ||
-    pendingDelta.length >= STREAM_CHUNK_TARGET_CHARS ||
-    (elapsedMs >= STREAM_SENTENCE_BOUNDARY_MIN_MS &&
-      SENTENCE_BOUNDARY_PATTERN.test(pendingDelta))
-  );
+  const intervalMs =
+    context.turnEnvelope?.trigger.source === "message_channel"
+      ? MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
+      : STREAM_FLUSH_INTERVAL_MS;
+  return observedAtMs - state.lastFlushedAtMs >= intervalMs;
 }
 
 async function deliverRemoteAgentStreamDelta(input: {

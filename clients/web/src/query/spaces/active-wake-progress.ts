@@ -12,9 +12,10 @@ import {
 } from "@openmeld/space";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
+import type { SpaceConversationStreamState } from "#/lib/spaces/conversation-stream";
 import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
-import { spaceQueryKeys } from "./status";
+import { SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS, spaceQueryKeys } from "./status";
 
 type WakeProgressEvidence = NonNullable<
 	ReturnType<typeof readWakeProgressTerminalSignalEvidence>
@@ -29,6 +30,7 @@ type TerminalWakeProgressEvidence = Pick<
 	| "updatedAtMs"
 >;
 type SpaceWakeProgressPresentation = {
+	streams: SpaceConversationStreamState;
 	items: WakeProgressItem[];
 	// Publication evidence and terminal progress are distinct: an unknown
 	// publication must keep its warning until an actual publication is observed.
@@ -39,11 +41,13 @@ type SpaceWakeProgressPresentation = {
 };
 export type SpaceWakeProgressSummary = GetActiveSpaceWakeProgressResponse & {
 	presentationEpoch: string;
+	responseReceivedAtMs?: number;
 };
 type SpaceViewer = { spaceId: string; openMeldProfileId: string };
 
 function createPresentation(): SpaceWakeProgressPresentation {
 	return {
+		streams: [],
 		items: [],
 		publications: [],
 		terminalItems: [],
@@ -106,10 +110,17 @@ export function hasSpaceWakeProgressOutcome(input: {
 export function readSpaceWakeProgressSummaryItems(input: {
 	presentation: SpaceWakeProgressPresentation;
 	summary: SpaceWakeProgressSummary | undefined;
+	isFetchedAfterMount?: boolean;
 }): WakeProgressItem[] {
 	// Old summaries (including requests that outlive GC) cannot rejoin a new
 	// cache lifetime after its accepted outcomes have been retired.
-	return input.summary?.presentationEpoch === input.presentation.epoch
+	const recentlyConfirmed =
+		input.summary?.responseReceivedAtMs !== undefined &&
+		Date.now() - input.summary.responseReceivedAtMs >= 0 &&
+		Date.now() - input.summary.responseReceivedAtMs <
+			SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS;
+	return (input.isFetchedAfterMount !== false || recentlyConfirmed) &&
+		input.summary?.presentationEpoch === input.presentation.epoch
 		? filterSpaceWakeProgressItems({
 				presentation: input.presentation,
 				items: input.summary.items,
@@ -224,6 +235,7 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 					includePageInfo: true,
 					includePreviewText: true,
 					includeSourceContext: true,
+					includeReplyPlacement: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeDeviceWait: true,
@@ -238,7 +250,11 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 						items: response.items,
 					});
 				}
-				return { ...response, presentationEpoch };
+				return {
+					...response,
+					presentationEpoch,
+					responseReceivedAtMs: Date.now(),
+				};
 			} catch (error) {
 				throw toStructuredApiClientFailure(error);
 			}
@@ -273,6 +289,25 @@ export function spaceWakeProgressPresentationQueryOptions(input: {
 type WakeProgressPresentationItemsUpdate =
 	| WakeProgressItem[]
 	| ((currentItems: WakeProgressItem[]) => WakeProgressItem[]);
+
+export function setSpaceConversationStreams(
+	input: SpaceViewer & {
+		queryClient: QueryClient;
+		update: (
+			current: SpaceConversationStreamState
+		) => SpaceConversationStreamState;
+	}
+): void {
+	const current = ensurePresentation(input.queryClient, input);
+	const streams = input.update(current.streams);
+	if (streams === current.streams) {
+		return;
+	}
+	input.queryClient.setQueryData(
+		spaceWakeProgressPresentationQueryOptions(input).queryKey,
+		{ ...current, streams }
+	);
+}
 
 export function setSpaceWakeProgressPresentationItems(input: {
 	items: WakeProgressPresentationItemsUpdate;

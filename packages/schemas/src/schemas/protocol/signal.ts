@@ -1,5 +1,7 @@
 import * as z from "zod/v4";
 import { isLegacyAgentActivityWorkCompatible } from "../../agent-work-activity";
+import { spaceEvidenceReferencesSchema } from "../../space-evidence";
+import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { signalStatusDataSchema as signalStatusPayloadSchema } from "../space-mesh/signal-status";
@@ -23,6 +25,11 @@ import { wakeDeviceWaitSchema } from "./wake-device-wait";
 
 // biome-ignore lint/performance/noBarrelFile: This shared protocol constant must remain re-exported from the canonical signal module.
 export { MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH } from "./signal-reply-to";
+
+export const centerAgentExecutionInputTargetSchema = z.strictObject({
+  dispatchId: z.string().min(1).max(200),
+  targetProfileId: openMeldRuntimeProfileIdSchema,
+});
 
 const MULTI_SPACE_PATTERN = /\s+/g;
 const DELETE_CODE_POINT = 127;
@@ -103,6 +110,8 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  evidenceRefs: spaceEvidenceReferencesSchema.optional(),
+  workHandoff: spaceWorkHandoffSchema.optional(),
   // The human accepted a suggested thread recipient, rather than selecting a new one.
   threadWakeContinuation: z.literal(true).optional(),
   // Read-only history compatibility mirror. Only data.deviceWait is authority.
@@ -116,13 +125,9 @@ const signalTextMetaSchema = z.object({
   transient: z.literal(true).optional(),
   agentActivity: legacySpaceAgentActivitySchema.optional(),
   agentWorkSummary: spaceAgentActivitySchema.optional(),
+  agentPublicProgress: z.string().min(1).max(8192).optional(),
   clientMessageId: clientMessageIdSchema.optional(),
-  centerAgentExecutionInput: z
-    .strictObject({
-      dispatchId: z.string().min(1).max(200),
-      targetProfileId: openMeldRuntimeProfileIdSchema,
-    })
-    .optional(),
+  centerAgentExecutionInput: centerAgentExecutionInputTargetSchema.optional(),
   // Confirms only this authored message, never a conversation read position.
   authorHasRead: z.literal(true).optional(),
   centerAgentInteractionSource: centerAgentInteractionSourceSchema.optional(),
@@ -248,6 +253,7 @@ const postedSignalTextMetaSchema = signalTextMetaSchema
     changedMessageId: true,
     agentActivity: true,
     agentWorkSummary: true,
+    agentPublicProgress: true,
     conversationCompaction: true,
   })
   .extend({
@@ -263,6 +269,7 @@ const systemEmittedSignalTextMetaSchema = signalTextMetaSchema
   .omit({
     agentActivity: true,
     agentWorkSummary: true,
+    agentPublicProgress: true,
   })
   .superRefine(validateAuthoredSignalTextMeta);
 

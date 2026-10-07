@@ -1,6 +1,7 @@
 import * as z from "../../lazy-zod";
 import { openMeldNavigationTargetSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
+import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import {
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillRuntimeReleaseSelectionSchema,
@@ -48,6 +49,70 @@ const REMOTE_AGENT_RUNTIME_CONVERSATION_ID_MAX_CHARS = 2048;
 const contentHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
 
+/** Diagnostic evidence only; never admission, retry or execution authority. */
+export const remoteAgentAdmissionAttemptEvidenceSchema = z.strictObject({
+  v: z.literal(1),
+  deliveryId: nonEmptyStringSchema,
+  dispatchId: nonEmptyStringSchema,
+  idempotencyKey: nonEmptyStringSchema,
+  attempt: z.number().int().positive(),
+  deliveryCreatedAtMs: z.number().int().nonnegative(),
+  currentAttemptSubmittedAtMs: z.number().int().nonnegative().nullable(),
+  observedAtMs: z.number().int().nonnegative(),
+  retryDueAtMs: z.number().int().nonnegative().nullable(),
+  elapsedMs: z.number().int().nonnegative().optional(),
+  accepted: z.boolean().optional(),
+  submissionId: nonEmptyStringSchema.optional(),
+  outcome: z
+    .enum([
+      "acknowledged",
+      "rejected",
+      "outcome_unknown",
+      "protocol_error",
+      "receiver_unavailable",
+      "unexpected_error",
+    ])
+    .optional(),
+  phase: z.enum([
+    "preparing",
+    "sending",
+    "acknowledged",
+    "rejected",
+    "outcome_unknown",
+    "protocol_error",
+    "receiver_unavailable",
+    "unexpected_error",
+    "timed_out",
+    "retry_scheduled",
+    "retry_claimed",
+    "postprocessing_started",
+    "postprocessing_finished",
+    "admission_finished",
+  ]),
+});
+
+/** Correlated timings from existing continuation owners, never task state. */
+export const remoteAgentTaskContinuationEvidenceSchema = z.strictObject({
+  v: z.literal(1),
+  idempotencyKey: nonEmptyStringSchema,
+  subscriptionId: nonEmptyStringSchema,
+  observedAtMs: z.number().int().nonnegative(),
+  subscriptionCreatedAtMs: z.number().int().nonnegative().optional(),
+  enqueuedAtMs: z.number().int().nonnegative().optional(),
+  elapsedMs: z.number().int().nonnegative().optional(),
+  stage: z.enum([
+    "queue_received",
+    "claimed",
+    "preparation",
+    "turn_context",
+    "memory",
+    "skill_selection",
+    "watchdog_enqueue",
+    "source_dispatch",
+  ]),
+  event: z.enum(["started", "finished", "failed"]),
+});
+
 /** A personal Agent's Space conversation must not share a runtime with another Agent. */
 export function buildPersonalRemoteAgentConversationId(input: {
   agentProfileId: string;
@@ -59,6 +124,21 @@ export function buildPersonalRemoteAgentConversationId(input: {
   );
   return [
     "personal-remote-agent.v1",
+    ...parts.map((value) => `${value.length}:${value}`),
+  ].join("|");
+}
+
+/** A scheduled Run owns its execution history independently of its result destination. */
+export function buildRemoteAgentRoutineRunConversationId(input: {
+  agentProfileId: string;
+  organizationId: string;
+  runId: string;
+}): string {
+  const parts = [input.organizationId, input.agentProfileId, input.runId].map(
+    (value) => nonEmptyStringSchema.max(256).parse(value)
+  );
+  return [
+    "remote-agent-routine-run.v1",
     ...parts.map((value) => `${value.length}:${value}`),
   ].join("|");
 }
@@ -224,6 +304,8 @@ export const REMOTE_AGENT_RPC_OPERATIONS = {
   RECEIVE_EXECUTION_INPUT: "receiveExecutionInput",
   READ_EXECUTION_INPUT: "readExecutionInput",
   READ_EXECUTION_STATE: "readExecutionState",
+  READ_ADMISSION: "readAdmission",
+  READ_ADMISSION_STOP: "readAdmissionStop",
   RECONCILE_EXECUTION: "reconcileExecution",
   READ_RUNTIME_DIAGNOSTICS: "readRuntimeDiagnostics",
   READ_USAGE_DIAGNOSTICS: "readUsageDiagnostics",
@@ -240,6 +322,7 @@ export const REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES = {
   ADMISSION_CONVERSATION_BUSY: "remote_agent.admission.conversation_busy",
   ADMISSION_NOT_ACCEPTED: "remote_agent.admission.not_accepted",
   PROVIDER_AUTHENTICATION_FAILED: "remote_agent.provider.authentication_failed",
+  PROVIDER_CONNECTION_MISSING: "remote_agent.provider.connection_missing",
   PROVIDER_FAILED: "remote_agent.provider.failed",
   PROVIDER_RATE_LIMITED: "remote_agent.provider.rate_limited",
   PROVIDER_UNAVAILABLE: "remote_agent.provider.unavailable",
@@ -249,6 +332,7 @@ export const REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES = {
   TURN_COMPLETED: "remote_agent.turn.completed",
   TURN_CONTEXT_WINDOW_EXCEEDED: "remote_agent.turn.context_window_exceeded",
   TURN_EMPTY_ASSISTANT_RESPONSE: "remote_agent.empty_assistant_response",
+  TURN_OUTPUT_LIMIT_EXCEEDED: "remote_agent.turn.output_limit_exceeded",
   TURN_FAILED: "remote_agent.turn.failed",
   TURN_NOT_COMPLETED: "remote_agent.turn_not_completed",
   TURN_TIMEOUT: "remote_agent.turn.timeout",
@@ -279,6 +363,30 @@ export const remoteAgentWorkerSubmitMessagesResultSchema = z.strictObject({
   completedAt: z.number().finite().optional(),
   accepted: z.boolean(),
 });
+
+export const remoteAgentWorkerSubmitCapabilitiesRequestSchema = z.strictObject({
+  v: z.literal(1),
+});
+
+export const remoteAgentWorkerSubmitCapabilitiesSchema = z.strictObject({
+  v: z.literal(1),
+  taskId: z.literal(true),
+});
+
+/** A missing or unfinished receipt never proves that execution did not occur. */
+export const remoteAgentWorkerReadAdmissionResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({ v: z.literal(1), status: z.literal("not_found") }),
+    z.strictObject({ v: z.literal(1), status: z.literal("unconfirmed") }),
+    z.strictObject({
+      v: z.literal(1),
+      status: z.literal("found"),
+      ack: remoteAgentWorkerSubmitMessagesResultSchema.extend({
+        accepted: z.literal(false),
+        idempotencyKey: nonEmptyStringSchema,
+      }),
+    }),
+  ]);
 
 export const remoteAgentWorkerAdmissionRejectionCodeSchema = z.enum([
   "remote_agent.conversation_history_limit_exceeded",
@@ -377,6 +485,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   bindingId: nonEmptyStringSchema,
   triggerMessageId: nonEmptyStringSchema,
   dispatchId: nonEmptyStringSchema,
+  taskId: nonEmptyStringSchema.optional(),
   sourceClientMessageId: nullableNonEmptyStringSchema.optional(),
   idempotencyKey: nonEmptyStringSchema,
   // Deprecated compatibility field. Current workers ignore total execution
@@ -390,6 +499,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   messages: z.array(remoteAgentWorkerTurnMessageSchema).min(1),
   author: remoteAgentWorkerAuthorContextSchema,
   onBehalfOf: remoteAgentWorkerAuthorContextSchema.nullable(),
+  workHandoff: spaceWorkHandoffSchema.optional(),
   organizationSkillReleases: z
     .array(organizationSkillRuntimeReleaseSelectionSchema)
     .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT)
@@ -446,16 +556,26 @@ export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
           path: ["spaceDispatchContext"],
         });
       }
+      const legacyConversationId =
+        buildPersonalRemoteAgentConversationId(request);
+      const runConversationId =
+        request.turnEnvelope.trigger.source === "routine"
+          ? buildRemoteAgentRoutineRunConversationId({
+              agentProfileId: request.agentProfileId,
+              organizationId: request.organizationId,
+              runId: request.turnEnvelope.trigger.runId,
+            })
+          : null;
       if (
         request.conversationIdentity.agentProfileId !==
           request.agentProfileId ||
-        request.conversationId !==
-          buildPersonalRemoteAgentConversationId(request)
+        (request.conversationId !== legacyConversationId &&
+          request.conversationId !== runConversationId)
       ) {
         context.addIssue({
           code: "custom",
           message:
-            "Personal Agent conversations must match the Organization, Agent Profile, and Space.",
+            "Personal Agent conversations must match their Organization, Agent Profile, and source conversation or Routine Run.",
           path: ["conversationIdentity"],
         });
       }
@@ -546,6 +666,36 @@ export const remoteAgentWorkerExecutionQuerySchema = z.strictObject({
   conversationId: optionalNonEmptyStringSchema,
 });
 
+// Native Stop intent is not an admission ACK or an execution lifecycle row.
+// It survives an absent submission and fences the original idempotency identity.
+export const remoteAgentWorkerAdmissionStopIntentSchema = z.strictObject({
+  v: z.literal(1),
+  organizationId: nonEmptyStringSchema,
+  spaceId: nonEmptyStringSchema,
+  idempotencyKey: nonEmptyStringSchema,
+  requestedAtMs: z.number().int().nonnegative(),
+  reason: nonEmptyStringSchema.max(512).nullable(),
+  summaryRecoveryId: optionalNonEmptyStringSchema,
+});
+
+// This read receipt proves only that the native admission fence exists. It is
+// neither an execution ACK nor evidence that an earlier external write settled.
+export const remoteAgentWorkerReadAdmissionStopResponseSchema = z.union([
+  z.strictObject({
+    v: z.literal(1),
+    status: z.literal("found"),
+    stopIntent: remoteAgentWorkerAdmissionStopIntentSchema,
+    summaryOnlySupported: z.literal(true).optional(),
+    summaryRecoveryFenceSupported: z.literal(true).optional(),
+  }),
+  z.strictObject({
+    v: z.literal(1),
+    status: z.literal("not_found"),
+    summaryOnlySupported: z.literal(true).optional(),
+    summaryRecoveryFenceSupported: z.literal(true).optional(),
+  }),
+]);
+
 export const remoteAgentWorkerExecutionStateSchema = z.strictObject({
   ...remoteAgentWorkerExecutionIdentitySchema,
   status: remoteAgentWorkerExecutionStatusSchema,
@@ -572,6 +722,7 @@ export const remoteAgentWorkerCancellationRequestSchema = z.strictObject({
   ...remoteAgentWorkerExecutionIdentitySchema,
   conversationId: optionalNonEmptyStringSchema,
   reason: nonEmptyStringSchema.max(512).optional(),
+  summaryRecoveryId: optionalNonEmptyStringSchema,
 });
 
 export const remoteAgentWorkerCancellationResponseSchema = z.union([
@@ -670,6 +821,7 @@ const remoteAgentRuntimeScheduleDiagnosticSchema = z.strictObject({
 });
 
 const remoteAgentRuntimeCallbackContextDiagnosticSchema = z.strictObject({
+  conversationCompaction: conversationCompactionMarkerSchema.optional(),
   callbackAttempts: z.number().int().nonnegative(),
   callbackCompletedAt: z.iso.datetime({ offset: true }).nullable(),
   callbackNextAttemptAt: z.iso.datetime({ offset: true }).nullable(),
@@ -725,6 +877,8 @@ export const remoteAgentTurnRuntimeEvidenceSchema = z.strictObject({
   firstProviderResponseHeadersAtMs: nullableNonNegativeIntegerSchema,
   firstVisibleContentAtMs: nullableNonNegativeIntegerSchema,
   lastModelCompletedAtMs: nullableNonNegativeIntegerSchema,
+  // Legacy wire name: counts completed agent prompt operations, including
+  // their tool loop. providerRequestCount counts individual provider requests.
   modelCallCount: z.number().int().nonnegative(),
   modelId: nullableNonEmptyStringSchema,
   providerAvailableToolCount: z.number().int().nonnegative(),
@@ -830,6 +984,12 @@ const remoteAgentStreamDeltaCallbackIdentitySchema = {
   dispatchId: nonEmptyStringSchema,
 };
 
+// Sent by the admitted native execution before it prepares model/tools/Computer.
+// This confirms the existing admission; it never starts or authorizes a new turn.
+export const remoteAgentCoreAdmissionCallbackSchema = z.strictObject({
+  ...remoteAgentStreamDeltaCallbackIdentitySchema,
+});
+
 const legacyRemoteAgentStreamDeltaCallbackBodySchema = z.strictObject({
   v: z.literal(1),
   streamId: nonEmptyStringSchema,
@@ -862,6 +1022,11 @@ export const remoteAgentStreamDeltaCallbackBodySchema = z.union([
     ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,
     kind: z.literal("thinking"),
     source: z.literal("flue.thinking_delta"),
+  }),
+  z.strictObject({
+    ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,
+    kind: z.literal("progress"),
+    source: z.literal("hosted.public_progress"),
   }),
 ]);
 
