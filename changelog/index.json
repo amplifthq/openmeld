@@ -225,6 +225,25 @@
       "body": "Desktop 0.1.24 brings the updated sidebar, Space cards, Plugin connection status,\nand Computer session-history controls to macOS and Windows x64 Preview.\nIt also keeps useful details when an update fails.\n\nThe macOS build is signed and notarized. Windows remains an unsigned internal\nPreview with its own download channel."
     },
     {
+      "id": "website-shared-work",
+      "title": "Explore how people and agents work together",
+      "kind": "improved",
+      "areas": [
+        "website"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-10-07",
+      "evidence": [
+        "pr:1545",
+        "commit:24193c9ac916cb6063e893d2a7cf19502a5b74f1",
+        "workflow:37673007923"
+      ],
+      "body": "Explore OpenMeld from the homepage without creating an account. The demo uses\nreal product components with fictional data. Open a shared Space, try the\nmessage editor, open the member panel, pin a conversation, filter the Inbox,\nmark updates as read, and explore all six Team tabs. Open People and Agent\nprofiles, browse Plugins, files and Skills, or edit and pause a sample Routine.\nChanges stay in the page and reset on reload. The homepage also explains local\nagents, shared team context, Slack access, and cloud computers.\n\nUse the member picker to mention people or wake sample Agents. Try sending a\nmessage and see the sending state, Working indicators, and a short demo reply.\nThe checkout example shows a teammate’s Agent checking a fix with another Agent.\nSend the prefilled request in one click. Working appears in the Agent’s reply.\nMention-only tokens do not wake Agents. File uploads are disabled in the demo.\n\nChoose a local or remote Agent in the focused creation preview. Select a cloud\nmodel and see its provider avatar. Explore Slack, Lark, and Feishu conversation\nexamples, including expandable threads.\nExplore a dedicated Center Agent preview with an interactive avatar and model\nselection. Compare organization and personal AI usage, and expand cloud cost\nand local-agent token details in the product's charts and tables.\nBrowse the available app integrations and their supported actions. The homepage\nshows shared app logos and explains that more integrations are on the way.\nThe homepage also includes an open-source link and Desktop and Web badges.\nLayered Files, Skills, and Routine views show the product with sample work;\nopen their details without navigating a small embedded page. The cloud-computer\noverview explains the personal Computer shared by local and cloud agents.\nMotion respects reduced-motion preferences.\n\nOpen the Web app or choose a macOS or Windows download from the homepage."
+    },
+    {
       "id": "center-agent-settings-loading",
       "title": "Faster Center Agent settings",
       "kind": "improved",
