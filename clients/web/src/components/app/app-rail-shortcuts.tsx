@@ -110,9 +110,9 @@ export function AppRailShortcuts(input: {
 								const item = SHORTCUTS[id];
 								const pinned = input.pinned.includes(id);
 								return (
-									<div className="group/shortcut flex items-center" key={id}>
+									<div className="relative" key={id}>
 										<FluidActionListItem
-											className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+											className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md pr-9 pl-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
 											index={index}
 											render={
 												<Link
@@ -134,7 +134,7 @@ export function AppRailShortcuts(input: {
 											<Button
 												aria-label={`${pinned ? "Unpin" : "Pin"} ${item.label} ${pinned ? "from" : "to"} sidebar`}
 												aria-pressed={pinned}
-												className="size-7 shrink-0 text-muted-foreground"
+												className="absolute top-0.5 right-0.5 z-20 size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent"
 												onClick={() => input.toggle(id)}
 												size="icon-sm"
 												variant="ghost"
