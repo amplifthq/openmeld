@@ -173,13 +173,12 @@ describe("retained Computer commands", () => {
       nativeId = options.id;
       return Promise.reject(new Error("dispatch acknowledgement lost"));
     });
-    await expect(
-      f.tool().execute({
-        action: "start",
-        key: "uncertain",
-        command: "printf recovered",
-      })
-    ).rejects.toThrow("dispatch acknowledgement lost");
+    const launch = f.tool().execute({
+      action: "start",
+      key: "uncertain",
+      command: "printf recovered",
+    });
+    await expect(launch).rejects.toThrow("dispatch acknowledgement lost");
     f.getExec.mockRejectedValue(
       Object.assign(new Error("not dispatched yet"), { code: "ENOENT" })
     );
