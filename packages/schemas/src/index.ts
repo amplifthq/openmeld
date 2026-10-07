@@ -400,6 +400,18 @@ export {
   cloudComputerWorkerRequestSchema,
 } from "./schemas/runtime/cloud-computer";
 export {
+  pluginConnectionDescriptionSchema,
+  pluginConnectionHealthSchema,
+  pluginNativeHttpSchema,
+} from "./schemas/runtime/openconnector-runtime";
+export {
+  type PluginConnectionGrant,
+  pluginComputerConnectionRequestSchema,
+  pluginConnectionAuthorizationSchema,
+  pluginConnectionDescribeRequestSchema,
+  pluginConnectionGrantSchema,
+} from "./schemas/runtime/plugin-connection";
+export {
   type RemoteAgentExecutionAccessRequest,
   type RemoteAgentExecutionAccessResponse,
   type RemoteAgentExecutionScope,

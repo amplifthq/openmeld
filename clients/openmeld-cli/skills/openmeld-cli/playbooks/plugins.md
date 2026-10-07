@@ -44,3 +44,38 @@ Use a reliable read of the exact target and original account to check the result
 `not_found`, a timeout, or absence from one page does not prove non-execution;
 report uncertainty when the read cannot establish the outcome.
 Credentials stay on the server. Access changes are managed in Plugins.
+
+## Reuse a Plugin from Computer
+
+Do not ask the user to log in twice. Inspect the existing connection first:
+
+```sh
+openmeld plugins connection <service> --account personal --key diagnosis --profile <agent-profile-id> --view agent
+openmeld plugins connection <service> --account personal --key diagnosis --computer --profile <agent-profile-id> --view agent
+```
+
+The first command returns credential health, native read rules, and official
+API documentation. The second creates a temporary base URL inside the user's
+cloud Computer. Use it with `computer` commands on `backend=container`; apply
+returned CLI environment variables only to that command. They contain no
+provider token. Inspect the CLI's own help/schema for API inputs. An unsupported
+native transport means use Plugin actions, not another login.
+
+Reuse the same key to renew an expired URL. Preserve the selected personal or
+shared account. Disconnecting the Plugin, changing its account, or withdrawing
+Agent access stops subsequent requests. An exact-action delegated Wake must
+use its authorized action instead of opening a broader native connection.
+
+`unknown` health means that stored credentials have not been verified by a live
+provider call. `refresh_required` means execution will attempt the provider's
+refresh flow. `reconnect_required` means use `plugins connect` for the same
+account. Reconnecting does not grant missing provider permissions.
+
+For Cloudflare Worker diagnosis, inspect `cloudflare_worker`'s returned native
+schema. Query a narrow timeframe with a bounded limit and `dry: true`; use
+events/invocations for logs and calculations for metrics. Correlate with the
+Worker's deployments and versions through declared GET paths. Cloudflare's
+query endpoint currently requires `Workers Observability Write` even for a dry
+query. Report a permission failure accurately; do not substitute another
+account. Results redact known credential values and standard secret fields,
+but arbitrary application log text can still contain sensitive information.

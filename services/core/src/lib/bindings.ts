@@ -131,6 +131,8 @@ type CoreAuthDispatchBindingRpc = {
   ): Promise<AuthRpcResolveProfilesByIdsResult>;
 };
 export type RemoteAgentWorkerBindingRpc = {
+  describePluginConnection?(input: unknown): Promise<unknown>;
+  createPluginComputerConnection?(input: unknown): Promise<unknown>;
   eraseAccountConversation?(
     input: import("@openmeld/schemas").AccountDeletionConversation
   ): Promise<void>;

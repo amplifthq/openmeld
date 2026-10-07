@@ -1,5 +1,8 @@
 import {
+  pluginActionResponseSchema,
   pluginActionRpcInputSchema,
+  pluginConnectionDescriptionSchema,
+  pluginConnectionGrantSchema,
   pluginRuntimeResponseSchema,
 } from "@openmeld/schemas";
 import type {
@@ -17,6 +20,7 @@ import {
   readConnectorActionReplayPermission,
   recordCenterAgentConnectorActionOperation,
 } from "../center-agent/connector-action-operation-repository";
+import { ensurePersonalComputer } from "../computer/personal-computer";
 import type { CoreBindings } from "../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -89,39 +93,18 @@ export async function rpcPluginAction(
       return recovered;
     }
   }
-  if (action.account === "personal" && !caller.personalAllowed) {
-    throw failure(
-      "plugin.personal_request_required",
-      "Your personal connection cannot be used for someone else’s Wake."
-    );
-  }
-  const binding = await readLocalContinuationBinding(
-    env,
-    caller,
-    action.service
-  );
-  const preference = boundPluginConnectionPreference(
-    binding,
-    action.service,
-    action.account === "personal" ? "requester" : "shared"
-  );
-  const selected = await selectPluginConnection({
-    db: caller.db,
-    organizationId: caller.organizationId,
-    requesterUserId: caller.ownerUserId,
-    consumer: "local_agent",
-    service: action.service,
-    preference,
-  });
-  if (!selected) {
-    throw failure(
-      "plugin.connection_unavailable",
-      "No connection grants this Local Agent access. Review the account in Plugins."
-    );
-  }
-  assertBoundPluginConnection(binding, action.service, selected.connection);
-  assertDelegatedConnection(grant, selected.connection);
+  const selected = await selectLocalConnection(env, caller, action, grant);
   const connection = await presentConnection(env, caller, selected.connection);
+  if (action.operation === "connection") {
+    return await openLocalNativeConnection(
+      env,
+      input,
+      caller,
+      connection,
+      selected.connection,
+      action
+    );
+  }
   const catalog = await callRuntime(env, {
     operation: "list",
     service: action.service,
@@ -160,6 +143,150 @@ export async function rpcPluginAction(
     metadata.effect ?? "unspecified",
     grant
   );
+}
+
+async function openLocalNativeConnection(
+  env: CoreBindings,
+  input: PluginActionRpcInput,
+  caller: Caller,
+  connection: Connection,
+  record: ConnectorConnectionRecord,
+  action: Extract<PluginActionRequest["action"], { operation: "connection" }>
+): Promise<PluginActionResponse> {
+  const runtime = env.OPENMELD_REMOTE_AGENT_WORKER;
+  if (
+    !(
+      runtime?.describePluginConnection &&
+      runtime.createPluginComputerConnection
+    )
+  ) {
+    throw failure(
+      "plugin.runtime_unavailable",
+      "Plugin connection access is unavailable.",
+      503
+    );
+  }
+  const description = pluginConnectionDescriptionSchema.parse(
+    await runtime.describePluginConnection({
+      service: action.service,
+      connectionName: record.connectionName,
+    })
+  );
+  if (
+    !(action.computer && description.nativeHttp) ||
+    description.connection?.health.state === "reconnect_required"
+  ) {
+    return {
+      kind: "native_connection",
+      connection,
+      description,
+      nextAction:
+        description.connection?.health.state === "reconnect_required"
+          ? "Reconnect this account in Plugins."
+          : "Use --computer to reuse this account on your cloud Computer. If no native transport is declared, use Plugin actions.",
+    };
+  }
+  const computer = await ensurePersonalComputer(caller.db, caller.ownerUserId);
+  const id = await digestCanonicalJson([
+    caller.organizationId,
+    caller.ownerUserId,
+    caller.actorProfileId,
+    input.request.dispatchId ?? null,
+    "plugin",
+    action.key,
+  ]);
+  const expiresAtMs = Date.now() + 29 * 60 * 1000;
+  const grant = pluginConnectionGrantSchema.parse({
+    id,
+    service: action.service,
+    organizationId: caller.organizationId,
+    requesterUserId: caller.ownerUserId,
+    connectionName: record.connectionName,
+    connectionUpdatedAtMs: record.updatedAtMs,
+    connectionScope: record.scope,
+    expiresAtMs,
+    authority: { kind: "local", request: input },
+  });
+  const result = await runtime.createPluginComputerConnection({
+    computer,
+    grant,
+  });
+  return pluginActionResponseSchema.parse({
+    kind: "native_connection",
+    connection,
+    ...(result as object),
+    expiresAtMs,
+  });
+}
+
+/** Internal reauthorization uses the same caller and connection selection as the public operation. */
+export async function authorizeLocalPluginConnection(
+  env: CoreBindings,
+  value: unknown
+) {
+  const input = pluginActionRpcInputSchema.parse(value);
+  if (input.request.action.operation !== "connection") {
+    throw failure(
+      "plugin.request_invalid",
+      "A native connection request is required."
+    );
+  }
+  const caller = await requireLocalPluginCaller(env, input);
+  const grant = await requireLocalDelegatedAction(caller, input.request.action);
+  const selected = await selectLocalConnection(
+    env,
+    caller,
+    input.request.action,
+    grant
+  );
+  return {
+    connection: selected.connection,
+    permission: selected.permission,
+  };
+}
+
+async function selectLocalConnection(
+  env: CoreBindings,
+  caller: Caller,
+  action: Exclude<
+    PluginActionRequest["action"],
+    { operation: "list" | "connect" }
+  >,
+  grant: Awaited<ReturnType<typeof requireLocalDelegatedAction>>
+) {
+  if (action.account === "personal" && !caller.personalAllowed) {
+    throw failure(
+      "plugin.personal_request_required",
+      "Your personal connection cannot be used for someone else’s Wake."
+    );
+  }
+  const binding = await readLocalContinuationBinding(
+    env,
+    caller,
+    action.service
+  );
+  const preference = boundPluginConnectionPreference(
+    binding,
+    action.service,
+    action.account === "personal" ? "requester" : "shared"
+  );
+  const selected = await selectPluginConnection({
+    db: caller.db,
+    organizationId: caller.organizationId,
+    requesterUserId: caller.ownerUserId,
+    consumer: "local_agent",
+    service: action.service,
+    preference,
+  });
+  if (!selected) {
+    throw failure(
+      "plugin.connection_unavailable",
+      "No connection grants this Local Agent access. Review the account in Plugins."
+    );
+  }
+  assertBoundPluginConnection(binding, action.service, selected.connection);
+  assertDelegatedConnection(grant, selected.connection);
+  return selected;
 }
 
 async function executeSelectedAction(
@@ -776,7 +903,7 @@ async function requireLocalDelegatedAction(
   if (!caller.delegatedPluginActions || action.operation === "list") {
     return undefined;
   }
-  if (action.operation === "connect") {
+  if (action.operation === "connect" || action.operation === "connection") {
     throw failure(
       "plugin.delegation_scope_mismatch",
       "A delegated action must use its explicitly authorized connection."

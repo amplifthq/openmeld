@@ -2,7 +2,7 @@
 // OpenConnector keys its app cache by allowedProxies AND blockedProxies. Keep its
 // ordinary API/MCP environment unchanged and unblock only this validated call.
 export const OPENMELD_GIT_PROXY_UPSTREAM_SHA =
-  "49317899b448c5f5ba857a5fba52979688d37a47";
+  "8724ecc68f10844821ab1a1d99ec65a5569c7035";
 export const OPENMELD_GIT_PROXY_PATH = "/v1/openmeld/github-working-copy";
 const REPOSITORY_PATH = /^\/repos\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]+)(.*)$/u;
 const SHA = /^[a-f0-9]{40}$/u;
@@ -11,6 +11,8 @@ const TASK_PATH = /^\/git\/refs?\/heads\/openmeld%2Fwork-[a-f0-9]{32}$/u;
 const OBJECT_PATH = /^\/git\/(blobs|trees)\/[a-f0-9]{40}$/u;
 const SAFE_REF = /^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$/u;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
+const NATIVE_CONNECTION_PATH =
+  /^\/v1\/openmeld\/connections\/([a-zA-Z0-9_-]+)\/(describe|request\/.*)$/u;
 const GIT_CONNECTION_STREAM_PATH =
   /^\/v1\/openmeld\/git-connections\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/(info\/refs|git-upload-pack)$/u;
 
@@ -195,6 +197,23 @@ export function withGitWorkingCopyPolicy(upstream) {
     ...upstream,
     async fetch(request, env, context) {
       const url = new URL(request.url);
+      const nativeConnection = NATIVE_CONNECTION_PATH.exec(url.pathname);
+      if (
+        nativeConnection &&
+        (request.method === "GET" || request.method === "POST")
+      ) {
+        // The upstream validates selected-account runtime auth and catalog read rules.
+        // Generic proxy endpoints remain blocked. No provider-specific routing is needed.
+        return await upstream.fetch(
+          request,
+          {
+            ...env,
+            OOMOL_CONNECT_ALLOWED_PROXIES: nativeConnection[1],
+            OOMOL_CONNECT_BLOCKED_PROXIES: "",
+          },
+          context
+        );
+      }
       if (isGitConnectionStreamRequest(request, url)) {
         // Preserve streaming bodies. The upstream route verifies the exact
         // configured runtime bearer, identity, alias and current runtime policy.
