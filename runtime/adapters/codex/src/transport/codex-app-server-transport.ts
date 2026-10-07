@@ -32,6 +32,7 @@ import {
   resolveDispatchSpaceActionMcpServer,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
+import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
 import { extractCodexToolActivityEvent } from "../output/codex-tool-activity.js";
 import { projectCodexUsageLimits } from "../usage/codex-usage-limits.js";
@@ -422,7 +423,10 @@ export async function invokeCodexAppServerTransport(input: {
         input.codexWorkdir,
         permissionExecutionMode
       );
-      await session.verifyScopedMcp(threadContext.threadId);
+      await session.verifyScopedMcp(
+        threadContext.threadId,
+        parseCodexAppServerVersion(initialized)
+      );
       const collaborationMode =
         await resolveCodexAppServerTurnCollaborationMode({
           conversationPolicy: input.conversationPolicy,
@@ -1970,7 +1974,10 @@ class CodexAppServerSession {
     };
   }
 
-  async verifyScopedMcp(threadId: string): Promise<void> {
+  async verifyScopedMcp(
+    threadId: string,
+    nativeVersion: string | null
+  ): Promise<void> {
     const scoped =
       this.#computerFileAccessBoundary?.executionContextAccess !== undefined ||
       this.deliveryOnly;
@@ -1979,10 +1986,21 @@ class CodexAppServerSession {
     }
     const inventory = await this.requestControl(
       "mcpServerStatus/list",
-      // Scoped execution must also prove that resources are not exposed. A
-      // normal native-tool turn only checks the alternate carrier; unrelated
-      // MCP resource catalogs must not hold up that admission check.
-      { threadId, detail: scoped ? "full" : "toolsAndAuthOnly", limit: 100 },
+      {
+        threadId,
+        // Isolation must still inspect all servers, tools and resources. An
+        // ordinary native-tool turn only needs the alternate carrier disabled.
+        detail: scoped ? "full" : "toolsAndAuthOnly",
+        ...(!scoped &&
+        supportsAgentControllerVersion(nativeVersion, ">=0.160.0")
+          ? {
+              // Reuse the thread's published connection state. An unfiltered
+              // query starts discovery for unrelated MCP servers as well.
+              serverName: OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
+            }
+          : {}),
+        limit: 100,
+      },
       {
         code: "execution_context.mcp_inventory_timeout",
         operation: "mcpServerStatus/list",
