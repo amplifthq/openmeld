@@ -167,7 +167,7 @@ export function AppRailShortcutsPopover(input: {
 			<PopoverContent
 				align="start"
 				aria-label={`${group.label} resources`}
-				className="w-52 animate-none! gap-0 rounded-lg p-1"
+				className="w-52 animate-none! gap-0 rounded-lg p-1 opacity-100 transition-opacity duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:duration-100"
 				side="right"
 				sideOffset={8}
 			>
