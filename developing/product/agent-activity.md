@@ -550,3 +550,29 @@ The original D1 digest rollout used migrations 0029–0032 and a one-time
 active-duration backfill. Those schema prerequisites are included in the native
 PostgreSQL baseline; do not replay the old migration/backfill sequence. New
 changes use the [PostgreSQL workflow](../engineering/postgresql.md).
+# On-demand session history
+
+Session history is an optional Computer capability, separate from Activity
+metadata and File access. It is disabled by default. The Computer owner selects
+connected Project folders and permitted reader Agent Profiles for each
+Organization. Removing and reconnecting a folder requires a new grant.
+
+The first version reads bounded Codex user and assistant messages through the
+source Computer's live Service. Sessions do not need an OpenMeld Agent Profile.
+It does not resume sessions, import transcripts, expose reasoning or tool output,
+or support arbitrary filesystem reads. Explicit File access restrictions also
+apply. Missing identity, project, connection, or authorization evidence denies
+the read. Unsupported or offline Services cannot acknowledge settings changes.
+
+Humans and agents use the same read operation. Core supplies the authenticated
+human requester, reader, immediate delegator, and destination audience. Only
+owner requests and verified one-hop owner delegation are eligible; Organization
+or Space membership alone does not grant access. Unverified multi-hop requests
+are denied. The answering agent must select information appropriate for its
+destination; private source messages are not automatically shared with a Space.
+
+The Computer page holds Session history access and owner-only Access history
+beside File access. Service stores settings and bounded access metadata locally.
+No transcript body belongs in that store, server databases, telemetry, or browser
+persistent caches. This does not promise that an authorized downstream agent or
+its model provider will not retain a tool result or a published answer.
