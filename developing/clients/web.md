@@ -203,7 +203,12 @@ its selected file revision while switching from Messages to Files.
 
 Web uses three navigation levels: a 64px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
-Team are the rail's destinations, in that order. Desk is temporarily hidden
+Team are the rail's primary destinations, in that order. More navigation opens
+on hover or activation and offers Agents, Plugins, Skills, Files, and Routines
+with separate pin toggles. Pinned shortcuts appear below a short divider and
+persist in the browser; links always target the current Organization. A pinned
+current page selects its shortcut instead of also selecting Team. Icon tooltips
+open immediately. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
 switching remains at the top; the global Create entry is temporarily hidden.
 Creation remains available in the Spaces and Team contextual headers. Global search

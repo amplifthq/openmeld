@@ -517,6 +517,15 @@ Square.
 
 ## 6. Shared Sidebar family and resize behavior
 
+The outer rail's More navigation popover opens on hover, click, or keyboard
+activation. Agents, Plugins, Skills, Files, and Routines link to the existing
+Team destinations and each has a separate Pin to sidebar toggle. Pins start
+empty, persist in this browser in selection order, and resolve against the
+current Organization. A short divider separates pinned entries from the main
+navigation. A pinned current destination owns the selected state instead of
+also selecting Team. Compact rail tooltips open without a delay.
+
+
 Main Sidebar uses the Fluid Functionalism Base UI registry components in
 `packages/ui/src/fluid/sidebar*.tsx`. Its provider owns transient pointer,
 keyboard and peek interaction; Web injects the persisted geometry. Business

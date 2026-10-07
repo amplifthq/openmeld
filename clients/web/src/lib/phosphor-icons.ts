@@ -21,6 +21,7 @@ export { ArrowUUpLeftIcon } from "@phosphor-icons/react/ArrowUUpLeft";
 export { BellIcon } from "@phosphor-icons/react/Bell";
 export { BellSlashIcon } from "@phosphor-icons/react/BellSlash";
 export { BookOpenTextIcon } from "@phosphor-icons/react/BookOpenText";
+export { BooksIcon } from "@phosphor-icons/react/Books";
 export { BrainIcon } from "@phosphor-icons/react/Brain";
 export { BuildingsIcon } from "@phosphor-icons/react/Buildings";
 export { CalendarIcon } from "@phosphor-icons/react/Calendar";
@@ -134,6 +135,7 @@ export {
 	PulseIcon as ActivityIcon,
 } from "@phosphor-icons/react/Pulse";
 export { PushPinIcon } from "@phosphor-icons/react/PushPin";
+export { PuzzlePieceIcon } from "@phosphor-icons/react/PuzzlePiece";
 export { QuestionIcon } from "@phosphor-icons/react/Question";
 export { RobotIcon } from "@phosphor-icons/react/Robot";
 export { ShareNetworkIcon } from "@phosphor-icons/react/ShareNetwork";
@@ -157,6 +159,7 @@ export { SunDimIcon } from "@phosphor-icons/react/SunDim";
 export { TargetIcon } from "@phosphor-icons/react/Target";
 export { TerminalIcon } from "@phosphor-icons/react/Terminal";
 export { TextTIcon } from "@phosphor-icons/react/TextT";
+export { TimerIcon } from "@phosphor-icons/react/Timer";
 export { TrashIcon } from "@phosphor-icons/react/Trash";
 export { TrayIcon } from "@phosphor-icons/react/Tray";
 export { UploadSimpleIcon } from "@phosphor-icons/react/UploadSimple";

@@ -334,6 +334,7 @@ describe("AppOuterRail", () => {
 
 	afterEach(() => {
 		cleanup();
+		localStorage.removeItem("openmeld.appearance.sidebar-shortcuts");
 		rememberClientSidebarState("outer", { tier: "expanded", width: "9rem" });
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
@@ -1731,6 +1732,46 @@ describe("AppOuterRail", () => {
 			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
 		).toBe("page");
 	});
+	it.each([
+		["Agents", "/o/acme/agents", "agents"],
+		["Plugins", "/o/acme/plugins", "plugins"],
+		["Skills", "/o/acme/skills", "skills"],
+		["Files", "/o/acme/files", "files"],
+		["Routines", "/o/acme/routines", "people"],
+	] as const)("pins %s without navigating, restores it, and selects only the pinned destination", async (label, path, section) => {
+		const view = renderRail();
+		fireEvent.click(screen.getByRole("button", { name: "More navigation" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: `Pin ${label} to sidebar` })
+		);
+		expect(navigateMock).not.toHaveBeenCalled();
+		expect(
+			within(screen.getByRole("navigation", { name: "Pinned shortcuts" }))
+				.getByRole("link", { name: label })
+				.getAttribute("href")
+		).toBe(path);
+		view.unmount();
+		routerLocation.pathname = path;
+		appShellSection = section;
+		renderRail();
+		expect(
+			screen.getByRole("link", { name: label }).getAttribute("aria-current")
+		).toBe("page");
+		expect(
+			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
+		).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "More navigation" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: `Unpin ${label} from sidebar` })
+		);
+		expect(
+			screen.queryByRole("navigation", { name: "Pinned shortcuts" })
+		).toBeNull();
+		expect(
+			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
+		).toBe("page");
+	});
+
 	it("keeps Computers out of the main app rail", () => {
 		renderRail();
 

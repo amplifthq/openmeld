@@ -3,6 +3,7 @@
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipProvider,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
@@ -42,6 +43,7 @@ import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
 import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
 import type { useInboxAttention } from "#/components/inbox/use-inbox-attention";
+import type { SidebarShortcutId } from "#/lib/appearance/sidebar-shortcuts";
 import {
 	resolveInboxAttentionLabel,
 	resolveInboxIndicatorClassName,
@@ -53,7 +55,7 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 
-type AppRailDestinationId = AppOuterRailDestination;
+type AppRailDestinationId = AppOuterRailDestination | SidebarShortcutId;
 
 type AppRailDestination = {
 	accessibleLabel?: string;
@@ -116,9 +118,10 @@ export function buildAppRailGroups(input: {
 }
 
 export function AppRailNavigationGroup(input: {
-	activeDestination: AppOuterRailDestination | null;
+	activeDestination: AppRailDestinationId | null;
 	group: AppRailGroup;
 	position: number;
+	standaloneSelection?: boolean;
 	tier: SidebarMode;
 }) {
 	const { presentation } = useAppNavigationPresentation();
@@ -128,7 +131,9 @@ export function AppRailNavigationGroup(input: {
 				destination.id === input.activeDestination ||
 				(destination.id === "directMessages" &&
 					input.activeDestination === "spaces") ||
-				(destination.id === "people" && input.activeDestination === "agents")
+				(!input.standaloneSelection &&
+					destination.id === "people" &&
+					input.activeDestination === "agents")
 			}
 			destination={destination}
 			key={destination.id}
@@ -140,7 +145,7 @@ export function AppRailNavigationGroup(input: {
 			<SidebarMenu
 				activeLayoutId={
 					input.tier === "expanded"
-						? `main-sidebar-selection-${presentation}`
+						? `main-sidebar-selection-${presentation}-${input.group.id}`
 						: undefined
 				}
 				className={cn(
@@ -170,17 +175,26 @@ export function AppRailNavigationGroup(input: {
 export function CollapsedRailTooltip(input: {
 	anchor?: RefObject<Element | null>;
 	children: ReactElement;
+	contextMenu?: ReactNode;
 	disabled?: boolean;
 	label: string;
 	side?: "top" | "right";
 }) {
 	return (
-		<Tooltip disabled={input.disabled}>
-			<TooltipTrigger render={input.children} />
-			<TooltipContent anchor={input.anchor} side={input.side ?? "right"}>
-				{input.label}
-			</TooltipContent>
-		</Tooltip>
+		<TooltipProvider delay={0}>
+			<Tooltip disabled={input.disabled}>
+				{input.contextMenu ? (
+					<FluidContextMenu target={<TooltipTrigger render={input.children} />}>
+						{input.contextMenu}
+					</FluidContextMenu>
+				) : (
+					<TooltipTrigger render={input.children} />
+				)}
+				<TooltipContent anchor={input.anchor} side={input.side ?? "right"}>
+					{input.label}
+				</TooltipContent>
+			</Tooltip>
+		</TooltipProvider>
 	);
 }
 
@@ -293,16 +307,14 @@ export function AppRailLink(input: {
 				className="mx-auto h-[3.25rem] w-full"
 				data-app-rail-item
 			>
-				<CollapsedRailTooltip anchor={iconRef} label={accessibleLabel}>
-					<FluidContextMenu
-						target={
-							<SidebarMenuButton isActive={input.active} render={link}>
-								{children}
-							</SidebarMenuButton>
-						}
-					>
-						<ObjectMenuItems href={input.destination.to} />
-					</FluidContextMenu>
+				<CollapsedRailTooltip
+					anchor={iconRef}
+					contextMenu={<ObjectMenuItems href={input.destination.to} />}
+					label={accessibleLabel}
+				>
+					<SidebarMenuButton isActive={input.active} render={link}>
+						{children}
+					</SidebarMenuButton>
 				</CollapsedRailTooltip>
 			</SidebarMenuItem>
 		);

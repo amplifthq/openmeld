@@ -17,7 +17,7 @@ import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { useMatches } from "@tanstack/react-router";
+import { useLocation, useMatches } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
@@ -27,6 +27,7 @@ import {
 	type SidebarDisplay,
 	useSidebarDisplayPreference,
 } from "#/lib/appearance/sidebar-preference";
+import { useSidebarShortcuts } from "#/lib/appearance/sidebar-shortcuts";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
@@ -41,6 +42,10 @@ import {
 	AppRailNavigationGroup,
 	buildAppRailGroups,
 } from "./app-rail-navigation";
+import {
+	AppRailShortcuts,
+	resolveActiveSidebarShortcut,
+} from "./app-rail-shortcuts";
 import { AppSidebarFooter } from "./app-sidebar-footer";
 import { AppSidebarHeader } from "./app-sidebar-header";
 import type {
@@ -58,6 +63,16 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 		select: resolveAppOuterRailDestinationFromMatches,
 	});
 	const { currentOrganization } = useAppOrganization();
+	const shortcuts = useSidebarShortcuts();
+	const pathname = useLocation({ select: (location) => location.pathname });
+	const activeShortcut = resolveActiveSidebarShortcut(
+		pathname,
+		currentOrganization.slug
+	);
+	const pinnedActive =
+		activeShortcut && shortcuts.pinned.includes(activeShortcut)
+			? activeShortcut
+			: undefined;
 	const inboxAttention = useInboxAttention(currentOrganization.id);
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const { data: currentAccountAvatar } = useAccountAvatar();
@@ -129,13 +144,21 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 						prefetchCenterAgentConversation,
 					}).map((group, index) => (
 						<AppRailNavigationGroup
-							activeDestination={activeDestination}
+							activeDestination={pinnedActive ?? activeDestination}
 							group={group}
 							key={group.id}
 							position={index}
+							standaloneSelection={Boolean(pinnedActive)}
 							tier={mode}
 						/>
 					))}
+					<AppRailShortcuts
+						active={activeShortcut}
+						orgSlug={currentOrganization.slug}
+						pinned={shortcuts.pinned}
+						tier={mode}
+						toggle={shortcuts.toggle}
+					/>
 				</ScrollArea>
 				<AppSidebarFooter
 					account={{ ...account, image: accountAvatarImage }}
