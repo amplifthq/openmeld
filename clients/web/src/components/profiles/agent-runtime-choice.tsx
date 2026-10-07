@@ -1,13 +1,16 @@
 import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { CloudIcon, DesktopTowerIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import { LocalAgentLogoStack } from "./local-agent-logo-stack";
 
 export function AgentRuntimeChoice({
 	runtime,
 	onChange,
+	remoteAgentAccessory,
 }: {
 	runtime: "local" | "remote";
 	onChange: (value: "local" | "remote") => void;
+	remoteAgentAccessory?: ReactNode;
 }) {
 	return (
 		<Tabs
@@ -50,7 +53,10 @@ export function AgentRuntimeChoice({
 				>
 					<CloudIcon aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
 					<span className="grid gap-1">
-						<span className="font-medium text-sm">Remote Agent</span>
+						<span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+							<span className="font-medium text-sm">Remote Agent</span>
+							{remoteAgentAccessory}
+						</span>
 						<span className="text-muted-foreground text-xs">
 							Runs in the cloud.
 						</span>

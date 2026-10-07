@@ -1,3 +1,5 @@
+import { listLocalAgentInstallGuides } from "./local-agent-install-guides";
+
 const DEFAULT_SITE_URL = "https://openmeld.ai";
 const DEFAULT_PATH = "/";
 const LEADING_SLASH_REGEX = /^\/+/;
@@ -14,11 +16,24 @@ type PublicPageHeadOptions = {
   twitterImage?: string;
 };
 
+export const homePageLocalAgents = listLocalAgentInstallGuides();
+
+export const homePageCopy = {
+  tagline: "The open collaboration system for anyone and agents",
+  descriptionBeforeCloudAgents:
+    "Share context, work in parallel, and pick up where anyone left off with your team,",
+  cloudAgentsLabel: "cloud agents",
+  descriptionAfterCloudAgents: "and everyone's agents",
+  agentNames: new Intl.ListFormat("en-US", {
+    style: "long",
+    type: "conjunction",
+  }).format(homePageLocalAgents.map((agent) => agent.displayName)),
+} as const;
+
 export const siteConfig = {
   name: "OpenMeld",
-  title: "OpenMeld | People and Agents Working as One",
-  description:
-    "Bring your people, AI agents, and tools into one shared workspace. Give them a task, share the context, and get the result back in OpenMeld.",
+  title: `OpenMeld | ${homePageCopy.tagline}`,
+  description: `${homePageCopy.descriptionBeforeCloudAgents} ${homePageCopy.cloudAgentsLabel}, ${homePageCopy.descriptionAfterCloudAgents} (${homePageCopy.agentNames}).`,
   keywords:
     "OpenMeld, open-source operating system, agent-native teams, AI agents, local agents, Center Agent, agent collaboration, Slack",
   robots:

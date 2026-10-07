@@ -1,6 +1,7 @@
 import { listLocalAgentInstallGuides } from "@openmeld/product-catalog/local-agent-install-guides";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
+import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import {
 	ArrowUpRightIcon,
 	CheckIcon,
@@ -10,13 +11,7 @@ import {
 	HashIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import {
-	motion,
-	useMotionValue,
-	useReducedMotion,
-	useSpring,
-	useTransform,
-} from "motion/react";
+import { motion, useMotionValue, useSpring, useTransform } from "motion/react";
 import {
 	lazy,
 	type ReactNode,
@@ -26,6 +21,7 @@ import {
 	useState,
 } from "react";
 import { appUrl } from "#/lib/app-url";
+import { SceneLighting } from "./product-showcases";
 
 const MetalFx = lazy(() =>
 	import("metal-fx").then((module) => ({ default: module.MetalFx }))
@@ -49,7 +45,7 @@ export function PlatformMetalBadge({
 	appearance?: "fill" | "ring";
 }) {
 	const [mounted, setMounted] = useState(false);
-	const reduced = useReducedMotion();
+	const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
 	useEffect(() => setMounted(true), []);
 	const filled = appearance === "fill";
 	const badge = (
@@ -86,7 +82,7 @@ export function PlatformMetalBadge({
 const agents = listLocalAgentInstallGuides();
 export function HeroAgents() {
 	const ref = useRef<HTMLDivElement>(null);
-	const reduced = useReducedMotion();
+	const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
 	const x = useMotionValue(0);
 	const y = useMotionValue(0);
 	useEffect(() => {
@@ -373,6 +369,7 @@ export function ComputerBento() {
 	return (
 		<div className="meld-computer-bento">
 			<BentoCard className="meld-bento-machine">
+				<SceneLighting />
 				<div aria-hidden className="meld-machine-art">
 					<svg aria-hidden="true" fill="none" viewBox="0 0 480 300">
 						<g className="meld-machine-layer">
@@ -407,20 +404,20 @@ export function ComputerBento() {
 						<g className="meld-machine-cloud">
 							<path
 								d="m148 103 92-44 92 44-92 45Z"
-								fill="#202529"
+								fill="#252525"
 								fillOpacity=".8"
-								stroke="#7c9ba4"
+								stroke="#939393"
 							/>
 							<path
 								d="M240 147v51M148 103v47m184-47v47"
-								stroke="#6697a4"
+								stroke="#777777"
 								strokeDasharray="3 5"
 							/>
 							<path
 								d="m202 103 38-19 38 19-38 19Z"
-								fill="#bad7dd"
+								fill="#dddddd"
 								fillOpacity=".16"
-								stroke="#a7cbd3"
+								stroke="#b6b6b6"
 							/>
 						</g>
 					</svg>
@@ -428,17 +425,15 @@ export function ComputerBento() {
 				<div>
 					<CloudIcon aria-hidden size={22} />
 					<h3>
-						A cloud workspace.
+						One computer.
 						<br />
-						Ready for real work.
+						All your agents.
 					</h3>
-					<p>
-						Files, a terminal, and browser tools for your agent’s next task.
-					</p>
+					<p>Your files, terminal, and browser. Ready for the next task.</p>
 				</div>
 			</BentoCard>
 			<BentoCard className="meld-bento-specs">
-				<span className="meld-bento-eyebrow">Cloud computer</span>
+				<span className="meld-bento-eyebrow">Your cloud computer</span>
 				<div className="meld-computer-specs">
 					<div>
 						<strong>1</strong>
@@ -476,10 +471,8 @@ export function ComputerBento() {
 			</BentoCard>
 			<BentoCard className="meld-bento-files">
 				<FileTextIcon aria-hidden size={28} />
-				<h3>Keep the result with the work.</h3>
-				<p>
-					Prepare documents and publish them back to your team’s conversation.
-				</p>
+				<h3>From file to finished work.</h3>
+				<p>Bring the result back to your team’s conversation.</p>
 				<div className="meld-result-file">
 					<FileTextIcon aria-hidden size={20} />
 					<span>findings.md</span>

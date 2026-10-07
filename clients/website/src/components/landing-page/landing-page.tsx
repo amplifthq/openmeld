@@ -1,15 +1,10 @@
-import {
-	buildLocalAgentGuideDetailPath,
-	LOCAL_AGENTS_GUIDE_PATH,
-	listLocalAgentInstallGuides,
-} from "@openmeld/product-catalog/local-agent-install-guides";
+import { LOCAL_AGENTS_GUIDE_PATH } from "@openmeld/product-catalog/local-agent-install-guides";
+import { homePageCopy } from "@openmeld/product-catalog/site";
 import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
-import { OpenMeldWordmark } from "@openmeld/ui/components/openmeld-wordmark";
 import {
 	Accordion,
 	AccordionContent,
@@ -31,17 +26,28 @@ import {
 	ArrowUpRightIcon,
 	CaretDownIcon,
 	DownloadSimpleIcon,
+	GithubLogoIcon,
 	WindowsLogoIcon,
 } from "@phosphor-icons/react";
 import { MotionConfig } from "motion/react";
 import { type ReactNode, useRef } from "react";
 import { appUrl } from "#/lib/app-url";
+import { ConnectorShowcase } from "./connector-showcase";
+import { HeroDescription } from "./hero-copy";
+import { LandingFooter } from "./landing-footer";
 import {
 	ChannelShowcase,
 	ComputerBento,
 	HeroAgents,
 	PlatformMetalBadge,
 } from "./landing-showcases";
+import {
+	AgentShowcase,
+	CenterAgentShowcase,
+	KnowledgeShowcase,
+	RoutineShowcase,
+	UsageShowcase,
+} from "./product-showcases";
 import "./landing-page.css";
 
 const REPOSITORY_URL = "https://github.com/amplifthq/openmeld";
@@ -202,18 +208,14 @@ export function LandingPage() {
 				<main id="main-content">
 					<section aria-labelledby="hero-title" className="meld-hero meld-wrap">
 						<HeroAgents />
-						<h1 id="hero-title">
-							Your team. Your agents.
-							<br />
-							<span>One shared workspace.</span>
+						<h1 className="meld-hero-title" id="hero-title">
+							{homePageCopy.tagline}
 						</h1>
-						<p className="meld-hero-description">
-							Bring Codex, Claude Code, and your cloud agents into the same
-							conversation. Turn a brief into work your whole team can review.
-						</p>
+						<HeroDescription />
 						<AppActions />
 						<div className="meld-open-source">
 							<a href={REPOSITORY_URL}>
+								<GithubLogoIcon aria-hidden size={18} />
 								Steal our code (legally){" "}
 								<ArrowUpRightIcon aria-hidden size={14} />
 							</a>
@@ -241,9 +243,8 @@ export function LandingPage() {
 								</h2>
 								<div>
 									<p>
-										Connect the agents on your computer. Keep your
-										subscriptions, project files, and local tools. Give your
-										team a shared place to work with them.
+										Keep your subscriptions, files, and local tools. Bring the
+										agents you use into your team’s conversation.
 									</p>
 									<a className="meld-link" href={LOCAL_AGENTS_GUIDE_PATH}>
 										Connect your first agent{" "}
@@ -251,31 +252,38 @@ export function LandingPage() {
 									</a>
 								</div>
 							</div>
-							<ProductDemo
-								scene="CreateAgent"
-								title="Choose a local or remote agent"
-							/>
-							<LandingLinks
-								axis="xy"
-								className="meld-agent-links"
-								links={listLocalAgentInstallGuides().map((agent) => ({
-									href: buildLocalAgentGuideDetailPath(agent.agentId),
-									content: (
-										<>
-											<LocalAgentLogo
-												agentId={`builtin:${agent.agentId}`}
-												className="meld-agent-logo"
-											/>
-											<span>{agent.displayName}</span>
-											<ArrowUpRightIcon aria-hidden size={15} />
-										</>
-									),
-								}))}
-							/>
+							<AgentShowcase />
 							<p className="meld-footnote">
 								Local agents work while their computer is connected. Your Center
 								Agent runs in the cloud.
 							</p>
+						</div>
+					</section>
+					<section
+						aria-labelledby="center-agent-title"
+						className="meld-section meld-wrap"
+						id="center-agent"
+					>
+						<div className="meld-section-heading">
+							<h2 id="center-agent-title">
+								One Center Agent.
+								<br />
+								<span>For your whole team.</span>
+							</h2>
+							<p>
+								Your organization’s own agent. It works with your shared
+								context, uses connected apps, and joins your team through
+								Channels. You choose the model.
+							</p>
+						</div>
+						<CenterAgentShowcase />
+					</section>
+					<section
+						aria-labelledby="channel-title"
+						className="meld-section meld-channel-section"
+					>
+						<div className="meld-wrap">
+							<ChannelShowcase />
 						</div>
 					</section>
 					<section
@@ -289,32 +297,11 @@ export function LandingPage() {
 								<span>Ready for the next task.</span>
 							</h2>
 							<p>
-								Give agents the product brief, customer notes, and decisions
-								behind the work. Keep useful instructions in shared Skills,
-								ready to use again.
+								Shared files for context. Shared Skills for how to work. Your
+								agents start with what your team already knows.
 							</p>
 						</div>
-						<ProductDemo
-							scene="Knowledge"
-							title="Explore team files and Skills"
-						/>
-						<div className="meld-details meld-details-two">
-							<article>
-								<h3>The context is already here.</h3>
-								<p>
-									Organize shared documents in Team Knowledge. Keep personal
-									files separate. Bring the right material into each task.
-								</p>
-							</article>
-							<article>
-								<h3>Teach it once. Use it again.</h3>
-								<p>
-									Turn your release-writing rules or research method into a
-									Skill. Share the instructions and reference files with the
-									team.
-								</p>
-							</article>
-						</div>
+						<KnowledgeShowcase />
 					</section>
 					<section
 						aria-labelledby="routine-title"
@@ -327,23 +314,18 @@ export function LandingPage() {
 								<span>Already on the calendar.</span>
 							</h2>
 							<p>
-								Set a Routine to review project updates every week. Choose the
-								instructions, schedule, and destination. Read each result in the
-								conversation where your team works.
+								Set the task and the schedule. Your agent brings the result back
+								to the conversation.
 							</p>
 						</div>
-						<ProductDemo
-							scene="Schedule"
-							title="Explore a scheduled project review"
-						/>
+						<RoutineShowcase />
 					</section>
 					<section
-						aria-labelledby="channel-title"
-						className="meld-section meld-channel-section"
+						aria-labelledby="connectors-title"
+						className="meld-section meld-wrap meld-connectors-section"
+						id="integrations"
 					>
-						<div className="meld-wrap">
-							<ChannelShowcase />
-						</div>
+						<ConnectorShowcase />
 					</section>
 					<section
 						aria-labelledby="computer-title"
@@ -351,20 +333,38 @@ export function LandingPage() {
 					>
 						<div className="meld-section-heading">
 							<h2 id="computer-title">
-								Give the work
+								A free cloud computer.
 								<br />
-								<span>a computer of its own.</span>
+								<span>For you and all your agents.</span>
 							</h2>
 							<p>
-								Your cloud agent can work with files, run code, and use a
-								browser. It has an environment to prepare the work, check it,
-								and bring back the result.
+								Everyone gets a free cloud computer. Your local and cloud agents
+								share it to work with files, run code, and get things done.
 							</p>
 						</div>
 						<ComputerBento />
 						<a className="meld-link" href="https://docs.openmeld.ai">
 							Explore the docs <ArrowUpRightIcon aria-hidden size={16} />
 						</a>
+					</section>
+					<section
+						aria-labelledby="usage-title"
+						className="meld-section meld-wrap"
+						id="usage"
+					>
+						<div className="meld-section-heading">
+							<h2 id="usage-title">
+								The whole team’s usage.
+								<br />
+								<span>In one clear view.</span>
+							</h2>
+							<p>
+								See cloud model costs and recorded local-agent tokens across
+								your organization. Switch to your own agents. Open the details
+								when you need them.
+							</p>
+						</div>
+						<UsageShowcase />
 					</section>
 					<section
 						aria-labelledby="faq-title"
@@ -396,21 +396,7 @@ export function LandingPage() {
 						<AppActions />
 					</section>
 				</main>
-				<footer className="meld-footer meld-wrap">
-					<div>
-						<a aria-label="OpenMeld homepage" className="meld-brand" href="/">
-							<OpenMeldWordmark />
-						</a>
-						<p>Experimental software. Built in the open.</p>
-					</div>
-					<nav aria-label="Footer">
-						<a href="https://docs.openmeld.ai">Docs</a>
-						<a href="/changelog">Changelog</a>
-						<a href={REPOSITORY_URL}>GitHub</a>
-						<a href="/privacy">Privacy</a>
-						<a href="/terms">Terms</a>
-					</nav>
-				</footer>
+				<LandingFooter repositoryUrl={REPOSITORY_URL} />
 			</div>
 		</MotionConfig>
 	);

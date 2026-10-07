@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { rename } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { mergeConfig } from "vite";
 import config from "../conversation-preview/vite.config";
 
@@ -22,6 +24,9 @@ const captureConfig = mergeConfig(
 				name: "capture-server-boundary",
 				enforce: "pre",
 				resolveId(source: string) {
+					if (source.endsWith("/lib/organizations/organization-usage")) {
+						return "\0website-demo:usage-api";
+					}
 					if (source.endsWith("/lib/organizations/organization-directory")) {
 						return "\0website-demo:directory-api";
 					}
@@ -74,6 +79,11 @@ const captureConfig = mergeConfig(
 					}
 				},
 				load(id: string) {
+					if (id === "\0website-demo:usage-api") {
+						return demoApi("organization-usage", "demo-usage-data.ts", [
+							"readOrganizationAiUsage",
+						]);
+					}
 					const data = JSON.stringify(`${import.meta.dirname}/demo-data.ts`);
 					const inbox = JSON.stringify(`${import.meta.dirname}/demo-inbox.tsx`);
 					if (id === "\0website-demo:directory-api") {
@@ -140,7 +150,7 @@ export const getSidebarState=async()=>SIDEBAR_DEFAULT_STATE,getAppSidebarStates=
 						return `export {useDemoSidebarPreferences as useSidebarPreferences} from ${data};`;
 					}
 					if (id === "\0website-demo:indicators") {
-						return "export const useSpaceListIndicators = () => ({unreadBySpaceId:new Map(),activeWakeSummaryBySpaceId:new Map(),activityUnavailable:false,isPending:false});";
+						return `export {useDemoSpaceListIndicators as useSpaceListIndicators} from ${JSON.stringify(`${import.meta.dirname}/demo-conversation-state.tsx`)};`;
 					}
 					if (id === "\0conversation-preview:organization-context") {
 						return `const organization={id:'org',slug:'test',name:'Amplift',isPersonal:false}; export const useAppOrganization = () => ({storageScope:'demo',currentUserId:'preview',currentOrganization:organization,organizations:[organization]}); export const useOptionalAppOrganization = useAppOrganization; export const useCurrentOrganizationSlug = () => 'test'; export const useOptionalCurrentOrganizationSlug = useCurrentOrganizationSlug; export const AppOrganizationProvider = ({children}) => children;`;
@@ -167,9 +177,40 @@ export const getSidebarState=async()=>SIDEBAR_DEFAULT_STATE,getAppSidebarStates=
 export default mergeConfig(captureConfig, {
 	root: import.meta.dirname,
 	base: "/product-demo/",
+	plugins: [
+		{
+			name: "publish-demo-entry-last",
+			apply: "build",
+			enforce: "post",
+			generateBundle(_options, bundle) {
+				const entry = bundle["index.html"];
+				if (!entry || entry.type !== "asset") {
+					this.error("The demo build did not generate index.html");
+				}
+				// Keep the served entry intact until all new hashed assets are written.
+				// biome-ignore lint/performance/noDelete: Rollup requires removing the output entry, not assigning undefined.
+				delete bundle["index.html"];
+				this.emitFile({
+					type: "asset",
+					fileName: ".index.next.html",
+					source: entry.source,
+				});
+			},
+			async writeBundle(options) {
+				if (!options.dir) {
+					this.error("The demo build requires an output directory");
+				}
+				const directory = resolve(options.dir);
+				await rename(
+					join(directory, ".index.next.html"),
+					join(directory, "index.html")
+				);
+			},
+		},
+	],
 	build: {
 		outDir: "../../../website/public/product-demo",
-		emptyOutDir: true,
+		emptyOutDir: false,
 		sourcemap: false,
 	},
 	optimizeDeps: {

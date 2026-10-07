@@ -227,6 +227,27 @@
 .meld-demo-hero iframe {
 	height: 650px;
 }
+.meld-demo-hero {
+	border-color: transparent;
+	background:
+		linear-gradient(#101010, #101010) padding-box,
+		radial-gradient(ellipse at 18% 0%, #ffffff66, transparent 48%) border-box,
+		linear-gradient(130deg, #ffffff24, #ffffff08 38%, #e3d3b332 72%, #ffffff12)
+		border-box;
+	box-shadow:
+		0 32px 70px -22px #000000b3,
+		0 8px 20px -12px #00000080;
+}
+.meld-demo-hero::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	box-shadow:
+		inset 0 1px 0 #ffffff14,
+		inset 0 0 0 1px #ffffff04;
+	pointer-events: none;
+}
 .meld-section {
 	padding-top: 136px;
 	padding-bottom: 10px;
@@ -257,60 +278,15 @@
 .meld-section-heading .meld-link {
 	margin-top: 20px;
 }
-.meld-details {
-	display: grid;
-	grid-template-columns: repeat(3, 1fr);
-	gap: 42px;
-	margin-top: 38px;
-}
-.meld-details-two {
-	grid-template-columns: repeat(2, 1fr);
-	gap: 90px;
-}
-.meld-details h3 {
-	font-size: 17px;
-	font-weight: 550;
-	letter-spacing: -0.02em;
-	margin: 0 0 12px;
-}
-.meld-details p {
-	font-size: 15px;
-	line-height: 1.7;
-	color: var(--muted-foreground);
-	margin: 0;
-	max-width: 470px;
-	text-wrap: pretty;
-}
 .meld-agents {
 	margin-top: 100px;
-	background: #151515;
 	padding-block: 80px;
 }
-.meld-agent-links {
-	position: relative;
-	display: grid;
-	grid-template-columns: repeat(4, 1fr);
-	gap: 2px;
-	margin-top: 50px;
+.meld-agents .meld-section-heading {
+	margin-bottom: clamp(48px, 6vw, 80px);
 }
-.meld-agent-links a {
-	position: relative;
-	z-index: 1;
-	display: flex;
-	align-items: center;
-	gap: 14px;
-	padding: 22px 18px;
-	color: inherit;
-	font-size: 15px;
-}
-.meld-agent-links a > svg:last-child {
-	margin-left: auto;
-	color: #99999f;
-}
-.meld-agent-logo {
-	width: 28px;
-	height: 28px;
-	flex-shrink: 0;
+.meld-agents .meld-footnote {
+	margin-top: clamp(32px, 4vw, 48px);
 }
 .meld-footnote {
 	margin: 24px 0 0;
@@ -368,28 +344,6 @@
 	font-size: clamp(40px, 4.5vw, 60px);
 	margin-bottom: 30px;
 }
-.meld-footer {
-	display: flex;
-	align-items: start;
-	justify-content: space-between;
-	gap: 30px;
-	border-top: 1px solid var(--meld-line);
-	padding-block: 36px 50px;
-}
-.meld-footer p {
-	font-size: 12px;
-	color: var(--muted-foreground);
-	margin-top: 15px;
-}
-.meld-footer nav {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 24px;
-}
-.meld-footer nav a {
-	font-size: 13px;
-	color: var(--muted-foreground);
-}
 @media (min-width: 1450px) {
 	.meld-wrap {
 		width: min(1320px, calc(100% - 128px));
@@ -416,12 +370,6 @@
 	}
 	.meld-section-heading {
 		gap: 40px;
-	}
-	.meld-details {
-		gap: 24px;
-	}
-	.meld-agent-links {
-		grid-template-columns: repeat(3, 1fr);
 	}
 	.meld-faq {
 		gap: 40px;
@@ -492,31 +440,9 @@
 	.meld-section-heading p {
 		font-size: 16px;
 	}
-	.meld-details,
-	.meld-details-two {
-		grid-template-columns: 1fr;
-		gap: 28px;
-		margin-top: 30px;
-	}
-	.meld-details h3 {
-		margin-bottom: 8px;
-	}
 	.meld-agents {
 		margin-top: 70px;
 		padding-block: 55px;
-	}
-	.meld-agent-links {
-		grid-template-columns: repeat(2, 1fr);
-		margin-top: 30px;
-	}
-	.meld-agent-links a {
-		padding: 18px 8px;
-		gap: 9px;
-		font-size: 13px;
-	}
-	.meld-agent-logo {
-		width: 25px;
-		height: 25px;
 	}
 	.meld-channel-section {
 		margin-top: 75px;
@@ -536,13 +462,6 @@
 	}
 	.meld-start h2 {
 		font-size: 42px;
-	}
-	.meld-footer {
-		flex-direction: column;
-		padding-block: 30px;
-	}
-	.meld-footer nav {
-		gap: 20px;
 	}
 }
 .meld-hero {
@@ -639,16 +558,6 @@
 		inset 0 0 7px #ffffff69,
 		inset 0 0 0 1px #ffffff80,
 		inset 0 1px 0 #ffffffc7;
-}
-.meld-agents .meld-demo {
-	max-width: 1000px;
-	margin: 48px auto 0;
-}
-.meld-agents .meld-demo iframe {
-	height: 470px;
-}
-.meld-agent-links {
-	margin-top: 28px;
 }
 .meld-channel-showcase {
 	display: grid;
@@ -900,8 +809,10 @@
 	overflow: hidden;
 	border-radius: 18px;
 	padding: 30px;
-	background: #18191b;
-	border: 1px solid #2b2d31;
+	background:
+		linear-gradient(#151515, #151515) padding-box,
+		linear-gradient(135deg, #ffffff2a, #ffffff08 40%, #ffffff12) border-box;
+	border: 1px solid transparent;
 }
 .meld-bento-card h3 {
 	font-size: 23px;
@@ -921,7 +832,11 @@
 	display: flex;
 	flex-direction: column;
 	justify-content: space-between;
-	background: radial-gradient(ellipse at 50% 24%, #262b31 0, #18191b 62%);
+	isolation: isolate;
+}
+.meld-bento-machine > div:not(.meld-scene-light) {
+	position: relative;
+	z-index: 1;
 }
 .meld-machine-art {
 	margin: -20px -25px 0;
@@ -999,7 +914,7 @@
 	font-size: 19px;
 }
 .meld-bento-files > svg {
-	color: #b7c7d1;
+	color: #bbbbbb;
 }
 .meld-result-file {
 	display: flex;
@@ -1134,9 +1049,6 @@
 	.meld-bento-files {
 		grid-column: span 2;
 	}
-	.meld-agents .meld-demo iframe {
-		height: 510px;
-	}
 }
 @media (prefers-reduced-motion: reduce) {
 	.meld-machine-cloud,
@@ -1145,26 +1057,7 @@
 		animation: none;
 	}
 }
-.meld-demo-knowledge,
-.meld-demo-schedule {
-	max-width: 1000px;
-	margin-inline: auto;
-}
-.meld-demo-knowledge iframe {
-	height: 390px;
-}
-.meld-demo-schedule iframe {
-	height: 350px;
-}
 .meld-chat-chrome img,
 .meld-channel-option img {
 	flex-shrink: 0;
-}
-@media (max-width: 760px) {
-	.meld-demo-knowledge iframe {
-		height: 440px;
-	}
-	.meld-demo-schedule iframe {
-		height: 430px;
-	}
 }

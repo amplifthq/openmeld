@@ -5,12 +5,7 @@ import { LandingPage } from "#/components/landing-page/landing-page";
 import { appUrl } from "#/lib/app-url";
 
 export const Route = createFileRoute("/")({
-	head: () =>
-		buildPublicPageHead({
-			title: "Your team. Your agents. One shared workspace.",
-			description:
-				"Bring Codex, Claude Code, and your cloud agents into the same conversation. Share files, review results, and schedule the work your team does every week.",
-		}),
+	head: () => buildPublicPageHead(),
 	component: WebsiteHome,
 });
 

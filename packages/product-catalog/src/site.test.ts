@@ -13,9 +13,11 @@ describe("site metadata", () => {
     const head = buildPublicPageHead();
     const title = readTitle(head);
     const description =
-      "Bring your people, AI agents, and tools into one shared workspace. Give them a task, share the context, and get the result back in OpenMeld.";
+      "Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).";
 
-    expect(title).toBe("OpenMeld | People and Agents Working as One");
+    expect(title).toBe(
+      "OpenMeld | The open collaboration system for anyone and agents"
+    );
     expect(title).not.toBe("OpenMeld - OpenMeld");
     expect(readMetaName(head, "description")).toBe(description);
     expect(readCanonical(head)).toBe(siteConfig.url);

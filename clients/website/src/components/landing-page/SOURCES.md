@@ -1,15 +1,33 @@
 # Landing page sources
 
 Hero logo placement and pointer parallax were informed by https://t3.codes/.
+Layered product scenes, understated edge lighting, and detail disclosure were
+informed by https://linear.app/ and the owner's Linear recording. No Linear
+source, screenshot, or customer content is included in the site. Product scenes
+render OpenMeld's actual components as DOM with fictional Amplift data. Selected
+showcase roots are inert; screenshots are used only as validation evidence.
 The GitHub CTA wording was requested by the product owner. No T3 source was copied.
 The channel selector and expandable-thread composition were informed by
 https://www.gumloop.com/home. These are authored, fictional conversation previews,
 not captures of Slack, Lark, or Feishu accounts.
 
+The integration logo wall was informed by https://www.openhands.dev/ and the
+owner's recording. It uses shared SVG logos and available entries from the
+public Plugins catalog, with one tile per brand and every connection in the
+details Sheet. No OpenHands source or logo assets were copied. CSS transforms
+move two staggered rows; the control pauses them, hidden/offscreen views stop
+them, and reduced motion shows a complete static grid.
+
 The Web badge uses `metal-fx@2.0.11` from https://libraries.dev/metal.
 It loads after hydration with a static text fallback. Reduced motion omits the
 shader; unsupported WebGL retains the plain child. Hero parallax uses shared
 agent logos and Motion springs, with no idle animation loop.
+
+Product scene lighting uses `@paper-design/shaders-react@0.0.81`, Apache-2.0,
+https://shaders.paper.design/mesh-gradient. It loads lazily, caps its pixel budget,
+and mounts only in a visible scene while the page is visible. Reduced motion
+retains static CSS lighting. License and attribution are distributed under
+`public/licenses/paper-shaders/`.
 
 The computer card structure adapts Animata Bento Grid Three, found in the
 owner's Raindrop collection:
@@ -56,7 +74,13 @@ refresh command. Product shell assembly and selected headers are composed in
 the harness; the directory, editor, messages, files, Skills, and Routine controls
 use product components.
 
-Navigation and agent-directory hover use the shared Fluid Hover hook and
+Center Agent uses the product avatar editor, hosted model selector, and
+configuration cards with memory-only choices. Usage composes the actual App
+cost and Local Agent token cards, charts, scope tabs, accordions, and detail
+tables. Its fictional numeric records follow the shared usage schema; no
+customer billing or private activity is embedded.
+
+Navigation and feature disclosure hover use the shared Fluid Hover hook and
 highlight from `@openmeld/ui`. Links retain native focus and activation;
 clicking a gap does not navigate. FAQ behavior uses the shared Fluid Accordion.
 

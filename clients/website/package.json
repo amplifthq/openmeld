@@ -27,6 +27,7 @@
     "@openmeld/product-catalog": "workspace:*",
     "@openmeld/schemas": "workspace:*",
     "@openmeld/ui": "workspace:*",
+    "@paper-design/shaders-react": "0.0.81",
     "@phosphor-icons/react": "^2.1.10",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-router": "1.170.32",

@@ -2,10 +2,11 @@ import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-lette
 import { SidebarUserFooter } from "@openmeld/ui/fluid/sidebar-user-footer";
 import { OrganizationSwitcher } from "../../src/components/app/app-workspace-switcher";
 import { DitherProfileAvatar } from "../../src/components/profiles/dither-profile-avatar";
+import { demoHumanAvatars } from "./demo-avatars";
 
 export function DemoOrganizationSwitcher() {
 	return (
-		<div className="flex justify-center px-2 pt-2 pb-4">
+		<div className="flex justify-center px-2 pt-3 pb-4">
 			<OrganizationSwitcher
 				account={{ name: "Maya Chen" }}
 				avatar={
@@ -20,17 +21,19 @@ export function DemoOrganizationSwitcher() {
 
 export function DemoUserFooter() {
 	return (
-		<div className="mt-auto p-2">
+		<div className="mt-auto px-2 py-3">
 			<SidebarUserFooter
 				avatar={
 					<DitherProfileAvatar
+						avatarImageUrl={demoHumanAvatars["Maya Chen"]}
 						className="rounded-full"
 						profileId="maya"
 						profileKind="human"
 						profileName="Maya Chen"
-						size={36}
+						size={28}
 					/>
 				}
+				className="items-center"
 				iconOnly
 				menu={
 					<div className="px-3 py-2">

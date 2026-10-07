@@ -13,7 +13,7 @@ import type { DirectoryHumanProfileRow } from "../../src/components/directory/di
 import { TeamHeader } from "../../src/components/directory/team-header";
 import type { FileSystemItem } from "../../src/components/extend/file-system";
 import { SpaceDirectory as ProductSpaceDirectory } from "../../src/components/spaces/space-directory";
-import { demoSpaces } from "./demo-data";
+import { demoSkill, demoSpaces } from "./demo-data";
 import { DemoPeople } from "./demo-people";
 
 const DemoAgents = lazy(() =>
@@ -40,6 +40,11 @@ const SkillDetail = lazy(() =>
 		"../../src/components/organization-skills/organization-skill-detail-page"
 	).then((m) => ({ default: m.OrganizationSkillDetailPage }))
 );
+const SkillDocument = lazy(() =>
+	import(
+		"../../src/components/organization-skills/organization-skill-document"
+	).then((m) => ({ default: m.OrganizationSkillDocument }))
+);
 const Plugins = lazy(() =>
 	import("../../src/components/organizations/organization-plugins-page").then(
 		(m) => ({ default: m.OrganizationPluginsPage })
@@ -52,28 +57,55 @@ const documents: Record<string, string> = {
 		"# What we heard\n\nSix teams described the same handoff problem: useful agent work stays in one person’s terminal.\n\n## Requests\n- Let another teammate continue the conversation.\n- Keep the source files next to the result.\n- Make it clear which agent did the work.\n\n## Next step\nTest the shared launch workflow with three teams.",
 	"Weekly review.md":
 		"# Weekly project review\n\n## Ready\nThe setup guide and release notes are ready for review.\n\n## Needs a decision\nChoose the first three teams for the pilot.\n\n## Next week\nCollect feedback from the pilot and update the launch brief.",
+	"Product brief.md":
+		"# Shared work, from the start\n\nHelp a small product team work with its existing coding agents. Keep the brief, discussion, and finished work in one Space.\n\n## First release\nA shorter setup flow, clear agent ownership, and a shared launch checklist.",
+	"Customer research.md":
+		"# Customer research\n\nSix teams want to continue each other’s agent work without copying context between tools.\n\n## Next interviews\nAsk how teams review the result and choose the next step.",
+	"Brand guidelines.md":
+		"# Brand guidelines\n\nUse clear English. Show the product at work. Keep one main action in each view.\n\n## Release notes\nDescribe what changed for the customer and include one concrete example.",
+	"Launch checklist.md":
+		"# Launch checklist\n\n- Check the setup guide against the shipped commands.\n- Review the release notes.\n- Choose the three pilot teams.\n- Publish after Maya’s final review.",
+	"Pricing research.md":
+		"# Pricing research\n\nThe pilot teams already pay for their local agents. Keep those subscriptions and explain cloud usage separately.\n\n## Open question\nReview the first week of pilot usage before deciding on a plan.",
 };
-const files: FileSystemItem[] = [
-	{ kind: "folder", path: "Team Knowledge", emblem: "knowledge" },
-	{
-		kind: "file",
-		path: "Team Knowledge/Launch brief.md",
-		contentType: "text/markdown",
-		size: 2400,
-	},
-	{
-		kind: "file",
-		path: "Team Knowledge/Customer interviews.md",
-		contentType: "text/markdown",
-		size: 4600,
-	},
-	{
-		kind: "file",
-		path: "Weekly review.md",
-		contentType: "text/markdown",
-		size: 3200,
-	},
-];
+const files = (
+	[
+		{ kind: "folder", path: "Team Knowledge", emblem: "knowledge" },
+		{
+			kind: "file",
+			path: "Team Knowledge/Launch brief.md",
+			contentType: "text/markdown",
+			size: 2400,
+		},
+		{
+			kind: "file",
+			path: "Team Knowledge/Customer interviews.md",
+			contentType: "text/markdown",
+			size: 4600,
+		},
+		{
+			kind: "file",
+			path: "Weekly review.md",
+			contentType: "text/markdown",
+			size: 3200,
+		},
+		...[
+			["Product brief.md", 5400],
+			["Customer research.md", 8600],
+			["Brand guidelines.md", 4100],
+			["Launch checklist.md", 2700],
+			["Pricing research.md", 6200],
+		].map(([path, size]) => ({
+			kind: "file" as const,
+			path: String(path),
+			contentType: "text/markdown",
+			size: Number(size),
+		})),
+	] satisfies FileSystemItem[]
+).map((item, index) => ({
+	...item,
+	updatedAt: new Date(Date.UTC(2026, 9, 7 - (index % 4), 16)).toISOString(),
+}));
 export function DocumentDialog({
 	name,
 	onClose,
@@ -141,14 +173,20 @@ export function SpaceDirectory() {
 		</div>
 	);
 }
-export function DemoFiles({ team = false }: { team?: boolean }) {
+export function DemoFiles({
+	team = false,
+	showcase = false,
+}: {
+	team?: boolean;
+	showcase?: boolean;
+}) {
 	const [file, setFile] = useState<string | null>(null);
 	const [scope, setScope] = useState("team");
 	return (
 		<Suspense fallback={null}>
 			<FileSystem
-				className="h-full min-h-0 flex-1"
-				defaultView="icons"
+				className={showcase ? "h-[390px]" : "h-full min-h-0 flex-1"}
+				defaultView={showcase ? "list" : "icons"}
 				embedded
 				items={scope === "team" ? files : []}
 				onFileOpen={(item) =>
@@ -242,7 +280,29 @@ export function FocusedTeamScene({ scene }: { scene: string }) {
 	const path = useRouterState({ select: (state) => state.location.pathname });
 	const [tab, setTab] = useState("files");
 	const detail = path.split("/")[4];
-	if (scene === "Schedule") {
+	if (scene === "ShowcaseFiles") {
+		return (
+			<div className="flex min-h-0 flex-1 flex-col p-6">
+				<DemoFiles showcase team />
+			</div>
+		);
+	}
+	if (scene === "ShowcaseSkill") {
+		return (
+			<div className="grid gap-5 p-8">
+				<Suspense fallback={null}>
+					<SkillDocument
+						bundle={demoSkill.bundle}
+						contentGeneration={0}
+						onChange={() => undefined}
+						saving={false}
+						skill={demoSkill}
+					/>
+				</Suspense>
+			</div>
+		);
+	}
+	if (scene === "Schedule" || scene === "ShowcaseRoutines") {
 		return (
 			<div className="p-6">
 				<Suspense fallback={null}>

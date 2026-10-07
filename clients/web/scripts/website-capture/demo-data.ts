@@ -1,4 +1,3 @@
-import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import {
 	organizationProfileDirectoryResponseSchema,
 	organizationSkillSchema,
@@ -11,18 +10,26 @@ import {
 	fixtureSpace,
 	useConversationSidebarFixture,
 } from "../../src/test-support/conversation-sidebar-fixture";
+import { demoHumanAvatars } from "./demo-avatars";
+import { DEMO_PRIMARY_SPACE_NAME } from "./demo-conversation-content";
+import { useDemoConversationState } from "./demo-conversation-state";
+import {
+	buildDemoSpaceMembers,
+	DEMO_CLAUDE_PROFILE_ID,
+	DEMO_CODEX_PROFILE_ID,
+} from "./demo-members";
 
 export const demoAgentProfiles: AuthProfileView[] = [
 	"Codex",
 	"Claude Code",
 ].map((name, index) => ({
-	openMeldProfileId: `agt_${index ? "44444444-4444-4444-8444-444444444444" : "55555555-5555-4555-8555-555555555555"}`,
+	openMeldProfileId: index ? DEMO_CLAUDE_PROFILE_ID : DEMO_CODEX_PROFILE_ID,
 	profileName: name,
 	profileKind: "agent",
 	profileHandle: index ? "claude" : "codex",
-	ownerName: "Maya Chen",
-	ownerUserId: "preview",
-	createdByUserId: "preview",
+	ownerName: index ? "Maya Chen" : "James Lee",
+	ownerUserId: index ? "preview" : "james",
+	createdByUserId: index ? "preview" : "james",
 	creatorProfileId: null,
 	isDefault: false,
 	lastUsedAt: null,
@@ -34,42 +41,25 @@ export const demoAgentProfiles: AuthProfileView[] = [
 }));
 
 export const spaceNames = [
-	"Launch room",
+	DEMO_PRIMARY_SPACE_NAME,
 	"Customer research",
 	"Website refresh",
 ];
 const ids = ["release", "research", "website"];
+const members = buildDemoSpaceMembers("release");
 const memberPreviews = [
-	{
-		profileId: "maya",
-		profileName: "Maya Chen",
+	...members.humans.map((member) => ({
+		profileId: member.profileId,
+		profileName: member.profileName,
 		profileKind: "human" as const,
 		agentControllerRef: null,
-	},
-	{
-		profileId: "james",
-		profileName: "James Lee",
-		profileKind: "human" as const,
-		agentControllerRef: null,
-	},
-	{
-		profileId: "center",
-		profileName: "Center Agent",
+	})),
+	...members.agents.map((member) => ({
+		profileId: member.profileId,
+		profileName: member.profileName,
 		profileKind: "agent" as const,
-		agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-	},
-	{
-		profileId: "claude",
-		profileName: "Claude Code",
-		profileKind: "agent" as const,
-		agentControllerRef: "builtin:claude-code",
-	},
-	{
-		profileId: "codex",
-		profileName: "Codex",
-		profileKind: "agent" as const,
-		agentControllerRef: "builtin:codex",
-	},
+		agentControllerRef: member.agentControllerRef,
+	})),
 ];
 export const demoSpaces = spaceNames.map((name, index) => ({
 	...fixtureSpace(ids[index], name, index === 0),
@@ -80,10 +70,19 @@ export const demoSpaces = spaceNames.map((name, index) => ({
 }));
 export function useDemoConversations() {
 	const fixture = useConversationSidebarFixture();
+	const { activeWakeSummaryBySpaceId } = useDemoConversationState();
 	const [pinned, setPinned] = useState(new Set(["release"]));
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	return {
 		...fixture,
+		directMessages: {
+			...fixture.directMessages,
+			directory: { ...fixture.directMessages.directory, data: demoDirectory },
+			indicators: {
+				...fixture.directMessages.indicators,
+				activeWakeSummaryBySpaceId,
+			},
+		},
 		owner: (item: { spaceId: string }) =>
 			pinned.has(item.spaceId) ? "pinned" : "spaces",
 		move: async (section: string, id: string) =>
@@ -133,13 +132,12 @@ export function useDemoSidebarPreferences() {
 		retry: () => undefined,
 	};
 }
-const timestamp = Date.UTC(2026, 9, 9, 16);
-let routine = routineManagementSchema.parse({
+const timestamp = Date.UTC(2026, 9, 2, 16);
+const routine = routineManagementSchema.parse({
 	id: "weekly-review",
 	organizationId: "org",
 	name: "Weekly project review",
-	instructions:
-		"Read the launch brief and this week’s updates. Summarize what is ready, flag open decisions, and post the report to Launch room.",
+	instructions: `Review this week’s checkout changes. Summarize the fix, test results, and open decisions. Post the report to ${DEMO_PRIMARY_SPACE_NAME}.`,
 	canManage: true,
 	createdByUserId: "preview",
 	updatedByUserId: "preview",
@@ -172,61 +170,114 @@ let routine = routineManagementSchema.parse({
 	executorKind: "center_agent",
 	executorName: "Center Agent",
 });
+let routines = [
+	routine,
+	routineManagementSchema.parse({
+		...routine,
+		id: "customer-digest",
+		name: "Customer feedback digest",
+		instructions:
+			"Read the customer interview notes. Group recurring requests and post a short digest to Customer research.",
+		cronExpression: "0 8 * * *",
+		targetSpaceId: "research",
+		nextDueAt: Date.UTC(2026, 9, 8, 15),
+		lastRun: {
+			...routine.lastRun,
+			id: "digest-1",
+			scheduledFor: Date.UTC(2026, 9, 7, 15),
+			startedAtMs: Date.UTC(2026, 9, 7, 15),
+			finishedAtMs: Date.UTC(2026, 9, 7, 15, 2),
+		},
+	}),
+	routineManagementSchema.parse({
+		...routine,
+		id: "website-check",
+		name: "Website launch check",
+		instructions:
+			"Review the website launch checklist and flag anything that needs a decision. Post the summary to Website refresh.",
+		cronExpression: "0 10 * * 3",
+		targetSpaceId: "website",
+		nextDueAt: Date.UTC(2026, 9, 14, 17),
+		lastRun: {
+			...routine.lastRun,
+			id: "website-1",
+			scheduledFor: Date.UTC(2026, 9, 7, 17),
+			startedAtMs: Date.UTC(2026, 9, 7, 17),
+			finishedAtMs: Date.UTC(2026, 9, 7, 17, 2),
+		},
+	}),
+];
 export const listCurrentRoutines = async () => ({
 	organizationId: "org",
 	currentUserId: "preview",
-	routines: [routine],
+	routines,
 	executors: [
 		{ agentProfileId: null, kind: "center_agent", name: "Center Agent" },
 	],
 });
 export const listCurrentRoutineTargetSpaces = async () => ({
 	organizationId: "org",
-	spaces: [{ kind: "space", name: "Launch room", spaceId: "release" }],
+	spaces: spaceNames.map((name, index) => ({
+		kind: "space",
+		name,
+		spaceId: ids[index],
+	})),
 });
-export const listCurrentRoutineRuns = async () => ({
-	organizationId: "org",
-	routineId: routine.id,
-	runs: [
-		{
-			...routine.lastRun,
-			organizationId: "org",
-			routineId: routine.id,
-			destinationKind: "space",
-			targetSpaceId: "release",
-			nativeDeliveryId: "demo",
-			slackChannelId: null,
-			slackConversationId: null,
-			slackTeamId: null,
-			slackThreadLabel: null,
-			slackThreadTs: null,
-		},
-	],
-});
-export const pauseCurrentRoutine = () => {
-	routine = { ...routine, status: "paused" };
-	return Promise.resolve({ routine });
+export const listCurrentRoutineRuns = (input: { routineId: string }) => {
+	const selected = routines.find((item) => item.id === input.routineId);
+	if (!selected?.lastRun) {
+		return Promise.reject(new Error("This sample Routine has no run history."));
+	}
+	const lastRun = selected.lastRun;
+	const interval = selected.id === "customer-digest" ? 86_400_000 : 604_800_000;
+	return Promise.resolve({
+		organizationId: "org",
+		routineId: input.routineId,
+		runs: [0, 1, 2].map((index) => {
+			const scheduledFor = lastRun.scheduledFor - index * interval;
+			return {
+				...lastRun,
+				id: `${selected.id}-run-${index + 1}`,
+				scheduledFor,
+				startedAtMs: scheduledFor,
+				finishedAtMs: scheduledFor + 120_000,
+				organizationId: "org",
+				routineId: input.routineId,
+				destinationKind: "space",
+				targetSpaceId: selected.targetSpaceId,
+				nativeDeliveryId: "demo",
+				slackChannelId: null,
+				slackConversationId: null,
+				slackTeamId: null,
+				slackThreadLabel: null,
+				slackThreadTs: null,
+			};
+		}),
+	});
 };
-export const resumeCurrentRoutine = () => {
-	routine = { ...routine, status: "enabled" };
-	return Promise.resolve({ routine });
-};
+export const pauseCurrentRoutine = (input: { routineId: string }) =>
+	updateCurrentRoutine({ ...input, status: "paused" });
+export const resumeCurrentRoutine = (input: { routineId: string }) =>
+	updateCurrentRoutine({ ...input, status: "enabled" });
 export const updateCurrentRoutine = (input: Record<string, unknown>) => {
-	routine = routineManagementSchema.parse({
-		...routine,
+	const current = routines.find((item) => item.id === input.routineId);
+	if (!current) {
+		return Promise.reject(new Error("Routine not found in this demo."));
+	}
+	const updated = routineManagementSchema.parse({
+		...current,
 		...Object.fromEntries(
 			Object.entries(input).filter(
 				([key]) => !["routineId", "organizationId"].includes(key)
 			)
 		),
 	});
-	return Promise.resolve({ routine });
+	routines = routines.map((item) => (item.id === updated.id ? updated : item));
+	return Promise.resolve({ routine: updated });
 };
 export const createCurrentRoutine = () => {
 	return Promise.reject(
-		new Error(
-			"This demo includes one example routine. You can edit it or inspect its run history."
-		)
+		new Error("You can explore the example routines and their run history.")
 	);
 };
 export const deleteCurrentRoutine = () => {
@@ -237,7 +288,7 @@ export const deleteCurrentRoutine = () => {
 export const resolveRoutineErrorMessage = (error: Error) => error.message;
 
 const skillInstructions =
-	"# Release writing\n\nLead with what changed for the customer.\n\n## Before you write\nRead the launch brief and the changes that shipped. Keep draft work out of published notes.\n\n## Write the release\nUse a short title. Show one useful example. Link to the setup guide.\n\n## Review\nCheck every feature claim against the shipped behavior.";
+	"Lead with what changed for the customer.\n\n## Write\nRead the launch brief. Use a short title, one useful example, and a link to the setup guide.\n\n## Review\nCheck each claim against the shipped behavior. Leave draft work out of published notes.";
 const example =
 	"## Faster setup\nCreate a project and invite your team from one place.\n";
 const release = {
@@ -283,24 +334,68 @@ export const demoSkill = organizationSkillSchema.parse({
 		],
 	},
 });
+export const demoSkills = [
+	demoSkill,
+	organizationSkillSchema.parse({
+		...demoSkill,
+		id: "customer-research",
+		name: "customer-research",
+		description: "Turn interview notes into findings your team can act on.",
+		bundle: {
+			...demoSkill.bundle,
+			portable: {
+				...demoSkill.bundle.portable,
+				name: "customer-research",
+				description: "Turn interview notes into findings your team can act on.",
+			},
+			instructions:
+				"# Customer research\n\nRead every interview before grouping findings.\n\n## Find the pattern\nGroup repeated requests. Include direct evidence and count the interviews behind each theme.\n\n## Share the result\nSeparate observations from suggestions. List open questions for the next interview.",
+		},
+	}),
+	organizationSkillSchema.parse({
+		...demoSkill,
+		id: "launch-review",
+		name: "launch-review",
+		description:
+			"Check the launch brief, setup guide, and final release notes.",
+		bundle: {
+			...demoSkill.bundle,
+			portable: {
+				...demoSkill.bundle.portable,
+				name: "launch-review",
+				description:
+					"Check the launch brief, setup guide, and final release notes.",
+			},
+			instructions:
+				"# Launch review\n\nRead the launch checklist and verify each customer claim.\n\n## Check the work\nOpen the setup guide. Check its commands against the shipped behavior.\n\n## Report\nList what is ready, what is blocked, and who needs to decide.",
+		},
+	}),
+];
 export const demoDirectory = organizationProfileDirectoryResponseSchema.parse({
 	organizationId: "org",
 	generatedAt: "2026-10-07T10:00:00.000Z",
 	members: [
-		{
-			userId: "preview",
-			memberId: "maya-member",
-			organizationId: "org",
-			joinedAt: "2026-10-01T10:00:00.000Z",
-			role: "member",
-			user: {
-				id: "preview",
-				name: "Maya Chen",
-				image: null,
-				email: "maya@example.com",
-			},
-			humanProfile: null,
+		["Maya Chen", "11111111-1111-4111-8111-111111111111", "preview"],
+		["James Lee", "22222222-2222-4222-8222-222222222222", "james"],
+		["Alex Kim", "66666666-6666-4666-8666-666666666666", "alex"],
+	].map(([name, profileId, userId]) => ({
+		userId,
+		memberId: `${userId}-member`,
+		organizationId: "org",
+		joinedAt: "2026-10-01T10:00:00.000Z",
+		role: "member",
+		user: {
+			id: userId,
+			name,
+			image: demoHumanAvatars[name],
+			email: `${userId}@example.com`,
 		},
-	],
+		humanProfile: {
+			profileId,
+			profileName: name,
+			profileHandle: userId,
+			status: "active",
+		},
+	})),
 	agentProfiles: [],
 });

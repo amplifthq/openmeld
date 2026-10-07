@@ -8,6 +8,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { lazy, Suspense, useState, useSyncExternalStore } from "react";
 import { resolveInboxAttention } from "../../src/components/inbox/use-inbox-attention";
+import { DEMO_PRIMARY_SPACE_NAME } from "./demo-conversation-content";
 
 const InboxPage = lazy(() =>
 	import("../../src/components/inbox/inbox-page").then((m) => ({
@@ -18,9 +19,9 @@ const InboxPage = lazy(() =>
 let items: InboxItem[] = [
 	[
 		"release",
-		"Launch room",
+		DEMO_PRIMARY_SPACE_NAME,
 		"Maya mentioned you",
-		"The launch brief is ready. Can you review the rollout plan?",
+		"The checkout fix is ready. Can you review the billing rules?",
 		"mention",
 	],
 	[

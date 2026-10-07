@@ -2,10 +2,16 @@ import {
 	connectorConnectionListResponseSchema,
 	organizationAgentRuntimeOverviewResponseSchema,
 } from "@openmeld/schemas";
-import { demoDirectory, demoSkill } from "./demo-data";
+import { demoDirectory, demoSkill, demoSkills } from "./demo-data";
+import { demoUsageDirectory } from "./demo-usage-data";
+
+export const demoProfileDirectory =
+	new URLSearchParams(location.search).get("scene") === "Usage"
+		? demoUsageDirectory
+		: demoDirectory;
 
 export function readCurrentOrganizationProfileDirectory() {
-	return Promise.resolve(demoDirectory);
+	return Promise.resolve(demoProfileDirectory);
 }
 export const readCurrentOrganizationDirectory =
 	readCurrentOrganizationProfileDirectory;
@@ -23,11 +29,13 @@ export function listCurrentOrganizationSkills() {
 	return Promise.resolve({
 		organizationId: "org",
 		canManage: false,
-		skills: [demoSkill],
+		skills: demoSkills,
 	});
 }
-export function getCurrentOrganizationSkill() {
-	return Promise.resolve({ skill: demoSkill });
+export function getCurrentOrganizationSkill(input: { skillId: string }) {
+	return Promise.resolve({
+		skill: demoSkills.find((skill) => skill.id === input.skillId) ?? demoSkill,
+	});
 }
 export function listCurrentOrganizationConnectorConnections() {
 	return Promise.resolve(

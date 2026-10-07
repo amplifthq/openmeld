@@ -98,10 +98,11 @@ function UsagePage(input: {
 	);
 }
 
-function RemoteUsageCard(input: {
+export function RemoteUsageCard(input: {
 	organizationId: string;
 	userId: string;
 	personal: boolean;
+	showRefresh?: boolean;
 }) {
 	const [days, setDays] = useState(7);
 	const { owned, catalog, query, pending, failed, refreshing, refresh } =
@@ -223,22 +224,24 @@ function RemoteUsageCard(input: {
 											</SelectItem>
 										</SelectContent>
 									</Select>
-									<Button
-										aria-busy={refreshing}
-										disabled={refreshing}
-										onClick={() => {
-											refresh().catch(console.error);
-										}}
-										variant="outline"
-									>
-										<ArrowClockwiseIcon
-											aria-hidden="true"
-											className={
-												refreshing ? "motion-safe:animate-spin" : undefined
-											}
-										/>
-										Refresh
-									</Button>
+									{input.showRefresh !== false && (
+										<Button
+											aria-busy={refreshing}
+											disabled={refreshing}
+											onClick={() => {
+												refresh().catch(console.error);
+											}}
+											variant="outline"
+										>
+											<ArrowClockwiseIcon
+												aria-hidden="true"
+												className={
+													refreshing ? "motion-safe:animate-spin" : undefined
+												}
+											/>
+											Refresh
+										</Button>
+									)}
 								</div>
 								<p className="text-muted-foreground text-xs">
 									{input.personal
