@@ -2162,6 +2162,12 @@ Catalog consumption rules:
   current metadata before returning. Concurrent reads of the same credential
   are coalesced. A new Service process reloads from secure storage, and remote
   authorization remains authoritative.
+- An Auth-confirmed renewal that retains the verified access token and storage
+  reference updates expiry without reopening secure storage. This applies to
+  committed sessions and visible setup candidates, including admitted Service
+  sessions. A rotated credential still requires successful storage read-back
+  before new metadata or candidate state is published. Mutation ownership,
+  full-payload fences, revocation checks, and rotation cleanup remain unchanged.
 - Reading a committed local session does not acquire the account-transition
   mutation lock when no durable transition journal exists. Recovery acquires
   that lock only after observing a journal and rereads it under ownership before
