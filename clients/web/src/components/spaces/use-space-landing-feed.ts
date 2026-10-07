@@ -82,7 +82,10 @@ type MutableRef<T> = {
 	current: T;
 };
 
-type ReconcileSignals = (incoming: readonly SignalEnvelope[]) => boolean;
+type ReconcileSignals = (
+	incoming: readonly SignalEnvelope[],
+	confirmedCursor: string | null
+) => boolean;
 
 type ReconcileFlight = {
 	feedIdentity: string;
@@ -115,10 +118,9 @@ async function reconcileFromRecentWindow(
 			spaceId: input.spaceId,
 			openMeldProfileId: input.openMeldProfileId,
 		});
-		if (input.applyReconciledSignals(snapshot.envelopes)) {
-			input.confirmedCatchUpCursorRef.current = getLatestSignalEnvelopeId(
-				snapshot.envelopes
-			);
+		const confirmedCursor = snapshot.envelopes.at(-1)?.id ?? null;
+		if (input.applyReconciledSignals(snapshot.envelopes, confirmedCursor)) {
+			input.confirmedCatchUpCursorRef.current = confirmedCursor;
 			input.markReconcileHealthy();
 		}
 	} catch (error) {
@@ -159,10 +161,10 @@ async function drainSpaceUpdatesFromAnchor(
 			input.markReconcileHealthy();
 			return;
 		}
-		if (!input.applyReconciledSignals(updates.signals)) {
+		const nextCursor = updates.signals.at(-1)?.id ?? null;
+		if (!input.applyReconciledSignals(updates.signals, nextCursor ?? cursor)) {
 			return;
 		}
-		const nextCursor = updates.signals.at(-1)?.id ?? null;
 		if (!nextCursor || nextCursor === cursor) {
 			console.warn("[openmeld.web.space.live_tail_catchup_stalled]", {
 				afterSignalId: cursor,
@@ -214,6 +216,7 @@ export function useSpaceLandingFeed(input: {
 		isError: boolean;
 		data?: {
 			envelopes: readonly SignalEnvelope[];
+			confirmedCursor?: string | null;
 		};
 	};
 }) {
@@ -234,7 +237,7 @@ export function useSpaceLandingFeed(input: {
 		feedIdentity,
 		signalId:
 			!input.history.isPending && input.history.isSuccess
-				? getLatestSignalEnvelopeId(input.history.data?.envelopes ?? [])
+				? (input.history.data?.confirmedCursor ?? null)
 				: null,
 	});
 	const {
@@ -320,7 +323,7 @@ export function useSpaceLandingFeed(input: {
 			feedIdentity,
 			signalId:
 				!input.history.isPending && input.history.isSuccess
-					? getLatestSignalEnvelopeId(input.history.data?.envelopes ?? [])
+					? (input.history.data?.confirmedCursor ?? null)
 					: null,
 		};
 		mountReconcileStartedIdentityRef.current = null;
@@ -416,7 +419,8 @@ export function useSpaceLandingFeed(input: {
 				setLiveErrorMessage(LIVE_RECONCILE_STALE_STATUS);
 			};
 			const applyReconciledSignals = (
-				incoming: readonly SignalEnvelope[]
+				incoming: readonly SignalEnvelope[],
+				confirmedCursor: string | null
 			): boolean => {
 				if (!isCurrentReconcile()) {
 					// The feed switched Spaces/profiles while this reconcile was in
@@ -432,6 +436,7 @@ export function useSpaceLandingFeed(input: {
 				});
 				writeSpaceHistoryEnvelopesToCache({
 					envelopes: incoming,
+					confirmedCursor,
 					queryClient,
 					spaceId: input.spaceId,
 					openMeldProfileId: input.openMeldProfileId,
@@ -696,7 +701,8 @@ export function useSpaceLandingFeed(input: {
 		}
 
 		const incoming = input.history.data?.envelopes ?? [];
-		confirmedCatchUpCursorRef.current ??= getLatestSignalEnvelopeId(incoming);
+		confirmedCatchUpCursorRef.current ??=
+			input.history.data?.confirmedCursor ?? null;
 		const newSignals =
 			timelineEnvelopesRef.current.length > 0
 				? listNewSignals({
@@ -1613,12 +1619,6 @@ function shouldProcessLiveInvalidationFrame(input: {
 	}
 	input.versionsByTypeRef.current.set(input.frame.type, input.frame.version);
 	return true;
-}
-
-function getLatestSignalEnvelopeId(
-	envelopes: readonly SignalEnvelope[]
-): string | null {
-	return envelopes.at(-1)?.id ?? null;
 }
 
 function shouldRecordLiveSignalAsCatchUpAnchor(

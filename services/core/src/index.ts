@@ -1,4 +1,4 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
+import { tracing, WorkerEntrypoint } from "cloudflare:workers";
 import {
   getPostgresDatabase,
   withPostgresRequest,
@@ -1615,7 +1615,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
   listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcListInboxFeed(this.env, input)
+      rpcListInboxFeed(this.env, input, (stage, work) =>
+        tracing.enterSpan(stage, work)
+      )
     );
   }
   searchMessages(

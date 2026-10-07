@@ -244,6 +244,7 @@ import type {
   SpaceDispatchOutboxRedriveReason,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceSnapshot,
+  SpaceEntryAccessResponse,
   SpaceFileActor,
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
@@ -7617,6 +7618,32 @@ export class Space extends DurableObject<CoreBindings> {
           pickSpaceDispatchAccessOptions(input)
         );
         return readSpaceRpcJsonOrThrow(response);
+      }
+    );
+  }
+  async rpcGetEntryAccess(
+    input: GetSpaceMetaInput
+  ): Promise<SpaceEntryAccessResponse> {
+    return await withPostgresRequest(
+      this.bindings.OPENMELD_POSTGRESQL,
+      async () => {
+        const meta = await this.rpcGetMeta(input);
+        const context = input.spaceAccess
+          ? getSpaceAccessRequestContext(input.spaceAccess)
+          : input.context;
+        const ownerUserId = normalizeOptionalText(
+          context?.actorContext.ownerUserId
+        );
+        return {
+          meta,
+          activeMember: Boolean(
+            ownerUserId &&
+              hasActiveSpaceMemberRecordForOwnerUserId(
+                this.ctx.storage.sql,
+                ownerUserId
+              )
+          ),
+        };
       }
     );
   }
