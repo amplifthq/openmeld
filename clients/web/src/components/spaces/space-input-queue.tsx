@@ -50,6 +50,7 @@ import {
 import { type Ref, useLayoutEffect, useRef, useState } from "react";
 import { SpaceComposerTray } from "./space-composer-tray";
 import { useSpaceInputQueue } from "./use-space-input-queue";
+import { useSpaceWorkRecovery } from "./use-space-work-recovery";
 
 type Item = SpaceInputQueueResponse["items"][number];
 const MotionTray = motion.create(SpaceComposerTray);
@@ -61,6 +62,7 @@ export function SpaceInputQueue(input: {
 	onEdit: (text: string) => void;
 }) {
 	const queue = useSpaceInputQueue({ ...input, enabled: true });
+	const recovery = useSpaceWorkRecovery(input.spaceId);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [editRecovery, setEditRecovery] = useState<Item | null>(null);
@@ -128,7 +130,7 @@ export function SpaceInputQueue(input: {
 				{announcement}
 			</span>
 			<AnimatePresence initial={false}>
-				{queue.items.length || queue.error || error ? (
+				{queue.items.length || queue.error || error || recovery.visible ? (
 					<MotionTray
 						animate={{ opacity: 1 }}
 						aria-label="Queued messages"
@@ -140,6 +142,7 @@ export function SpaceInputQueue(input: {
 						layout={reduceMotion || keyboardReorder ? false : "position"}
 						transition={rowTransition}
 					>
+						{recovery.content}
 						<p className="sr-only">
 							Queued messages are sent in this order after the current response.
 						</p>
