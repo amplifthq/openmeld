@@ -244,7 +244,7 @@ export function AppSidebarFooter({
 								<div className="flex h-8 items-center gap-2 px-2 text-xs">
 									<PaletteIcon aria-hidden="true" className="size-4 shrink-0" />
 									<span className="flex-1">Theme</span>
-									<ThemeSelector inMenu />
+									<ThemeSelector />
 								</div>
 								<DropdownMenuSeparator />
 								<FluidDropdownMenuGroup>

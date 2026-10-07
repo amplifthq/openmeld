@@ -250,7 +250,8 @@ shape-aware trigger. Account, theme, and Settings remain reachable
 from the account menu. Its 32px avatar trigger retains its left and bottom inset.
 Separate Fluid hover groups own account identity, Search, actions, and sign-out.
 A compact Light/Dark/System selector follows Download Desktop App without a divider and keeps the menu
-open when changed. Settings > Appearance reuses the same selector and icon set;
+open when changed. Settings > Appearance uses three full-size theme cards with
+labels and descriptions. Both controls share the theme choices and icon set;
 the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
 Discover, in that order (Discover is absent in personal workspaces).
@@ -1535,7 +1536,11 @@ section; opening preserves the background path and search, section switches
 replace that parameter, and closing removes only that parameter. The existing
 standalone `/o/{orgSlug}/settings/*` routes remain available for direct links,
 but normal utility, account-menu, command-menu, and review-history entries use
-the dialog. Notification-settings Inbox sources open it over Inbox.
+the dialog. Notification-settings Inbox sources open it over Inbox. An expand
+control immediately before Close opens the active section's standalone route
+from the same capability-filtered registry. It removes `appSettings`, keeps the
+AI usage scope when expanding that section, and replaces the current history
+entry.
 
 Both presentations use `SettingsPage`, the same section registry, grouped
 navigation, capability checks, and section components. The dialog reuses the

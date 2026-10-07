@@ -18,6 +18,7 @@ export function SettingsDialogContent({
   contentKey,
   scrollTestId,
   contentScrollable = true,
+  headerActions,
 }: {
   title: string;
   description: string;
@@ -27,6 +28,8 @@ export function SettingsDialogContent({
   contentKey?: string;
   scrollTestId?: string;
   contentScrollable?: boolean;
+  /** Optional client-owned actions immediately before the shared Close control. */
+  headerActions?: ReactNode;
 }) {
   return (
     <DialogContent
@@ -42,7 +45,9 @@ export function SettingsDialogContent({
           spacious && "sm:w-56"
         )}
       >
-        <DialogHeader className="mb-4 pr-6">
+        <DialogHeader
+          className={cn("mb-4 pr-6", headerActions && "max-sm:pr-24")}
+        >
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
             {description}
@@ -71,6 +76,11 @@ export function SettingsDialogContent({
           {children}
         </div>
       )}
+      {headerActions ? (
+        <div className="absolute top-2 right-14 z-10 flex items-center gap-1 lg:right-10">
+          {headerActions}
+        </div>
+      ) : null}
     </DialogContent>
   );
 }
