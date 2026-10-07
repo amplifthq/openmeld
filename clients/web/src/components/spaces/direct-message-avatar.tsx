@@ -8,7 +8,7 @@ type Presentation = ReturnType<typeof resolveDirectMessagePresentation>;
 export function DirectMessageAvatar(input: {
 	peer?: Presentation["peer"];
 	participants?: Presentation["participants"];
-	size?: "sm" | "sidebar";
+	size?: "sm" | "sidebar" | "md";
 }) {
 	if (input.peer) {
 		return (
@@ -28,6 +28,7 @@ export function DirectMessageAvatar(input: {
 					)
 				}
 				compactSize={24}
+				layout={input.size === "md" ? "grid" : "compact"}
 				members={input.participants}
 			/>
 		);

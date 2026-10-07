@@ -218,7 +218,7 @@ competing highlights. Spaces and its contextual sidebar heading always open
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
 Discover, in that order (Discover is absent in personal workspaces).
 
-Your Spaces defaults to Cards and offers Table in the directory toolbar.
+Your Spaces and Direct messages default to Cards and offer Table in the directory toolbar.
 Both presentations consume the same saved sections, ordering, filters,
 membership previews, unread destinations, and current work indicators. Cards
 use six member slots, reducing to four or two on narrow cards. Overflow occupies
@@ -230,7 +230,9 @@ projection reads six members and two message previews from the authorized accoun
 index, with no per-card Space history fan-out. Member previews and action menus
 keep independent targets.
 The existing browser preference store remembers this choice per Human Profile
-and Organization. Direct messages and Discover retain their existing layouts.
+and Organization, shared across Your Spaces and Direct messages. Direct message
+cards keep peer and Center Agent session identity, unread destinations, groups,
+pinning, and archive actions. Discover retains its existing layout.
 The Agents directory uses the same store to remember grouped versus expanded
 presentation per viewer, Organization, and person. Search and temporary filters
 do not become saved layout preferences.

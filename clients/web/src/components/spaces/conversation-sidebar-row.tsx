@@ -553,7 +553,7 @@ export function resolvePreviewText(
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
-	size?: "sm" | "sidebar";
+	size?: "sm" | "sidebar" | "md";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
@@ -562,7 +562,7 @@ export function ChatIcon(input: {
 				avatarStyle={input.chat.centerAgentAvatarStyle}
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
-				size={input.size === "sidebar" ? 28 : 24}
+				size={({ md: 48, sidebar: 28, sm: 24 } as const)[input.size ?? "sm"]}
 				working={
 					input.summary?.statuses?.some(
 						(status) => status.kind === "working"

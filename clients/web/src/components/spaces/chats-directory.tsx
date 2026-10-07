@@ -1,3 +1,4 @@
+import { normalizeMessagePreview } from "@openmeld/protocol";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
@@ -12,6 +13,8 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
@@ -27,6 +30,10 @@ import { DirectorySearch } from "#/components/app/directory-search";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { SidebarSectionActions } from "#/components/app/sidebar-section-actions";
 import {
+	DirectoryCardGrid,
+	DirectoryCardItem,
+} from "#/components/directory/directory-card-grid";
+import {
 	resolveInboxAttentionLabel,
 	resolveInboxAttentionTone,
 	resolveInboxIndicatorClassName,
@@ -34,10 +41,13 @@ import {
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { ChatArchiveButton } from "./chat-archive-button";
+import type { Chat } from "./chat-sidebar-model";
 import { ChatIcon, resolvePreviewText } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
 import { SidebarConversationTime } from "./sidebar-conversation-time";
 import { SpaceWindowHeader } from "./space-header";
+import { SpaceLayoutSwitch, useSpaceLayout } from "./space-layout-switch";
+import { SpaceUnreadLink } from "./space-unread-link";
 import { SpacesDirectoryNavigation } from "./spaces-directory-navigation";
 import { useChatFilters } from "./use-chat-filters";
 import { useChats } from "./use-chats";
@@ -80,6 +90,7 @@ export function ChatsDirectory() {
 		includes: filter.includes,
 	});
 	const now = useNowMs(60_000);
+	const { layout, setLayout } = useSpaceLayout(model.profileId, model.org.id);
 	const previewById = new Map(
 		model.chats.map((chat, index) => [chat.spaceId, model.previews[index]])
 	);
@@ -163,8 +174,9 @@ export function ChatsDirectory() {
 				id="spaces-directory-panel-1"
 				role="tabpanel"
 			>
-				<div className="flex h-16 shrink-0 items-center justify-end gap-3">
-					<div className="flex h-11 min-w-0 items-center justify-end gap-1">
+				<div className="flex min-h-16 shrink-0 items-center justify-end gap-3 py-3">
+					<div className="flex min-h-10 min-w-0 flex-wrap items-center justify-end gap-1">
+						<SpaceLayoutSwitch layout={layout} setLayout={setLayout} />
 						<DirectorySearch
 							label="Search direct messages"
 							onChange={setSearch}
@@ -272,131 +284,261 @@ export function ChatsDirectory() {
 								: undefined
 						}
 					>
-						<Table>
-							<TableHeader>
-								<TableRow>
-									<TableHead>Chat</TableHead>
-									<TableHead className="w-40">Status</TableHead>
-									<TableHead className="w-28">Activity</TableHead>
-									<TableHead className="w-20">
-										<span className="sr-only">Actions</span>
-									</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
+						{layout === "cards" ? (
+							<DirectoryCardGrid
+								aria-label={section.name}
+								className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
+							>
+								{section.chats.map((chat) => (
+									<ChatDirectoryCard
+										chat={chat}
+										key={chat.spaceId}
+										model={model}
+										sectionId={section.id}
+									/>
+								))}
 								{section.chats.length === 0 && (
-									<TableRow>
-										<TableCell
-											className="py-4 text-muted-foreground text-xs"
-											colSpan={4}
-										>
-											{pending || model.sessions.hasNextPage
-												? "Checking older direct messages…"
-												: "No chats in this group yet."}
-										</TableCell>
-									</TableRow>
+									<p className="text-muted-foreground text-xs">
+										{pending || model.sessions.hasNextPage
+											? "Checking older direct messages…"
+											: "No chats in this group yet."}
+									</p>
 								)}
-								{section.chats.map((chat) => {
-									const unread =
-										model.indicators.unreadBySpaceId.get(chat.spaceId)
-											?.unreadCount ?? 0;
-									const tone = resolveInboxAttentionTone(
-										model.attentionById.get(chat.spaceId) ?? {}
-									);
-									const preview = previewById.get(chat.spaceId);
-									const time = model.activity.get(chat.spaceId);
-									return (
-										<TableRow
-											className="group/directory-row border-0"
-											contextMenu
-											key={chat.spaceId}
-										>
-											<TableCell className="max-w-0 py-4">
-												<Link
-													className="flex items-center gap-3"
-													to={model.chatPath(chat)}
-												>
-													<ChatIcon
-														chat={chat}
-														summary={model.indicators.activeWakeSummaryBySpaceId.get(
-															chat.spaceId
-														)}
-														title={model.title(chat)}
-													/>
-													<span className="min-w-0">
-														<span
-															className={`block truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
-														>
-															{model.title(chat)}
-														</span>
-														<span className="mt-1 block truncate text-muted-foreground text-xs">
-															{resolvePreviewText(preview)}
-														</span>
-													</span>
-												</Link>
-											</TableCell>
-											<TableCell>
-												{(unread > 0 || tone) && (
-													<span className="inline-flex items-center gap-2 text-muted-foreground text-xs">
-														<span
-															className={`status-dot ${resolveInboxIndicatorClassName(tone)}`}
-														/>
-														{resolveInboxAttentionLabel(tone) ??
-															`${unread} unread`}
-													</span>
-												)}
-											</TableCell>
-											<TableCell>
-												{time ? (
-													<SidebarConversationTime
-														className="text-xs"
-														now={new Date(now)}
-														timestamp={time}
-													/>
-												) : null}
-											</TableCell>
-											<TableCell>
-												<div className="flex items-center">
-													<span className="opacity-0 group-focus-within/directory-row:opacity-100 group-hover/directory-row:opacity-100 [@media(hover:none)]:opacity-100">
-														<ChatArchiveButton spaceId={chat.spaceId} />
-													</span>
-													<DirectoryRowActions
-														disabled={
-															model.store.disabled ||
-															model.pin.arePinActionsPending
-														}
-														groupId={
-															model.preferences.groups.find((group) =>
-																group.spaceIds.includes(chat.spaceId)
-															)?.id ?? "chats"
-														}
-														groups={[
-															{ id: "chats", name: "Direct messages" },
-															...model.preferences.groups,
-														]}
-														href={model.chatPath(chat)}
-														name={model.title(chat)}
-														onMove={(groupId) =>
-															model.move(groupId, chat.spaceId)
-														}
-														onTogglePinned={() =>
-															section.id === "pinned"
-																? model.unpin(chat.spaceId)
-																: model.move("pinned", chat.spaceId)
-														}
-														pinned={section.id === "pinned"}
-													/>
-												</div>
+							</DirectoryCardGrid>
+						) : (
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Chat</TableHead>
+										<TableHead className="w-40">Status</TableHead>
+										<TableHead className="w-28">Activity</TableHead>
+										<TableHead className="w-20">
+											<span className="sr-only">Actions</span>
+										</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{section.chats.length === 0 && (
+										<TableRow>
+											<TableCell
+												className="py-4 text-muted-foreground text-xs"
+												colSpan={4}
+											>
+												{pending || model.sessions.hasNextPage
+													? "Checking older direct messages…"
+													: "No chats in this group yet."}
 											</TableCell>
 										</TableRow>
-									);
-								})}
-							</TableBody>
-						</Table>
+									)}
+									{section.chats.map((chat) => {
+										const unread =
+											model.indicators.unreadBySpaceId.get(chat.spaceId)
+												?.unreadCount ?? 0;
+										const tone = resolveInboxAttentionTone(
+											model.attentionById.get(chat.spaceId) ?? {}
+										);
+										const preview = previewById.get(chat.spaceId);
+										const time = model.activity.get(chat.spaceId);
+										return (
+											<TableRow
+												className="group/directory-row border-0"
+												contextMenu
+												key={chat.spaceId}
+											>
+												<TableCell className="max-w-0 py-4">
+													<Link
+														className="flex items-center gap-3"
+														to={model.chatPath(chat)}
+													>
+														<ChatIcon
+															chat={chat}
+															summary={model.indicators.activeWakeSummaryBySpaceId.get(
+																chat.spaceId
+															)}
+															title={model.title(chat)}
+														/>
+														<span className="min-w-0">
+															<span
+																className={`block truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
+															>
+																{model.title(chat)}
+															</span>
+															<span className="mt-1 block truncate text-muted-foreground text-xs">
+																{resolvePreviewText(preview)}
+															</span>
+														</span>
+													</Link>
+												</TableCell>
+												<TableCell>
+													{(unread > 0 || tone) && (
+														<span className="inline-flex items-center gap-2 text-muted-foreground text-xs">
+															<span
+																className={`status-dot ${resolveInboxIndicatorClassName(tone)}`}
+															/>
+															{resolveInboxAttentionLabel(tone) ??
+																`${unread} unread`}
+														</span>
+													)}
+												</TableCell>
+												<TableCell>
+													{time ? (
+														<SidebarConversationTime
+															className="text-xs"
+															now={new Date(now)}
+															timestamp={time}
+														/>
+													) : null}
+												</TableCell>
+												<TableCell>
+													<ChatDirectoryActions
+														chat={chat}
+														model={model}
+														sectionId={section.id}
+													/>
+												</TableCell>
+											</TableRow>
+										);
+									})}
+								</TableBody>
+							</Table>
+						)}
 					</AppSidebarGroup>
 				))}
 			</div>
 			<NewChatDialog onOpenChange={setCreating} open={creating} />
 		</AppMainContent>
+	);
+}
+
+function ChatDirectoryCard({
+	model,
+	chat,
+	sectionId,
+}: {
+	model: ReturnType<typeof useChats>;
+	chat: Chat;
+	sectionId: string;
+}) {
+	const title = model.title(chat);
+	const href = model.chatPath(chat);
+	const unread =
+		model.indicators.unreadBySpaceId.get(chat.spaceId)?.unreadCount ?? 0;
+	const tone = resolveInboxAttentionTone(
+		model.attentionById.get(chat.spaceId) ?? {}
+	);
+	const latest =
+		model.previews[
+			model.chats.findIndex((item) => item.spaceId === chat.spaceId)
+		]?.data;
+	const previews =
+		chat.recentMessagePreviews ??
+		(latest ? [{ ...latest, text: normalizeMessagePreview(latest.text) }] : []);
+	return (
+		<DirectoryCardItem className="border border-border" itemId={chat.spaceId}>
+			<FluidContextMenuScope
+				target={
+					<div className="@container/space-card group/directory-row relative flex h-full min-w-0 flex-col gap-3 rounded-md p-4">
+						<div className="absolute top-2 right-2 z-20">
+							<ChatDirectoryActions
+								chat={chat}
+								model={model}
+								sectionId={sectionId}
+							/>
+						</div>
+						<div className="h-24">
+							<ChatIcon
+								chat={chat}
+								size="md"
+								summary={model.indicators.activeWakeSummaryBySpaceId.get(
+									chat.spaceId
+								)}
+								title={title}
+							/>
+						</div>
+						<div className="flex min-w-0 items-center gap-2">
+							<Link
+								aria-label={`Open ${title}`}
+								className={`min-w-0 flex-1 truncate text-sm outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring ${unread ? "font-semibold" : "font-medium"}`}
+								to={href}
+							>
+								{title}
+							</Link>
+							{unread > 0 && (
+								<span className="relative z-10 shrink-0">
+									<SpaceUnreadLink
+										count={unread}
+										showCount
+										spaceId={chat.spaceId}
+										url={href}
+									/>
+								</span>
+							)}
+						</div>
+						{tone && (
+							<span className="relative z-10 inline-flex items-center gap-2 text-muted-foreground text-xs">
+								<span
+									className={`status-dot ${resolveInboxIndicatorClassName(tone)}`}
+								/>
+								{resolveInboxAttentionLabel(tone)}
+							</span>
+						)}
+						{previews.length > 0 && (
+							<div className="relative z-10 flex min-w-0 flex-col gap-1">
+								{previews.slice(0, 2).map((preview) => (
+									<TooltipHint content={preview.text} key={preview.signalId}>
+										<Link
+											aria-label={`Preview message in ${title}: ${preview.text}`}
+											className="block truncate rounded-sm text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+											to={model.chatPath(chat, preview.signalId)}
+										>
+											{preview.text}
+										</Link>
+									</TooltipHint>
+								))}
+							</div>
+						)}
+					</div>
+				}
+			/>
+		</DirectoryCardItem>
+	);
+}
+
+function ChatDirectoryActions({
+	model,
+	chat,
+	sectionId,
+}: {
+	model: ReturnType<typeof useChats>;
+	chat: Chat;
+	sectionId: string;
+}) {
+	return (
+		<div className="flex items-center">
+			<span className="opacity-0 group-focus-within/directory-row:opacity-100 group-hover/directory-row:opacity-100 [@media(hover:none)]:opacity-100">
+				<ChatArchiveButton spaceId={chat.spaceId} />
+			</span>
+			<DirectoryRowActions
+				disabled={model.store.disabled || model.pin.arePinActionsPending}
+				groupId={
+					model.preferences.groups.find((group) =>
+						group.spaceIds.includes(chat.spaceId)
+					)?.id ?? "chats"
+				}
+				groups={[
+					{ id: "chats", name: "Direct messages" },
+					...model.preferences.groups,
+				]}
+				href={model.chatPath(chat)}
+				name={model.title(chat)}
+				onMove={(groupId) => model.move(groupId, chat.spaceId)}
+				onTogglePinned={() =>
+					sectionId === "pinned"
+						? model.unpin(chat.spaceId)
+						: model.move("pinned", chat.spaceId)
+				}
+				pinned={sectionId === "pinned"}
+			/>
+		</div>
 	);
 }

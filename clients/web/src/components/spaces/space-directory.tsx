@@ -26,13 +26,10 @@ import {
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
-import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
-	SquaresFourIcon,
-	TableIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -48,7 +45,6 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { buildProfilePath } from "#/lib/profile-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
-import { useBrowserPreference } from "#/lib/use-browser-preference";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { DirectoryRowActions } from "../app/directory-row-actions";
@@ -72,6 +68,7 @@ import { SpaceAgentOrb } from "./space-agent-orb";
 import { spaceDirectoryGroups } from "./space-directory-groups";
 import { SpaceDirectoryPreview } from "./space-directory-preview";
 import { SpaceDirectorySummary } from "./space-directory-summary";
+import { SpaceLayoutSwitch, useSpaceLayout } from "./space-layout-switch";
 import {
 	resolveSpaceMemberAppearances,
 	type SpaceMemberAppearance,
@@ -99,10 +96,10 @@ export function SpaceDirectory(input: {
 	savedViewWarning: { isRetrying: boolean; onRetry: () => void } | null;
 }) {
 	const { currentOrganization } = useAppOrganization();
-	const [savedLayout, setLayout] = useBrowserPreference(
-		`openmeld.spaces.layout:${input.profileId}:${currentOrganization.id}`
+	const { layout, setLayout } = useSpaceLayout(
+		input.profileId,
+		currentOrganization.id
 	);
-	const layout = savedLayout === "table" ? "table" : "cards";
 	const sidebar = useSidebarPreferences(currentOrganization.id);
 	const preferences = sidebar.preferences;
 	const [searches, setSearches] = useState(["", ""]);
@@ -252,25 +249,7 @@ export function SpaceDirectory(input: {
 			<div className="flex min-h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)] py-3">
 				<div className="flex min-h-10 min-w-0 flex-wrap items-center justify-end gap-1">
 					{!discovering && (
-						<FluidNavMenu
-							activeValue={layout}
-							aria-label="Space view"
-							className="mr-2 [&_[data-sidebar=menu]]:flex-row"
-						>
-							{(["cards", "table"] as const).map((value, index) => (
-								<FluidNavMenuItem index={index} key={value} value={value}>
-									<Button
-										aria-pressed={layout === value}
-										onClick={() => setLayout(value)}
-										size="sm"
-										variant="ghost"
-									>
-										{value === "cards" ? <SquaresFourIcon /> : <TableIcon />}
-										{value === "cards" ? "Cards" : "Table"}
-									</Button>
-								</FluidNavMenuItem>
-							))}
-						</FluidNavMenu>
+						<SpaceLayoutSwitch layout={layout} setLayout={setLayout} />
 					)}
 					<DirectorySearch
 						label="Search Spaces"

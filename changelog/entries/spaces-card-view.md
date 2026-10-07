@@ -6,7 +6,7 @@ areas: ["spaces", "agents"]
 audiences: ["users"]
 ---
 
-Spaces opens in a card view with member previews inside your existing groups.
+Spaces and Direct messages open in a card view inside your existing groups.
 Switch to the table whenever you need a denser view. Both views keep your
 sorting, filters, unread updates, and Space actions.
 
