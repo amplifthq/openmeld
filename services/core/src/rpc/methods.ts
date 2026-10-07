@@ -702,6 +702,7 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceResponseContractVersion,
+  SpaceEntryAccessResponse,
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFilePinMutation,
@@ -1589,6 +1590,70 @@ export function rpcReadPeopleComputerFileAccessPolicy(
     expectedDeviceId: deviceId,
   });
 }
+export async function rpcComputerSessionHistory(
+  env: CoreBindings,
+  input: SessionHistoryRpcInput
+) {
+  const parsed = sessionHistoryRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid session history request.",
+    });
+  }
+  const { context, deviceId, runtimeLane, organizationId, request } =
+    parsed.data;
+  const ownerUserId = requireAuthenticatedOwnerUserId(context);
+  if (context.actorContext.callerPrincipalId !== ownerUserId) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "session_history.denied",
+      reason:
+        "Use the verified session history agent tool for delegated requests.",
+    });
+  }
+  await requireOrganizationMembershipOrThrow({ context, env, organizationId });
+  const requester =
+    context.actorContext.profileKind === "human"
+      ? {
+          requestRootId: context.actorContext.requestId,
+          ownerUserId,
+          requesterUserId: ownerUserId,
+          readerProfileId: null,
+          delegatorProfileId: null,
+          spaceId: null,
+          audience: "owner_private" as const,
+        }
+      : await requireSessionHistoryLocalRequester(
+          env,
+          parsed.data,
+          ownerUserId
+        );
+  const { localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext({
+      env,
+      userId: ownerUserId,
+      target: { deviceId, runtimeLane },
+    });
+  requirePeopleComputerControlSession({
+    target: { deviceId, runtimeLane },
+    inventory: localRuntimes,
+    ownerService,
+  });
+  return requestComputerSessionHistory({
+    env,
+    ownerUserId,
+    deviceId,
+    runtimeLane,
+    request: {
+      expectedDeviceId: deviceId,
+      organizationId,
+      request,
+      requester,
+    },
+  });
+}
 export function rpcUpdatePeopleComputerFileAccessPolicy(
   env: CoreBindings,
   input: PeopleComputerFileAccessUpdateRpcInput
@@ -1953,6 +2018,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   ): Promise<StartUsageExhaustedContinuationResponse>;
   rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void>;
   rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta>;
+  rpcGetEntryAccess(
+    input: GetSpaceMetaInput
+  ): Promise<SpaceEntryAccessResponse>;
   rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse>;
   rpcMessagePins(
     input: SpaceMessagePinsInput
@@ -2555,6 +2623,7 @@ export type ListAccountSpacesInput = {
   includePurposes?: boolean;
   includeMemberPreviews?: boolean;
   includeMessagePreviews?: boolean;
+  includeDirectoryPreviews?: boolean;
 };
 export type ListAccountSpaceActiveWakeSummaryInput =
   AccountSpaceActiveWakeSummaryRpcInput;
@@ -19546,7 +19615,6 @@ export async function rpcGetSpaceEntryResolution(
       organizationId: indexed.organizationId,
     });
   const access = await resolveSpaceEntryAccess({
-    context,
     env,
     spaceAccess,
     spaceId: target.spaceId,
@@ -19651,17 +19719,15 @@ async function resolveSpaceEntryOrganizationAudience(input: {
   return { organizationMember: true, organizationSlug };
 }
 async function resolveSpaceEntryAccess(input: {
-  context?: CoreRpcContextInput;
   env: CoreBindings;
   spaceAccess: SpaceAccessContext;
   spaceId: string;
 }): Promise<SpaceEntryAccessResult> {
-  let meta: SpaceMeta;
+  let entry: SpaceEntryAccessResponse;
   try {
     const { stub } = resolveRpcSpaceStubOrThrow(input.env, input.spaceId);
-    // The metadata read uses the same Space access policy as status, without
-    // reading member presentation, runtime routes, or Service health.
-    meta = await stub.rpcGetMeta({
+    // The owning Space authorizes once and reads current participation locally.
+    entry = await stub.rpcGetEntryAccess({
       spaceId: input.spaceId,
       spaceAccess: input.spaceAccess,
     });
@@ -19676,6 +19742,7 @@ async function resolveSpaceEntryAccess(input: {
     }
     throw error;
   }
+  const { meta, activeMember } = entry;
   if (!meta.accessMode) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -19683,15 +19750,6 @@ async function resolveSpaceEntryAccess(input: {
       reason: "The Space access mode could not be resolved.",
     });
   }
-  const activeMember = input.context
-    ? (
-        await rpcGetSpaceViewerMembership(input.env, {
-          context: input.context,
-          spaceId: input.spaceId,
-          spaceAccess: input.spaceAccess,
-        })
-      ).activeMemberProfiles.length > 0
-    : false;
   return {
     activeMember,
     kind: "allowed",
@@ -19945,6 +20003,7 @@ export async function rpcListAccountSpaces(
     includePurposes: input.includePurposes === true,
     includeMemberPreviews: input.includeMemberPreviews === true,
     includeMessagePreviews: input.includeMessagePreviews === true,
+    includeDirectoryPreviews: input.includeDirectoryPreviews === true,
   });
 }
 // Ambient sidebar indicator fan-out bound. The owner repositories apply their
@@ -25803,4 +25862,91 @@ export async function rpcCenterAgentSetReplyPlacement(
   return placement;
 }
 
+import {
+  sessionHistoryAgentRpcInputSchema,
+  sessionHistoryRpcInputSchema,
+} from "@openmeld/schemas";
+import type {
+  SessionHistoryAgentRpcInput,
+  SessionHistoryRpcInput,
+} from "@openmeld/schemas/types";
 import { prepareDelegatedPluginActions } from "../center-agent/application/delegated-plugin-authorization";
+import { requireSessionHistoryHostedRequester } from "../computers/session-history-hosted-requester";
+import { requireSessionHistoryLocalRequester } from "../computers/session-history-local-requester";
+import { requestComputerSessionHistory } from "../computers/session-history-transport";
+
+export async function rpcAgentSessionHistory(
+  env: CoreBindings,
+  input: SessionHistoryAgentRpcInput
+) {
+  const parsed = sessionHistoryAgentRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid history read.",
+    });
+  }
+  const { context, computerId, request } = parsed.data;
+  const { organizationId, requester } =
+    await requireSessionHistoryHostedRequester(env, context);
+  const { ownerUserId } = requester;
+  const target = await resolveSessionHistoryAgentTarget(
+    env,
+    ownerUserId,
+    computerId
+  );
+  return requestComputerSessionHistory({
+    env,
+    ownerUserId,
+    deviceId: target.deviceId,
+    runtimeLane: target.lane,
+    request: {
+      organizationId,
+      expectedDeviceId: target.deviceId,
+      request,
+      requester,
+    },
+  });
+}
+
+async function resolveSessionHistoryAgentTarget(
+  env: CoreBindings,
+  ownerUserId: string,
+  computerId: string
+) {
+  const { localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext({ env, userId: ownerUserId });
+  const computer = localRuntimes.localRuntimes.find(
+    (entry) => entry.connectedComputerId === computerId
+  );
+  if (!(computer && ownerService.online)) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "session_history.denied",
+      reason: "The source Computer is unavailable to this requester.",
+    });
+  }
+  const sessions = ownerService.sessions.filter((session) =>
+    peopleComputerContainsDevice(computer, session.deviceId)
+  );
+  const targets = [
+    ...new Map(
+      sessions.map((session) => [
+        `${session.deviceId}/${session.lane}`,
+        session,
+      ])
+    ).values(),
+  ];
+  const target = targets.length === 1 ? targets[0] : undefined;
+  if (!target) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "session_history.target_unavailable",
+      reason:
+        "The source Computer must have one connected environment for agent history reads.",
+    });
+  }
+
+  return target;
+}

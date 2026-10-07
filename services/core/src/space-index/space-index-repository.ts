@@ -93,6 +93,7 @@ export type ListAccountSpacesFromSpaceIndexInput = {
   includePurposes?: boolean;
   includeMemberPreviews?: boolean;
   includeMessagePreviews?: boolean;
+  includeDirectoryPreviews?: boolean;
 };
 export type SpaceIndexProjectionDriftIssueCode =
   | "space_index_space_missing_completed_event"
@@ -720,11 +721,15 @@ export async function listAccountSpacesFromSpaceIndex(
   const sections = partitionAccountSpaceIndexItems(
     buildAccountSpaceItems(input, rows)
   );
-  if (input.includeMemberPreviews === true) {
-    await attachSpaceMemberPreviews(input.db, [
-      ...sections.pinnedItems,
-      ...sections.spaceItems,
-    ]);
+  if (
+    input.includeMemberPreviews === true ||
+    input.includeDirectoryPreviews === true
+  ) {
+    await attachSpaceMemberPreviews(
+      input.db,
+      [...sections.pinnedItems, ...sections.spaceItems],
+      input.includeDirectoryPreviews === true
+    );
   }
   // Opt-in only: omit recentlyDeletedItems for callers that did not request it, so a
   // strict legacy client (CLI) receives the legacy {pinnedItems, spaceItems} shape
@@ -735,11 +740,12 @@ export async function listAccountSpacesFromSpaceIndex(
   }
   return { ...sections, recentlyDeletedItems };
 }
-// Only enrich the already authorized candidate list. Read at most three active
+// Only enrich the already authorized candidate list. Read at most eight active
 // members per Space, in stable membership order; never fan out to Space DOs.
 async function attachSpaceMemberPreviews(
   db: PostgresDatabase,
-  items: AccountSpaceIndexResponse["spaceItems"]
+  items: AccountSpaceIndexResponse["spaceItems"],
+  directoryPreviews: boolean
 ): Promise<void> {
   for (let offset = 0; offset < items.length; offset += 90) {
     const chunk = items.slice(offset, offset + 90);
@@ -763,10 +769,10 @@ async function attachSpaceMemberPreviews(
         WHERE status = 'active'
           AND space_id = ANY($1::text[])
       )
-      WHERE member_rank <= 3
+      WHERE member_rank <= $2
       ORDER BY space_id, member_rank
     `,
-      values: [chunk.map((item) => item.spaceId)],
+      values: [chunk.map((item) => item.spaceId), directoryPreviews ? 8 : 3],
     });
     const byId = new Map(
       chunk.map((item) => {
@@ -781,6 +787,24 @@ async function attachSpaceMemberPreviews(
         profileKind: row.profile_kind_snapshot,
         agentControllerRef: row.controller_ref_snapshot,
       });
+    }
+    if (directoryPreviews) {
+      const previews = await db.query<{
+        space_id: string;
+        recent_message_previews_json: string | null;
+      }>({
+        text: 'SELECT space_id, recent_message_previews_json FROM "openmeld"."space_index_spaces" WHERE space_id = ANY($1::text[])',
+        values: [chunk.map((item) => item.spaceId)],
+      });
+      for (const row of previews.rows) {
+        const item = byId.get(row.space_id);
+        if (item && row.recent_message_previews_json !== null) {
+          item.recentMessagePreviews =
+            accountSpaceIndexItemSchema.shape.recentMessagePreviews.parse(
+              JSON.parse(row.recent_message_previews_json)
+            );
+        }
+      }
     }
   }
 }

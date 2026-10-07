@@ -372,6 +372,11 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "discovering plugin actions",
     profileAction: null,
   },
+  "plugins.connection": {
+    ...DEFAULT_COPY,
+    signInAction: "using a plugin account on your cloud Computer",
+    profileAction: null,
+  },
   "plugins.call": {
     ...DEFAULT_COPY,
     signInAction: "running a plugin action",

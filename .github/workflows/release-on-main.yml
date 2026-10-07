@@ -127,6 +127,10 @@ jobs:
             full) selected_scopes="db,auth,web,gateway,core,remote-agent,website,docs" ;;
             *) selected_scopes="$RELEASE_SCOPE" ;;
           esac
+          node --input-type=module -e '
+            import { assertHostedProductDatabaseReleaseSupported } from "../release-control/scripts/release/database-backend-admission.mjs";
+            assertHostedProductDatabaseReleaseSupported(process.cwd(), process.argv[1].split(","));
+          ' "$selected_scopes"
           node ../release-control/scripts/release/production-train-artifact-admission.mjs \
             --source-sha "$RELEASE_SHA" \
             --scope "$selected_scopes" \

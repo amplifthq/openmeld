@@ -1,7 +1,7 @@
 # Desktop updater visual fixture
 
 This is a separate, loopback-only Vite entry. It renders the production
-`DesktopUpdater`, `DesktopUpdatesSection`, outer Settings button, contextual
+`DesktopUpdater`, `DesktopUpdatesSection`, account-menu Settings entry, contextual
 navigation primitive, shared Settings dialog, and production styles/fonts.
 The small navigation group is fixture data; actual `SettingsInnerSidebar` wiring
 is covered by `src/desktop/updater.test.tsx`. The component bridge implements the

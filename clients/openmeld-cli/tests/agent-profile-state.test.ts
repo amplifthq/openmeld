@@ -77,11 +77,11 @@ describe("agent profile runtime state", () => {
     } as never);
 
     expect(state?.replyReadiness).toBe("ready");
-    expect(state?.replyReadinessLabel).toBe("Can reply");
+    expect(state?.replyReadinessLabel).toBe("Local setup ready");
     expect(state?.replyReadinessReasonCodes).toEqual([]);
     expect(buildAgentProfileRuntimeRows(state)).toContainEqual({
-      label: "Can Reply in Space",
-      value: "Can reply",
+      label: "Local Reply Setup",
+      value: "Local setup ready",
     });
     expect(buildAgentProfileRuntimeRows(state)).toContainEqual({
       label: "Server Can Reach This Device",

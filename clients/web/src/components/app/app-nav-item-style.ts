@@ -1,7 +1,7 @@
 export const APP_NAV_GROUP_CLASS_NAME = "gap-2 p-0";
 
 export const APP_APPLICATION_RAIL_CLASS_NAME =
-	"flex h-full w-[4.75rem] shrink-0 flex-col text-sidebar-foreground";
+	"flex h-full w-16 shrink-0 flex-col text-sidebar-foreground";
 
 // Full navigation items begin after a 1px border and 4px inline padding.
 export const APP_NAV_GROUP_LABEL_CLASS_NAME =

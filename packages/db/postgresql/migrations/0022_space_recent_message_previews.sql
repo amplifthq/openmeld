@@ -1,0 +1,1 @@
+ALTER TABLE "openmeld"."space_index_spaces" ADD COLUMN "recent_message_previews_json" text;

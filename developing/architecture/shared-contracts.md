@@ -8825,3 +8825,24 @@ available local components and verify the actual release base. Retain additive
 SQL migration 49 on rollback; reverting Core while Local rows remain requires
 draining/retaining the candidate Space reader, because old request parsers cannot
 read Local rows. Do not erase held rows to make rollback appear safe.
+## Session history contract
+
+`packages/schemas` owns the Session history policy, operations, requester,
+metadata audit, bounded result, RPC, and transport frames. Core supplies the
+requester from authenticated human or admitted execution evidence. Public
+requests cannot supply their own requester or audience. Local Agent calls need
+the current execution token and exact dispatch/binding scope. Hosted calls need
+the active native delivery and its frozen, verified human root. Only verified
+one-hop delegation is supported; missing provenance fails closed.
+
+The additive `x-openmeld-session-history: session-history-v1` handshake is
+independent of File access. An old Service returns unsupported and receives no
+new frame. Requests use `daemon.session_history.request`; replies use
+`daemon.session_history.request_result`. Pending operations and response bodies
+stay in memory; HTTP results use `Cache-Control: no-store`.
+
+Contract impact: deploy receiving Core/Gateway and hosted tools before exposing
+new clients. Existing CLI/Service/Skills continue their previous setup, Wake,
+Space actions, and diagnostics. New history reads need the advertised Service
+capability; no fallback or mandatory compatibility-epoch bump is needed. Local
+CLI and Service updates are available, not required for existing workflows.

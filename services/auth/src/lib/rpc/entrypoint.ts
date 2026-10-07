@@ -1,4 +1,4 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
+import { tracing, WorkerEntrypoint } from "cloudflare:workers";
 import {
   AUTH_SERVICE_NAME,
   type AuthClaims,
@@ -1314,10 +1314,13 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         };
       }
       try {
-        const profiles =
-          await this.getProfileService().listResolvedProfileLineageForOwner(
-            ownerUserId
-          );
+        const profiles = await tracing.enterSpan(
+          "auth.profile-lineage.read",
+          () =>
+            this.getProfileService().listResolvedProfileLineageForOwner(
+              ownerUserId
+            )
+        );
         return {
           ok: true,
           profiles: profiles.map((profile) => ({

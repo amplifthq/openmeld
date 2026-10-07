@@ -25,6 +25,7 @@ export function buildAccountSpaceIndexPath(input: {
   includePurposes?: boolean;
   includeMemberPreviews?: boolean;
   includeMessagePreviews?: boolean;
+  includeDirectoryPreviews?: boolean;
   limit?: number;
   scope: "account" | "profile";
   selectedProfileId: string;
@@ -54,6 +55,9 @@ export function buildAccountSpaceIndexPath(input: {
   }
   if (input.includeMessagePreviews === true) {
     url.searchParams.set("includeMessagePreviews", "true");
+  }
+  if (input.includeDirectoryPreviews === true) {
+    url.searchParams.set("includeDirectoryPreviews", "true");
   }
   return `${url.pathname}${url.search}`;
 }

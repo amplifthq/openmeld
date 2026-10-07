@@ -24,6 +24,7 @@ import { formatRuntimeLane } from "./agents-page-formatters";
 import { LocalAgentsCard } from "./agents-page-local-agents";
 import { OpenMeldServiceCard } from "./agents-page-openmeld-service";
 import { ComputerFileAccessCard } from "./computer-file-access-card";
+import { ComputerSessionHistoryCard } from "./computer-session-history-card";
 import { localAgentConsumptionScope } from "./local-agent-consumption";
 
 type LocalAgentRecoveryController = ReturnType<
@@ -225,6 +226,7 @@ export function SelectedComputerPanel(input: {
 					storageScope={input.recovery.storageScope}
 				/>
 			) : null}
+			<SelectedComputerSessionHistory input={input} target={target} />
 		</div>
 	);
 }
@@ -370,5 +372,32 @@ function isCurrentLocalRuntimeServiceUpdateRequired(
 	return (
 		readiness?.localComponents.service.wakeBlocked === true ||
 		readiness?.primaryBlocker === "service_update_required"
+	);
+}
+
+function SelectedComputerSessionHistory({
+	target,
+	input,
+}: {
+	target: PeopleComputerTarget | null;
+	input: Parameters<typeof SelectedComputerPanel>[0];
+}) {
+	if (
+		!(
+			target &&
+			input.computer.connectedComputerId &&
+			canConfigureLocalComputer()
+		)
+	) {
+		return null;
+	}
+	return (
+		<ComputerSessionHistoryCard
+			{...target}
+			computerId={input.computer.connectedComputerId}
+			key={`session-history/${input.organizationId}/${computerEnvironmentKey(target)}`}
+			organizationId={input.organizationId}
+			profiles={input.recovery.agentProfiles}
+		/>
 	);
 }

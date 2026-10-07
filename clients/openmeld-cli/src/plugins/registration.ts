@@ -85,6 +85,51 @@ export function registerPluginCommands(
     );
   common(
     plugins
+      .command("connection <service>")
+      .description(
+        "Inspect a Plugin account or reuse it on your cloud Computer."
+      )
+  )
+    .addOption(
+      new Option("--account <scope>", "Account identity to use.")
+        .choices(["personal", "shared"])
+        .makeOptionMandatory()
+    )
+    .requiredOption("--key <key>", "Stable key for this connection use.")
+    .option(
+      "--computer",
+      "Create a temporary native HTTP connection on your cloud Computer."
+    )
+    .action(
+      async (
+        service: string,
+        flags: {
+          profile?: string;
+          account: string;
+          key: string;
+          computer?: boolean;
+        }
+      ) => {
+        const request = pluginActionRequestSchema.parse({
+          action: {
+            operation: "connection",
+            service,
+            account: flags.account,
+            key: flags.key,
+            computer: flags.computer,
+          },
+        });
+        await options.run(["plugins", "connection"], () =>
+          runPluginCommand({
+            action: request.action,
+            profile: flags.profile,
+            view: options.view(),
+          })
+        );
+      }
+    );
+  common(
+    plugins
       .command("call <service> <action-id>")
       .description(
         "Run an action; reuse the operation ID only for the exact same request."

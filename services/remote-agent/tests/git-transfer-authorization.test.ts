@@ -1,4 +1,5 @@
 import {
+  pluginConnectionGrantSchema,
   remoteAgentExecutionScopeKey,
   remoteAgentGitTransferGrantSchema,
   resolveRemoteAgentExecutionScope,
@@ -11,6 +12,7 @@ import {
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import { createComputerGitConnectionTool } from "../flue-adapter/computer-git-connection";
 import { authorizeGitTransfer } from "../flue-adapter/git-transfer-authorization";
+import { authorizePluginConnection } from "../flue-adapter/plugin-connection-authorization";
 import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -101,6 +103,66 @@ function fixture() {
 }
 
 describe("Git transfer authorization", () => {
+  it("reauthorizes generic native reads and stops expired, replaced, revoked, or action-delegated access", async () => {
+    const f = fixture();
+    const grant = pluginConnectionGrantSchema.parse({
+      id: "a".repeat(64),
+      service: "github",
+      organizationId: f.grant.organizationId,
+      requesterUserId: f.grant.requesterUserId,
+      connectionName: f.connection.connectionName,
+      connectionUpdatedAtMs: f.connection.updatedAtMs,
+      connectionScope: "member",
+      expiresAtMs: Date.now() + 60_000,
+      authority: {
+        kind: "remote",
+        authorization: f.grant.authorization,
+        scopeKey: f.grant.scopeKey,
+      },
+    });
+    await expect(authorizePluginConnection(f, grant)).resolves.toMatchObject({
+      connectionName: "member-github",
+    });
+    await expect(
+      authorizePluginConnection(f, { ...grant, expiresAtMs: Date.now() - 1 })
+    ).rejects.toThrow("connection_expired");
+    await expect(
+      authorizePluginConnection(f, {
+        ...grant,
+        connectionName: "other-account",
+      })
+    ).rejects.toThrow("connection_changed");
+    await expect(
+      authorizePluginConnection(f, {
+        ...grant,
+        authority: {
+          kind: "remote",
+          scopeKey: f.grant.scopeKey,
+          authorization: {
+            ...f.grant.authorization,
+            includeDelegatedRequester: true,
+          },
+        },
+      })
+    ).rejects.toThrow("native_delegation_not_supported");
+    f.centerAgentResolveConnectorConnection.mockResolvedValue({
+      connection: f.connection,
+      selection: "requester",
+      permission: "none",
+    });
+    await expect(authorizePluginConnection(f, grant)).rejects.toThrow();
+    f.centerAgentResolveConnectorConnection.mockResolvedValue({
+      connection: {
+        ...f.connection,
+        updatedAtMs: f.connection.updatedAtMs + 1,
+      },
+      selection: "requester",
+      permission: "read",
+    });
+    await expect(authorizePluginConnection(f, grant)).rejects.toThrow(
+      "connection_changed"
+    );
+  });
   it.each([
     "requester",
     "organization",
@@ -285,7 +347,7 @@ describe("Git transfer authorization", () => {
       permission: "read",
     });
     await expect(authorizeGitTransfer(f, f.grant)).rejects.toThrow(
-      "github.checkout.requester_connection_changed"
+      "plugin.connection.requester_connection_changed"
     );
   });
 
@@ -293,7 +355,7 @@ describe("Git transfer authorization", () => {
     const f = fixture();
     await expect(
       authorizeGitTransfer(f, { ...f.grant, scopeKey: "another-execution" })
-    ).rejects.toThrow("github.checkout.transfer_audience_mismatch");
+    ).rejects.toThrow("plugin.connection.transfer_audience_mismatch");
     expect(f.centerAgentResolveConnectorConnection).not.toHaveBeenCalled();
   });
 });

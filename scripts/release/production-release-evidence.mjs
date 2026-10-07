@@ -547,6 +547,19 @@ function validateCorrelationTransition(current, next, recoveryProved) {
   if (recoveryProved) {
     return previous.status === "failed" && previous.application === "unknown";
   }
+  // The native PostgreSQL executor verifies the registered target journal and
+  // grants under its lease before completing this same-source unknown attempt.
+  if (
+    current.scope === "db" &&
+    previous.status === "failed" &&
+    previous.application === "unknown" &&
+    !previous.identity &&
+    next.receipt.status === "verified" &&
+    next.receipt.application === "applied" &&
+    next.receipt.identity?.kind === "release-source"
+  ) {
+    return true;
+  }
   // The guarded Core executor proves the previous verified deployment is still
   // active before retrying, then captures a fresh command-correlated activation.
   if (
