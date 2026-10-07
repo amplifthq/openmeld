@@ -38,7 +38,6 @@ import {
 	resolveAccountSpaceTrailingStatus,
 } from "#/components/spaces/account-space-sections";
 import { ChatIcon } from "#/components/spaces/conversation-sidebar-row";
-import { NewChatDialog } from "#/components/spaces/new-chat-dialog";
 import { SpaceActiveWakeIndicator } from "#/components/spaces/space-active-wake-indicator";
 import { resolveSpaceActiveWakePresentation } from "#/components/spaces/space-active-wake-presentation";
 import {
@@ -77,10 +76,9 @@ const EMPTY_SECTIONS: AccountSpaceSections = {
 	spaceItems: [],
 };
 
-export function AppCommandCenter() {
+export function AppCommandCenter(input: { onNewMessage: () => void }) {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
-	const [newMessage, setNewMessage] = useState(false);
 	const toggleCommandCenter = useCallback(() => {
 		setQuery("");
 		setOpen((value) => !value);
@@ -136,32 +134,29 @@ export function AppCommandCenter() {
 		setQuery("");
 	}, []);
 	return (
-		<>
-			<Dialog onOpenChange={setOpen} open={open}>
-				<DialogContent
-					className="gap-0 overflow-hidden rounded-xl border border-border p-0 data-closed:animate-none data-open:animate-none sm:max-w-[600px]"
-					showCloseButton={false}
-				>
-					<DialogTitle className="sr-only">Command center</DialogTitle>
-					{open && (
-						<CommandCenterContents
-							close={() => setOpen(false)}
-							currentSpaceId={currentSpaceId}
-							key={key}
-							newMessage={() => {
-								setOpen(false);
-								setNewMessage(true);
-							}}
-							onQueryChange={setQuery}
-							profileId={profileId}
-							query={query}
-							recent={recent}
-						/>
-					)}
-				</DialogContent>
-			</Dialog>
-			<NewChatDialog onOpenChange={setNewMessage} open={newMessage} />
-		</>
+		<Dialog onOpenChange={setOpen} open={open}>
+			<DialogContent
+				className="gap-0 overflow-hidden rounded-xl border border-border p-0 data-closed:animate-none data-open:animate-none sm:max-w-[600px]"
+				showCloseButton={false}
+			>
+				<DialogTitle className="sr-only">Command center</DialogTitle>
+				{open && (
+					<CommandCenterContents
+						close={() => setOpen(false)}
+						currentSpaceId={currentSpaceId}
+						key={key}
+						newMessage={() => {
+							setOpen(false);
+							input.onNewMessage();
+						}}
+						onQueryChange={setQuery}
+						profileId={profileId}
+						query={query}
+						recent={recent}
+					/>
+				)}
+			</DialogContent>
+		</Dialog>
 	);
 }
 
