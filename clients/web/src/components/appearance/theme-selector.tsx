@@ -24,7 +24,7 @@ const subscribe = () => () => undefined;
 const clientSnapshot = () => true;
 const serverSnapshot = () => false;
 const groupClassName =
-	"flex w-fit gap-0 rounded-full border border-border p-0.5";
+	"flex w-fit flex-row gap-0 rounded-full border border-border p-0.5";
 const itemClassName =
 	"size-7 min-w-7 justify-center rounded-full! p-0! text-muted-foreground hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-interaction-active data-checked:text-foreground aria-pressed:bg-interaction-active aria-pressed:text-foreground transition-none [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden";
 
