@@ -17,7 +17,8 @@ preview without Markdown formatting marks.
 Your browser remembers the Space view you choose and each person's grouped or
 expanded Agent view.
 
-The Spaces and Team sidebar starts collapsed if you have no saved preference.
+Without a saved choice, the sidebar starts collapsed on Spaces and Team overviews
+and opens when you enter a conversation, person, or Agent detail page.
 Your choice to open or close it stays in place across pages and reloads.
 
 Use Show message previews in the sidebar settings to show or hide message
