@@ -162,6 +162,13 @@
       "when": 1791355487644,
       "tag": "0022_space_recent_message_previews",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791376173980,
+      "tag": "0023_ended_inbox_requests",
+      "breakpoints": true
     }
   ]
 }
