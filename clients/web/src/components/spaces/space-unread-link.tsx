@@ -11,6 +11,7 @@ export function SpaceUnreadLink(input: {
 	spaceId: string;
 	url: string;
 	count: number;
+	showCount?: boolean;
 }) {
 	const organization = useOptionalAppOrganization();
 	const queryClient = useQueryClient();
@@ -39,7 +40,11 @@ export function SpaceUnreadLink(input: {
 	return (
 		<Link
 			aria-label={`${input.count} unread ${input.count === 1 ? "update" : "updates"}. Jump to first unread`}
-			className="status-dot pointer-events-auto relative bg-unread outline-none focus-visible:ring-1 focus-visible:ring-ring"
+			className={
+				input.showCount
+					? "pointer-events-auto relative inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-unread/10 px-1 text-unread text-xs tabular-nums leading-none outline-none focus-visible:ring-1 focus-visible:ring-ring"
+					: "status-dot pointer-events-auto relative bg-unread outline-none focus-visible:ring-1 focus-visible:ring-ring"
+			}
 			data-conversation-unread-indicator="true"
 			onClick={async (event) => {
 				if (
@@ -97,6 +102,8 @@ export function SpaceUnreadLink(input: {
 			resetScroll={false}
 			search={Object.fromEntries(destination.searchParams)}
 			to={destination.pathname}
-		/>
+		>
+			{input.showCount ? input.count : null}
+		</Link>
 	);
 }

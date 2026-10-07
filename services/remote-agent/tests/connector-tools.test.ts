@@ -531,7 +531,12 @@ describe("Remote Agent generic App tools", () => {
     ).resolves.toMatchObject({
       apps: expect.arrayContaining([
         {
-          connected: true,
+          connected: null,
+          connectionStored: true,
+          descriptionUnavailable: false,
+          health: { state: "unknown" },
+          nativeHttp: null,
+          nextAction: expect.any(String),
           name: "PostHog",
           scope: "member",
           selection: "requester",

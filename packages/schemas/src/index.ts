@@ -390,6 +390,7 @@ export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-contr
 export {
   type CloudComputer,
   type CloudComputerOperation,
+  type CloudComputerStorage,
   cloudComputerCleanupResultSchema,
   cloudComputerCommandSchema,
   cloudComputerOperationResultSchema,
@@ -397,8 +398,21 @@ export {
   cloudComputerResponseSchema,
   cloudComputerRpcRequestSchema,
   cloudComputerSchema,
+  cloudComputerStorageSchema,
   cloudComputerWorkerRequestSchema,
 } from "./schemas/runtime/cloud-computer";
+export {
+  pluginConnectionDescriptionSchema,
+  pluginConnectionHealthSchema,
+  pluginNativeHttpSchema,
+} from "./schemas/runtime/openconnector-runtime";
+export {
+  type PluginConnectionGrant,
+  pluginComputerConnectionRequestSchema,
+  pluginConnectionAuthorizationSchema,
+  pluginConnectionDescribeRequestSchema,
+  pluginConnectionGrantSchema,
+} from "./schemas/runtime/plugin-connection";
 export {
   type RemoteAgentExecutionAccessRequest,
   type RemoteAgentExecutionAccessResponse,

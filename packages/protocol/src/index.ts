@@ -25,6 +25,7 @@ export {
   collectMessagePreviewUrls,
   normalizeMessageLink,
 } from "./message-links";
+export { normalizeMessagePreview } from "./message-preview";
 export {
   normalizeProfileId,
   parseEnvelope,

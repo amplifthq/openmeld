@@ -38,6 +38,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { Textarea } from "@openmeld/ui/components/textarea";
 import {
 	FluidDropdownMenuContent as ContextMenuContent,
@@ -640,9 +641,7 @@ function TeamFilesBrowser(input: {
 						}}
 					>
 						<Suspense
-							fallback={
-								<p className="text-muted-foreground text-sm">Loading Files…</p>
-							}
+							fallback={<SkeletonRows className="p-3" label="Loading files" />}
 						>
 							<FileSystem
 								breadcrumb={breadcrumb}

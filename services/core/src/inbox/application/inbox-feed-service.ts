@@ -72,12 +72,25 @@ type CountRow = {
   priority_count: number;
 };
 const SNAPSHOT_TTL_MS = 15 * 60 * 1000;
+export type InboxFeedMeasure = <T>(
+  stage:
+    | "inbox.prepare"
+    | "inbox.invitations"
+    | "inbox.snapshot"
+    | "inbox.page",
+  work: () => Promise<T>
+) => Promise<T>;
+
+export const runInboxFeedStage: InboxFeedMeasure = (_stage, work) => work();
+
 export function createInboxFeedService(input: {
   db: PostgresDatabase;
   nowMs?: () => number;
   canManageOrganization?: boolean;
+  measure?: InboxFeedMeasure;
 }) {
   const now = input.nowMs ?? Date.now;
+  const measure = input.measure ?? runInboxFeedStage;
   async function readSnapshot(
     identity: Identity,
     id: string
@@ -179,9 +192,11 @@ export function createInboxFeedService(input: {
       if (query.groupKey && !snapshotId) {
         throw invalidInboxFeedCursor();
       }
-      const snapshot = snapshotId
-        ? await readSnapshot(identity, snapshotId)
-        : await createSnapshot(identity, query);
+      const snapshot = await measure("inbox.snapshot", () =>
+        snapshotId
+          ? readSnapshot(identity, snapshotId)
+          : createSnapshot(identity, query)
+      );
       assertMatchingSnapshot(snapshot, query, cursor);
       const cte = inboxFeedCte(
         snapshot,
@@ -195,17 +210,17 @@ export function createInboxFeedService(input: {
       const collectionKind = expandedKey
         ? readGroupKind(expandedKey)
         : undefined;
-      const result = await input.db.query<
-        FeedItemRow & { feed_counts: CountRow }
-      >({
-        text: `${cte.sql}, feed_counts AS (${INBOX_FEED_COUNTS_SQL}) ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind, cte.bindings.length)}`,
-        values: [
-          ...cte.bindings,
-          ...(expandedKey ? [expandedKey] : []),
-          ...cursorBindings(cursor),
-          limit + 1,
-        ],
-      });
+      const result = await measure("inbox.page", () =>
+        input.db.query<FeedItemRow & { feed_counts: CountRow }>({
+          text: `${cte.sql}, feed_counts AS (${INBOX_FEED_COUNTS_SQL}) ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind, cte.bindings.length)}`,
+          values: [
+            ...cte.bindings,
+            ...(expandedKey ? [expandedKey] : []),
+            ...cursorBindings(cursor),
+            limit + 1,
+          ],
+        })
+      );
       const { counts, candidates, selectionUnreadCount } = readQueryResults(
         result.rows
       );

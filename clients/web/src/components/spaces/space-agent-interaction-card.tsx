@@ -21,7 +21,7 @@ import {
 } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
 import {
-	type ActionPermissionModeShortcut,
+	type ActionPermissionModeOption,
 	ActionRequestForm,
 } from "#/components/actions/action-request-form";
 
@@ -29,18 +29,25 @@ export type SpaceAgentInteractionResponseHandler = (
 	input: RespondToSpaceAgentInteractionBody
 ) => Promise<void>;
 
-export type SpaceAgentPermissionModeShortcut = ActionPermissionModeShortcut;
+export type SpaceAgentPermissionModeOption = ActionPermissionModeOption;
 
 export type SpaceAgentPermissionModeUpdateHandler = (input: {
 	permissionMode: AgentControllerPermissionMode;
 	profileId: string;
-}) => void;
+}) => Promise<
+	NonNullable<
+		Extract<
+			AgentInteractionResponse,
+			{ kind: "permission" }
+		>["permissionModeUpdate"]
+	>
+>;
 
 type SpaceAgentInteractionCardProps = {
 	item: WakeProgressItem;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
-	permissionModeShortcut?: SpaceAgentPermissionModeShortcut;
+	permissionModeOptions?: readonly SpaceAgentPermissionModeOption[];
 	presentation?: "surface" | "timeline";
 };
 
@@ -90,9 +97,19 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 		setErrorMessage(null);
 		setIsSubmitting(true);
 		try {
+			const permissionModeUpdate =
+				permissionMode && input.onPermissionModeUpdate
+					? await input.onPermissionModeUpdate({
+							permissionMode,
+							profileId: input.item.targetProfileId,
+						})
+					: undefined;
 			await canRespond({
 				interactionId: pendingInteraction.interactionId,
-				response,
+				response:
+					response.kind === "permission" && permissionModeUpdate
+						? { ...response, permissionModeUpdate }
+						: response,
 				runtimeCoordinatorExecutionId,
 			});
 			setSubmission(
@@ -101,12 +118,6 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 					? "stop"
 					: "continue"
 			);
-			if (permissionMode) {
-				input.onPermissionModeUpdate?.({
-					permissionMode,
-					profileId: input.item.targetProfileId,
-				});
-			}
 		} catch (error) {
 			setErrorMessage(
 				error instanceof Error
@@ -162,7 +173,9 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 				disabled={isSubmitting}
 				key={request.interactionId}
 				onRespond={respond}
-				permissionModeShortcut={input.permissionModeShortcut}
+				permissionModeOptions={
+					input.onPermissionModeUpdate ? input.permissionModeOptions : undefined
+				}
 				request={request}
 			/>
 			{isSubmitting ? (

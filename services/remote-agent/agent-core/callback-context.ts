@@ -336,6 +336,7 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  authorizeLocalPluginConnection?(input: unknown): Promise<unknown>;
   recordRemoteAiUsage?(
     input: RemoteAiUsageWrite
   ): Promise<RemoteAiUsageWriteResponse>;
@@ -592,6 +593,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadAgentActivityOverview?(
     input: CenterAgentReadAgentActivityToolRpcInput
   ): Promise<AgentActivityOverviewResponse>;
+  agentSessionHistory?(
+    input: import("@openmeld/schemas/types").SessionHistoryAgentRpcInput
+  ): Promise<import("@openmeld/schemas/types").SessionHistoryResult>;
   centerAgentSearchMemory?(
     input: CenterAgentSearchMemoryRpcInput
   ): Promise<CenterAgentSearchMemoryResponse>;

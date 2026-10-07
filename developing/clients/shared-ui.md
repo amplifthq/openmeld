@@ -145,7 +145,12 @@ content, selected text, and disabled scopes retain native context menus.
 `FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
 `FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
 Menu separators leave one spacing unit (4px) on each side, matching the menu's
-content inset. Both shared menu families own this spacing. Sidebar hover pauses
+content inset. Both shared menu families own this spacing.
+Checkbox alternatives compose `FluidDropdownMenuCheckboxItem`,
+so Base UI owns checked state and keyboard semantics while Fluid owns hover.
+The reusable sidebar category/group filters own their semantic hover groups;
+an embedded group trigger can instead register in its parent's indexed list.
+Sidebar hover pauses
 for open context-menu trigger slots as well as ordinary popup triggers; Base UI
 context-menu areas expose an open marker without `aria-haspopup`.
 
@@ -259,6 +264,13 @@ by the client; these primitives do not read cookies, routes, account state or
 organization state. OpenMeld uses its existing Base UI/Motion dependencies and
 semantic shape, typography and color tokens. Menu highlights use transforms;
 measured group height and sidebar width only change when layout must change.
+Sidebar hover picking and rendering reuse `useFluidHover` and
+`FluidHoverHighlight`, with the vertical axis and gap clicks disabled. A new
+pointer entry fades in at its nearest item; route selection has its own marker.
+Purely visual dividers within a navigation group do not create another hover
+scope. Hover-preview triggers opt out of popup suspension with
+`data-sidebar-hover-preview`; actual context menus still suspend tracking.
+Portaled popup pointer events do not drive the sidebar's highlight.
 `fluid/nav-menu` supplies navigation semantics and controlled selection over
 `fluid/sidebar-menu`; it does not own another hover or selection engine. Main
 and secondary navigation share the same selection renderer. Clients supply a
@@ -266,9 +278,11 @@ stable `activeLayoutId` across route remounts, scoped to the sidebar presentatio
 so selection also travels between groups. Composite rows retain their existing
 links, actions, dimensions, and color overrides. Reduced motion removes travel.
 `fluid/sidebar-user-footer` adapts the official horizontal user dropdown block;
-clients provide identity and menu actions. `SidebarUserMenuItem` lets clients
-compose Search, Settings, theme, and account controls inside one `SidebarMenu`,
-so one reduced-motion-aware background travels across the complete footer.
+clients provide identity and menu actions. `SidebarUserMenuItem` supplies the
+account trigger and a composed menu slot. Web places Search, Settings, and
+theme controls inside that menu, with one Fluid hover group per semantic section.
+`FluidActionList` accepts a horizontal axis for compact controls while preserving
+its existing reduced-motion behavior.
 The existing `components/sidebar` family remains the inner resize-only surface;
 clients must not nest both engines for one Main Sidebar.
 Its unused menu primitives have been removed; menu consumers use the Fluid family.

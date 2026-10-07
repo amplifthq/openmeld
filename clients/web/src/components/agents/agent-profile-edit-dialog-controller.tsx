@@ -257,14 +257,12 @@ function useAgentProfileEditController(input: {
 	const handleControllerPermissionModeUpdate = async (
 		agentControllerPermissionMode: AgentControllerPermissionMode
 	) =>
-		await runEditAction(
-			async () =>
-				await updateAgentProfileControllerPermissionMode({
-					agentControllerPermissionMode,
-					context: editActionContext,
-				}),
-			`OpenMeld could not update ${input.profile.profileName}.`
-		);
+		await runEditAction(async () => {
+			await updateAgentProfileControllerPermissionMode({
+				agentControllerPermissionMode,
+				context: editActionContext,
+			});
+		}, `OpenMeld could not update ${input.profile.profileName}.`);
 	const handleModelSelectionUpdate = async (
 		modelSelection: AgentProfileModelSelectionUpdate
 	) =>

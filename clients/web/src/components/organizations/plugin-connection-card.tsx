@@ -150,6 +150,7 @@ function isAuthorizationScopeConnected(input: {
 		input.response?.connections.some(
 			(connection) =>
 				connection.status === "active" &&
+				connection.health?.state !== "reconnect_required" &&
 				connection.scope === input.scope &&
 				(input.scope === "shared" ||
 					connection.userId === input.response?.currentUserId)
@@ -956,6 +957,24 @@ function ConnectionControl(input: ConnectionSectionInput) {
 	if (input.disconnectPending && !input.connection) {
 		return <PendingDisconnectAction appName={input.appName} />;
 	}
+	if (input.connection?.health?.state === "reconnect_required") {
+		return (
+			<div className="mt-4">
+				<p className="font-medium text-sm">Reconnect required</p>
+				<p className="mt-1 text-muted-foreground text-xs">
+					Authorization for {input.connection.ownerDisplayName} has expired.
+					Reconnect this account to restore access.
+				</p>
+				{input.canManage ? (
+					<DisconnectedConnectionControl {...input} />
+				) : (
+					<p className="mt-1 text-muted-foreground text-xs">
+						Ask the account owner to reconnect.
+					</p>
+				)}
+			</div>
+		);
+	}
 	if (input.connection) {
 		const presentation = resolveConnectionSummaryPresentation({
 			connection: input.connection,
@@ -1279,7 +1298,9 @@ function ConnectionSummary(input: {
 								data-icon="inline-start"
 								weight="bold"
 							/>
-							Connected
+							{input.connection.health?.state === "refresh_required"
+								? "Refresh on next use"
+								: "Account connected"}
 						</Badge>
 					</div>
 					<p className="mt-0.5 text-muted-foreground text-xs">

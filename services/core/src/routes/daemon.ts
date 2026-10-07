@@ -9,6 +9,8 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SESSION_HISTORY_CAPABILITY_HEADER,
+  SESSION_HISTORY_RUNTIME_CAPABILITY,
   SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
   serviceConnectionDiagnosticIdSchema,
 } from "@openmeld/schemas";
@@ -134,6 +136,13 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
             .map((header) => [header, "1"])
         ),
         [RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER]: ownerUserId,
+        ...(c.req.header(SESSION_HISTORY_CAPABILITY_HEADER) ===
+        SESSION_HISTORY_RUNTIME_CAPABILITY
+          ? {
+              [SESSION_HISTORY_CAPABILITY_HEADER]:
+                SESSION_HISTORY_RUNTIME_CAPABILITY,
+            }
+          : {}),
         ...(computerFileAccessCapability
           ? {
               [OPENMELD_RUNTIME_CAPABILITIES_HEADER]:

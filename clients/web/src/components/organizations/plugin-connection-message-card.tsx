@@ -153,7 +153,9 @@ export function PluginConnectionSetupPanel(input: {
 		isPersonalWorkspace ||
 		canManageOrganizationArea(role.data, { connector: ["manage"] });
 	const active = connections.data.connections.filter(
-		(connection) => connection.status === "active"
+		(connection) =>
+			connection.status === "active" &&
+			connection.health?.state !== "reconnect_required"
 	);
 	const member = active.find(
 		(connection) =>

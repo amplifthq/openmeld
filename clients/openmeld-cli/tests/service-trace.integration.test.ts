@@ -692,7 +692,7 @@ describe("service trace command", () => {
         stdout.indexOf("Latest Attempt:")
       );
       expect(stdout).toContain(
-        "Current Local Reply Evidence: Local evidence: reply-capable"
+        "Current Local Reply Evidence: Local evidence: setup ready"
       );
       expect(stdout).toContain(
         "Current Local Execution Diagnostics: Local binding, execution target, daemon route, and execution authority evidence only; not Core AgentExecutionReadiness and not this Wake's final result."
@@ -713,7 +713,7 @@ describe("service trace command", () => {
         "Current Wake Diagnostic: Wake has not been checked yet."
       );
       expect(stdout).toContain(
-        "Current Local Service Link Evidence: Local evidence: reply-capable"
+        "Current Local Service Link Evidence: Local evidence: setup ready"
       );
       expect(stdout).toContain("Current Local Reply Route Evidence: Online");
       expect(stdout).toContain("Workspace: OpenMeld-managed");
@@ -1022,11 +1022,11 @@ describe("service trace command", () => {
         },
       });
       expect(summary?.text).toBe(
-        "delivered=false visible_outcome=not_applicable current_state=final_projection_pending reason=final_visible_message.projection_pending next_action=wait - if the target computer is offline, this Wake is delivered automatically when its OpenMeld Service reconnects; rerun trace with the same selector to confirm"
+        "delivered=false visible_outcome=not_applicable current_state=final_projection_pending reason=final_visible_message.projection_pending next_action=wait, then rerun trace with the same selector; use --details to inspect execution evidence"
       );
       expect(stdout).toContain("finalVisibleLinkage=projection_pending");
       expect(stdout).toContain(
-        "delivered=false visible_outcome=not_applicable current_state=final_projection_pending reason=final_visible_message.projection_pending next_action=wait - if the target computer is offline, this Wake is delivered automatically when its OpenMeld Service reconnects; rerun trace with the same selector to confirm"
+        "delivered=false visible_outcome=not_applicable current_state=final_projection_pending reason=final_visible_message.projection_pending next_action=wait, then rerun trace with the same selector; use --details to inspect execution evidence"
       );
     });
   });

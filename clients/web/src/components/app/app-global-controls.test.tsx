@@ -5,7 +5,7 @@ import {
 	screen,
 	within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppGlobalControls } from "./app-global-controls";
 
 vi.mock("./current-computer", () => ({
@@ -35,6 +35,9 @@ vi.mock("#/components/organizations/global-center-agent-launcher", () => ({
 }));
 
 describe("AppGlobalControls", () => {
+	beforeEach(() => {
+		localStorage.setItem("openmeld.toolbar.hidden", "");
+	});
 	afterEach(() => {
 		cleanup();
 		localStorage.clear();

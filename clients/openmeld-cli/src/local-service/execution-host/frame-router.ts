@@ -5,6 +5,7 @@ import type {
   PendingAgentInteractionRegistry,
 } from "@openmeld/local-service";
 import {
+  agentInteractionResolutionSchema,
   localAgentReasoningPreferencesSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportDispatchInteractionDeliveredRequestSchema,
@@ -12,6 +13,7 @@ import {
   runtimeTransportLocalAgentControlCancelFramePayloadSchema,
   runtimeTransportLocalAgentControlInterruptFramePayloadSchema,
 } from "@openmeld/schemas";
+import type { AgentInteractionResponse } from "@openmeld/schemas/types";
 import type { Presenter } from "../../runtime/presenter/types";
 import { sendDaemonFrame } from "../carrier/daemon-frame-transport";
 import {
@@ -32,8 +34,13 @@ import {
   flushDispatchResultOutbox,
 } from "../dispatch/dispatch-result-outbox";
 import { enqueueDispatchDeliverFrame } from "../dispatch/execute-dispatch-task";
+import { syncActiveTaskPermissionModes } from "../routing/active-permission-mode-sync";
 
-function handleDispatchInteractionResponse(input: {
+type InteractionResponseInput = {
+  routeByProfileId: Map<string, DaemonProfileRouteConfig>;
+  readRouteByProfileId?: () => Map<string, DaemonProfileRouteConfig>;
+  inflightTaskControlRegistry: InflightTaskControlRegistry;
+  localAdapterContainer: LocalDaemonAdapterContainer;
   currentSocketRef: CurrentDaemonSocketRef;
   daemonSessionId: string;
   leasesByProfileId: Map<string, number>;
@@ -41,7 +48,70 @@ function handleDispatchInteractionResponse(input: {
   pendingAgentInteractionRegistry: PendingAgentInteractionRegistry;
   presenter: Presenter;
   socket: DaemonFrameSink;
-}): void {
+};
+
+async function applySavedPermissionModeBeforeResponse(
+  input: InteractionResponseInput,
+  pendingInteraction: NonNullable<
+    ReturnType<PendingAgentInteractionRegistry["get"]>
+  >,
+  requestedUpdate: NonNullable<
+    Extract<
+      AgentInteractionResponse,
+      { kind: "permission" }
+    >["permissionModeUpdate"]
+  >
+): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (
+      input.pendingAgentInteractionRegistry.get(
+        pendingInteraction.request.interactionId
+      ) !== pendingInteraction ||
+      pendingInteraction.response !== null
+    ) {
+      return;
+    }
+    const route = (
+      input.readRouteByProfileId?.() ?? input.routeByProfileId
+    ).get(pendingInteraction.authority.targetProfileId);
+    if (
+      route?.bindingId === requestedUpdate.bindingId &&
+      route.agentControllerPermissionMode === requestedUpdate.mode
+    ) {
+      const outcomes = await syncActiveTaskPermissionModes({
+        catalogState: {
+          get routeByProfileId() {
+            return input.readRouteByProfileId?.() ?? input.routeByProfileId;
+          },
+        },
+        inflightTaskControlRegistry: input.inflightTaskControlRegistry,
+        localAdapterContainer: input.localAdapterContainer,
+        taskId: pendingInteraction.taskId,
+      });
+      for (const outcome of outcomes) {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.active_permission_mode_sync",
+          text: `active permission update ${outcome.status} for ${outcome.taskId}`,
+          payload: outcome,
+        });
+      }
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  emitRunLine({
+    presenter: input.presenter,
+    code: "daemon.run.permission_mode_sync_pending",
+    text: "The saved permission mode has not reached this execution. Only the selected approval will be applied.",
+    payload: { taskId: pendingInteraction.taskId },
+  });
+}
+
+async function handleDispatchInteractionResponse(
+  input: InteractionResponseInput
+): Promise<void> {
   const parsedResponse =
     runtimeTransportDispatchInteractionResponseFramePayloadSchema.safeParse(
       input.payload
@@ -88,6 +158,33 @@ function handleDispatchInteractionResponse(input: {
       },
     });
     return;
+  }
+  const requestedUpdate =
+    parsedResponse.data.response.kind === "permission"
+      ? parsedResponse.data.response.permissionModeUpdate
+      : undefined;
+  if (requestedUpdate && pendingInteraction.response === null) {
+    // The response references a saved Binding. Only the canonical route catalog
+    // can authorize the update; a response cannot supply a new native policy.
+    if (
+      !agentInteractionResolutionSchema.safeParse({
+        request: pendingInteraction.request,
+        response: parsedResponse.data.response,
+      }).success
+    ) {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.interaction_response_invalid",
+        text: "The permission response does not match the pending request.",
+        payload: { interactionId: parsedResponse.data.interactionId },
+      });
+      return;
+    }
+    await applySavedPermissionModeBeforeResponse(
+      input,
+      pendingInteraction,
+      requestedUpdate
+    );
   }
   const resolution = input.pendingAgentInteractionRegistry.resolve({
     interactionId: parsedResponse.data.interactionId,
@@ -171,6 +268,7 @@ function applyReasoningPreference(
 }
 
 export function handleExecutionHostFrame(input: {
+  readRouteByProfileId?: () => Map<string, DaemonProfileRouteConfig>;
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
   currentSocketRef: CurrentDaemonSocketRef;
@@ -272,6 +370,10 @@ export function handleExecutionHostFrame(input: {
       return;
     case "daemon.dispatch.interaction_response":
       handleDispatchInteractionResponse({
+        readRouteByProfileId: input.readRouteByProfileId,
+        routeByProfileId: input.routeByProfileId,
+        inflightTaskControlRegistry: input.inflightTaskControlRegistry,
+        localAdapterContainer: input.localAdapterContainer,
         currentSocketRef: input.currentSocketRef,
         daemonSessionId: input.daemonSessionId,
         leasesByProfileId: input.leasesByProfileId,
@@ -279,7 +381,14 @@ export function handleExecutionHostFrame(input: {
         pendingAgentInteractionRegistry: input.pendingAgentInteractionRegistry,
         presenter: input.presenter,
         socket: input.socket,
-      });
+      }).catch((error) =>
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.interaction_response_failed",
+          text: "The permission response is still pending after a local update failed.",
+          payload: { error: toErrorMessage(error) },
+        })
+      );
       return;
     case "daemon.local_agent_control.cancel": {
       const parsedCancelFrame =

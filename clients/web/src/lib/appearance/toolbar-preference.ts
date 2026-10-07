@@ -8,10 +8,11 @@ export const TOOLBAR_SHORTCUTS = [
 	{ id: "inbox", label: "Inbox" },
 ] as const;
 export type ToolbarShortcut = (typeof TOOLBAR_SHORTCUTS)[number]["id"];
+const DEFAULT_HIDDEN = TOOLBAR_SHORTCUTS.map((item) => item.id).join(" ");
 
 export function useToolbarPreference() {
 	const [stored, write] = useBrowserPreference(STORAGE_KEY);
-	const hidden = (stored ?? "").split(" ");
+	const hidden = (stored ?? DEFAULT_HIDDEN).split(" ");
 	return {
 		isVisible: (id: ToolbarShortcut) => !hidden.includes(id),
 		setVisible: (id: ToolbarShortcut, visible: boolean) => {
@@ -30,7 +31,7 @@ export function useToolbarPreference() {
 export const TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT = `(() => {
  const apply = () => {
  try {
-  const hidden = (localStorage.getItem(${JSON.stringify(STORAGE_KEY)}) || "").split(" ");
+  const hidden = (localStorage.getItem(${JSON.stringify(STORAGE_KEY)}) ?? ${JSON.stringify(DEFAULT_HIDDEN)}).split(" ");
   document.documentElement.setAttribute(${JSON.stringify(ATTRIBUTE)}, ${JSON.stringify(TOOLBAR_SHORTCUTS.map((item) => item.id))}.filter(id => hidden.includes(id)).join(" "));
  } catch (error) { console.warn("Unable to restore toolbar preferences.", error); }
  };

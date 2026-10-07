@@ -29,6 +29,7 @@ import {
 import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
+	filterUnconfirmedRestoredWakeProgress,
 	findUnconfirmedBootstrapWakeStream,
 	findUnconfirmedPresentedWakeProgress,
 	listPendingWakeProgressClientMessageIds,
@@ -282,6 +283,46 @@ describe("unconfirmed Wake presentation diagnostics", () => {
 		targetLabel: "Runner",
 		targetProfileId: AGENT_PROFILE_ID,
 		updatedAtMs: 100,
+	});
+
+	it.each([
+		"sending",
+		"request_sent",
+	] as const)("retains a recent local %s submission across navigation without restoring old work", (phase) => {
+		const pending = createWakeProgressItem({
+			clientMessageId: "new-message",
+			dispatchId: null,
+			phase,
+			sourceSignalId: null,
+			targetLabel: "Runner",
+			targetProfileId: AGENT_PROFILE_ID,
+			updatedAtMs: Date.now(),
+		});
+		const currentItems = [
+			pending,
+			item,
+			{
+				...pending,
+				clientMessageId: "expired-message",
+				updatedAtMs: Date.now() - 30_001,
+			},
+		];
+		expect(
+			filterUnconfirmedRestoredWakeProgress({
+				confirmedItems: [],
+				currentItems,
+				restoredItems: currentItems,
+			})
+		).toEqual([pending]);
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				confirmedItems: [],
+				presentedItems: [pending],
+				restoredItems: [pending],
+				spaceSummaryFetchedAfterMount: false,
+				ownSummaryFetchedAfterMount: false,
+			})
+		).toBeNull();
 	});
 
 	it("identifies an old rendered item and every unconfirmed cache source", () => {

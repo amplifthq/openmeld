@@ -1,6 +1,9 @@
 import { pluginActionRpcInputSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { rpcPluginAction } from "../src/connectors/plugin-actions";
+import {
+  authorizeLocalPluginConnection,
+  rpcPluginAction,
+} from "../src/connectors/plugin-actions";
 import type { CoreBindings } from "../src/lib/bindings";
 
 const owner = vi.hoisted(() => ({
@@ -10,6 +13,12 @@ const owner = vi.hoisted(() => ({
   policy: vi.fn(),
   identity: vi.fn(),
   runtime: vi.fn(),
+  describe: vi.fn(),
+  native: vi.fn(),
+  computer: vi.fn(),
+}));
+vi.mock("../src/computer/personal-computer", () => ({
+  ensurePersonalComputer: owner.computer,
 }));
 vi.mock("../src/connectors/plugin-local-caller", () => ({
   requireLocalPluginCaller: owner.caller,
@@ -32,6 +41,8 @@ vi.mock("../src/organizations/organization-context", () => ({
   readOrganizationAccountIdentityProjection: owner.identity,
 }));
 const organizationId = "org";
+const NATIVE_CONNECTION_URL =
+  /^http:\/\/computer\.internal\/connections\/[a-f0-9]{64}$/u;
 const profileId = "agt_33333333-3333-4333-8333-333333333333";
 const request = (account: "personal" | "shared") =>
   pluginActionRpcInputSchema.parse({
@@ -48,6 +59,10 @@ const request = (account: "personal" | "shared") =>
     request: { action: { operation: "actions", service: "linear", account } },
   });
 const connection = {
+  organizationId,
+  createdAtMs: 1,
+  disconnectedAtMs: null,
+  status: "active",
   service: "linear",
   scope: "shared",
   userId: "user",
@@ -55,7 +70,11 @@ const connection = {
   updatedAtMs: 42,
 };
 const env = {
-  OPENMELD_REMOTE_AGENT_WORKER: { pluginRuntime: owner.runtime },
+  OPENMELD_REMOTE_AGENT_WORKER: {
+    pluginRuntime: owner.runtime,
+    describePluginConnection: owner.describe,
+    createPluginComputerConnection: owner.native,
+  },
 } as unknown as CoreBindings;
 beforeEach(() => {
   for (const mock of Object.values(owner)) {
@@ -77,7 +96,7 @@ beforeEach(() => {
     connectionName: "linear-team",
     connectionUpdatedAtMs: 42,
   });
-  owner.selection.mockResolvedValue({ connection });
+  owner.selection.mockResolvedValue({ connection, permission: "read" });
   owner.policy.mockResolvedValue({ policy: { local_agent: "read" } });
   owner.identity.mockResolvedValue({
     ok: true,
@@ -87,6 +106,95 @@ beforeEach(() => {
   owner.runtime.mockResolvedValue({ status: "catalog", actions: [] });
 });
 describe("Local App execution enforces the admitted account, not just guidance", () => {
+  it("reuses the selected connection, reports expiry, and rechecks current permission for native access", async () => {
+    const input = pluginActionRpcInputSchema.parse({
+      ...request("shared"),
+      request: {
+        action: {
+          operation: "connection",
+          service: "linear",
+          account: "shared",
+          key: "diagnosis",
+          computer: true,
+        },
+      },
+    });
+    const description = {
+      service: "linear",
+      connection: {
+        connectionName: "linear-team",
+        health: {
+          state: "reconnect_required",
+          observedAt: new Date().toISOString(),
+          expiresAt: null,
+          reason: "oauth_token_expired",
+        },
+        profile: { accountId: "account", displayName: "Fixture" },
+      },
+      nativeHttp: null,
+    };
+    owner.describe.mockResolvedValue(description);
+    expect(await rpcPluginAction(env, input)).toMatchObject({
+      kind: "native_connection",
+      connection: { connectionName: "linear-team" },
+      nextAction: "Reconnect this account in Plugins.",
+    });
+    expect(owner.native).not.toHaveBeenCalled();
+    expect(owner.computer).not.toHaveBeenCalled();
+    const usable = {
+      ...description,
+      connection: {
+        ...description.connection,
+        health: {
+          ...description.connection.health,
+          state: "unknown",
+          reason: null,
+        },
+      },
+      nativeHttp: {
+        baseUrl: "https://api.example.test",
+        documentationUrl: "https://example.test/docs",
+        auth: { type: "bearer" },
+        read: [{ method: "GET", path: "^/items$" }],
+      },
+    };
+    owner.describe.mockResolvedValue(usable);
+    owner.computer.mockResolvedValue({
+      id: "computer",
+      ownerUserId: "user",
+      provider: "cloudflare",
+      createdAtMs: 1,
+    });
+    owner.native.mockImplementation(async ({ grant }) => ({
+      description: usable,
+      baseUrl: `http://computer.internal/connections/${grant.id}`,
+      nextAction: "Use the selected account.",
+    }));
+    expect(await rpcPluginAction(env, input)).toMatchObject({
+      kind: "native_connection",
+      connection: { connectionName: "linear-team", scope: "shared" },
+      baseUrl: expect.stringMatching(NATIVE_CONNECTION_URL),
+    });
+    expect(await authorizeLocalPluginConnection(env, input)).toMatchObject({
+      connection,
+      permission: "read",
+    });
+    for (const [method, mock] of [
+      ["describePluginConnection", owner.describe],
+      ["createPluginComputerConnection", owner.native],
+    ] as const) {
+      mock.mockRejectedValueOnce(
+        new Error(`The RPC receiver does not implement the method "${method}".`)
+      );
+      await expect(rpcPluginAction(env, input)).rejects.toThrow(
+        "plugin.runtime_unavailable"
+      );
+    }
+    owner.selection.mockResolvedValue(null);
+    await expect(authorizeLocalPluginConnection(env, input)).rejects.toThrow(
+      "plugin.connection_unavailable"
+    );
+  });
   it("looks up the original-source binding before resolving the requested account", async () => {
     expect(await rpcPluginAction(env, request("shared"))).toMatchObject({
       kind: "actions",
