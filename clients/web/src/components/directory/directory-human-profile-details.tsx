@@ -52,6 +52,8 @@ export type DirectoryHumanProfileResearchAction = {
 };
 
 export type DirectoryHumanProfileDetailsProps = {
+	directMessageEnabled?: boolean;
+	conversationsEnabled?: boolean;
 	activityNowMs: number;
 	computersContent?: ReactNode;
 	directMessageIsPending: boolean;
@@ -72,7 +74,9 @@ export function DirectoryHumanProfileDetails(
 	input: DirectoryHumanProfileDetailsProps
 ) {
 	const canOpenDirectMessage =
-		input.member.profileStatus === "active" && !input.member.isCurrentUser;
+		input.directMessageEnabled !== false &&
+		input.member.profileStatus === "active" &&
+		!input.member.isCurrentUser;
 	return (
 		<div
 			className="@container/profile-detail mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
@@ -102,7 +106,7 @@ export function DirectoryHumanProfileDetails(
 				profiles={input.member.agentProfiles}
 			/>
 
-			{input.member.isCurrentUser ? (
+			{input.member.isCurrentUser && input.conversationsEnabled !== false ? (
 				<AgentConversationsSection member={input.member} />
 			) : null}
 			<DetailSection title="Computers">

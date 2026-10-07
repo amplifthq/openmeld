@@ -1,0 +1,162 @@
+@import "../../src/styles.css";
+@source "../../src";
+@source ".";
+html {
+	color-scheme: dark;
+}
+body {
+	margin: 0;
+}
+[data-slot="app-surface-layout"] {
+	--app-toolbar-height: 0.75rem;
+}
+/* The homepage frame is capped at 1200px; retain the real panel within it. */
+@media (min-width: 1024px) {
+	[data-slot="app-surface"] {
+		margin-top: 12px;
+		margin-right: 12px;
+	}
+	[data-slot="sidebar-wrapper"]:has(#space-members-panel) {
+		display: flex;
+	}
+}
+/* Creation and account-changing actions are outside this bounded demo. */
+[aria-label="New conversation"],
+[aria-label="Add to Team"],
+[aria-label="Create routine"] {
+	display: none;
+}
+/* Account setup and server-wide search are outside the local demo. */
+[aria-label="Organization actions"],
+[data-testid="plugin-detail-access"] button,
+[data-testid="plugin-detail-access"] input {
+	display: none;
+}
+
+.demo-create-agent > :has(> [role="tablist"]) {
+	max-width: 56rem;
+}
+.demo-center-agent {
+	width: 100%;
+	max-width: 1120px;
+	margin: auto;
+	padding: 48px 40px;
+}
+.demo-center-identity {
+	display: flex;
+	align-items: center;
+	gap: 24px;
+	margin-bottom: 40px;
+}
+.demo-center-grid {
+	display: grid;
+	grid-template-columns: 0.8fr 1.2fr;
+	align-items: start;
+	gap: 24px;
+}
+.demo-center-model {
+	padding: 28px;
+	border: 1px solid #ffffff18;
+}
+.demo-center-connections > div {
+	border: 1px solid #ffffff0d;
+}
+.demo-usage {
+	width: 100%;
+	max-width: 1200px;
+	margin: auto;
+	padding: 28px 24px 56px;
+}
+.demo-usage-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+	margin-bottom: 28px;
+}
+.demo-usage-remote {
+	width: 88%;
+}
+.demo-usage-remote [data-slot="card-content"] {
+	padding-bottom: 64px;
+}
+.demo-usage-local {
+	position: relative;
+	width: 84%;
+	margin-top: -38px;
+	margin-left: auto;
+}
+.demo-usage [data-slot="card"] {
+	border: 1px solid transparent;
+	border-radius: 12px;
+	background:
+		linear-gradient(#151515, #151515) padding-box,
+		linear-gradient(130deg, #ffffff38, #ffffff0a 36%, #e3d3b327 65%, #ffffff12)
+		border-box;
+	box-shadow: 0 28px 56px -20px #000a;
+}
+/* These scenes sit directly over the landing page's shader. Keep the product
+   cards, but remove the document canvas behind them. */
+html:has(.demo-create-agent, .demo-center-agent, .demo-usage) {
+	background: transparent !important;
+}
+html:has(.demo-create-agent, .demo-center-agent, .demo-usage)
+	:is(body, #root, main) {
+	background: transparent;
+}
+@media (max-width: 640px) {
+	.demo-center-agent {
+		padding: 32px 20px;
+	}
+	.demo-center-identity {
+		flex-wrap: wrap;
+		gap: 16px;
+		margin-bottom: 28px;
+	}
+	.demo-center-identity h1 {
+		font-size: 19px;
+	}
+	.demo-center-grid {
+		grid-template-columns: 1fr;
+		gap: 16px;
+	}
+	.demo-center-connections {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.demo-center-model {
+		padding: 20px;
+	}
+	.demo-usage {
+		padding: 24px 0 40px;
+	}
+	.demo-usage-heading {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 16px;
+	}
+	.demo-usage-remote,
+	.demo-usage-local {
+		width: 100%;
+		margin: 0;
+	}
+	.demo-usage-local {
+		margin-top: 20px;
+	}
+	.demo-usage-remote [data-slot="card-content"] {
+		padding-bottom: 20px;
+	}
+	.demo-usage [data-slot="card-header"],
+	.demo-usage [data-slot="card-content"] {
+		padding-inline: 16px;
+	}
+	.demo-usage table {
+		font-size: 10px;
+	}
+	.demo-usage table .whitespace-nowrap {
+		white-space: normal;
+	}
+	.demo-usage table th,
+	.demo-usage table td {
+		padding-inline: 3px;
+	}
+}
