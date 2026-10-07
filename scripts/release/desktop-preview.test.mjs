@@ -39,6 +39,8 @@ const REJECTED_RELEASE_CREDENTIALS = /HTTP 401.*No Desktop object was written/u;
 const INTERRUPTED_PUBLIC_DOWNLOAD =
   /connection terminated.*No pointer write was attempted.*same reviewed candidate/u;
 const POINTER_NOT_STARTED = /pointer write has not started/u;
+const UNTRUSTED_DESKTOP_REDIRECT = /Untrusted Desktop download redirect/u;
+const DESKTOP_HASH_MISMATCH = /size\/hash mismatch/u;
 
 test("legacy unsigned upload refuses publication before reading artifacts", () => {
   const result = spawnSync(
@@ -221,6 +223,75 @@ test("an interrupted public download reports the failed URL before pointer publi
     INTERRUPTED_PUBLIC_DOWNLOAD
   );
   assert.match(lines.join(""), POINTER_NOT_STARTED);
+});
+
+test("Desktop public verification follows the production CDN redirect and checks the complete bytes", async () => {
+  const destination =
+    "https://downloads.openmeld.ai/desktop/candidates/reviewed/desktop.dmg";
+  const requests = [];
+  await verifyDesktopPublicArtifact({
+    pathname: "/desktop/download?candidate=reviewed",
+    sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    size: 5,
+    fetchArtifact: (url, options) => {
+      requests.push(String(url));
+      assert.equal(options.redirect, "manual");
+      // Production returns HTTP 307 with Location on the download CDN.
+      return requests.length === 1
+        ? Response.redirect(destination, 307)
+        : new Response("hello");
+    },
+    write: () => undefined,
+  });
+  assert.deepEqual(requests, [
+    "https://openmeld.ai/desktop/download?candidate=reviewed",
+    destination,
+  ]);
+});
+
+test("Desktop public verification rejects untrusted redirects before fetching them", async () => {
+  for (const destination of [
+    "https://example.com/desktop/file.dmg",
+    "http://downloads.openmeld.ai/desktop/file.dmg",
+    "https://downloads.openmeld.ai/account",
+  ]) {
+    let requests = 0;
+    await assert.rejects(
+      verifyDesktopPublicArtifact({
+        pathname: "/desktop/download?candidate=reviewed",
+        sha256: "a".repeat(64),
+        size: 5,
+        fetchArtifact: () => {
+          requests += 1;
+          return Response.redirect(destination, 307);
+        },
+        write: () => undefined,
+      }),
+      UNTRUSTED_DESKTOP_REDIRECT
+    );
+    assert.equal(requests, 1);
+  }
+});
+
+test("Desktop public verification still rejects altered bytes after a trusted redirect", async () => {
+  let requests = 0;
+  await assert.rejects(
+    verifyDesktopPublicArtifact({
+      pathname: "/desktop/download?candidate=reviewed",
+      sha256:
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+      size: 5,
+      fetchArtifact: () =>
+        ++requests === 1
+          ? Response.redirect(
+              "https://downloads.openmeld.ai/desktop/file.dmg",
+              307
+            )
+          : new Response("world"),
+      write: () => undefined,
+    }),
+    DESKTOP_HASH_MISMATCH
+  );
 });
 
 test("Desktop promotion requires an increasing stable app version", () => {
