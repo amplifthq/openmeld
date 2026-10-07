@@ -601,6 +601,10 @@ pagination. Discovery failure or incomplete coverage must remain visible; an
 empty page does not establish that the Computer has no sessions. Personal
 Remote Agents receive the same inventory and history tools, subject to their
 existing per-call Space authorization and the history access policy above.
+Inventory RPCs admit a personal Remote Agent's active delivery and verified
+member requester without requiring Center designation. Center callers retain
+their existing designation checks; inventory visibility never grants history
+read access.
 The history service does not persist transcript bodies, index them in cloud
 storage, or put them in telemetry or browser persistent caches. An authorized
 downstream agent conversation or model provider can retain a tool result or a
