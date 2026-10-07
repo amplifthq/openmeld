@@ -305,6 +305,9 @@ Prefer reuse of a verified existing repository before cloning. The suggested
 layout is `/computer/projects/<organization-id>/<project-id>/repo` plus adjacent
 `worktrees/<task-id>` directories. This is Agent guidance, not a new Project
 registration, required path, automatic migration, or Team file permission.
+Use known IDs; missing Project context must not trigger discovery or creation
+merely for directory naming. A distinct repository-derived key is sufficient
+when no registered Project is known, with identity checked before reuse.
 Independent changes use separate worktrees and explicit base commits; Agents
 must not reset, switch or pull another task's checkout. Separate clones remain
 valid when needed. Worktrees share Git objects, not all working files or caches.

@@ -15,6 +15,10 @@ in the adjacent `worktrees/<task-id>` directory. This is not a required layout
 or a new OpenMeld Project registration. Use verified Project/repository identity;
 do not reuse a directory based only on its display name. Keep existing layouts
 unless a move is needed and safe.
+Use Organization/Project IDs only when already known. Do not search for or
+create a Project merely to construct a directory name. Without those IDs, choose
+a distinct repository key from known repository identity (or a synthetic key for
+a test) under `/computer/projects/<repository-key>`. Verify before reusing it.
 
 Keep the primary checkout on its actual default branch when practical. Give
 each modifying task its own branch/worktree, based on an explicit commit.

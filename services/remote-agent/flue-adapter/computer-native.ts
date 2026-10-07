@@ -51,7 +51,7 @@ export function describeComputer(
     capabilities: {
       ...(storage ? { storage } : {}),
       repositories:
-        "Prefer a persistent repository under /computer/projects/<organization-id>/<project-id>/repo and separate task worktrees beside it. Inspect existing repository identity, status and worktrees before cloning. Use the actual default branch and pin each task to a commit; do not switch or reset another task's checkout. This is a convention, not a required path or a shared Team permission. Independent clones remain appropriate when isolation requires them. Worktrees share Git objects, not dependencies or all working files. Before cleanup inspect uncommitted/unpushed work and active commands; never delete the primary repository while linked worktrees need it.",
+        "Prefer a persistent repository under /computer/projects/<organization-id>/<project-id>/repo and separate task worktrees beside it. Use IDs only when already known; otherwise use a distinct repository-derived key under /computer/projects. Do not look up or create a Project merely to name a directory. Inspect existing repository identity, status and worktrees before cloning. Use the actual default branch and pin each task to a commit; do not switch or reset another task's checkout. This is a convention, not a required path or a shared Team permission. Independent clones remain appropriate when isolation requires them. Worktrees share Git objects, not dependencies or all working files. Before cleanup inspect uncommitted/unpushed work and active commands; never delete the primary repository while linked worktrees need it.",
       backends: COMPUTER_BACKENDS,
       files: tools.tools,
       command: {
