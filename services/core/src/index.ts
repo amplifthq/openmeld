@@ -3195,6 +3195,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcPluginAction(this.env, input)
     );
   }
+  authorizeLocalPluginConnection(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      authorizeLocalPluginConnection(this.env, input)
+    );
+  }
 
   pluginActionRequest(
     input: import("@openmeld/schemas/types").PluginActionRequestCommandRpc
@@ -6505,7 +6510,10 @@ import type {
   CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { rpcPluginActionRequest } from "./connectors/plugin-action-requests";
-import { rpcPluginAction } from "./connectors/plugin-actions";
+import {
+  authorizeLocalPluginConnection,
+  rpcPluginAction,
+} from "./connectors/plugin-actions";
 import {
   type CenterAgentPostChannelFileInput,
   rpcCenterAgentPostChannelFile,

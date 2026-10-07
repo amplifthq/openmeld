@@ -336,6 +336,7 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  authorizeLocalPluginConnection?(input: unknown): Promise<unknown>;
   recordRemoteAiUsage?(
     input: RemoteAiUsageWrite
   ): Promise<RemoteAiUsageWriteResponse>;

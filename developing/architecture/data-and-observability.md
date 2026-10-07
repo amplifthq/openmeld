@@ -35,6 +35,16 @@ status comes from native command observations; identity existence and a successf
 file read are not proof that a container is running. Future human UI must consume
 these same operations and observations rather than add another status writer.
 
+Persistent capacity is a read projection sampled from that Computer's own
+`ctx.storage.sql.databaseSize`. It includes SDK files and internal records.
+The optional shared `capabilities.storage` contract reports the provider limit,
+conservative growth headroom and observation time; it is not a second quota
+ledger or a Linux filesystem measurement. Near-limit guidance is advisory and
+does not block reads, selected deletes, or command inspection. The Agent explains
+the warning when it checks capacity; there is no background notification promise.
+Do not read or mutate SDK-private blob tables to reclaim storage. Deleting a
+visible file is not evidence that the SDK has reclaimed retained content.
+
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
 compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.
@@ -827,6 +837,36 @@ for selection until executor evidence confirms it again. A failed list request
 is not an empty inventory and must preserve the failure instead of rewriting
 status. Executor evidence cannot register a legacy or otherwise unowned
 connection.
+
+OpenConnector also owns credential health and refresh. Its connection summary
+reports observed credential state separately from Core's ownership status.
+An active Core row means a registered credential exists; it does not prove a
+provider request will succeed. Gateway projects health only to clients that
+request `includeConnectionHealth=true`, preserving published strict response
+schemas. No second health writer or credential copy is introduced in Core.
+An expired credential without a refresh token requires reconnecting the same
+account. Other unverified credentials remain `unknown`; discovery does not
+perform a provider health call before every action.
+
+Native Computer HTTP access uses the same selected Plugin account. Core owns
+the represented caller and current Agent permission; OpenConnector owns the
+catalog's declared read paths, input bounds, destination and authentication.
+Computer stores an expiring grant containing only an internal reauthorization
+request and non-secret connection identity. Its temporary URL is usable only
+through that Computer's container egress. Every request rechecks current
+execution/caller access and the exact connection name, scope and registration
+revision. Refreshing an OAuth token does not rewrite Core's registration.
+Git and native HTTP reuse remote account authorization; Git remains a binary
+stream, while native HTTP currently accepts bounded JSON API reads.
+
+Provider definitions declare native transport metadata; the host does not add
+a provider-specific tool or maintain provider CLI commands. Optional custom
+authentication adapters are reserved for protocols such as GitHub App token
+minting. Missing native transport means use existing Plugin actions. Writes
+and exact-action delegations retain their action authorization and recovery
+path; a delegated action cannot mint broader native access. Standard secret
+fields and known authentication values are redacted from native JSON results;
+arbitrary application log content is not guaranteed to be secret-free.
 
 Provider authentication mechanisms remain OpenConnector-owned credential
 detail and do not become a parallel Core connection kind. The Figma transition

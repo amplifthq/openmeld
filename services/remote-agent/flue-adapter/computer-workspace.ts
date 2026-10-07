@@ -26,6 +26,8 @@ import {
   agentComputerBrowserRequestSchema,
   agentComputerPreviewRequestSchema,
   cloudComputerOperationSchema,
+  type PluginConnectionGrant,
+  pluginConnectionGrantSchema,
   type RemoteAgentGitPackStart,
   type RemoteAgentGitPackStatus,
   type RemoteAgentGitTransferGrant,
@@ -36,6 +38,7 @@ import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
 import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-context";
 import { forwardGitConnectionRequest } from "../connectors/github-connection-transport";
+import { forwardPluginConnection } from "../connectors/plugin-connection";
 import {
   ACCOUNT_ERASED_KEY,
   eraseAccountStorage,
@@ -53,12 +56,20 @@ import {
   type PreviewBrowserBinding,
   validateComputerPreviewPort,
 } from "./computer-preview";
-import { COMPUTER_GIT_PATH } from "./computer-workspace-proxy";
+import {
+  describeComputerStorage,
+  withComputerCapacityErrors,
+} from "./computer-storage";
+import {
+  COMPUTER_GIT_PATH,
+  COMPUTER_PLUGIN_PATH,
+} from "./computer-workspace-proxy";
 import { authorizeGitTransfer } from "./git-transfer-authorization";
 import {
   gitUploadPackBytes,
   gitUploadPackRequest,
 } from "./git-upload-pack-stream";
+import { authorizePluginConnection } from "./plugin-connection-authorization";
 import { RemoteAgentSqlStorage } from "./storage";
 
 /**
@@ -207,15 +218,22 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
 
   async computerOperation(value: unknown) {
+    return await withComputerCapacityErrors(() =>
+      this.#executeComputerOperation(value)
+    );
+  }
+
+  async #executeComputerOperation(value: unknown) {
     await requireRetainedAccountStorage(this.ctx.storage);
     const request = cloudComputerOperationSchema.parse(value);
-    await this.workspace.ready();
     if (request.action === "describe") {
       return describeComputer(
         this.#nativeFiles,
-        this.env.BROWSER ? this.describeBrowser("personal") : undefined
+        this.env.BROWSER ? this.describeBrowser("personal") : undefined,
+        describeComputerStorage(this.ctx.storage.sql.databaseSize)
       );
     }
+    await this.workspace.ready();
     if (request.action === "files") {
       const execute = () =>
         this.#nativeFiles.execute({
@@ -287,8 +305,10 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
 
   async writeComputerFile(path: string, content: string | Uint8Array) {
     await requireRetainedAccountStorage(this.ctx.storage);
-    await this.workspace.ready();
-    await this.#files.write(path, content);
+    await withComputerCapacityErrors(async () => {
+      await this.workspace.ready();
+      await this.#files.write(path, content);
+    });
   }
 
   async pendingComputerCommands(invocationId: string) {
@@ -354,6 +374,76 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       throw new Error("github.checkout.transfer_grant_conflict");
     }
     await this.ctx.storage.put(key, grant);
+  }
+
+  async registerPluginConnectionGrant(value: unknown): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    const grant = pluginConnectionGrantSchema.parse(value);
+    await this.#commands.deleteExpired({
+      prefix: "plugin-connection:",
+      nowMs: Date.now(),
+      limit: 100,
+    });
+    if (grant.expiresAtMs > Date.now() + 30 * 60 * 1000) {
+      throw new Error("plugin.connection_lifetime_invalid");
+    }
+    await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    const key = `plugin-connection:${grant.id}`;
+    const previous = await this.#commands.get<PluginConnectionGrant>(key);
+    if (
+      previous &&
+      (previous.organizationId !== grant.organizationId ||
+        previous.requesterUserId !== grant.requesterUserId ||
+        previous.connectionName !== grant.connectionName ||
+        previous.connectionUpdatedAtMs !== grant.connectionUpdatedAtMs ||
+        previous.service !== grant.service ||
+        previous.connectionScope !== grant.connectionScope ||
+        previous.authority.kind !== grant.authority.kind)
+    ) {
+      throw new Error("plugin.connection_key_conflict");
+    }
+    await this.#commands.putExpiring(key, grant, grant.expiresAtMs);
+  }
+
+  private async forwardPluginEgress(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const match = COMPUTER_PLUGIN_PATH.exec(url.pathname);
+    const grant = match
+      ? await this.#commands.get<PluginConnectionGrant>(
+          `plugin-connection:${match[1]}`
+        )
+      : undefined;
+    if (!grant) {
+      return new Response(
+        "Plugin connection expired. Renew the same connection key.",
+        { status: 403 }
+      );
+    }
+    try {
+      await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    } catch {
+      return new Response(
+        "Plugin access is no longer authorized. Review the selected account in Plugins.",
+        { status: 403 }
+      );
+    }
+    const response = await forwardPluginConnection({
+      request,
+      endpoint: `${match?.[2] ?? "/"}${url.search}`,
+      service: grant.service,
+      connectionName: grant.connectionName,
+      connectorExecution: {
+        baseUrl: this.env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: this.env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
+    });
+    try {
+      await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    } catch {
+      await response.body?.cancel();
+      return new Response("Plugin access was revoked.", { status: 403 });
+    }
+    return response;
   }
 
   async startGitPackTransfer(
@@ -697,6 +787,9 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   override async fetch(request: Request): Promise<Response> {
     await requireRetainedAccountStorage(this.ctx.storage);
     const url = new URL(request.url);
+    if (COMPUTER_PLUGIN_PATH.test(url.pathname)) {
+      return await this.forwardPluginEgress(request);
+    }
     if (COMPUTER_GIT_PATH.test(url.pathname)) {
       return await this.forwardComputerEgress(request);
     }

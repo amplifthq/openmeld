@@ -57,6 +57,7 @@ import {
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import { personalComputerProviderName } from "./computer-identity";
 import { createNativeComputerTool } from "./computer-native";
+import { createComputerPluginConnectionTool } from "./computer-plugin-connection";
 import { getComputerSpaceFileTools } from "./computer-space-files";
 import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
@@ -254,6 +255,16 @@ export async function createRemoteAgentComputerCapability(input: {
       }),
       ...organizationDocumentDefinitions,
       ...browserDefinitions,
+      ...(input.storage && input.connectorExecution
+        ? [
+            createComputerPluginConnectionTool({
+              ...input,
+              storage: input.storage,
+              connectorExecution: input.connectorExecution,
+              workspaceAccess,
+            }),
+          ]
+        : []),
       ...(input.storage && input.connectorExecution
         ? getGitHubWorkingCopyTools({
             context: input.context,
