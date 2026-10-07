@@ -24,3 +24,5 @@ a compact DMs shortcut to your sidebar.
 Pin the ones you use often to the sidebar, or unpin them from the same menu.
 Your pins are saved in this browser. Sidebar icons now show their names as soon
 as you hover over them.
+The hover highlight moves continuously between primary and pinned entries,
+including while a navigation popover opens or closes.

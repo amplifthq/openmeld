@@ -143,6 +143,7 @@ export function AppRailShortcutsPopover(input: {
 			<FluidContextMenu
 				target={
 					<PopoverTrigger
+						data-sidebar-hover-preview
 						delay={0}
 						nativeButton={false}
 						onClick={(event) => {

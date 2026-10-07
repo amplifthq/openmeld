@@ -30,8 +30,9 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { FluidHoverHighlight } from "#fluid/fluid-hover-highlight";
 import { resolveSlotTemplate, slotElement } from "#fluid/sidebar-group";
-import { type ItemRect, useProximityHover } from "#hooks/use-proximity-hover";
+import { type ItemRect, useFluidHover } from "#hooks/use-fluid-hover";
 import { fontWeights } from "#lib/font-weight";
 import { useShape } from "#lib/shape-context";
 import { springs as spring } from "#lib/springs";
@@ -180,9 +181,9 @@ function sameElements(a: HTMLElement[], b: HTMLElement[]) {
 type MenuScope = {
   value: MenuScopeValue;
   containerProps: {
-    onMouseEnter: () => void;
+    onMouseEnter: (e: React.MouseEvent) => void;
     onMouseMove: (e: React.MouseEvent) => void;
-    onMouseLeave: () => void;
+    onMouseLeave: (e: React.MouseEvent) => void;
     onFocus: (e: React.FocusEvent) => void;
     onBlur: (e: React.FocusEvent) => void;
     onPointerDown: () => void;
@@ -191,7 +192,6 @@ type MenuScope = {
   overlays: ReactNode;
 };
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Preserve the upstream menu registration and keyboard scope.
 function useMenuScope(
   containerRef: RefObject<HTMLElement | null>,
   activeLayoutId?: string,
@@ -210,14 +210,15 @@ function useMenuScope(
     sessionRef,
     handlers,
     registerItem,
-  } = useProximityHover(containerRef, {
-    axis: "both",
+    isMeasured,
+  } = useFluidHover(containerRef, {
+    axis: "y",
+    gapClick: false,
     isItemDisabled: rowHidden,
   });
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
   const [hoverStore] = useState(createRowHoverStore);
-  const isMeasured = itemRects.length > 0;
 
   const rowsRef = useRef<Set<HTMLElement>>(new Set());
   const rowButtonsRef = useRef<Map<HTMLElement, HTMLElement>>(new Map());
@@ -368,6 +369,8 @@ function useMenuScope(
   // traveling background. Context-menu areas have no aria-haspopup, so use
   // their explicit state when available: a composed tooltip can also put
   // data-popup-open on the same element while the context menu is closed.
+  // Hover previews explicitly opt out: their appearance or exit fade must
+  // not freeze navigation as the pointer continues across sibling entries.
   const popupOpen = useCallback(() => {
     const container = containerRef.current;
     if (!container) {
@@ -375,18 +378,18 @@ function useMenuScope(
     }
     const root = container.closest('[data-sidebar="panel"]') ?? container;
     return !!root.querySelector(
-      '[aria-haspopup]:not([aria-haspopup="false"]):is([data-popup-open], [data-state="open"], [aria-expanded="true"]), [data-context-menu-open="true"], [data-slot="context-menu-trigger"]:not([data-context-menu-open])[data-popup-open]'
+      '[aria-haspopup]:not([aria-haspopup="false"]):not([data-sidebar-hover-preview]):is([data-popup-open], [data-state="open"], [aria-expanded="true"]), [data-context-menu-open="true"], [data-slot="context-menu-trigger"]:not([data-context-menu-open])[data-popup-open]'
     );
   }, [containerRef]);
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (popupOpen()) {
+      if (!containerRef.current?.contains(e.target as Node) || popupOpen()) {
         return;
       }
       handlers.onMouseMove(e);
     },
-    [popupOpen, handlers]
+    [containerRef, popupOpen, handlers]
   );
 
   const onFocus = useCallback(
@@ -535,12 +538,12 @@ function useMenuScope(
   // strict mode's double render can't eat a genuine row change.
   const prevTargetsRef = useRef<{
     hover: HTMLElement | null;
+    hoverRect: ItemRect | null;
     focus: HTMLElement | null;
     actives: Map<string, HTMLElement>;
-  }>({ hover: null, focus: null, actives: new Map() });
+  }>({ hover: null, hoverRect: null, focus: null, actives: new Map() });
 
   const levelOccurrence = new Map<number, number>();
-  const levelFirstActive = new Map<number, HTMLElement>();
   const activeRects: {
     key: string;
     rect: ItemRect;
@@ -555,9 +558,6 @@ function useMenuScope(
     const levelId = overlayGroupId(level);
     const occurrence = levelOccurrence.get(levelId) ?? 0;
     levelOccurrence.set(levelId, occurrence + 1);
-    if (!levelFirstActive.has(levelId)) {
-      levelFirstActive.set(levelId, row);
-    }
     const rect = overlayRect(row);
     if (rect) {
       activeRects.push({
@@ -573,24 +573,25 @@ function useMenuScope(
   const hoverRect = overlayRect(hoveredRowEl);
   const focusRect = overlayRect(focusedRowEl);
   const hoverRowChanged = prevTargetsRef.current.hover !== hoveredRowEl;
+  const previousHoverRect = prevTargetsRef.current.hoverRect;
+  const hoverRowReflowed =
+    !hoverRowChanged &&
+    previousHoverRect &&
+    hoverRect &&
+    (previousHoverRect.top !== hoverRect.top ||
+      previousHoverRect.left !== hoverRect.left ||
+      previousHoverRect.width !== hoverRect.width ||
+      previousHoverRect.height !== hoverRect.height);
   const focusRowChanged = prevTargetsRef.current.focus !== focusedRowEl;
 
   useIsoLayoutEffect(() => {
     prevTargetsRef.current = {
       hover: hoveredRowEl,
+      hoverRect,
       focus: focusedRowEl,
       actives: new Map(activeRects.map(({ key, row }) => [key, row])),
     };
   });
-  // The hover background fades in anchored on the active row of the hovered
-  // row's own level (falling back to any active), so entering the menu reads
-  // as the highlight detaching from where the selection lives.
-  const hoveredLevel = hoveredRowEl ? rowLevel(hoveredRowEl) : null;
-  const hoverAnchorRow =
-    (hoveredLevel
-      ? levelFirstActive.get(overlayGroupId(hoveredLevel))
-      : undefined) ?? levelFirstActive.values().next().value;
-  const hoverAnchorRect = hoverAnchorRow ? overlayRect(hoverAnchorRow) : null;
 
   const overlays = isMeasured ? (
     <>
@@ -625,38 +626,12 @@ function useMenuScope(
       </AnimatePresence>
 
       {/* Hover background */}
-      <AnimatePresence>
-        {hoverRect && (
-          <motion.div
-            animate={{
-              opacity: 1,
-              y: hoverRect.top,
-              x: hoverRect.left,
-            }}
-            className={cn(
-              `absolute top-0 left-0 ${shape.bg} pointer-events-none bg-interaction-hover`,
-              hoverIndicatorClassName
-            )}
-            data-slot="sidebar-menu-hover-indicator"
-            exit={{
-              opacity: 0,
-              transition: reduceMotion ? { duration: 0 } : spring.fast,
-            }}
-            initial={{
-              opacity: 0,
-              y: hoverAnchorRect?.top ?? hoverRect.top,
-              x: hoverAnchorRect?.left ?? hoverRect.left,
-            }}
-            key={sessionRef.current}
-            style={{ width: hoverRect.width, height: hoverRect.height }}
-            transition={
-              !reduceMotion && hoverRowChanged
-                ? { ...spring.fast, opacity: { duration: 0.08 } }
-                : { duration: 0 }
-            }
-          />
-        )}
-      </AnimatePresence>
+      <FluidHoverHighlight
+        className={cn(shape.bg, hoverIndicatorClassName)}
+        rect={hoverRect}
+        session={sessionRef.current}
+        transition={hoverRowReflowed ? false : undefined}
+      />
 
       {/* Focus ring */}
       <AnimatePresence>
@@ -690,9 +665,17 @@ function useMenuScope(
   return {
     value,
     containerProps: {
-      onMouseEnter: handlers.onMouseEnter,
+      onMouseEnter: (event) => {
+        if (containerRef.current?.contains(event.target as Node)) {
+          handlers.onMouseEnter();
+        }
+      },
       onMouseMove,
-      onMouseLeave: handlers.onMouseLeave,
+      onMouseLeave: (event) => {
+        if (containerRef.current?.contains(event.target as Node)) {
+          handlers.onMouseLeave();
+        }
+      },
       onFocus,
       onBlur,
       // Pointer interaction switches modality back to pointer. Clicking the

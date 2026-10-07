@@ -259,6 +259,13 @@ by the client; these primitives do not read cookies, routes, account state or
 organization state. OpenMeld uses its existing Base UI/Motion dependencies and
 semantic shape, typography and color tokens. Menu highlights use transforms;
 measured group height and sidebar width only change when layout must change.
+Sidebar hover picking and rendering reuse `useFluidHover` and
+`FluidHoverHighlight`, with the vertical axis and gap clicks disabled. A new
+pointer entry fades in at its nearest item; route selection has its own marker.
+Purely visual dividers within a navigation group do not create another hover
+scope. Hover-preview triggers opt out of popup suspension with
+`data-sidebar-hover-preview`; actual context menus still suspend tracking.
+Portaled popup pointer events do not drive the sidebar's highlight.
 `fluid/nav-menu` supplies navigation semantics and controlled selection over
 `fluid/sidebar-menu`; it does not own another hover or selection engine. Main
 and secondary navigation share the same selection renderer. Clients supply a
