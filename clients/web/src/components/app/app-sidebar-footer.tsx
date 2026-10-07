@@ -84,7 +84,7 @@ function footerLayout(iconOnly: boolean, isDrawer: boolean) {
 		actionsClassName: cn("app-sidebar-footer-actions", iconOnly && "w-8"),
 		footerClassName: cn(
 			"app-sidebar-footer p-2",
-			iconOnly && "pl-5",
+			iconOnly && "items-center",
 			isDrawer &&
 				"border-border border-t [&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11"
 		),
