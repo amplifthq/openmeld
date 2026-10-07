@@ -142,6 +142,17 @@
 .meld-button-web:hover {
 	background: #fff;
 }
+.meld-web-badge {
+	padding: 3px 8px;
+	border-radius: 999px;
+	background: #dcdcdf;
+	font-size: 11px;
+	line-height: 1;
+	font-weight: 500;
+}
+.meld-metal-badge .meld-web-badge {
+	background: #d5d5d8;
+}
 .meld-platform-badge {
 	display: inline-flex;
 	align-items: center;

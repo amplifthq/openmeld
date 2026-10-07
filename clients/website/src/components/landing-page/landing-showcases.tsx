@@ -41,27 +41,40 @@ function badgeMask(
 	context.fill();
 }
 
-export function PlatformMetalBadge({ children }: { children: string }) {
+export function PlatformMetalBadge({
+	children,
+	appearance = "fill",
+}: {
+	children: string;
+	appearance?: "fill" | "ring";
+}) {
 	const [mounted, setMounted] = useState(false);
 	const reduced = useReducedMotion();
 	useEffect(() => setMounted(true), []);
-	const badge = <span className="meld-platform-badge">{children}</span>;
+	const filled = appearance === "fill";
+	const badge = (
+		<span className={filled ? "meld-platform-badge" : "meld-web-badge"}>
+			{children}
+		</span>
+	);
 	if (!mounted || reduced) {
 		return badge;
 	}
 	return (
 		<Suspense fallback={badge}>
 			<MetalFx
-				borderRadius={999}
+				borderRadius={filled ? 999 : undefined}
 				className="meld-metal-badge"
-				glowGain={0.45}
-				glowMode="ring"
-				mask={badgeMask}
-				normalizeHostStyles={false}
+				glowGain={filled ? 0.45 : 0.35}
+				glowMode={filled ? "ring" : undefined}
+				mask={filled ? badgeMask : undefined}
+				normalizeHostStyles={!filled}
 				preset="chromatic"
-				shaderScale={1.6}
+				shaderScale={filled ? 1.6 : undefined}
 				strength={0.8}
-				style={{ background: "#ffffff", borderRadius: 999 }}
+				style={
+					filled ? { background: "#ffffff", borderRadius: 999 } : undefined
+				}
 				theme="light"
 			>
 				{badge}

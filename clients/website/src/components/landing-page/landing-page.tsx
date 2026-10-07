@@ -51,7 +51,7 @@ function OpenAppButton({ compact = false }: { compact?: boolean }) {
 			className={`meld-button meld-button-web ${compact ? "meld-button-compact" : ""}`}
 			href={appUrl("/")}
 		>
-			Open App <PlatformMetalBadge>Web</PlatformMetalBadge>
+			Open App <PlatformMetalBadge appearance="ring">Web</PlatformMetalBadge>
 		</a>
 	);
 }
