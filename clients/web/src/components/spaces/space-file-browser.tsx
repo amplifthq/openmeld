@@ -978,7 +978,7 @@ function SpaceFileImageThumbnail(input: {
 
 	return (
 		<span
-			className="relative inline-flex size-full min-h-0 overflow-hidden bg-muted"
+			className="relative inline-flex size-full min-h-0 overflow-hidden"
 			ref={root}
 		>
 			{imageSource.sourceUrl ? (

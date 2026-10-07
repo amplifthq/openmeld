@@ -1178,7 +1178,7 @@ function FileVisual({
   const showPager = pageable && totalPages > 1
   if (customPreview) {
     return (
-      <div className={cn("relative aspect-square overflow-hidden rounded-md bg-muted", className)}>
+      <div className={cn("relative aspect-square overflow-hidden", className)}>
         {customPreview}
       </div>
     )
@@ -3355,10 +3355,7 @@ function FileSystemIconsView({
                 className="group flex min-h-[5.875rem] w-24 flex-col items-center gap-1.5 outline-none"
               >
                 <span
-                  className={cn(
-                    "mx-auto flex h-14 w-24 shrink-0 items-center justify-center rounded-lg p-0.5 transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring",
-                    isSelected && "bg-accent"
-                  )}
+                  className="mx-auto flex h-14 w-24 shrink-0 items-center justify-center p-0.5"
                 >
                   {entry.kind === "folder" ? (
                     <FileSystemFolderGlyph className="h-12 w-auto drop-shadow-sm" emblem={entry.emblem} />
@@ -3366,7 +3363,7 @@ function FileSystemIconsView({
                     <div style={{ width: Math.min(76, 48 * previewAspectRatio) }}>
                       <FileVisual
                         file={entry}
-                        className="w-full rounded-sm shadow-xs"
+                        className="w-full"
                         previewAspectRatio={0.78}
                         renderFilePreview={renderFilePreview}
                       />
@@ -3375,7 +3372,7 @@ function FileSystemIconsView({
                 </span>
                 <span
                   className={cn(
-                    "mx-auto max-w-full rounded-sm px-1.5 py-px text-center text-xs leading-tight break-words",
+                    "mx-auto max-w-full rounded-sm px-1.5 py-px text-center text-xs leading-tight break-words group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-background",
                     isSelected
                       ? "bg-primary text-primary-foreground"
                       : "text-foreground"
@@ -4732,8 +4729,8 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
                   }}
                   title={entry.name}
                   className={cn(
-                    "flex size-14 shrink-0 items-center justify-center rounded-md border border-transparent p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    isActive && "border-ring/40 bg-accent"
+                    "flex size-14 shrink-0 items-center justify-center rounded-md p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    isActive && "bg-accent"
                   )}
                 >
                   {entry.kind === "folder" ? (
