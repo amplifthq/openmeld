@@ -464,10 +464,37 @@ export async function verifyDesktopPublicArtifact(input) {
     `[release:desktop-preview] Verify full public download ${url.href}; pointer write has not started.\n`
   );
   try {
-    const response = await (input.fetchArtifact ?? fetch)(url, {
-      redirect: "error",
-      cache: "no-store",
-    });
+    const fetchArtifact = input.fetchArtifact ?? fetch;
+    const options = { redirect: "manual", cache: "no-store" };
+    let current = url;
+    let response = await fetchArtifact(current, options);
+    for (
+      let redirects = 0;
+      [301, 302, 303, 307, 308].includes(response.status);
+      redirects += 1
+    ) {
+      const location = response.headers.get("location");
+      const next = location ? new URL(location, current) : null;
+      if (
+        !next ||
+        next.username ||
+        next.password ||
+        ![
+          "https://openmeld.ai",
+          "https://app.openmeld.ai",
+          "https://downloads.openmeld.ai",
+        ].includes(next.origin) ||
+        !next.pathname.startsWith("/desktop/") ||
+        redirects >= 3
+      ) {
+        throw new Error(
+          "Untrusted Desktop download redirect or redirect limit exceeded"
+        );
+      }
+      await response.body?.cancel();
+      current = next;
+      response = await fetchArtifact(current, options);
+    }
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
