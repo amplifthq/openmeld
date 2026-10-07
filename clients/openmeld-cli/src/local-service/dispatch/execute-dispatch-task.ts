@@ -12,6 +12,10 @@ import type {
   AdapterToolActivityEvent,
 } from "@openmeld/adapter-core";
 import { DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV } from "@openmeld/adapter-core";
+import {
+  renderTaskKnowledgeIndex,
+  TASK_KNOWLEDGE_GUIDANCE,
+} from "@openmeld/agent-runtime";
 import type { RuntimeTaskResult } from "@openmeld/local-execution";
 import {
   appendLedgerHistoryEntry,
@@ -78,7 +82,6 @@ import type {
 import { resolveSpacePublicationRequirement } from "@openmeld/space-mesh";
 import { recordOpenMeldCreatedLocalAgentSession } from "../../agent-activity/session-inventory-origin-store";
 import { resolveBuiltinAgentControllerDefinition } from "../../agents/builtin-agent-controller-definitions";
-import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
 import { emitDaemonDispatchJournalEvent } from "../../local-service/dispatch/daemon-dispatch-journal";
 import {
@@ -105,7 +108,7 @@ import {
   createDispatchSpaceTools,
   type DispatchPublicProgressResult,
 } from "../../space/action-mcp-server";
-import { fetchSpaceMeta } from "../../space/meta-api";
+import { readTaskKnowledge } from "../../space/dispatch-knowledge-read";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
   resolveRecoveredLedgerConversation,
@@ -1027,6 +1030,8 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig?.agentControllerPermissionMode ?? null,
     dispatchId: parsedTask.dispatchId,
     runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+    attemptId: parsedTask.attemptId,
+    runtimeCoordinatorRunId: parsedTask.executionTokenEcho.runId,
     targetProfileId: parsedTask.targetProfileId,
     taskId: parsedTask.taskId,
   });
@@ -2708,6 +2713,10 @@ async function loadDispatchLedgerContext(input: {
 }
 
 type DispatchBootstrapContext = {
+  organizationSkillReleases: NonNullable<
+    DispatchSpaceActionContext["organizationSkillReleases"]
+  >;
+  taskKnowledgeIndex: string;
   bootstrapTemplateFacts: BootstrapTemplateFacts;
   cliEntry: string | null;
   mentionSourceMentionLabel: string | null;
@@ -2722,21 +2731,6 @@ type DispatchBootstrapContext = {
   targetProfileRole: string | null;
 };
 
-type DispatchSpaceMetaLoadResult =
-  | {
-      status: "loaded";
-      spaceGuide: string | null;
-      spaceName: string | null;
-      spacePurpose: string | null;
-    }
-  | {
-      status: "failed";
-      errorMessage: string;
-      spaceGuide: null;
-      spaceName: null;
-      spacePurpose: null;
-    };
-
 async function resolveDispatchBootstrapContext(input: {
   onPhase?: (
     phase: DispatchBootstrapContextPhase,
@@ -2750,7 +2744,7 @@ async function resolveDispatchBootstrapContext(input: {
     spaceOwnerProfileId,
     targetProfileContext,
     mentionSourceContext,
-    spaceMetaContext,
+    knowledge,
   ] = await Promise.all([
     resolveBootstrapSpaceOwnerProfileId({
       spaceId: input.parsedTask.spaceId,
@@ -2767,12 +2761,37 @@ async function resolveDispatchBootstrapContext(input: {
       mentionSourceProfileId: input.parsedTask.mentionSourceProfileId,
       preferredMentionLabel: input.parsedTask.mentionSourceProfileMentionLabel,
     }),
-    resolveDispatchSpaceMetaContext({
-      parsedTask: input.parsedTask,
-      profileOwnerName: input.profileOwnerName,
-      profileOwnerUserId: input.profileOwnerUserId,
-    }),
+    readTaskKnowledge({
+      spaceId: input.parsedTask.spaceId,
+      targetProfileId: input.parsedTask.targetProfileId,
+      ...(input.parsedTask.spacePassword
+        ? { spacePassword: input.parsedTask.spacePassword }
+        : {}),
+      ...(input.parsedTask.workHandoff
+        ? { skillSelections: input.parsedTask.workHandoff.skills }
+        : {}),
+      onRead: (read) => input.onPhase?.("bootstrap_read_completed", read),
+    })
+      .then((result) => ({ ...result, errorMessage: null }))
+      .catch((error: unknown) => ({
+        documents: null,
+        skills: input.parsedTask.workHandoff?.skills ?? null,
+        spaceMeta: null,
+        errorMessage: toErrorMessage(error),
+      })),
   ]);
+  const organizationSkillReleases = knowledge.skills;
+  const taskKnowledgeIndex = renderTaskKnowledgeIndex({
+    documents: knowledge.documents,
+    skills: organizationSkillReleases,
+    readHint:
+      "Use read_documents without documentId for the full directory, or with documentId for the current approved body. Use read_skills without name for all selected Skills, including omitted entries, or with name for the pinned instructions and resources. Handoff Skills use the existing task materializer. Never replace a selected release with latest or install knowledge into global Skills or repository AGENTS.md.",
+  });
+  const spaceMetaContext = {
+    spaceGuide: normalizeOptionalText(knowledge.spaceMeta?.guide),
+    spaceName: normalizeOptionalText(knowledge.spaceMeta?.name),
+    spacePurpose: normalizeOptionalText(knowledge.spaceMeta?.purpose),
+  };
   input.onPhase?.("bootstrap_context_ready", {
     mentionSourceMentionLabelPresent:
       mentionSourceContext.mentionSourceMentionLabel !== null,
@@ -2780,11 +2799,8 @@ async function resolveDispatchBootstrapContext(input: {
       mentionSourceContext.mentionSourceProfileName !== null,
     source: "dispatch_bootstrap_context",
     spaceGuidePresent: spaceMetaContext.spaceGuide !== null,
-    spaceMetaError:
-      spaceMetaContext.status === "failed"
-        ? spaceMetaContext.errorMessage
-        : null,
-    spaceMetaStatus: spaceMetaContext.status,
+    spaceMetaError: knowledge.errorMessage,
+    spaceMetaStatus: knowledge.spaceMeta ? "loaded" : "failed",
     spaceNamePresent: spaceMetaContext.spaceName !== null,
     spaceOwnerProfilePresent: spaceOwnerProfileId !== null,
     spacePurposePresent: spaceMetaContext.spacePurpose !== null,
@@ -2835,6 +2851,8 @@ async function resolveDispatchBootstrapContext(input: {
 
   return {
     bootstrapTemplateFacts,
+    taskKnowledgeIndex,
+    organizationSkillReleases: organizationSkillReleases ?? [],
     cliEntry,
     mentionSourceMentionLabel:
       mentionSourceContext.mentionSourceMentionLabel ?? null,
@@ -2850,52 +2868,6 @@ async function resolveDispatchBootstrapContext(input: {
   };
 }
 
-async function resolveDispatchSpaceMetaContext(input: {
-  parsedTask: ParsedDispatchTask;
-  profileOwnerName: string | null;
-  profileOwnerUserId: string;
-}): Promise<DispatchSpaceMetaLoadResult> {
-  try {
-    const baseUrl = await resolveBaseUrl();
-    const requestContext = buildOpenMeldRequestContextFromProfileIdentity({
-      profileIdentity: {
-        openMeldProfileId: input.parsedTask.targetProfileId,
-        profileKind: "agent",
-        ownerUserId: input.profileOwnerUserId,
-        ...(input.profileOwnerName
-          ? { ownerName: input.profileOwnerName }
-          : {}),
-        profileName:
-          input.parsedTask.targetProfileName ??
-          input.parsedTask.targetProfileMentionLabel ??
-          input.parsedTask.targetProfileId,
-      },
-    });
-    const meta = await fetchSpaceMeta({
-      baseUrl,
-      requestContext,
-      space: input.parsedTask.spaceId,
-      ...(input.parsedTask.spacePassword
-        ? { password: input.parsedTask.spacePassword }
-        : {}),
-    });
-    return {
-      status: "loaded",
-      spaceGuide: normalizeOptionalText(meta.guide),
-      spaceName: normalizeOptionalText(meta.name),
-      spacePurpose: normalizeOptionalText(meta.purpose),
-    };
-  } catch (error) {
-    return {
-      status: "failed",
-      errorMessage: toErrorMessage(error),
-      spaceGuide: null,
-      spaceName: null,
-      spacePurpose: null,
-    };
-  }
-}
-
 function buildDispatchRuntimePrompt(input: {
   bootstrapContext: DispatchBootstrapContext;
   imageAttachmentPreparation: DispatchImageAttachmentPreparation;
@@ -2909,6 +2881,7 @@ function buildDispatchRuntimePrompt(input: {
   return buildDispatchPromptPlan({
     executionContextAccess: input.parsedTask.executionContext?.access,
     callerContext: input.parsedTask.callerContext,
+    requesterIsAgentOwner: input.parsedTask.requesterIsAgentOwner,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
       input.parsedTask.targetProfileIsCenterAgent,
@@ -2925,18 +2898,20 @@ function buildDispatchRuntimePrompt(input: {
     organizationProtectedInformation:
       input.parsedTask.organizationProtectedInformation,
     workingLanguage: input.parsedTask.workingLanguage,
-    prompt: input.taskWorkspace?.baseCommit
-      ? `${input.parsedTask.prompt}\n\nOpenMeld task workspace: ${JSON.stringify(
-          {
-            projectId: input.parsedTask.defaultProjectId,
-            repositoryName: input.taskWorkspace.sourceWorkingDirectory
-              ? basename(input.taskWorkspace.sourceWorkingDirectory)
-              : null,
-            workingDirectory: input.taskWorkspace.workingDirectory,
-            baseCommit: input.taskWorkspace.baseCommit,
-          }
-        )}\nThis task uses an independent Git worktree with private Git metadata. The starting commit is frozen. Uncommitted and ignored source files were not copied. Make changes in this task worktree; the original checkout is not the task's working directory. Refer to the task and commit in public replies without disclosing private local paths.`
-      : input.parsedTask.prompt,
+    prompt: `${input.bootstrapContext.taskKnowledgeIndex}\n\n${TASK_KNOWLEDGE_GUIDANCE}\n\n${
+      input.taskWorkspace?.baseCommit
+        ? `${input.parsedTask.prompt}\n\nOpenMeld task workspace: ${JSON.stringify(
+            {
+              projectId: input.parsedTask.defaultProjectId,
+              repositoryName: input.taskWorkspace.sourceWorkingDirectory
+                ? basename(input.taskWorkspace.sourceWorkingDirectory)
+                : null,
+              workingDirectory: input.taskWorkspace.workingDirectory,
+              baseCommit: input.taskWorkspace.baseCommit,
+            }
+          )}\nThis task uses an independent Git worktree with private Git metadata. The starting commit is frozen. Uncommitted and ignored source files were not copied. Make changes in this task worktree; the original checkout is not the task's working directory. Refer to the task and commit in public replies without disclosing private local paths.`
+        : input.parsedTask.prompt
+    }`,
     recipientExplicitlyAddressedByActivationTargets:
       input.parsedTask.recipientExplicitlyAddressedByActivationTargets,
     sourceSignalId: input.parsedTask.sourceEventId,
@@ -2992,6 +2967,7 @@ async function prepareDispatchClaudeProjectContainer(input: {
   const context = input.parsedTask.executionContext;
   if (
     input.parsedTask.agentControllerRef !== "builtin:claude-code" ||
+    context?.permissionSource === "agent_settings" ||
     context?.access !== "workspace" ||
     context.workspace !== "isolated"
   ) {
@@ -3123,7 +3099,10 @@ async function resolveDispatchComputerFileAccess(input: {
   const verifier =
     input.runtimeControllerSupport.localAdapterEntry.adapter
       .verifyComputerFileAccessBoundary;
-  if (input.parsedTask.executionContext) {
+  if (
+    input.parsedTask.executionContext &&
+    input.parsedTask.executionContext.permissionSource !== "agent_settings"
+  ) {
     const context = input.parsedTask.executionContext;
     if (
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
@@ -3235,6 +3214,8 @@ function createDispatchSpaceActionRuntimeContext(input: {
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    executionTokenEcho: input.parsedTask.executionTokenEcho,
+    organizationSkillReleases: input.bootstrapContext.organizationSkillReleases,
     ...(input.claudeProjectRuntime && input.parsedTask.executionContext
       ? {
           projectShell: {
@@ -5584,6 +5565,9 @@ async function requestDispatchAgentInteraction(input: {
   const requestedAtMs = Date.now();
   const interactionCandidate: AgentInteractionRequest = {
     ...input.request,
+    ...(input.request.kind === "permission"
+      ? { supportsPermissionModeUpdate: true }
+      : {}),
     v: AGENT_INTERACTION_SCHEMA_VERSION,
     interactionId: randomUUID(),
     requestedAtMs,

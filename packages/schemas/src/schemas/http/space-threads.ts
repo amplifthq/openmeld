@@ -106,6 +106,8 @@ export const listSpaceThreadSignalsResponseSchema = z.strictObject({
 
 export const postSpaceThreadSignalBodySchema = z
   .strictObject({
+    evidenceRefs:
+      signalTextSchema.shape.data.shape.meta.unwrap().shape.evidenceRefs,
     workHandoff:
       signalTextSchema.shape.data.shape.meta.unwrap().shape.workHandoff,
     threadWakeContinuation: z.literal(true).optional(),

@@ -18,7 +18,7 @@ import {
   isCoordinatedRelease,
   PARENT_ADMISSION_ENV,
   parseAdmissionEvidence,
-  restoreParentWebArtifact,
+  restoreParentRendererArtifact,
   verifyParentAdmission,
 } from "./production-train-admission-evidence.mjs";
 import { admitCliNpmArtifact } from "./release-cli-resume.mjs";
@@ -100,11 +100,9 @@ export function resolveProductionTrain(input, dependencies = {}) {
     );
   }
   return {
-    artifactScopes: [
-      ...(selectedProductionScopes.includes("cli") ? ["cli"] : []),
-      ...(selectedDesktop ? ["desktop"] : []),
-      ...(selectedProductionScopes.includes("web") ? ["web"] : []),
-    ],
+    artifactScopes: ["cli", "desktop", "web", "website", "docs"].filter(
+      (scope) => selectedScopes.includes(scope)
+    ),
     productionScopes: [...plan.scopes],
     selectedScopes: [...selectedScopes],
     scopes,
@@ -188,6 +186,8 @@ async function buildProductionTrainArtifacts(input, dependencies = {}) {
     cli: "not_required",
     desktop: "not_required",
     web: "not_required",
+    website: "not_required",
+    docs: "not_required",
   };
   const artifactEvidence = [];
   for (const scope of train.artifactScopes) {
@@ -259,25 +259,35 @@ export async function admitProductionTrainArtifacts(input, dependencies = {}) {
   if (
     isCoordinatedRelease(input.env) ||
     input.env[PARENT_ADMISSION_ENV] ||
-    input.restoreWebArtifact
+    input.restoreRendererArtifact
   ) {
     const train = resolveProductionTrain(input, dependencies);
     const evidence = await verifyParentAdmission(input, train, dependencies);
-    if (train.selectedScopes.includes("web")) {
+    for (const scope of ["web", "website", "docs"].filter((scope) =>
+      train.selectedScopes.includes(scope)
+    )) {
       if (
         !ARTIFACT_ID_PATTERN.test(
-          input.env.OPENMELD_PARENT_WEB_ARTIFACT_ID ?? ""
+          input.env[`OPENMELD_PARENT_${scope.toUpperCase()}_ARTIFACT_ID`] ?? ""
         )
       ) {
         throw new Error(
-          "Parent Web admission requires an immutable same-run artifact ID."
+          `Parent ${scope} admission requires an immutable same-run artifact ID.`
         );
       }
-      if (input.restoreWebArtifact) {
-        await restoreParentWebArtifact(input, evidence);
+      if (input.restoreRendererArtifact) {
+        await restoreParentRendererArtifact(input, evidence, scope);
       }
-    } else if (input.restoreWebArtifact) {
-      throw new Error("Only a Web stage can restore the parent Web artifact.");
+    }
+    if (
+      input.restoreRendererArtifact &&
+      !train.selectedScopes.some((scope) =>
+        ["web", "website", "docs"].includes(scope)
+      )
+    ) {
+      throw new Error(
+        "Only a renderer stage can restore a parent renderer artifact."
+      );
     }
     return { ...train, parentEvidenceVerified: true };
   }
@@ -294,7 +304,7 @@ if (
         scope: { type: "string" },
         "source-sha": { type: "string" },
         "issue-parent-evidence": { type: "boolean", default: false },
-        "restore-web-artifact": { type: "boolean", default: false },
+        "restore-renderer-artifact": { type: "boolean", default: false },
       },
     });
     const result = await admitProductionTrainArtifacts({
@@ -303,7 +313,7 @@ if (
       selectedScopes: values.scope,
       sourceSha: values["source-sha"],
       issueParentEvidence: values["issue-parent-evidence"],
-      restoreWebArtifact: values["restore-web-artifact"],
+      restoreRendererArtifact: values["restore-renderer-artifact"],
     });
     if (result.parentEvidence) {
       if (!process.env.GITHUB_OUTPUT) {
@@ -311,7 +321,7 @@ if (
       }
       await appendFile(
         process.env.GITHUB_OUTPUT,
-        `parent_admission_evidence=${JSON.stringify(result.parentEvidence)}\nhas_web_artifact=${result.artifactScopes.includes("web")}\n`
+        `parent_admission_evidence=${JSON.stringify(result.parentEvidence)}\nhas_web_artifact=${result.artifactScopes.includes("web")}\nhas_website_artifact=${result.artifactScopes.includes("website")}\nhas_docs_artifact=${result.artifactScopes.includes("docs")}\n`
       );
     }
     process.stdout.write(`${JSON.stringify(result)}\n`);

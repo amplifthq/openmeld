@@ -7,6 +7,7 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@openmeld/ui/components/popover";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { CaretUpIcon } from "@phosphor-icons/react";
 import {
 	AnimatePresence,
@@ -19,15 +20,12 @@ import {
 	type ReactNode,
 	useCallback,
 	useContext,
-	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { toast } from "sonner";
-import { isSpaceWakeProgressWaitingForFinalStatus } from "#/lib/spaces/message-state";
-import { useNowMs } from "#/lib/spaces/use-now-ms";
-import { resolveWakeProgressThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
 import {
 	resolveWakeProgressStatus,
 	WAKE_PROGRESS_STATUS_PRIORITY,
@@ -62,6 +60,7 @@ export function SpaceWakeBookmarksProvider(input: {
 }) {
 	const elements = useRef(new Map<string, Set<HTMLElement>>());
 	const visibleElements = useRef(new Set<HTMLElement>());
+	const unmeasuredElements = useRef(new Set<HTMLElement>());
 	const [visibleKeys, setVisibleKeys] = useState<ReadonlySet<string>>(
 		new Set()
 	);
@@ -74,6 +73,7 @@ export function SpaceWakeBookmarksProvider(input: {
 		(key: string, element: HTMLElement) => {
 			const group = elements.current.get(key) ?? new Set<HTMLElement>();
 			group.add(element);
+			unmeasuredElements.current.add(element);
 			elements.current.set(key, group);
 			if (pendingJump.current === key) {
 				pendingJump.current = null;
@@ -81,8 +81,10 @@ export function SpaceWakeBookmarksProvider(input: {
 			}
 			let timer: ReturnType<typeof setTimeout> | undefined;
 			const publishVisibility = () => {
-				const visible = [...group].some((node) =>
-					visibleElements.current.has(node)
+				const visible = [...group].some(
+					(node) =>
+						visibleElements.current.has(node) ||
+						unmeasuredElements.current.has(node)
 				);
 				setVisibleKeys((current) => {
 					if (current.has(key) === visible) {
@@ -97,25 +99,34 @@ export function SpaceWakeBookmarksProvider(input: {
 					return next;
 				});
 			};
+			// Do not label a newly mounted row offscreen before scroll restoration
+			// and the observer's first measurement have settled its placement.
+			publishVisibility();
 			const observer = new IntersectionObserver(
 				([entry]) => {
 					if (!entry) {
 						return;
 					}
 					clearTimeout(timer);
+					const firstMeasurement = unmeasuredElements.current.delete(element);
 					// Require a readable status line, not a one-pixel glimpse at the edge.
 					const visible =
 						entry.isIntersecting &&
 						entry.intersectionRatio >=
 							(visibleElements.current.has(element) ? 0.3 : 0.6);
-					timer = setTimeout(() => {
+					const updateVisibility = () => {
 						if (visible) {
 							visibleElements.current.add(element);
 						} else {
 							visibleElements.current.delete(element);
 						}
 						publishVisibility();
-					}, 120);
+					};
+					if (firstMeasurement) {
+						updateVisibility();
+					} else {
+						timer = setTimeout(updateVisibility, 120);
+					}
 				},
 				{
 					root: element.closest('[data-slot="message-scroller-viewport"]'),
@@ -128,6 +139,7 @@ export function SpaceWakeBookmarksProvider(input: {
 				observer.disconnect();
 				group.delete(element);
 				visibleElements.current.delete(element);
+				unmeasuredElements.current.delete(element);
 				publishVisibility();
 				if (group.size === 0) {
 					elements.current.delete(key);
@@ -195,7 +207,7 @@ export function SpaceWakeBookmarkAnchor(input: {
 	const [element, setElement] = useState<HTMLDivElement | null>(null);
 	const key = wakeBookmarkKey(input.item);
 	const register = context?.register;
-	useEffect(
+	useLayoutEffect(
 		() => (element && register ? register(key, element) : undefined),
 		[element, key, register]
 	);
@@ -238,7 +250,6 @@ export function SpaceComposerActiveWakes(input: {
 }
 
 function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
-	const nowMs = useNowMs(context.activeItems.length ? 1000 : null);
 	const [open, setOpen] = useState(false);
 	const [openedItems, setOpenedItems] = useState<readonly WakeProgressItem[]>(
 		[]
@@ -265,7 +276,7 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 				(b ? WAKE_PROGRESS_STATUS_PRIORITY[b.kind] : 99)
 			);
 		})[0];
-	const status = selected ? resolveBookmarkStatus(selected, nowMs) : null;
+	const status = selected ? resolveWakeProgressStatus(selected) : null;
 	const visible = open || Boolean(selected && status);
 	const multiple = items.length > 1 || context.hasMore || open;
 	const button = renderBookmarkTrigger({
@@ -275,91 +286,56 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 		hasMore: context.hasMore,
 		onJump: () => selected && context.jump(selected),
 	});
+	if (!visible) {
+		return null;
+	}
 	return (
-		<AnimatePresence initial={false}>
-			{visible ? (
-				<WakeBookmarkPresence>
-					<Popover
-						onOpenChange={(next) => {
-							if (next && !multiple) {
-								return;
-							}
-							if (next) {
-								setOpenedItems(context.items);
-							}
-							setOpen(next);
-						}}
-						open={open}
-					>
-						<PopoverTrigger render={button} />
-						<PopoverContent
-							align="end"
-							className="max-h-80 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md motion-reduce:animate-none"
-							side="top"
-						>
-							<PopoverTitle>Work outside your view</PopoverTitle>
-							<div className="flex flex-col gap-1">
-								{items.map((item) => (
-									<WakeBookmarkRow
-										current={context.activeItems.find(
-											(candidate) =>
-												wakeBookmarkKey(candidate) === wakeBookmarkKey(item)
-										)}
-										item={item}
-										key={wakeBookmarkKey(item)}
-										nowMs={nowMs}
-										onClick={() => {
-											context.jump(item);
-											setOpen(false);
-										}}
-									/>
-								))}
-							</div>
-							{context.hasMore ? (
-								<p className="text-muted-foreground">
-									This list may be incomplete. More work is active in this
-									Space.
-								</p>
-							) : null}
-						</PopoverContent>
-					</Popover>
-				</WakeBookmarkPresence>
-			) : null}
-		</AnimatePresence>
-	);
-}
-
-function WakeBookmarkPresence({ children }: { children: ReactNode }) {
-	const present = useIsPresent();
-	const reducedMotion = useReducedMotion();
-	return (
-		<motion.div
-			animate={{
-				opacity: 1,
-				transform: "translateY(0px)",
-				filter: "blur(0px)",
-			}}
-			aria-hidden={!present}
-			className="min-w-0"
-			data-slot="composer-active-wakes"
-			exit={{
-				opacity: 0,
-				transform: reducedMotion ? "none" : "translateY(6px)",
-				filter: reducedMotion ? "none" : "blur(3px)",
-			}}
-			inert={!present}
-			initial={{
-				opacity: 0,
-				transform: reducedMotion ? "none" : "translateY(6px)",
-				filter: reducedMotion ? "none" : "blur(3px)",
-			}}
-			transition={{
-				duration: reducedMotion ? 0 : 0.18,
-				ease: [0.23, 1, 0.32, 1],
-			}}
-		>
-			{children}
-		</motion.div>
+		<div className="min-w-0" data-slot="composer-active-wakes">
+			<Popover
+				onOpenChange={(next) => {
+					if (next && !multiple) {
+						return;
+					}
+					if (next) {
+						setOpenedItems(context.items);
+					}
+					setOpen(next);
+				}}
+				open={open}
+			>
+				<PopoverTrigger render={button} />
+				<PopoverContent
+					align="end"
+					className="w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md motion-reduce:animate-none"
+					side="top"
+				>
+					<ScrollArea className="max-h-72">
+						<PopoverTitle>Work outside your view</PopoverTitle>
+						<div className="flex flex-col gap-1">
+							{items.map((item) => (
+								<WakeBookmarkRow
+									current={context.activeItems.find(
+										(candidate) =>
+											wakeBookmarkKey(candidate) === wakeBookmarkKey(item)
+									)}
+									item={item}
+									key={wakeBookmarkKey(item)}
+									onClick={() => {
+										context.jump(item);
+										setOpen(false);
+									}}
+								/>
+							))}
+						</div>
+						{context.hasMore ? (
+							<p className="text-muted-foreground">
+								This list may be incomplete. More work is active in this Space.
+							</p>
+						) : null}
+					</ScrollArea>
+				</PopoverContent>
+			</Popover>
+		</div>
 	);
 }
 
@@ -464,13 +440,10 @@ function WakeBookmarkTextFrame({ children }: { children: ReactNode }) {
 
 function WakeBookmarkRow(input: {
 	item: WakeProgressItem;
-	nowMs: number;
 	current: WakeProgressItem | undefined;
 	onClick: () => void;
 }) {
-	const step = input.current
-		? resolveBookmarkStatus(input.current, input.nowMs)
-		: null;
+	const step = input.current ? resolveWakeProgressStatus(input.current) : null;
 	return (
 		<button
 			className="flex items-start gap-2 rounded-md p-2 text-left hover:bg-accent focus-visible:bg-accent disabled:text-muted-foreground"
@@ -492,24 +465,4 @@ function WakeBookmarkRow(input: {
 			</span>
 		</button>
 	);
-}
-
-function resolveBookmarkStatus(item: WakeProgressItem, nowMs: number) {
-	const step = resolveWakeProgressStatus(item);
-	const [entry] = resolveWakeProgressThinkingEntry({
-		item,
-		showElapsedTime: true,
-	});
-	if (
-		step &&
-		entry?.kind === "progress" &&
-		entry?.elapsedStartedAtMs != null &&
-		isSpaceWakeProgressWaitingForFinalStatus({
-			lastEvidenceAtMs: entry.lastEvidenceAtMs,
-			nowMs,
-		})
-	) {
-		return { ...step, label: `${item.targetLabel} · Waiting for final status` };
-	}
-	return step;
 }

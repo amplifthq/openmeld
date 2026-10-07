@@ -213,7 +213,7 @@ describe("space conversation presentation", () => {
 		]);
 	});
 
-	it("also keeps an anchored wake_stopped notice out of the main timeline", () => {
+	it("keeps a stopped reply in the timeline beside its request", () => {
 		const entries = buildSpaceConversationEntries({
 			selfProfileId: "human-profile-1",
 			timelineItems: [
@@ -236,7 +236,10 @@ describe("space conversation presentation", () => {
 			],
 		});
 
-		expect(readConversationEntryIds(entries)).toEqual(["sig-wake"]);
+		expect(readConversationEntryIds(entries)).toEqual([
+			"sig-wake",
+			"sig-wake-stopped",
+		]);
 	});
 
 	it("keeps an unanchored wake_stopped notice in normal order, matching the head pre-agent stop gap", () => {
@@ -309,7 +312,7 @@ describe("space conversation presentation", () => {
 });
 
 describe("buildAnchoredSpaceOutcomeNoticesBySourceSignalId", () => {
-	it("groups an anchored terminal_failure and wake_stopped notice under their shared source", () => {
+	it("anchors failures but keeps stopped replies separate for Agent attribution", () => {
 		const wakeItem = createTimelineItem({
 			id: "sig-wake",
 			text: "@Codex(wake) @Designer(wake) go",
@@ -339,7 +342,6 @@ describe("buildAnchoredSpaceOutcomeNoticesBySourceSignalId", () => {
 
 		expect(bySourceSignalId.get("sig-wake")?.map((item) => item.id)).toEqual([
 			"sig-failure",
-			"sig-stopped",
 		]);
 	});
 

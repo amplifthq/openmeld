@@ -1,44 +1,86 @@
 /** Historical recipient facts never substitute for present ownership. */
 export function currentPersonalAgentFactIdsSql(
   alias: "inbox_items" | "items",
-  field = "personalAgentProfileIds"
+  field = "personalAgentProfileIds",
+  useFeedAgentScope = false
 ): string {
+  if (useFeedAgentScope) {
+    return `SELECT claimed_agent.value
+      FROM jsonb_array_elements_text(${alias}.source_facts_json::jsonb -> '${field}') AS claimed_agent(value)
+      WHERE ${alias}.organization_id = $1 AND ${alias}.recipient_user_id = $2
+        AND (SELECT agent_spaces FROM feed_personal_agents) ? claimed_agent.value
+        AND (${alias}.source_facts_json::jsonb -> 'personalAgentProfileIds') ? claimed_agent.value
+        AND ((${alias}.source_target_json::jsonb ->> 'spaceId') IS NULL
+          OR ((SELECT agent_spaces FROM feed_personal_agents) -> claimed_agent.value) ? (${alias}.source_target_json::jsonb ->> 'spaceId'))`;
+  }
   return `SELECT claimed_agent.value
-    FROM json_each(${alias}.source_facts_json, '$.${field}') AS claimed_agent
-    INNER JOIN openmeld_profiles AS current_agent ON current_agent.profile_id = claimed_agent.value
-    LEFT JOIN center_agent_designations AS current_designation
+    FROM jsonb_array_elements_text(${alias}.source_facts_json::jsonb -> '${field}') AS claimed_agent(value)
+    INNER JOIN "openmeld"."openmeld_profiles" AS current_agent ON current_agent.profile_id = claimed_agent.value
+    LEFT JOIN "openmeld"."center_agent_designations" AS current_designation
       ON current_designation.organization_id = current_agent.organization_id
       AND current_designation.agent_profile_id = current_agent.profile_id
-    WHERE current_agent.profile_kind = 'agent' AND current_agent.managed_role IS NULL
-      AND current_designation.agent_profile_id IS NULL
+    WHERE ${currentPersonalAgentIdentitySql()}
       AND current_agent.organization_id = ${alias}.organization_id
       AND current_agent.owner_user_id = ${alias}.recipient_user_id
-      AND current_agent.profile_id IN (SELECT value FROM json_each(${alias}.source_facts_json, '$.personalAgentProfileIds'))
-      AND (json_extract(${alias}.source_target_json, '$.spaceId') IS NULL OR EXISTS (
-        SELECT 1 FROM space_index_memberships AS current_member
-        WHERE current_member.space_id = json_extract(${alias}.source_target_json, '$.spaceId')
+      AND current_agent.profile_id IN (SELECT value FROM jsonb_array_elements_text(${alias}.source_facts_json::jsonb -> 'personalAgentProfileIds') AS personal_agents(value))
+      AND (((${alias}.source_target_json)::jsonb #>> '{spaceId}') IS NULL OR EXISTS (
+        SELECT 1 FROM "openmeld"."space_index_memberships" AS current_member
+        WHERE current_member.space_id = ((${alias}.source_target_json)::jsonb #>> '{spaceId}')
           AND current_member.profile_id = current_agent.profile_id AND current_member.status = 'active'
           AND current_member.profile_kind_snapshot = 'agent'
       ))`;
 }
 
 export function currentInboxSourceFactsSql(
-  alias: "inbox_items" | "items"
+  alias: "inbox_items" | "items",
+  useFeedAgentScope = false
 ): string {
   const ids = (field: string) =>
-    `(SELECT json_group_array(value) FROM (${currentPersonalAgentFactIdsSql(alias, field)}))`;
-  return `CASE WHEN coalesce(json_array_length(${alias}.source_facts_json, '$.personalAgentProfileIds'), 0) = 0
-    THEN ${alias}.source_facts_json ELSE json_set(${alias}.source_facts_json,
-      '$.personalAgentProfileIds', json(${ids("personalAgentProfileIds")}),
-      '$.mentionedAgentProfileIds', json(${ids("mentionedAgentProfileIds")}),
-      '$.firstContactAgentProfileIds', json(${ids("firstContactAgentProfileIds")})) END`;
+    `(SELECT coalesce(jsonb_agg(value), '[]'::jsonb) FROM (${currentPersonalAgentFactIdsSql(alias, field, useFeedAgentScope)}) AS current_agents)`;
+  return `CASE WHEN coalesce(jsonb_array_length((${alias}.source_facts_json)::jsonb #> '{personalAgentProfileIds}'), 0) = 0
+    THEN ${alias}.source_facts_json ELSE (${alias}.source_facts_json::jsonb || jsonb_build_object(
+      'personalAgentProfileIds', ${ids("personalAgentProfileIds")},
+      'mentionedAgentProfileIds', ${ids("mentionedAgentProfileIds")},
+      'firstContactAgentProfileIds', ${ids("firstContactAgentProfileIds")}))::text END`;
+}
+
+/** Counts and classification need existence, not three rebuilt JSON arrays.
+ * Preserve the source-facts contract for items without personal-Agent facts. */
+export function currentInboxAgentFactExistsSql(
+  alias: "inbox_items" | "items",
+  field: "mentionedAgentProfileIds" | "firstContactAgentProfileIds",
+  useFeedAgentScope = false
+): string {
+  return `(CASE WHEN coalesce(jsonb_array_length(${alias}.source_facts_json::jsonb -> 'personalAgentProfileIds'), 0) = 0
+    THEN coalesce(jsonb_array_length(${alias}.source_facts_json::jsonb -> '${field}'), 0) > 0
+    ELSE EXISTS (${currentPersonalAgentFactIdsSql(alias, field, useFeedAgentScope)}) END)`;
 }
 
 /** Independent Human reasons survive a personal-Agent transfer; owner-only rows do not. */
 export function currentInboxRecipientRelationshipSql(
-  alias: "inbox_items" | "items"
+  alias: "inbox_items" | "items",
+  useFeedAgentScope = false
 ): string {
   return `(${alias}.source_facts_json IS NULL OR EXISTS (
-    SELECT 1 FROM json_each(${alias}.source_facts_json, '$.recipientReasons') WHERE value != 'agent_owner'
-  ) OR EXISTS (${currentPersonalAgentFactIdsSql(alias)}))`;
+    SELECT 1 FROM jsonb_array_elements_text(${alias}.source_facts_json::jsonb -> 'recipientReasons') AS reasons(value) WHERE value != 'agent_owner'
+  ) OR EXISTS (${currentPersonalAgentFactIdsSql(alias, "personalAgentProfileIds", useFeedAgentScope)}))`;
+}
+
+/** Current identity and membership are shared by all rows in one feed statement. */
+export const INBOX_FEED_PERSONAL_AGENTS_CTE = `feed_personal_agents AS MATERIALIZED (
+  SELECT coalesce(jsonb_object_agg(current_agent.profile_id,
+    to_jsonb(ARRAY(SELECT current_member.space_id FROM "openmeld"."space_index_memberships" AS current_member
+      WHERE current_member.profile_id = current_agent.profile_id
+        AND current_member.status = 'active' AND current_member.profile_kind_snapshot = 'agent'))), '{}'::jsonb) AS agent_spaces
+  FROM "openmeld"."openmeld_profiles" AS current_agent
+  LEFT JOIN "openmeld"."center_agent_designations" AS current_designation
+    ON current_designation.organization_id = current_agent.organization_id
+    AND current_designation.agent_profile_id = current_agent.profile_id
+  WHERE current_agent.organization_id = $1 AND current_agent.owner_user_id = $2
+    AND ${currentPersonalAgentIdentitySql()}
+)`;
+
+function currentPersonalAgentIdentitySql(): string {
+  return `current_agent.profile_kind = 'agent' AND current_agent.managed_role IS NULL
+    AND current_designation.agent_profile_id IS NULL`;
 }

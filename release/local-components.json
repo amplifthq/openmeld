@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T01:15:06.107Z",
+  "updatedAt": "2026-10-07T09:39:16.259Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.234",
+      "packageVersion": "0.3.247",
       "updatePolicy": "available",
-      "reason": "Existing setup, commands and Space actions remain compatible across the cloud-first rollout; optional usage reporting does not change the CLI wire contract or existing floor."
+      "reason": "Existing CLI commands remain compatible; deploy cloud readers before publishing optional Plugin and session history commands."
     },
     "service": {
-      "bundleHash": "fd6eb176ed2eeea44256a787329fe67d2cfda53c0f4a2a98c5fe6d222a771cad",
-      "portableBundleHash": "11aec3e0dfdcaa8aa73695425874ac01285cdba1f7c0250c0c2f5a9fd6ff6721",
-      "bundleVersion": "0.3.234",
+      "bundleHash": "b0aebc4526d2f2a10112500f150b6e030237b64bfe2c16d434a84bca71d0e9d8",
+      "portableBundleHash": "9b420e3cb237e71a9be0adcc15b2a206bf710d9d5c48c493388f90c5c25fd4dd",
+      "bundleVersion": "0.3.247",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Cloud receivers precede optional usage reporting; accepted Wake, runtime transport and self-rescue remain compatible. P0 Git isolation is local enforcement and adds no capability requirement. Keep the existing Service floor."
+      "reason": "Old Services retain safe existing workflows; new permission fields and session history capability require cloud receivers first and remain opt-in."
     },
     "skills": {
-      "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
+      "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The Plugin playbook adds guidance without changing the existing managed Skill contract."
+      "reason": "Computer, Plugin and project guidance is additive and keeps existing Wake and Space action contracts."
     }
   }
 }

@@ -1,4 +1,6 @@
 node_modules
+test-results
+playwright-report
 .DS_Store
 dist
 dist-ssr
@@ -15,3 +17,11 @@ todos.json
 .dev.vars.*
 !.dev.vars.example
 !.dev.vars.prod.example
+
+# Generated from packages/ui/public by the Vite configuration.
+public/fonts/
+public/brand/
+public/app-logos/
+public/favicon*
+public/apple-touch-icon.png
+public/icon-*.png

@@ -1,5 +1,5 @@
 import type { ExecutionRecoveryDestination } from "@openmeld/schemas/types";
-import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 
 export function resolveExecutionRecoveryDestination(input: {
   delivery: RemoteAgentNativeDeliveryRecord | null;

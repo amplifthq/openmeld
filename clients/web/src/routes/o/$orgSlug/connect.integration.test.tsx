@@ -118,6 +118,23 @@ describe("/o/$orgSlug/connect route", () => {
 	});
 
 	it.each([
+		{ session: "fresh" },
+		{ connectedComputerId: "computer-a" },
+	])("returns a completed native reconnect to ordinary connection management: %j", async (intent) => {
+		desktopPlatformMock.mockReturnValue({});
+		renderRoute({ ...intent, profileId: "human-a" });
+		const page = startBringAgentsSetupPageMock.mock.calls.at(-1)?.[0];
+		page.onCompleted({ deviceId: "computer-a", runtimeLane: "prod" });
+		await waitFor(() =>
+			expect(navigateMock).toHaveBeenCalledWith({
+				to: "/o/acme/connect",
+				search: { profileId: "human-a" },
+				replace: true,
+			})
+		);
+	});
+
+	it.each([
 		"web",
 		"space",
 		"update",

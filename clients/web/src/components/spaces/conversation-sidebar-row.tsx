@@ -57,6 +57,7 @@ import type {
 	Conversation,
 	ConversationPreview,
 } from "./conversation-sidebar-model";
+import { DirectMessageAvatar } from "./direct-message-avatar";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -72,9 +73,10 @@ import {
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
-import { SpaceProfileIcon } from "./space-profile-icon";
+import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
+	showMessagePreviews?: boolean;
 	attentionTone: "danger" | "warning" | null;
 	index: number;
 	profileId: string;
@@ -156,10 +158,36 @@ function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
 	);
 }
 
+function renderConversationPreview(
+	input: ConversationSidebarRowProps & ConversationRowPreview,
+	needsInput: boolean | undefined,
+	statusLabel: string | undefined
+) {
+	if (needsInput) {
+		return (
+			<span className={CONVERSATION_PREVIEW_CLASS_NAME}>{statusLabel}</span>
+		);
+	}
+	if (input.previewSignalId) {
+		return (
+			<ConversationPreviewLink
+				signalId={input.previewSignalId}
+				text={input.previewText}
+				title={input.title}
+				url={input.url}
+			/>
+		);
+	}
+	return (
+		<span className={CONVERSATION_PREVIEW_CLASS_NAME}>{input.previewText}</span>
+	);
+}
+
 function ConversationSidebarRowContent(
 	input: ConversationSidebarRowProps & ConversationRowPreview
 ) {
 	const { timestamp, previewText } = input;
+	const rowAnchor = useRef<HTMLDivElement>(null);
 	const presentation = input.activeWakeSummary
 		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
 		: null;
@@ -168,6 +196,8 @@ function ConversationSidebarRowContent(
 	const needsInput = input.activeWakeSummary?.statuses?.some(
 		(status) => status.kind === "needs_input"
 	);
+	const hasPreviewLine =
+		needsInput || (input.showMessagePreviews !== false && !!previewText);
 	const drag = useSortableSidebarItem({
 		section: input.section,
 		itemId: input.conversation.spaceId,
@@ -176,7 +206,11 @@ function ConversationSidebarRowContent(
 	});
 	const row = (
 		<FluidNavMenuItem
-			className="group/chat relative"
+			className={
+				hasPreviewLine
+					? "group/chat relative"
+					: "group/chat relative [&>[data-sidebar=menu-actions]]:top-1/2 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-1/2 [&>[data-sidebar=menu-badge]]:-translate-y-1/2"
+			}
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
@@ -190,6 +224,7 @@ function ConversationSidebarRowContent(
 			>
 				<div
 					className={`relative flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+					ref={rowAnchor}
 				>
 					<Tooltip>
 						<TooltipTrigger
@@ -205,13 +240,21 @@ function ConversationSidebarRowContent(
 									]
 										.filter(Boolean)
 										.join(", ")}
-									className="absolute inset-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									className="flex shrink-0 items-center rounded-md outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-1 focus-visible:before:ring-ring [&_canvas[data-bot-avatar]]:relative"
 									resetScroll={false}
 									{...conversationNavigationTarget(input.url)}
 								/>
 							}
-						/>
+						>
+							<ConversationIcon
+								conversation={input.conversation}
+								memberAppearances={input.memberAppearances}
+								summary={input.activeWakeSummary}
+								title={input.title}
+							/>
+						</TooltipTrigger>
 						<TooltipContent
+							anchor={rowAnchor}
 							className="max-w-sm flex-col items-start whitespace-normal text-left"
 							side="right"
 						>
@@ -220,12 +263,6 @@ function ConversationSidebarRowContent(
 						</TooltipContent>
 					</Tooltip>
 					<span className="pointer-events-none contents">
-						<ConversationIcon
-							conversation={input.conversation}
-							memberAppearances={input.memberAppearances}
-							summary={input.activeWakeSummary}
-							title={input.title}
-						/>
 						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span
 								className="flex min-w-0 items-center gap-2"
@@ -250,18 +287,12 @@ function ConversationSidebarRowContent(
 									/>
 								)}
 							</span>
-							{input.previewSignalId && !needsInput ? (
-								<ConversationPreviewLink
-									signalId={input.previewSignalId}
-									text={previewText}
-									title={input.title}
-									url={input.url}
-								/>
-							) : (
-								<span className={CONVERSATION_PREVIEW_CLASS_NAME}>
-									{needsInput ? presentation?.label : previewText}
-								</span>
-							)}
+							{hasPreviewLine &&
+								renderConversationPreview(
+									input,
+									needsInput,
+									presentation?.label
+								)}
 						</span>
 					</span>
 				</div>
@@ -280,11 +311,19 @@ function ConversationSidebarRowContent(
 			) : (
 				(hasUnread || input.attentionTone) && (
 					<SidebarMenuBadge>
-						<span
-							aria-hidden="true"
-							className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-							data-conversation-unread-indicator="true"
-						/>
+						{input.attentionTone ? (
+							<span
+								aria-hidden="true"
+								className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+								data-conversation-unread-indicator="true"
+							/>
+						) : (
+							<SpaceUnreadLink
+								count={input.unreadCount}
+								spaceId={input.conversation.spaceId}
+								url={input.url}
+							/>
+						)}
 					</SidebarMenuBadge>
 				)
 			)}
@@ -509,6 +548,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
+				size="sidebar"
 				summary={input.summary}
 				title={input.title}
 			/>
@@ -519,11 +559,12 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
+				compactSize={24}
 				members={members}
 			/>
 		);
 	}
-	return <ChatCircleTextIcon aria-label="Space" className="size-5 shrink-0" />;
+	return <ChatCircleTextIcon aria-label="Space" className="size-6 shrink-0" />;
 }
 
 export function resolvePreviewText(
@@ -541,6 +582,7 @@ export function resolvePreviewText(
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
+	size?: "sm" | "sidebar" | "card";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
@@ -549,6 +591,7 @@ export function ChatIcon(input: {
 				avatarStyle={input.chat.centerAgentAvatarStyle}
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
+				size={({ card: 56, sidebar: 28, sm: 24 } as const)[input.size ?? "sm"]}
 				working={
 					input.summary?.statuses?.some(
 						(status) => status.kind === "working"
@@ -558,15 +601,10 @@ export function ChatIcon(input: {
 		);
 	}
 	return (
-		<SpaceProfileIcon
-			agentControllerRef={input.chat.peer?.agentControllerRef ?? null}
-			avatarImageUrl={input.chat.peer?.avatarUrl}
-			avatarModelId={input.chat.peer?.avatarModelId}
-			avatarStyle={input.chat.peer?.avatarStyle}
-			profileId={input.chat.peer?.profileId ?? input.chat.spaceId}
-			profileKind={input.chat.peer?.profileKind ?? "human"}
-			profileName={input.title}
-			size="sm"
+		<DirectMessageAvatar
+			participants={input.chat.participants}
+			peer={input.chat.peer}
+			size={input.size ?? "sm"}
 		/>
 	);
 }

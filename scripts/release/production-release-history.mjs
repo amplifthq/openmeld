@@ -26,6 +26,8 @@ async function readGithubPage(endpoint, readJson, wait) {
 export const RELEASE_SCOPES = [
   "db",
   "web",
+  "website",
+  "docs",
   "gateway",
   "auth",
   "cli",
@@ -39,6 +41,12 @@ export function releaseWorkflowScopes(name) {
   }
   if (String(name).includes("CLI Release")) {
     return ["db", "auth", "cli", "core"];
+  }
+  if (String(name).includes("Deploy Docs")) {
+    return ["docs"];
+  }
+  if (String(name).includes("Deploy Website")) {
+    return ["website"];
   }
   if (String(name).includes("Deploy Web")) {
     return ["web"];

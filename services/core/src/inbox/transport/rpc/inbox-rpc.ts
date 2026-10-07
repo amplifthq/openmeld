@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentInboxSummaryResponseSchema,
   dismissInboxItemResponseSchema,
@@ -28,6 +29,8 @@ import {
   markSpaceInboxReadThroughRpcInputSchema,
   mutateInboxFeedResponseSchema,
   mutateInboxFeedRpcInputSchema,
+  mutateSpaceInboxReadResponseSchema,
+  mutateSpaceInboxReadRpcInputSchema,
   observeInboxNotificationsRpcInputSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
@@ -64,40 +67,74 @@ import type {
   MarkSpaceInboxReadThroughRpcInput,
   MutateInboxFeedResponse,
   MutateInboxFeedRpcInput,
+  MutateSpaceInboxReadResponse,
+  MutateSpaceInboxReadRpcInput,
   ObserveInboxNotificationsRpcInput,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, inboxDb } from "../../../lib/bindings";
+import { reconcilePluginActionRequestInbox } from "../../../connectors/plugin-action-requests";
+import type { CoreBindings } from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
+import { reconcileTaskContinuationInbox } from "../../../remote-agent/application/native-delivery-inbox-reconciliation";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
-import { createInboxFeedService } from "../../application/inbox-feed-service";
+import {
+  createInboxFeedService,
+  type InboxFeedMeasure,
+  runInboxFeedStage,
+} from "../../application/inbox-feed-service";
 import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
 import { observeInboxNotifications } from "../../application/inbox-notification-observations";
 import {
   createInboxService,
   InboxServiceError,
 } from "../../application/inbox-service";
+import { mutateSpaceInboxRead } from "../../application/space-inbox-read";
+
+export async function rpcMutateSpaceInboxRead(
+  env: CoreBindings,
+  input: MutateSpaceInboxReadRpcInput
+): Promise<MutateSpaceInboxReadResponse> {
+  const request = parseRequest(mutateSpaceInboxReadRpcInputSchema, input);
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    mutateSpaceInboxReadResponseSchema,
+    await runService(() =>
+      mutateSpaceInboxRead({
+        db: prepared.db,
+        organizationId: prepared.organizationId,
+        recipientUserId: prepared.userId,
+        body: request.body,
+      })
+    )
+  );
+}
 
 export async function rpcListInboxFeed(
   env: CoreBindings,
-  input: ListInboxFeedRpcInput
+  input: ListInboxFeedRpcInput,
+  measure: InboxFeedMeasure = runInboxFeedStage
 ): Promise<InboxFeedResponse> {
   const { context, ...query } = parseRequest(
     listInboxFeedRpcInputSchema,
     input
   );
-  const prepared = await prepareRequest(env, context);
-  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
+  const prepared = await measure("inbox.prepare", () =>
+    prepareRequest(env, context)
+  );
+  await measure("inbox.invitations", () =>
+    reconcileInvitationInbox(prepared.db, prepared.organizationId)
+  );
   return parseResponse(
     inboxFeedResponseSchema,
     await runService(() =>
       createInboxFeedService({
         db: prepared.db,
         canManageOrganization: prepared.canManageOrganization,
+        measure,
       }).list(
         {
           organizationId: prepared.organizationId,
@@ -319,6 +356,7 @@ export async function rpcGetSpaceInboxUnreadTargets(
     spaceInboxUnreadTargetsResponseSchema,
     await runService(() =>
       prepared.service.spaceUnreadTargets({
+        includeItemIds: request.includeItemIds,
         organizationId: prepared.organizationId,
         recipientUserId: prepared.userId,
         spaceId: request.spaceId,
@@ -537,7 +575,7 @@ async function prepareRequest(
       status: membership.status,
     });
   }
-  const db = inboxDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "inbox.store_unavailable",
@@ -545,6 +583,23 @@ async function prepareRequest(
       status: 503,
     });
   }
+  // These source families own distinct Inbox items. Both must finish before
+  // the snapshot, but neither repair depends on the other's result.
+  await Promise.all([
+    reconcilePluginActionRequestInbox({
+      db,
+      organizationId: membership.organizationId,
+      userId: membership.userId,
+    }),
+    reconcileTaskContinuationInbox({
+      inboxDb: db,
+      sourceDb: db,
+      identityDb: db,
+      coordinationDb: db,
+      organizationId: membership.organizationId,
+      recipientUserId: membership.userId,
+    }),
+  ]);
   return {
     db,
     organizationId: membership.organizationId,

@@ -6,6 +6,7 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  type AdapterDispatchRequest,
   type AdapterDispatchSpaceTools,
   buildDispatchSpaceActionMcpToolIds,
   isDispatchSpaceActionDeliveryOnly,
@@ -18,7 +19,7 @@ import { OPENMELD_CLAUDE_ALLOWED_TOOLS } from "./claude-permission-policy.js";
 type ClaudeSpaceToolInput = {
   env?: Record<string, string | undefined>;
   spaceActionTools?: AdapterDispatchSpaceTools;
-  executionContext?: unknown;
+  executionContext?: AdapterDispatchRequest["executionContext"];
 };
 
 export function isClaudeDeliveryOnly(input: ClaudeSpaceToolInput): boolean {
@@ -33,7 +34,11 @@ export function buildClaudeSpaceToolOptions(
 ): Partial<Options> {
   const server = resolveDispatchSpaceActionMcpServer(input.env);
   const deliveryOnly = isClaudeDeliveryOnly(input);
-  const isolated = Boolean(input.executionContext || deliveryOnly);
+  const isolated = Boolean(
+    deliveryOnly ||
+      (input.executionContext &&
+        input.executionContext.permissionSource !== "agent_settings")
+  );
   const tools = input.spaceActionTools;
   let names: string[] = [];
   if (tools) {

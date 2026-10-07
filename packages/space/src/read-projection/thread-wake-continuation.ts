@@ -1,5 +1,5 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { isOneHumanAgentConversation } from "../presentation/agent-direct-conversation-space";
+import { isOneHumanAgentConversation } from "../presentation/automatic-wake-space";
 
 /** Include the sender: a second person's first reply is already a group conversation. */
 export function resolveThreadAutomaticWakeTarget(input: {

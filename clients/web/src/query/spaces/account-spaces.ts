@@ -1,3 +1,4 @@
+import { normalizeMessagePreview } from "@openmeld/protocol";
 import {
 	ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS,
 	sanitizeSignalTextPreview,
@@ -19,13 +20,17 @@ import {
 	type AccountSpaceSections,
 	listAccountSpaceItems,
 } from "#/lib/spaces/account-spaces";
-import { baseQueryOptions } from "#/query/query-config";
+import {
+	baseQueryOptions,
+	DISPLAY_REVISIT_GC_TIME_MS,
+} from "#/query/query-config";
 import { spaceActiveWakeProgressSummaryQueryOptions } from "./active-wake-progress";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
-// Newly invited members have no live connection to that Space yet. Refresh
-// the shared directory every five seconds while the app is in the foreground.
-export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 5000;
+// The account invalidation stream covers unopened Spaces and new memberships.
+// Foreground polling repairs missed events without repeatedly scanning an idle
+// account; focus and stream reconnect also revalidate immediately.
+export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 30_000;
 
 type AccountSpaceActiveWakePresentationSnapshot = {
 	browserRequestStartedAtMonotonicMs: number | null;
@@ -67,7 +72,9 @@ export function updateAccountSpaceAcceptedMessage(
 						profileId: signal.profile.profileId,
 						timestamp: signal.ts,
 						text: (
-							sanitizeSignalTextPreview(signal.data.text) ?? "Message"
+							sanitizeSignalTextPreview(
+								normalizeMessagePreview(signal.data.text)
+							) ?? "Message"
 						).slice(0, 240),
 					})
 				: current
@@ -88,7 +95,7 @@ export function accountSpaceItemsQueryOptions(input: {
 				scope,
 			}),
 		enabled: input.enabled,
-		gcTime: baseQueryOptions.gcTime,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 		retry: baseQueryOptions.retry,
 		refetchInterval: ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS,
 		refetchIntervalInBackground: false,

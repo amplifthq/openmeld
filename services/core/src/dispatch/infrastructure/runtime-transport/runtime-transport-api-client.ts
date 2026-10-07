@@ -10,6 +10,7 @@ import {
 import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
 
 export type RuntimeTransportApiPath =
+  | "/session-history"
   | "/lookup-route"
   | "/lookup-routes-batch"
   | "/lookup-owner-service"
@@ -37,6 +38,8 @@ export type RuntimeTransportApiPath =
   | "/runtime-coordinator/head/waiting"
   | "/runtime-coordinator/head/trace"
   | "/runtime-coordinator/interaction/read"
+  | "/runtime-coordinator/execution-input/resolve"
+  | "/runtime-coordinator/execution-input"
   | "/runtime-coordinator/interaction/respond"
   | "/runtime-coordinator/pre-execution-handoff"
   | "/runtime-coordinator/wake-stop"
@@ -385,6 +388,9 @@ const resolveRuntimeTransportApiTimeoutMs = (input: {
 }): number => {
   if (input.path === "/local-folder-picker/select-folders") {
     return 610_000;
+  }
+  if (input.path === "/session-history") {
+    return 38_000;
   }
   if (input.path.startsWith("/local-project-control/")) {
     return 38_000;

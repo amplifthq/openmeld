@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   type MessageSearchResponse,
   type MessageSearchRpcInput,
   messageSearchCursorSchema,
@@ -10,7 +14,7 @@ import {
   mapInboxItemRow,
 } from "../inbox/application/inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "../inbox/application/inbox-source-access";
-import { type CoreBindings, inboxDb, localStateDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "../rpc/errors";
 import { rpcListSignals } from "../rpc/methods";
@@ -18,10 +22,9 @@ import { rpcListSignals } from "../rpc/methods";
 type Candidate = {
   space_id: string;
   space_name: string | null;
-  direct_message: number;
-  center_agent: number;
+  direct_message: boolean;
+  center_agent: boolean;
 };
-
 /** Bounded federation: the directory selects candidates; each Space authorizes and searches its own current messages. */
 export async function rpcSearchMessages(
   env: CoreBindings,
@@ -39,13 +42,7 @@ export async function rpcSearchMessages(
       reason: membership.message,
     });
   }
-  const db = searchDatabase(env, input.scope);
-  if (!db) {
-    throw createCoreRpcHttpError({
-      status: 503,
-      reason: "Message search is temporarily unavailable.",
-    });
-  }
+  const db = getPostgresDatabase(env);
   const cursor = readCursor(input.cursor);
   if (shouldSearchActivities(input.scope, cursor.activitiesDone)) {
     return searchInboxActivities(
@@ -57,29 +54,31 @@ export async function rpcSearchMessages(
   }
   const ids = cursor.pending.map((item) => item.spaceId);
   const selectedSpaceId = input.spaceId ?? null;
-  const rows = await db
-    .prepare(`SELECT s.space_id, s.space_name,
+  const rows = await db.query<Candidate>({
+    text: `SELECT s.space_id, s.space_name,
     (s.direct_message_pair_key IS NOT NULL AND s.direct_message_converted_at_ms IS NULL) AS direct_message,
-    EXISTS (SELECT 1 FROM center_agent_designations cad
-      JOIN space_index_memberships cm ON cm.profile_id = cad.agent_profile_id AND cm.space_id = s.space_id
+    EXISTS (SELECT 1 FROM "openmeld"."center_agent_designations" cad
+      JOIN "openmeld"."space_index_memberships" cm ON cm.profile_id = cad.agent_profile_id AND cm.space_id = s.space_id
       WHERE cad.organization_id = s.organization_id AND cm.status = 'active'
         AND s.direct_message_pair_key IS NOT NULL AND s.direct_message_converted_at_ms IS NULL) AS center_agent
-    FROM space_index_spaces s WHERE s.organization_id = ? AND s.status = 'active'
-      AND (? IS NOT NULL OR EXISTS (SELECT 1 FROM space_index_memberships m WHERE m.space_id = s.space_id AND m.status = 'active' AND m.owner_user_id_snapshot = ?))
-      AND (? IS NULL OR s.space_id = ?)
-      AND ${ids.length ? `s.space_id IN (${ids.map(() => "?").join(",")})` : "s.space_id > ?"}
-    ORDER BY s.space_id LIMIT 4`)
-    .bind(
+    FROM "openmeld"."space_index_spaces" s WHERE s.organization_id = $1 AND s.status = 'active'
+      AND ($2::text IS NOT NULL OR EXISTS (SELECT 1 FROM "openmeld"."space_index_memberships" m WHERE m.space_id = s.space_id AND m.status = 'active' AND m.owner_user_id_snapshot = $3))
+      AND ($4::text IS NULL OR s.space_id = $5)
+      AND ($6::text[] IS NULL OR s.space_id = ANY($6))
+      AND ($6::text[] IS NOT NULL OR s.space_id > $7)
+    ORDER BY s.space_id LIMIT 4`,
+    values: [
       membership.organizationId,
       selectedSpaceId,
       membership.userId,
       selectedSpaceId,
       selectedSpaceId,
-      ...(ids.length ? ids : [cursor.afterSpaceId])
-    )
-    .all<Candidate>();
+      ids.length ? ids : null,
+      cursor.afterSpaceId,
+    ],
+  });
   const pages = await Promise.all(
-    rows.results.map(async (space) => {
+    rows.rows.map(async (space) => {
       const previous = cursor.pending.find(
         (item) => item.spaceId === space.space_id
       )?.cursor;
@@ -124,7 +123,7 @@ export async function rpcSearchMessages(
   }
   const afterSpaceId = ids.length
     ? cursor.afterSpaceId
-    : (rows.results.at(-1)?.space_id ?? cursor.afterSpaceId);
+    : (rows.rows.at(-1)?.space_id ?? cursor.afterSpaceId);
   return {
     activities: [],
     matches,
@@ -133,27 +132,18 @@ export async function rpcSearchMessages(
       pending.length,
       input.spaceId,
       ids.length,
-      rows.results.length
+      rows.rows.length
     )
       ? JSON.stringify({ afterSpaceId, pending, activitiesDone: true })
       : null,
   };
 }
-
-function searchDatabase(
-  env: CoreBindings,
-  scope: MessageSearchRpcInput["scope"]
-) {
-  return scope === "inbox" ? inboxDb(env) : localStateDb(env);
-}
-
 function shouldSearchActivities(
   scope: MessageSearchRpcInput["scope"],
   complete: boolean
 ): boolean {
   return scope === "inbox" && !complete;
 }
-
 function hasMoreSearchPages(
   pending: number,
   spaceId: string | undefined,
@@ -164,7 +154,6 @@ function hasMoreSearchPages(
     pending > 0 || (!spaceId && (previousPending > 0 || candidateCount === 4))
   );
 }
-
 function readCursor(
   value: string | undefined
 ): ReturnType<typeof messageSearchCursorSchema.parse> {
@@ -180,30 +169,37 @@ function readCursor(
     });
   }
 }
-
 async function searchInboxActivities(
-  db: D1Database,
-  membership: { organizationId: string; userId: string; role: string },
+  db: PostgresDatabase,
+  membership: {
+    organizationId: string;
+    userId: string;
+    role: string;
+  },
   query: string,
   before?: number
 ): Promise<MessageSearchResponse> {
-  const rows = await db
-    .prepare(`SELECT inbox_items.*, rowid AS search_rowid FROM inbox_items
-    WHERE (organization_id = ? OR organization_id IS NULL) AND recipient_user_id = ? AND cleared_at_ms IS NULL
-      AND (source_kind != 'space_signal' OR json_extract(source_target_json, '$.signalId') IS NULL)
-      AND (? IS NULL OR rowid < ?)
-      AND instr(lower(title || ' ' || coalesce(preview, '')), lower(?)) > 0
+  const rows = await db.query<
+    InboxItemRow & {
+      search_sequence: number;
+    }
+  >({
+    text: `SELECT inbox_items.*, sequence AS search_sequence FROM "openmeld"."inbox_items"
+    WHERE (organization_id = $1 OR organization_id IS NULL) AND recipient_user_id = $2 AND cleared_at_ms IS NULL
+      AND (source_kind != 'space_signal' OR ((source_target_json)::jsonb #>> '{signalId}') IS NULL)
+      AND ($3::bigint IS NULL OR sequence < $4)
+      AND strpos(lower(title || ' ' || coalesce(preview, '')), lower($5)) > 0
       AND ${buildCurrentInboxSourceAccessSql("inbox_items", membership.role === "owner" || membership.role === "admin")}
-    ORDER BY rowid DESC LIMIT 31`)
-    .bind(
+    ORDER BY sequence DESC NULLS LAST LIMIT 31`,
+    values: [
       membership.organizationId,
       membership.userId,
       before ?? null,
       before ?? null,
-      query
-    )
-    .all<InboxItemRow & { search_rowid: number }>();
-  const page = rows.results.slice(0, 30);
+      query,
+    ],
+  });
+  const page = rows.rows.slice(0, 30);
   return {
     matches: [],
     indexing: false,
@@ -211,38 +207,44 @@ async function searchInboxActivities(
     nextCursor: JSON.stringify({
       afterSpaceId: "",
       pending: [],
-      activitiesDone: rows.results.length <= 30,
-      ...(rows.results.length > 30
-        ? { activityBefore: page.at(-1)?.search_rowid }
+      activitiesDone: rows.rows.length <= 30,
+      ...(rows.rows.length > 30
+        ? { activityBefore: page.at(-1)?.search_sequence }
         : {}),
     }),
   };
 }
-
 async function matchPage(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   scope: MessageSearchRpcInput["scope"];
-  membership: { organizationId: string; userId: string; role: string };
+  membership: {
+    organizationId: string;
+    userId: string;
+    role: string;
+  };
   space: Candidate;
   page: ReturnType<typeof spaceMessageSearchResponseSchema.parse>;
 }): Promise<MessageSearchResponse["matches"]> {
   const { db, scope, membership, space, page } = input;
   let inboxIds = new Map<string, string>();
   if (scope === "inbox" && page.signals.length) {
-    const items = await db
-      .prepare(`SELECT id, json_extract(source_target_json, '$.signalId') AS signal_id FROM inbox_items
-      WHERE organization_id = ? AND recipient_user_id = ? AND cleared_at_ms IS NULL
-        AND json_extract(source_target_json, '$.spaceId') = ?
-        AND json_extract(source_target_json, '$.signalId') IN (${page.signals.map(() => "?").join(",")})
-        AND ${buildCurrentInboxSourceAccessSql("inbox_items", membership.role === "owner" || membership.role === "admin")}`)
-      .bind(
+    const items = await db.query<{
+      id: string;
+      signal_id: string;
+    }>({
+      text: `SELECT id, ((source_target_json)::jsonb #>> '{signalId}') AS signal_id FROM "openmeld"."inbox_items"
+      WHERE organization_id = $1 AND recipient_user_id = $2 AND cleared_at_ms IS NULL
+        AND ((source_target_json)::jsonb #>> '{spaceId}') = $3
+        AND ((source_target_json)::jsonb #>> '{signalId}') = ANY($4::text[])
+        AND ${buildCurrentInboxSourceAccessSql("inbox_items", membership.role === "owner" || membership.role === "admin")}`,
+      values: [
         membership.organizationId,
         membership.userId,
         space.space_id,
-        ...page.signals.map((signal) => signal.id)
-      )
-      .all<{ id: string; signal_id: string }>();
-    inboxIds = new Map(items.results.map((item) => [item.signal_id, item.id]));
+        page.signals.map((signal) => signal.id),
+      ],
+    });
+    inboxIds = new Map(items.rows.map((item) => [item.signal_id, item.id]));
   }
   return page.signals.flatMap((signal) => {
     const inboxItemId = inboxIds.get(signal.id);

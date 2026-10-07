@@ -6,6 +6,7 @@ await buildLazyRuntimeModules();
 export default defineConfig({
   test: {
     environment: "node",
+    fileParallelism: false,
     include: ["tests-node/**/*.test.ts"],
   },
 });

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
   claimRemoteAgentMessageChannelProviderCardCreation,
@@ -20,21 +21,18 @@ import {
   markRemoteAgentMessageChannelProviderCardUpdateFailed,
   markRemoteAgentMessageChannelProviderCardUpdateOutcomeUnknown,
   markRemoteAgentMessageChannelProviderCardUpdatePublished,
-} from "../src/remote-agent/infrastructure/d1/message-channel-provider-progress-repo";
+} from "../src/remote-agent/infrastructure/postgresql/message-channel-provider-progress-repo";
 import {
   claimRemoteAgentFinalPublication,
   markRemoteAgentNativeDeliveryAck,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Message Channel provider progress repo", () => {
   it("claims card creation once and fences every transition", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createMessageChannelDelivery(harness.db, "delivery_create");
 
@@ -92,13 +90,13 @@ describe("Message Channel provider progress repo", () => {
         providerProgressState: "created",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("never retries a card creation whose outcome is unknown", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createMessageChannelDelivery(harness.db, "delivery_create_unknown");
       await claimRemoteAgentMessageChannelProviderCardCreation({
@@ -135,13 +133,13 @@ describe("Message Channel provider progress repo", () => {
         status: "not_claimed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("persists the card before sending its reference and records the visible message", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createCreatedCard(harness.db, "delivery_send");
 
@@ -179,13 +177,13 @@ describe("Message Channel provider progress repo", () => {
         providerProgressState: "sent",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("turns abandoned create and send claims into non-retryable ambiguous outcomes", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createMessageChannelDelivery(harness.db, "delivery_expired_create");
       await claimRemoteAgentMessageChannelProviderCardCreation({
@@ -230,13 +228,13 @@ describe("Message Channel provider progress repo", () => {
         providerProgressState: "send_outcome_unknown",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("records confirmed provider failures without fabricating progress", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createMessageChannelDelivery(harness.db, "delivery_unavailable");
       await claimRemoteAgentMessageChannelProviderCardCreation({
@@ -261,13 +259,13 @@ describe("Message Channel provider progress repo", () => {
         providerProgressState: "unavailable",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("deduplicates card updates without treating provider bookkeeping as worker evidence", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createSentCard(harness.db, "delivery_updates");
       const updateInput = {
@@ -343,13 +341,13 @@ describe("Message Channel provider progress repo", () => {
         status: "not_claimed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("releases confirmed update failures for an exact safe retry", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createSentCard(harness.db, "delivery_update_failure");
       const updateInput = {
@@ -382,13 +380,13 @@ describe("Message Channel provider progress repo", () => {
         })
       ).resolves.toMatchObject({ status: "claimed" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("stops new stream updates as soon as final publication is claimed", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createSentCard(harness.db, "delivery_final", "submission_final");
       await claimRemoteAgentFinalPublication({
@@ -426,13 +424,13 @@ describe("Message Channel provider progress repo", () => {
         status: "not_claimed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not confuse a send ambiguity with a confirmed failure", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createCreatedCard(harness.db, "delivery_send_unknown");
       const sendInput = {
@@ -457,13 +455,13 @@ describe("Message Channel provider progress repo", () => {
         providerProgressState: "send_outcome_unknown",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("moves a long response to a new card through durable rollover phases", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createSentCard(harness.db, "delivery_rollover");
       const finalizeInput = {
@@ -606,13 +604,13 @@ describe("Message Channel provider progress repo", () => {
         providerProgressState: "sent",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("lets the fenced final publisher resume a card rollover", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createSentCard(
         harness.db,
@@ -672,13 +670,13 @@ describe("Message Channel provider progress repo", () => {
         })
       ).resolves.toMatchObject({ status: "not_claimed" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("expires only the retry-safe rollover phases", async () => {
-    const harness = createSqliteD1Harness();
-    applyLedgerMigration(harness);
+    const harness = await createPostgresHarness();
+
     try {
       await createSentCard(harness.db, "delivery_rollover_expiry");
       const finalizeInput = {
@@ -755,22 +753,13 @@ describe("Message Channel provider progress repo", () => {
         providerProgressState: "rollover_send_outcome_unknown",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function applyLedgerMigration(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_native_delivery_ledger"
-  );
-}
-
 async function createMessageChannelDelivery(
-  db: D1Database,
+  db: PostgresDatabase,
   idempotencyKey: string
 ): Promise<void> {
   await upsertRemoteAgentNativeDeliveryRecord({
@@ -800,7 +789,7 @@ async function createMessageChannelDelivery(
 }
 
 async function createCreatedCard(
-  db: D1Database,
+  db: PostgresDatabase,
   idempotencyKey: string
 ): Promise<void> {
   await createMessageChannelDelivery(db, idempotencyKey);
@@ -821,7 +810,7 @@ async function createCreatedCard(
 }
 
 async function createSentCard(
-  db: D1Database,
+  db: PostgresDatabase,
   idempotencyKey: string,
   submissionId = `submission_${idempotencyKey}`
 ): Promise<void> {

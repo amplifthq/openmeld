@@ -1,3 +1,4 @@
+import { supportsLocalExecutionInput } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
@@ -11,6 +12,7 @@ import type {
 	SignalEnvelope,
 	SpaceAccessMode,
 	SpaceInboxUnreadTarget,
+	SpaceInboxUnreadTargetsResponse,
 	SpaceLinkJoinPolicy,
 	SpaceMembersSnapshot,
 	SpaceMessageFileReference,
@@ -56,6 +58,7 @@ import {
 	ensureWebAgentProfileRuntimeBinding,
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
+import { projectAgentStreamReplyPlacements } from "#/lib/spaces/active-wake-conversation";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
@@ -87,10 +90,13 @@ import {
 	type SpaceLiveState,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
+import { useWakeStopRequests } from "#/lib/spaces/use-wake-stop-requests";
 import type {
 	SpaceWakeStopRequestStatus,
 	SpaceWakeStopTargetResolution,
 } from "#/lib/spaces/wake-stop-target";
+import { inboxQueryKeys } from "#/query/organizations/inbox";
+import { optimisticallyRespondToSpaceInteraction } from "#/query/organizations/inbox-interaction-response";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import {
@@ -168,6 +174,7 @@ import {
 	type SpaceHistoryNavigationController,
 	useSpaceHistoryNavigation,
 } from "./use-space-history-navigation";
+import { useSpaceInputQueue } from "./use-space-input-queue";
 import {
 	addSetValue,
 	areWakeProgressItemsEqual,
@@ -419,8 +426,9 @@ function buildComposerFileSubmission(input: {
 	};
 }
 
-function resolveCenterAgentExecutionInput(input: {
+function resolveQueuedExecutionInput(input: {
 	centerAgentProfileId?: string | null;
+	members: SpaceMembersSnapshot | null;
 	activationTargets: readonly string[];
 	hasFiles: boolean;
 	items: readonly Pick<
@@ -428,13 +436,26 @@ function resolveCenterAgentExecutionInput(input: {
 		"terminal" | "dispatchId" | "targetProfileId"
 	>[];
 }) {
-	if (!input.centerAgentProfileId || input.hasFiles) {
+	const localProfileIds =
+		input.members?.agents
+			.filter((agent) => supportsLocalExecutionInput(agent.agentControllerRef))
+			.map((agent) => agent.profileId) ?? [];
+	if (input.hasFiles) {
 		return undefined;
 	}
+	let targetProfileId: string | null | undefined;
+	if (input.activationTargets.length === 1) {
+		targetProfileId = input.activationTargets[0];
+	} else if (input.activationTargets.length === 0) {
+		targetProfileId = input.centerAgentProfileId;
+		if (!targetProfileId && localProfileIds.length === 1) {
+			targetProfileId = localProfileIds[0];
+		}
+	}
 	if (
-		input.activationTargets.some(
-			(profileId) => profileId !== input.centerAgentProfileId
-		)
+		!targetProfileId ||
+		(targetProfileId !== input.centerAgentProfileId &&
+			!localProfileIds.includes(targetProfileId))
 	) {
 		return undefined;
 	}
@@ -442,7 +463,7 @@ function resolveCenterAgentExecutionInput(input: {
 		(item) =>
 			!item.terminal &&
 			item.dispatchId &&
-			item.targetProfileId === input.centerAgentProfileId
+			item.targetProfileId === targetProfileId
 	);
 	const response = responses.length === 1 ? responses[0] : undefined;
 	return response?.dispatchId
@@ -457,9 +478,6 @@ function buildNormalMessagePostInput(input: {
 	contextSelection?: SpaceComposerSendOptions["contextSelection"];
 	deviceWait?: SpaceComposerSendOptions["deviceWait"];
 	restoredFromSignalId?: string;
-	centerAgentExecutionInput?: NonNullable<
-		TextSignalEnvelope["data"]["meta"]
-	>["centerAgentExecutionInput"];
 	files: readonly SpaceMessageFileReference[];
 	clientMessageId: string;
 	messageEnvelope: TextSignalEnvelope["data"]["messageEnvelope"] | null;
@@ -474,9 +492,6 @@ function buildNormalMessagePostInput(input: {
 		meta: {
 			...(input.restoredFromSignalId
 				? { restoredFromSignalId: input.restoredFromSignalId }
-				: {}),
-			...(input.centerAgentExecutionInput
-				? { centerAgentExecutionInput: input.centerAgentExecutionInput }
 				: {}),
 			clientMessageId: input.clientMessageId,
 			authorHasRead: true as const,
@@ -999,7 +1014,6 @@ function useSpaceLandingBootstrapState(input: {
 	const restoredDisplayStatus =
 		currentAccessRejection === null &&
 		currentStatusSnapshot === null &&
-		historySnapshot !== null &&
 		displaySnapshotQuery.data
 			? readOnlySpaceStatusFromDisplaySnapshot(displaySnapshotQuery.data)
 			: null;
@@ -1096,38 +1110,35 @@ function useClearRejectedSpaceConversationCache(input: {
 	]);
 }
 
-function resolveConfirmedViewedThroughHandler(input: {
+function resolveConfirmedViewedUpdatesHandler(input: {
 	isCurrentAccessConfirmed: boolean;
-	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
-}): ((throughTs: number) => Promise<void> | void) | undefined {
-	return input.isCurrentAccessConfirmed ? input.onViewedThroughTs : undefined;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
+}):
+	| ((targets: readonly SpaceInboxUnreadTarget[]) => Promise<void> | void)
+	| undefined {
+	return input.isCurrentAccessConfirmed ? input.onViewedUpdates : undefined;
 }
 
 function shouldShowSpaceLandingLoading(input: {
 	bootstrapPending: boolean;
 	currentStatusConfirmationPending: boolean;
 	hasDisplayStatus: boolean;
+	hasPendingMessage: boolean;
+	membershipState: CurrentProfileSpaceMembershipState;
+	membersError: unknown;
 }): boolean {
 	return (
-		!input.hasDisplayStatus &&
-		(input.currentStatusConfirmationPending || input.bootstrapPending)
+		(input.hasPendingMessage &&
+			input.membershipState === "unknown" &&
+			!input.membersError) ||
+		(!input.hasDisplayStatus &&
+			(input.currentStatusConfirmationPending || input.bootstrapPending))
 	);
 }
 
 export type SpaceLandingController =
-	| {
-			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
-			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
-			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
-			composerMentionEmptyMessage?: string;
-			composerText: string;
-			mode: "loading";
-			composerFiles: ReturnType<typeof useSpaceComposerSession>["files"];
-			onComposerBlur: () => void;
-			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
-			onComposerFocus: () => void;
-			textareaRef: SpaceComposerInputRef;
-	  }
 	| {
 			inlineErrorMessage: string | null;
 			isSubmitting: boolean;
@@ -1144,171 +1155,186 @@ export type SpaceLandingController =
 			onRetry: () => Promise<void>;
 			spaceId: string;
 	  }
-	| {
-			activeThread: SpaceThread | null;
-			threadPanelOpen: boolean;
-			agentStreams: readonly SpaceConversationVisibleStreamProjection[];
-			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
-			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
-			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
-			composerMentionEmptyMessage?: string;
-			composerFiles: readonly SpaceComposerFile[];
-			composerFileLimitReached: boolean;
-			composerFileCleanup: readonly ComposerFileDraftCleanup[];
-			composerFileRestorationError: unknown | null;
-			composerBlockedWakeProfileId: string | null;
-			composerErrorMessage: string | null;
-			composerHasAuthoredMentions: boolean;
-			composerReplyToSignalId: string | null;
-			composerText: string;
-			ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-			presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
-			ownActiveWakesHaveMore: boolean;
-			historyNavigation: SpaceHistoryNavigationController;
-			hasEarlierHistory: boolean;
-			historyActionErrorMessage: string | null;
-			historyError: StructuredApiClientFailure | null;
-			historyIsPending: boolean;
-			deleteSpaceErrorMessage: string | null;
-			showDeleteSpaceAction: boolean;
-			isLeaveSpacePending: boolean;
-			isDeleteSpacePending: boolean;
-			isAccessModePending: boolean;
-			isSpaceNamePending: boolean;
-			isLoadingEarlierHistory: boolean;
-			isAgentRecoveryPending: (profileId: string) => boolean;
-			isMembersLoading: boolean;
-			isMembersRefreshing: boolean;
-			isCurrentAccessConfirmed: boolean;
-			currentProfileMembershipState: CurrentProfileSpaceMembershipState;
-			isSendingMessage: boolean;
-			isDiagnosticReportPending: (signalId: string) => boolean;
-			isDiagnosticReportSent: (signalId: string) => boolean;
-			leaveSpaceErrorMessage: string | null;
-			accessModeErrorMessage: string | null;
-			spaceNameErrorMessage: string | null;
-			liveErrorMessage: string | null;
-			liveState: SpaceLiveState;
-			onReconnectLiveUpdates: () => void;
-			membersError: StructuredApiClientFailure | null;
-			membersSnapshot: SpaceMembersSnapshot | null;
-			presentationMembersSnapshot: SpaceMembersSnapshot | null;
-			mode: "ready";
-			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
-			onClearComposerReplyTo: () => void;
-			onAddComposerFiles: (files: readonly File[]) => Promise<void>;
-			onRemoveComposerFile: (localId: string) => void;
-			onRetryComposerFile: (localId: string) => Promise<void>;
-			onRetryComposerFileCleanup: (localId: string) => Promise<void>;
-			onRetryComposerFileRestoration: () => void;
-			onConversationViewedThroughTs?: (
-				timestamp: number
-			) => Promise<void> | void;
-			onJumpToDate: (date: Date) => Promise<string | null>;
-			onLoadEarlierHistory: () => Promise<void>;
-			onDeleteSpace: () => Promise<void>;
-			onLeaveSpace: () => Promise<void>;
-			onCloseThread: () => void;
-			onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
-			onMentionButtonClick: () => void;
-			onOpenThread: (threadId: string) => void;
-			onOpenUnreadThread: (input: {
-				rootSignalId: string;
-				signalId: string;
-				threadId?: string;
-			}) => Promise<boolean>;
-			onRefresh: () => Promise<void>;
-			onRefreshMembers: () => Promise<void>;
-			onHardRefreshStatusAndMembers: () => Promise<void>;
-			onRefreshStatusAndMembers: () => Promise<void>;
-			onSetAccessMode: (input: {
-				accessMode: SpaceAccessMode;
-				allowGuests?: boolean;
-				linkJoinPolicy?: SpaceLinkJoinPolicy;
-				password?: string;
-				visibility?: "public" | "private";
-			}) => Promise<void>;
-			onUpdateSpaceName: (name: string) => Promise<void>;
-			onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => void;
-			onThreadMentionButtonClick: () => void;
-			onThreadSend: (options?: SpaceComposerSendOptions) => Promise<void>;
-			onThreadSendText: (text: string) => Promise<void>;
-			onComposeExpiredDeviceWait: (request: {
-				sourceSignalId: string;
-				targetProfileId: string;
-			}) => void;
-			onThreadComposeExpiredDeviceWait: (request: {
-				sourceSignalId: string;
-				targetProfileId: string;
-			}) => void;
-			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
-			onRemoveThreadComposerFile: (localId: string) => void;
-			onRetryThreadComposerFile: (localId: string) => Promise<void>;
-			onRetryThreadComposerFileCleanup: (localId: string) => Promise<void>;
-			onRetryThreadComposerFileRestoration: () => void;
-			onReplyToMessage: (item: SpaceTimelineItem) => void;
-			onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
-			onRecoverExecution: (
-				input: SpaceExecutionRecoveryAttempt
-			) => Promise<SpaceExecutionRecoveryResolution>;
-			onAgentInteractionResponse: (
-				input: RespondToSpaceAgentInteractionBody
-			) => Promise<void>;
-			onWakeStopRequest: (
-				target: SpaceWakeStopTargetResolution
-			) => Promise<PostSpaceWakeStopResponse>;
-			onUpdateAgentProfileBinding: (input: {
-				controllerEnabled: boolean;
-				agentControllerRef: string;
-				deviceId: string | null;
-				profileId: string;
-				profileName: string;
-				runtimeLane: DaemonServiceLane | null;
-			}) => Promise<void>;
-			onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
-			onSendText: (text: string) => Promise<void>;
-			profileId: string;
-			spaceId: string;
-			status: GetSpaceStatusResponse;
-			threadComposerBlockedWakeProfileId: string | null;
-			threadComposerAddressingTargets: readonly SpaceComposerAddressingTarget[];
-			threadComposerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
-			threadComposerMentionPickerItems: readonly SpaceMentionPickerItem[];
-			threadComposerErrorMessage: string | null;
-			threadComposerHasAuthoredMentions: boolean;
-			threadComposerText: string;
-			threadComposerFiles: readonly SpaceComposerFile[];
-			threadComposerFileLimitReached: boolean;
-			threadComposerFileCleanup: readonly ComposerFileDraftCleanup[];
-			threadComposerFileRestorationError: unknown | null;
-			threadFilePreviewUrlsById: ReadonlyMap<string, string>;
-			threadEphemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-			threads: readonly SpaceThread[];
-			threadPreviews: readonly SpaceThreadPreview[];
-			threadSignals: readonly SignalEnvelope[];
-			threadWakeRecommendationsEnabled: boolean;
-			threadsErrorMessage: string | null;
-			threadSignalsErrorMessage: string | null;
-			threadsIsLoading: boolean;
-			threadSignalsIsLoading: boolean;
-			threadUnreadFocus: {
-				requestId: number;
-				rootSignalId: string;
-				signalId: string;
-			} | null;
-			isCreatingThread: boolean;
-			isSendingThreadMessage: boolean;
-			threadTextareaRef: SpaceComposerInputRef;
-			textareaRef: SpaceComposerInputRef;
-			timelineItems: readonly SpaceTimelineItem[];
-			firstUnreadSignalId: string | null;
-			unreadCount: number;
-			unreadStateReady: boolean;
-			wakeStopRequestStatusBySelectorKey: ReadonlyMap<
-				string,
-				SpaceWakeStopRequestStatus
-			>;
-	  };
+	| (SpaceLandingConversationController &
+			(
+				| { mode: "loading"; status: GetSpaceStatusResponse | null }
+				| { mode: "ready"; status: GetSpaceStatusResponse }
+			));
+
+function resolveSpaceConversationPhase(
+	isLoading: boolean,
+	status: GetSpaceStatusResponse | null
+) {
+	if (!(status || isLoading)) {
+		return { mode: "failure" as const, status };
+	}
+	return status && !isLoading
+		? { mode: "ready" as const, status }
+		: { mode: "loading" as const, status };
+}
+
+export type SpaceLandingConversationController = {
+	activeThread: SpaceThread | null;
+	composerFileSession: ReturnType<typeof useSpaceComposerSession>["files"];
+	threadPanelOpen: boolean;
+	agentStreams: readonly SpaceConversationVisibleStreamProjection[];
+	composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
+	composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
+	composerMentionPickerItems: readonly SpaceMentionPickerItem[];
+	composerMentionEmptyMessage?: string;
+	composerFiles: readonly SpaceComposerFile[];
+	composerFileLimitReached: boolean;
+	composerFileCleanup: readonly ComposerFileDraftCleanup[];
+	composerFileRestorationError: unknown | null;
+	composerBlockedWakeProfileId: string | null;
+	composerErrorMessage: string | null;
+	composerHasAuthoredMentions: boolean;
+	composerReplyToSignalId: string | null;
+	composerText: string;
+	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+	ownActiveWakesHaveMore: boolean;
+	historyNavigation: SpaceHistoryNavigationController;
+	hasEarlierHistory: boolean;
+	historyActionErrorMessage: string | null;
+	historyError: StructuredApiClientFailure | null;
+	historyIsPending: boolean;
+	deleteSpaceErrorMessage: string | null;
+	showDeleteSpaceAction: boolean;
+	isLeaveSpacePending: boolean;
+	isDeleteSpacePending: boolean;
+	isAccessModePending: boolean;
+	isSpaceNamePending: boolean;
+	isLoadingEarlierHistory: boolean;
+	isAgentRecoveryPending: (profileId: string) => boolean;
+	isMembersLoading: boolean;
+	isMembersRefreshing: boolean;
+	isCurrentAccessConfirmed: boolean;
+	currentProfileMembershipState: CurrentProfileSpaceMembershipState;
+	isSendingMessage: boolean;
+	isDiagnosticReportPending: (signalId: string) => boolean;
+	isDiagnosticReportSent: (signalId: string) => boolean;
+	leaveSpaceErrorMessage: string | null;
+	accessModeErrorMessage: string | null;
+	spaceNameErrorMessage: string | null;
+	liveState: SpaceLiveState;
+	onRetryLiveUpdates: () => void;
+	membersError: StructuredApiClientFailure | null;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	presentationMembersSnapshot: SpaceMembersSnapshot | null;
+	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
+	onClearComposerReplyTo: () => void;
+	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
+	onRemoveComposerFile: (localId: string) => void;
+	onRetryComposerFile: (localId: string) => Promise<void>;
+	onRetryComposerFileCleanup: (localId: string) => Promise<void>;
+	onRetryComposerFileRestoration: () => void;
+	onConversationViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
+	onJumpToDate: (date: Date) => Promise<string | null>;
+	onLoadEarlierHistory: () => Promise<void>;
+	onDeleteSpace: () => Promise<void>;
+	onLeaveSpace: () => Promise<void>;
+	onCloseThread: () => void;
+	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
+	onMentionButtonClick: () => void;
+	onOpenThread: (threadId: string) => void;
+	onOpenUnreadThread: (input: {
+		rootSignalId: string;
+		signalId: string;
+		threadId?: string;
+	}) => Promise<boolean>;
+	onRefresh: () => Promise<void>;
+	onRefreshMembers: () => Promise<void>;
+	onHardRefreshStatusAndMembers: () => Promise<void>;
+	onRefreshStatusAndMembers: () => Promise<void>;
+	onSetAccessMode: (input: {
+		accessMode: SpaceAccessMode;
+		allowGuests?: boolean;
+		linkJoinPolicy?: SpaceLinkJoinPolicy;
+		password?: string;
+		visibility?: "public" | "private";
+	}) => Promise<void>;
+	onUpdateSpaceName: (name: string) => Promise<void>;
+	onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => void;
+	onThreadMentionButtonClick: () => void;
+	onThreadSend: (options?: SpaceComposerSendOptions) => Promise<void>;
+	onThreadSendText: (text: string) => Promise<void>;
+	onComposeExpiredDeviceWait: (request: {
+		sourceSignalId: string;
+		targetProfileId: string;
+	}) => void;
+	onThreadComposeExpiredDeviceWait: (request: {
+		sourceSignalId: string;
+		targetProfileId: string;
+	}) => void;
+	onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
+	onRemoveThreadComposerFile: (localId: string) => void;
+	onRetryThreadComposerFile: (localId: string) => Promise<void>;
+	onRetryThreadComposerFileCleanup: (localId: string) => Promise<void>;
+	onRetryThreadComposerFileRestoration: () => void;
+	onReplyToMessage: (item: SpaceTimelineItem) => void;
+	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
+	onRecoverExecution: (
+		input: SpaceExecutionRecoveryAttempt
+	) => Promise<SpaceExecutionRecoveryResolution>;
+	onAgentInteractionResponse: (
+		input: RespondToSpaceAgentInteractionBody
+	) => Promise<void>;
+	onWakeStopRequest: (
+		target: SpaceWakeStopTargetResolution
+	) => Promise<PostSpaceWakeStopResponse>;
+	onUpdateAgentProfileBinding: (input: {
+		controllerEnabled: boolean;
+		agentControllerRef: string;
+		deviceId: string | null;
+		profileId: string;
+		profileName: string;
+		runtimeLane: DaemonServiceLane | null;
+	}) => Promise<void>;
+	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
+	onSendText: (text: string) => Promise<void>;
+	profileId: string;
+	spaceId: string;
+	threadComposerBlockedWakeProfileId: string | null;
+	threadComposerAddressingTargets: readonly SpaceComposerAddressingTarget[];
+	threadComposerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
+	threadComposerMentionPickerItems: readonly SpaceMentionPickerItem[];
+	threadComposerErrorMessage: string | null;
+	threadComposerHasAuthoredMentions: boolean;
+	threadComposerText: string;
+	threadComposerFiles: readonly SpaceComposerFile[];
+	threadComposerFileLimitReached: boolean;
+	threadComposerFileCleanup: readonly ComposerFileDraftCleanup[];
+	threadComposerFileRestorationError: unknown | null;
+	threadFilePreviewUrlsById: ReadonlyMap<string, string>;
+	threadEphemeralActivityItems: readonly SpaceEphemeralActivityItem[];
+	threads: readonly SpaceThread[];
+	threadPreviews: readonly SpaceThreadPreview[];
+	threadSignals: readonly SignalEnvelope[];
+	threadWakeRecommendationsEnabled: boolean;
+	threadsErrorMessage: string | null;
+	threadSignalsErrorMessage: string | null;
+	threadsIsLoading: boolean;
+	threadSignalsIsLoading: boolean;
+	threadUnreadFocus: {
+		requestId: number;
+		rootSignalId: string;
+		signalId: string;
+	} | null;
+	isCreatingThread: boolean;
+	isSendingThreadMessage: boolean;
+	threadTextareaRef: SpaceComposerInputRef;
+	textareaRef: SpaceComposerInputRef;
+	timelineItems: readonly SpaceTimelineItem[];
+	firstUnreadSignalId: string | null;
+	unreadCount: number;
+	unreadStateReady: boolean;
+	wakeStopRequestStatusBySelectorKey: ReadonlyMap<
+		string,
+		SpaceWakeStopRequestStatus
+	>;
+};
 
 type CurrentProfileSpaceMembershipState = "member" | "nonmember" | "unknown";
 
@@ -1559,10 +1585,14 @@ export function useSpaceLandingController(input: {
 		signalIds: readonly string[];
 	}) => Promise<void> | void;
 	onInitialPendingMessageConsumed?: () => void;
-	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 	unreadStateReady?: boolean;
 	unreadTotalCount: number;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
+	unreadBoundaryVersion?: number;
 	organizationId?: string | null;
 	orgSlug?: string;
 	ownerAccountId: string;
@@ -1594,9 +1624,7 @@ export function useSpaceLandingController(input: {
 	const [
 		wakeStopRequestStatusBySelectorKey,
 		setWakeStopRequestStatusBySelectorKey,
-	] = useState<ReadonlyMap<string, SpaceWakeStopRequestStatus>>(
-		() => new Map()
-	);
+	] = useWakeStopRequests(input.profileId, input.spaceId);
 	const recoveredWakeProgressClientMessageIdsRef = useRef(new Set<string>());
 	const [pendingAgentRecoveryProfileId, setPendingAgentRecoveryProfileId] =
 		useState<string | null>(null);
@@ -1614,6 +1642,11 @@ export function useSpaceLandingController(input: {
 	>(null);
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
+	const inputQueue = useSpaceInputQueue({
+		spaceId: input.spaceId,
+		profileId: input.profileId,
+		enabled: input.spaceId.length > 0,
+	});
 	const wakeProgressPresentationQuery = useQuery(
 		spaceWakeProgressPresentationQueryOptions({
 			spaceId: input.spaceId,
@@ -1743,8 +1776,6 @@ export function useSpaceLandingController(input: {
 		spaceId: input.spaceId,
 	});
 
-	const currentProfileId = input.profileId;
-	const currentSpaceId = input.spaceId;
 	const currentProfileMembershipState = useCurrentProfileSpaceMembershipState({
 		membersSnapshot,
 		profileId: input.profileId,
@@ -1752,15 +1783,6 @@ export function useSpaceLandingController(input: {
 	});
 	const currentProfileIsActiveSpaceMember =
 		currentProfileMembershipState === "member";
-	useEffect(() => {
-		if (
-			currentProfileId.trim().length === 0 ||
-			currentSpaceId.trim().length === 0
-		) {
-			return;
-		}
-		setWakeStopRequestStatusBySelectorKey(new Map());
-	}, [currentProfileId, currentSpaceId]);
 	useActiveSpaceHistorySync({
 		currentProfileIsActiveSpaceMember,
 		membersReady,
@@ -1778,14 +1800,14 @@ export function useSpaceLandingController(input: {
 		wakeProgressPresentationQuery.data.createdAtMs;
 	const {
 		agentStreamProjections: liveAgentStreamProjections,
-		liveErrorMessage,
 		liveState,
 		mergePersistedIncoming,
-		reconnectNow,
+		retryLiveUpdates,
 		timelineEnvelopes,
 	} = useSpaceLandingFeed({
 		openMeldProfileId: input.profileId,
 		participationEnabled: currentProfileIsActiveSpaceMember,
+		accessRejected: Boolean(currentAccessRejection),
 		readinessScope: {
 			organizationId: input.organizationId,
 			storageScope: input.ownerAccountId,
@@ -1812,7 +1834,23 @@ export function useSpaceLandingController(input: {
 	});
 	const agentStreamProjections = useMemo(
 		() =>
-			liveAgentStreamProjections.filter(
+			projectAgentStreamReplyPlacements(
+				liveAgentStreamProjections,
+				mergeWakeProgressItemState({
+					currentItems: wakeProgressItems,
+					incomingItems: readConfirmedWakeProgressItems({
+						presentation: wakeProgressPresentationQuery.data,
+						spaceSummary: activeWakeProgressSummaryQuery.data,
+						ownSummary: ownActiveWakeProgressQuery.data,
+						spaceSummaryFetchedAfterMount:
+							activeWakeProgressSummaryQuery.isFetchedAfterMount,
+						ownSummaryFetchedAfterMount:
+							ownActiveWakeProgressQuery.isFetchedAfterMount,
+						signals: [],
+					}),
+					signals: [],
+				})
+			).filter(
 				(stream) =>
 					!hasSpaceWakeProgressOutcome({
 						presentation: wakeProgressPresentationQuery.data,
@@ -1825,7 +1863,15 @@ export function useSpaceLandingController(input: {
 						},
 					})
 			),
-		[liveAgentStreamProjections, wakeProgressPresentationQuery.data]
+		[
+			liveAgentStreamProjections,
+			wakeProgressItems,
+			wakeProgressPresentationQuery.data,
+			activeWakeProgressSummaryQuery.data,
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
+			ownActiveWakeProgressQuery.data,
+			ownActiveWakeProgressQuery.isFetchedAfterMount,
+		]
 	);
 	const historyNavigation = useSpaceHistoryNavigation({
 		liveEnvelopes: timelineEnvelopes,
@@ -1836,6 +1882,7 @@ export function useSpaceLandingController(input: {
 	});
 	const unreadState = useSpaceUnread({
 		identity: [
+			input.unreadBoundaryVersion,
 			input.ownerAccountId,
 			input.organizationId,
 			input.spaceId,
@@ -1843,6 +1890,7 @@ export function useSpaceLandingController(input: {
 		].join(":"),
 		isReady: input.unreadStateReady === true,
 		targets: input.unreadTargets ?? [],
+		scopes: input.unreadScopes,
 	});
 	const composerSession = useSpaceComposerSession({
 		authoring: {
@@ -1882,14 +1930,6 @@ export function useSpaceLandingController(input: {
 		setErrorMessage: setComposerErrorMessage,
 	} = composerSession.feedback;
 	const { isSending: isSendingMessage } = composerSession.send;
-	const restoreColdLoadingComposerFocusRef = useRef(false);
-	useLayoutEffect(() => {
-		if (!(statusReady && restoreColdLoadingComposerFocusRef.current)) {
-			return;
-		}
-		restoreColdLoadingComposerFocusRef.current = false;
-		mentionAuthoring.textareaRef.current?.focus();
-	}, [mentionAuthoring.textareaRef, statusReady]);
 	const consumedInitialPendingMessageIdRef = useRef<string | null>(null);
 	const stagedInitialFileMessageIdRef = useRef<string | null>(null);
 	const [preparedInitialFileMessageId, setPreparedInitialFileMessageId] =
@@ -2173,7 +2213,6 @@ export function useSpaceLandingController(input: {
 		setIsLoadingEarlierHistory(false);
 		setIsLeavingSpace(false);
 		setLeaveSpaceErrorMessage(null);
-		setWakeStopRequestStatusBySelectorKey(new Map());
 		setPendingDiagnosticReportSignalIds(new Set());
 		setSentDiagnosticReportSignalIds(new Set());
 		recoveredWakeProgressClientMessageIdsRef.current.clear();
@@ -2436,11 +2475,13 @@ export function useSpaceLandingController(input: {
 			} catch (error) {
 				setWakeStopRequestStatusBySelectorKey((current) => {
 					const next = new Map(current);
-					next.delete(selectorKey);
+					next.set(selectorKey, "delivery_unknown");
 					return next;
 				});
 				const failure = toStructuredApiClientFailure(error);
-				toast.error(`OpenMeld couldn't request Stop. ${failure.message}`);
+				toast.error(
+					`Stop is not confirmed. Check your connection and try again. ${failure.message}`
+				);
 				throw failure;
 			}
 
@@ -2473,10 +2514,23 @@ export function useSpaceLandingController(input: {
 			input.spaceId,
 			queryClient,
 			threadController.activeThread?.threadId,
+			setWakeStopRequestStatusBySelectorKey,
 		]
 	);
 	const handleAgentInteractionResponse = useCallback(
 		async (body: RespondToSpaceAgentInteractionBody): Promise<void> => {
+			if (input.organizationId) {
+				await queryClient.cancelQueries({
+					queryKey: inboxQueryKeys.spaceSummary(input.organizationId),
+				});
+			}
+			const rollback = input.organizationId
+				? optimisticallyRespondToSpaceInteraction({
+						organizationId: input.organizationId,
+						spaceId: input.spaceId,
+						queryClient,
+					})
+				: () => undefined;
 			try {
 				const response = await createUnscopedWebSpaceApi({
 					openMeldProfileId: input.profileId,
@@ -2489,8 +2543,15 @@ export function useSpaceLandingController(input: {
 					throw new Error(response.message);
 				}
 			} catch (error) {
+				rollback();
 				const failure = toStructuredApiClientFailure(error);
 				throw new Error(failure.message);
+			} finally {
+				if (input.organizationId) {
+					queryClient.invalidateQueries({
+						queryKey: inboxQueryKeys.organization(input.organizationId),
+					});
+				}
 			}
 
 			activeWakeProgressSummaryQuery.refetch().catch((error) => {
@@ -2501,7 +2562,13 @@ export function useSpaceLandingController(input: {
 				});
 			});
 		},
-		[activeWakeProgressSummaryQuery.refetch, input.profileId, input.spaceId]
+		[
+			activeWakeProgressSummaryQuery.refetch,
+			input.profileId,
+			input.spaceId,
+			input.organizationId,
+			queryClient,
+		]
 	);
 	useReconcilePendingOutgoingSignals(
 		pendingOutgoingSignals,
@@ -2572,31 +2639,14 @@ export function useSpaceLandingController(input: {
 		threadController.threadsError,
 		threadController.threadSignalsError,
 	]);
-	if (
-		shouldShowSpaceLandingLoading({
-			bootstrapPending: bootstrapQuery.isPending,
-			currentStatusConfirmationPending,
-			hasDisplayStatus: statusSnapshot !== null,
-		})
-	) {
-		return {
-			composerAddressingTargets: mentionAuthoring.addressingTargets,
-			composerAuthoredMentions: mentionAuthoring.authoredMentions,
-			composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
-			composerMentionEmptyMessage: mentionAuthoring.mentionEmptyMessage,
-			composerText: mentionAuthoring.composerText,
-			mode: "loading",
-			composerFiles: composerFilesController,
-			onComposerBlur: () => {
-				restoreColdLoadingComposerFocusRef.current = false;
-			},
-			onComposerEditorChange: composerSession.onEditorChange,
-			onComposerFocus: () => {
-				restoreColdLoadingComposerFocusRef.current = true;
-			},
-			textareaRef: mentionAuthoring.textareaRef,
-		};
-	}
+	const isLoading = shouldShowSpaceLandingLoading({
+		bootstrapPending: bootstrapQuery.isPending,
+		currentStatusConfirmationPending,
+		hasDisplayStatus: statusSnapshot !== null,
+		hasPendingMessage: input.initialPendingMessage != null,
+		membershipState: currentProfileMembershipState,
+		membersError,
+	});
 
 	if (isPasswordRecovery) {
 		return {
@@ -2649,7 +2699,11 @@ export function useSpaceLandingController(input: {
 		};
 	}
 
-	if (!statusSnapshot) {
+	const conversationPhase = resolveSpaceConversationPhase(
+		isLoading,
+		statusSnapshot
+	);
+	if (conversationPhase.mode === "failure") {
 		return {
 			error: landingError,
 			mode: "failure",
@@ -2663,10 +2717,12 @@ export function useSpaceLandingController(input: {
 	const deleteActionVisibility = resolveSpaceDeleteActionVisibility({
 		currentProfileId: input.profileId,
 		membersSnapshot,
-		ownerUserIds: statusSnapshot.ownerUserIds,
+		ownerUserIds: statusSnapshot?.ownerUserIds ?? [],
 	});
 
 	return {
+		...conversationPhase,
+		composerFileSession: composerFilesController,
 		activeThread: threadController.activeThread,
 		threadPanelOpen: threadController.threadPanelOpen,
 		agentStreams: agentStreamProjections,
@@ -2689,7 +2745,6 @@ export function useSpaceLandingController(input: {
 		composerReplyToSignalId: mentionAuthoring.replyTo?.signalId ?? null,
 		composerText: mentionAuthoring.composerText,
 		...resolveNavigationPresentation(historyNavigation, {
-			presentedWakeProgressItems,
 			hasEarlierHistory,
 			historyActionErrorMessage,
 			isLoadingEarlierHistory,
@@ -2717,13 +2772,11 @@ export function useSpaceLandingController(input: {
 		isDiagnosticReportPending,
 		isDiagnosticReportSent,
 		leaveSpaceErrorMessage,
-		liveErrorMessage,
 		liveState,
-		onReconnectLiveUpdates: reconnectNow,
+		onRetryLiveUpdates: retryLiveUpdates,
 		membersError,
 		membersSnapshot,
 		presentationMembersSnapshot,
-		mode: "ready",
 		onComposerEditorChange: composerSession.onEditorChange,
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
@@ -2731,9 +2784,9 @@ export function useSpaceLandingController(input: {
 		onRetryComposerFile: composerFilesController.retryFile,
 		onRetryComposerFileCleanup: composerFilesController.retryCleanup,
 		onRetryComposerFileRestoration: composerFilesController.retryRestoration,
-		onConversationViewedThroughTs: resolveConfirmedViewedThroughHandler({
+		onConversationViewedUpdates: resolveConfirmedViewedUpdatesHandler({
 			isCurrentAccessConfirmed: statusReady && unreadState.isReady,
-			onViewedThroughTs: input.onViewedThroughTs,
+			onViewedUpdates: input.onViewedUpdates,
 		}),
 		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,
@@ -2814,7 +2867,6 @@ export function useSpaceLandingController(input: {
 		onSendText: sendTextMessage,
 		profileId: input.profileId,
 		spaceId: input.spaceId,
-		status: statusSnapshot,
 		threadComposerBlockedWakeProfileId:
 			threadController.threadComposerBlockedWakeProfileId,
 		threadComposerAddressingTargets:
@@ -2887,25 +2939,7 @@ export function useSpaceLandingController(input: {
 			localAdmissionReleased = true;
 			composerSession.send.finish();
 		};
-		if (!options?.retrySubmission) {
-			try {
-				await composerFilesController.waitForDiscovery();
-			} catch (error) {
-				const message =
-					error instanceof Error
-						? error.message
-						: "Couldn't restore your attachment drafts. Retry to continue.";
-				setComposerErrorMessage(message);
-				releaseLocalAdmission();
-				throwSpaceSendFailureWhenRequested({
-					error: error instanceof Error ? error : new Error(message),
-					postedMessage: false,
-					throwOnFailure: options?.throwOnFailure === true,
-				});
-				return;
-			}
-		}
-		const pendingFiles = resolvePendingSubmissionFiles(
+		let pendingFiles = resolvePendingSubmissionFiles(
 			composerFilesController,
 			options?.pendingMessage
 		);
@@ -2939,7 +2973,9 @@ export function useSpaceLandingController(input: {
 		let postedMessage = false;
 		let publishedLocalIds: readonly string[] = [];
 		let pendingSubmission: PendingComposerSubmission | null = null;
-		let submittedFiles: readonly SpaceComposerFile[] = [];
+		let submissionClaimed = options?.retrySubmission !== undefined;
+		let submittedFiles: readonly SpaceComposerFile[] =
+			options?.retryFiles ?? pendingFiles ?? composerFilesController.files;
 		try {
 			const missingMembersMessage =
 				resolveMissingSpaceMembersMessage(membersErrorMessage);
@@ -2957,12 +2993,68 @@ export function useSpaceLandingController(input: {
 					),
 				};
 			pendingSubmission = preparedSubmission;
+			const queueTarget = resolveQueuedExecutionInput({
+				centerAgentProfileId: input.centerAgentProfileId,
+				members: membersSnapshot,
+				activationTargets:
+					preparedSubmission.messageEnvelope?.activationTargets ?? [],
+				hasFiles:
+					(options?.retryFiles ?? pendingFiles ?? composerFilesController.files)
+						.length > 0,
+				items: presentedWakeProgressItems,
+			});
+			if (
+				queueTarget &&
+				!preparedSubmission.messageEnvelope?.replyToSignalId &&
+				!preparedSubmission.contextSelection &&
+				!preparedSubmission.deviceWait
+			) {
+				try {
+					await ensureEntryConfirmed();
+					await inputQueue.enqueue({
+						action: "enqueue",
+						inputId: messageSeed.clientMessageId,
+						target: queueTarget,
+						text: preparedSubmission.text,
+					});
+					postedMessage = true;
+					mentionAuthoring.recordPendingSubmission(messageSeed.createdAtMs);
+					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
+					options?.onMessageStaged?.(messageSeed.clientMessageId);
+					setComposerErrorMessage(null);
+				} catch (error) {
+					setComposerErrorMessage(
+						error instanceof Error
+							? error.message
+							: "Couldn't queue this message. Your draft is still here."
+					);
+				}
+				return;
+			}
+			// Publish the cancellable request before attachment recovery can yield.
+			stagePreparedSpaceMessage({
+				composerFiles:
+					options?.retryFiles ?? pendingFiles ?? composerFilesController.files,
+				clientMessageId: messageSeed.clientMessageId,
+				createdAtMs: messageSeed.createdAtMs,
+				preparedSubmission,
+				status: statusSnapshot,
+			});
+			options?.onMessageStaged?.(messageSeed.clientMessageId);
+			if (!options?.retrySubmission) {
+				await composerFilesController.waitForDiscovery();
+				pendingFiles = resolvePendingSubmissionFiles(
+					composerFilesController,
+					options?.pendingMessage
+				);
+			}
 			submittedFiles =
 				options?.retryFiles ??
 				composerSession.recordPendingSubmission({
 					fileIds: pendingFiles?.map((file) => file.localId),
-					submittedAtMs: options?.pendingMessage?.createdAtMs,
+					submittedAtMs: messageSeed.createdAtMs,
 				});
+			submissionClaimed = true;
 			markSpaceSendPending(messageSeed.clientMessageId, () => {
 				composerFilesController.consumePublishedFiles(
 					submittedFiles.map((file) => file.localId)
@@ -2977,7 +3069,6 @@ export function useSpaceLandingController(input: {
 				preparedSubmission,
 				status: statusSnapshot,
 			});
-			options?.onMessageStaged?.(messageSeed.clientMessageId);
 			releaseLocalAdmission();
 			await request.ready;
 			const sendBoundary = await resolveSpaceComposerSendBoundary({
@@ -3036,6 +3127,14 @@ export function useSpaceLandingController(input: {
 				}
 			);
 		} catch (error) {
+			if (!submissionClaimed) {
+				removeRejectedWakeProgress(messageSeed.clientMessageId);
+				removePendingOutgoingSignal(
+					setPendingOutgoingSignals,
+					messageSeed.clientMessageId
+				);
+				pendingSubmission = null;
+			}
 			await handleSubmissionFailure(error);
 		} finally {
 			request.complete();
@@ -3161,38 +3260,21 @@ export function useSpaceLandingController(input: {
 		preparedSubmission: PreparedSpaceMessageSubmission;
 		status: GetSpaceStatusResponse | null;
 	}) {
-		const centerAgentExecutionInput = resolveCenterAgentExecutionInput({
-			centerAgentProfileId: input.centerAgentProfileId,
-			activationTargets:
-				sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [],
-			hasFiles:
-				(sendInput.files?.length ?? sendInput.composerFiles?.length ?? 0) > 0,
-			items: presentedWakeProgressItems,
-		});
 		const explicitActivationTargets =
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
-		const wakeProgressTargetProfileIds = centerAgentExecutionInput
-			? []
-			: resolveComposerWakeProgressTargetProfileIds({
-					explicitActivationTargets,
-					explicitReferenceTargets:
-						sendInput.preparedSubmission.messageEnvelope?.referenceTargets,
-					membersSnapshot,
-					senderProfileId: input.profileId,
-					status: sendInput.status,
-				});
-		// An implicit Direct Message Wake drives progress, but is not an authored
+		const wakeProgressTargetProfileIds =
+			resolveComposerWakeProgressTargetProfileIds({
+				explicitActivationTargets,
+				explicitReferenceTargets:
+					sendInput.preparedSubmission.messageEnvelope?.referenceTargets,
+				membersSnapshot,
+				senderProfileId: input.profileId,
+				status: sendInput.status,
+			});
+		// An automatic one-human/Agent Wake drives progress, but is not an authored
 		// @Agent target and must not appear in the optimistic message body.
-		const pendingMessageEnvelope = centerAgentExecutionInput
-			? {
-					...sendInput.preparedSubmission.messageEnvelope,
-					activationTargets: [],
-					referenceTargets:
-						sendInput.preparedSubmission.messageEnvelope?.referenceTargets ??
-						[],
-					text: sendInput.preparedSubmission.text,
-				}
-			: (sendInput.preparedSubmission.messageEnvelope ?? null);
+		const pendingMessageEnvelope =
+			sendInput.preparedSubmission.messageEnvelope ?? null;
 		const pendingOutgoingSignal = createPendingOutgoingSignal({
 			composerFiles: sendInput.composerFiles,
 			files: sendInput.files,
@@ -3226,7 +3308,6 @@ export function useSpaceLandingController(input: {
 		);
 
 		return {
-			centerAgentExecutionInput,
 			pendingMessageEnvelope,
 			wakeProgressTargetProfileIds,
 		};
@@ -3242,11 +3323,8 @@ export function useSpaceLandingController(input: {
 	}): Promise<void> {
 		let postedMessage = false;
 		try {
-			const {
-				centerAgentExecutionInput,
-				pendingMessageEnvelope,
-				wakeProgressTargetProfileIds,
-			} = stagePreparedSpaceMessage(sendInput);
+			const { wakeProgressTargetProfileIds } =
+				stagePreparedSpaceMessage(sendInput);
 			const spaceApi = createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			});
@@ -3254,12 +3332,9 @@ export function useSpaceLandingController(input: {
 				contextSelection: sendInput.preparedSubmission.contextSelection,
 				deviceWait: sendInput.preparedSubmission.deviceWait,
 				restoredFromSignalId: sendInput.preparedSubmission.restoredFromSignalId,
-				centerAgentExecutionInput,
 				files: sendInput.files,
 				clientMessageId: sendInput.clientMessageId,
-				messageEnvelope: centerAgentExecutionInput
-					? pendingMessageEnvelope
-					: sendInput.preparedSubmission.messageEnvelope,
+				messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
 				spaceId: input.spaceId,
 				text: sendInput.preparedSubmission.text,
 			});
@@ -4011,6 +4086,7 @@ function useSpaceThreadController(input: {
 			composerFilesController.retryRestoration,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
 		threadComposerAddressingTargets: resolveComposerAddressingTargets({
+			isThreadMessage: true,
 			addressingTargets: mentionAuthoring.addressingTargets,
 			membersSnapshot: input.membersSnapshot,
 			senderProfileId: input.profileId,
@@ -4178,19 +4254,6 @@ function useSpaceThreadController(input: {
 		if (!(input.statusReady && composerSession.send.begin())) {
 			return;
 		}
-		if (!retry) {
-			try {
-				await composerFilesController.waitForDiscovery();
-			} catch (error) {
-				setComposerErrorMessage(
-					error instanceof Error
-						? error.message
-						: "Couldn't restore your attachment drafts. Retry to continue."
-				);
-				composerSession.send.finish();
-				return;
-			}
-		}
 		const thread = retry?.thread ?? activeThread;
 		const trimmedText =
 			retry?.submission.text ?? mentionAuthoring.composerText.trim();
@@ -4211,7 +4274,9 @@ function useSpaceThreadController(input: {
 		const submittedThread = thread;
 
 		const clientMessageId = retry?.clientMessageId ?? createClientMessageId();
+		const submittedAtMs = Date.now();
 		let posted = false;
+		let submissionClaimed = retry !== undefined;
 		let localAdmissionReleased = false;
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		let publishedLocalIds: readonly string[] = [];
@@ -4230,15 +4295,29 @@ function useSpaceThreadController(input: {
 					),
 				};
 			pendingSubmission = preparedSubmission;
-			submittedFiles =
-				retry?.files ?? composerSession.recordPendingSubmission();
+			submittedFiles = retry?.files ?? composerFilesController.files;
 			await sendPreparedThreadMessage({
 				composerFiles: submittedFiles,
 				clientMessageId,
 				onMessageStaged: (stagedClientMessageId) => {
 					options?.onMessageStaged?.(stagedClientMessageId);
+				},
+				claimFiles: async () => {
+					if (!retry) {
+						await composerFilesController.waitForDiscovery();
+						submittedFiles = composerSession.recordPendingSubmission({
+							submittedAtMs,
+						});
+					}
+					submissionClaimed = true;
 					composerSession.send.finish();
 					localAdmissionReleased = true;
+					markSpaceSendPending(clientMessageId, () => {
+						composerFilesController.consumePublishedFiles(
+							submittedFiles.map((file) => file.localId)
+						);
+						composerFilesController.finishSubmission(submittedFiles);
+					});
 				},
 				prepareFiles: async () => {
 					const publishedFiles =
@@ -4275,6 +4354,11 @@ function useSpaceThreadController(input: {
 			}
 		}
 		async function handleSubmissionFailure(error: unknown) {
+			if (!submissionClaimed) {
+				removePendingOutgoingSignal(setPendingOutgoingSignals, clientMessageId);
+				completeSpaceSend(clientMessageId);
+				pendingSubmission = null;
+			}
 			if (pendingSubmission && !posted) {
 				const submission = pendingSubmission;
 				markPendingOutgoingSignalFailed(
@@ -4310,6 +4394,7 @@ function useSpaceThreadController(input: {
 		await requireCurrentSpaceComposerWakeAdmission({
 			deviceWait: preparedSubmission.deviceWait,
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+				isThreadMessage: true,
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
 				explicitReferenceTargets:
@@ -4431,6 +4516,7 @@ function useSpaceThreadController(input: {
 		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		composerFiles?: readonly SpaceComposerFile[];
 		clientMessageId?: string;
+		claimFiles?: () => Promise<void>;
 		prepareFiles?: () => Promise<{
 			messageFiles: SpaceMessageFileReference[];
 			previewUrlsByFileId: Map<string, string>;
@@ -4485,6 +4571,7 @@ function useSpaceThreadController(input: {
 		let postedMessage = false;
 		let publicationStarted = false;
 		try {
+			await sendInput.claimFiles?.();
 			await request.ready;
 			await requireThreadWakeAdmission(sendInput.preparedSubmission);
 			const publishedFiles = await sendInput.prepareFiles?.();
@@ -4894,16 +4981,12 @@ function useActiveSpaceHistorySync(input: {
 function resolveNavigationPresentation(
 	navigation: SpaceHistoryNavigationController,
 	live: {
-		presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 		hasEarlierHistory: boolean;
 		historyActionErrorMessage: string | null;
 		isLoadingEarlierHistory: boolean;
 	}
 ) {
 	return {
-		ephemeralActivityItems: navigation.activeWindow
-			? []
-			: live.presentedWakeProgressItems,
 		hasEarlierHistory:
 			navigation.activeWindow?.hasBefore ??
 			(navigation.hasHiddenLiveHistory || live.hasEarlierHistory),

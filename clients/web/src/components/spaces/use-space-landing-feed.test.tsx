@@ -8,6 +8,7 @@ import type {
 } from "@openmeld/schemas";
 import type {
 	SignalEnvelope,
+	SpaceAgentStreamDeltaFrame,
 	SpaceAgentStreamSnapshot,
 	SpaceInboxUnreadTarget,
 } from "@openmeld/schemas/types";
@@ -200,6 +201,7 @@ function renderFeed(
 			),
 			{
 				envelopes: initialHistory.data.envelopes,
+				confirmedCursor: initialHistory.data.confirmedCursor,
 				nextCursor: null,
 			}
 		);
@@ -250,7 +252,7 @@ function createReadyFeedHistory(
 		isPending: false,
 		isSuccess: true,
 		isError: false,
-		data: { envelopes },
+		data: { envelopes, confirmedCursor: envelopes.at(-1)?.id ?? null },
 	};
 }
 
@@ -579,7 +581,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		// inbound silence exceeds the deadline, the watchdog tears the socket
 		// down.
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(70_000);
+			await vi.advanceTimersByTimeAsync(90_000);
 		});
 
 		expect(firstSocket.sentFrames).toContain(SPACE_STREAM_KEEPALIVE_PING);
@@ -610,6 +612,58 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(socket.closeCount).toBe(0);
 		// No reconnect was triggered: the original socket is still the only one.
 		expect(FakeWebSocket.instances).toHaveLength(1);
+	});
+
+	it("probes after a suspended page resumes without discarding received thinking", async () => {
+		const { view } = renderFeed();
+		await openLatestSocket();
+		const socket = FakeWebSocket.latest;
+		await act(async () => {
+			await socket.emitMessage(
+				JSON.stringify({
+					type: "space.agent_stream_delta",
+					v: 1,
+					spaceId: "space-123",
+					streamId: "stream:submission-1",
+					profileId: "agt_33333333-3333-4333-8333-333333333333",
+					triggerMessageId: "signal-trigger-1",
+					dispatchId: "dispatch-1",
+					kind: "thinking",
+					thinkingSnapshot: "Already received work",
+					sequence: 1,
+					state: "streaming",
+					updatedAtMs: Date.now(),
+				} satisfies SpaceAgentStreamDeltaFrame)
+			);
+			await vi.advanceTimersByTimeAsync(100);
+		});
+		// Move wall time without running timers: the browser was suspended.
+		vi.setSystemTime(Date.now() + 120_000);
+		await act(async () => {
+			document.dispatchEvent(new Event("visibilitychange"));
+			await vi.advanceTimersByTimeAsync(20_000);
+			await socket.emitMessage(SPACE_STREAM_KEEPALIVE_PONG);
+		});
+		expect(socket.closeCount).toBe(0);
+		expect(view.result.current.agentStreamProjections[0]).toHaveProperty(
+			"thinking",
+			"Already received work"
+		);
+		await act(async () => {
+			socket.close();
+			await vi.advanceTimersByTimeAsync(1000);
+		});
+		expect(FakeWebSocket.instances).toHaveLength(2);
+		expect(view.result.current.agentStreamProjections[0]).toHaveProperty(
+			"thinking",
+			"Already received work"
+		);
+		await act(async () => {
+			await FakeWebSocket.latest.emitAccessRevoked();
+		});
+		expect(view.result.current.agentStreamProjections[0]).not.toHaveProperty(
+			"thinking"
+		);
 	});
 
 	it("does not tear down when business signals keep arriving inside the deadline", async () => {
@@ -1185,7 +1239,7 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		await flushMicrotasks();
 
 		act(() => {
-			view.result.current.reconnectNow();
+			view.result.current.retryLiveUpdates();
 		});
 		await flushMicrotasks();
 		await openLatestSocket();
@@ -1431,8 +1485,8 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 			nextCursor: null,
 		});
 
-		const { view } = renderFeed({
-			seededEnvelopes: [createTextSignal({ id: "sig-1", ts: 10 })],
+		const { view, queryClient } = renderFeed({
+			seededEnvelopes: [createTextSignal({ id: "stale-tail", ts: 100 })],
 		});
 
 		const firstSocket = FakeWebSocket.latest;
@@ -1449,7 +1503,51 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(view.result.current.liveState).toBe("connected");
 		expect(
 			view.result.current.timelineEnvelopes.map((signal) => signal.id)
-		).toEqual(["sig-1", "sig-9"]);
+		).toEqual(["sig-1", "sig-9", "stale-tail"]);
+		const saved = queryClient.getQueryData<SpaceHistorySnapshot>(
+			spaceQueryKeys.history(
+				"space-123",
+				"11111111-1111-1111-1111-111111111111"
+			)
+		);
+		expect(saved?.confirmedCursor).toBe("sig-9");
+		view.unmount();
+		readSpaceUpdatesMock.mockReset().mockResolvedValue({ signals: [] });
+		readSpaceHistoryMock.mockClear();
+		renderFeed({
+			history: {
+				isPending: false,
+				isSuccess: true,
+				isError: false,
+				data: saved,
+			},
+		});
+		await openLatestSocket();
+		expect(readSpaceUpdatesMock).toHaveBeenCalledWith(
+			expect.objectContaining({ afterSignalId: "sig-9" })
+		);
+		expect(readSpaceHistoryMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps recovery interrupted until catch-up succeeds after reconnect", async () => {
+		const { view } = renderFeed({
+			seededEnvelopes: [createTextSignal({ id: "sig-1", ts: 10 })],
+		});
+		await openLatestSocket();
+		const catchUp = createDeferred<{ signals: SignalEnvelope[] }>();
+		readSpaceUpdatesMock.mockReturnValue(catchUp.promise);
+		act(() => FakeWebSocket.latest.close());
+		expect(view.result.current.liveState).toBe("degraded");
+		await act(async () => vi.advanceTimersByTimeAsync(1000));
+		await openLatestSocket();
+		expect(view.result.current.liveState).toBe("stale");
+		catchUp.reject({ status: 500, message: "upstream boom" });
+		await flushMicrotasks();
+		expect(view.result.current.liveState).toBe("stale");
+		readSpaceUpdatesMock.mockResolvedValue({ signals: [] });
+		act(() => document.dispatchEvent(new Event("visibilitychange")));
+		await flushMicrotasks();
+		expect(view.result.current.liveState).toBe("connected");
 	});
 
 	it("marks reconcile stale without falling back when a non-anchor catch-up failure occurs", async () => {
@@ -1617,7 +1715,7 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		await flushMicrotasks();
 
 		act(() => {
-			view.result.current.reconnectNow();
+			view.result.current.retryLiveUpdates();
 		});
 		await flushMicrotasks();
 

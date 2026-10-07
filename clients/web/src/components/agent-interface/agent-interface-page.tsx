@@ -8,11 +8,16 @@ import {
 	CardTitle,
 } from "@openmeld/ui/components/card";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	TabsSubtle,
 	TabsSubtleItem,
 	TabsSubtlePanel,
 } from "@openmeld/ui/fluid/tabs-subtle";
+import {
+	APP_PAGE_FRAME_CLASS_NAME,
+	APP_PAGE_FRAME_PADDING_CLASS_NAME,
+} from "@openmeld/ui/lib/page-frame";
 import { springs } from "@openmeld/ui/lib/springs";
 import { resolveStatusToneIconClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -35,10 +40,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
-import {
-	APP_PAGE_FRAME_CLASS_NAME,
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
-} from "#/components/app/shell-layout";
 import { buildAgentInterfacePrompt } from "#/lib/agent-interface-guide";
 import {
 	buildWebSetupCommand,
@@ -523,15 +524,17 @@ export function AgentInterfacePage({
 											</div>
 											<Elevated
 												aria-label="Generated agent prompt"
-												className="max-h-80 overflow-auto rounded-md p-4 font-mono text-foreground text-xs leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+												className="overflow-hidden rounded-md font-mono text-foreground text-xs leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
 												offset={3}
 												role="region"
 												shadowLevel={6}
 												tabIndex={0}
 											>
-												<pre className="m-0 whitespace-pre-wrap break-words">
-													{generated.prompt}
-												</pre>
+												<ScrollArea className="max-h-80" contentClassName="p-4">
+													<pre className="m-0 whitespace-pre-wrap break-words">
+														{generated.prompt}
+													</pre>
+												</ScrollArea>
 											</Elevated>
 											<div className="flex flex-wrap items-end justify-between gap-3">
 												<Button

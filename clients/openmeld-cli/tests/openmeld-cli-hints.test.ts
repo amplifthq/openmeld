@@ -8,6 +8,8 @@ const INVALID_SPACE_READ_CASES = [
   "history",
   "members",
   "status",
+  "wake-progress",
+  "result",
 ].flatMap((command) =>
   [
     "Space target must be a 64-character Space ID or an OpenMeld Space URL.",

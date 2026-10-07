@@ -19,6 +19,15 @@ export function resolveAgentProfileControllerModelDetail(input: {
 			? "Remote"
 			: input.controllerDisplayName
 	);
+	if (
+		input.agentControllerRef &&
+		!isHostedAgentControllerRef(input.agentControllerRef) &&
+		!normalizeDisplayPart(input.modelSelection?.modelId)
+	) {
+		return [controllerDisplayName, "Controller default"]
+			.filter(Boolean)
+			.join(" · ");
+	}
 	const effectiveModel = resolveAgentProfileModel({
 		agentControllerRef: input.agentControllerRef ?? null,
 		modelCatalog: input.modelCatalog ?? null,

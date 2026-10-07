@@ -57,6 +57,7 @@ describe("spaceBootstrapQueryOptions", () => {
 			},
 		});
 		expect(result.history).toEqual({
+			confirmedCursor: null,
 			envelopes: [],
 			nextCursor: null,
 		});

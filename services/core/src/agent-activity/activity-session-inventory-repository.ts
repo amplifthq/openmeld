@@ -1,3 +1,8 @@
+import type {
+  PostgresDatabase,
+  QueryConfig,
+  QueryResult,
+} from "@openmeld/db/postgresql";
 import {
   agentActivityInventoryCoverageSchema,
   agentActivityInventorySessionSchema,
@@ -14,10 +19,8 @@ import type {
   SubmitAgentActivitySessionReconciliationBody,
   SubmitAgentActivitySessionReconciliationResponse,
 } from "@openmeld/schemas/types";
-
 export const AGENT_ACTIVITY_SESSION_INVENTORY_STALE_AFTER_MS = 15 * 60_000;
 const BASE64_PADDING_PATTERN = /=+$/u;
-
 export type AgentActivitySessionResumeEligibility = {
   activeOrganizationId: string | null;
   agentControllerRef: string;
@@ -27,24 +30,20 @@ export type AgentActivitySessionResumeEligibility = {
   ownerUserId: string;
   selection: AgentProfileBindingSessionInventorySelection;
 };
-
 export type AgentActivitySessionInventorySelectionCapability =
   | "fork"
   | "resume";
-
 type InventorySourceAuthority = {
   connectedComputerId: string;
   deviceId: string;
   organizationId: string;
   ownerUserId: string;
 };
-
 type SourceRow = {
   current_reconciliation_id: string | null;
   next_page_index: number;
   state: AgentActivityInventoryCoverage["state"];
 };
-
 type InventoryRow = {
   agent_controller_ref: string;
   binding_count: number;
@@ -74,7 +73,6 @@ type InventoryRow = {
   started_at_ms: number | null;
   status: AgentActivityInventorySession["status"];
 };
-
 type CoverageRow = {
   agent_controller_ref: string;
   computer_id: string;
@@ -85,7 +83,6 @@ type CoverageRow = {
   provider: LocalAgentSessionProvider;
   state: AgentActivityInventoryCoverage["state"];
 };
-
 type PageCursor = {
   agentControllerRef: string;
   lastActiveAtMs: number;
@@ -94,176 +91,177 @@ type PageCursor = {
   querySignature: string;
   version: 1;
 };
-
 export type DeletedAgentActivitySessionInventoryMemberProjection = {
   candidateCount: number;
   inventoryCount: number;
   sourceCount: number;
 };
-
 export type AgentActivitySessionInventoryMemberCleanupRequest = {
   attemptCount: number;
   organizationId: string;
   ownerUserId: string;
   requestedAtMs: number;
 };
-
 export async function requestAgentActivitySessionInventoryMemberCleanup(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   finalize: boolean;
   nowMs: number;
   organizationId: string;
   ownerUserId: string;
 }): Promise<DeletedAgentActivitySessionInventoryMemberProjection> {
   const statements = [
-    input.db
-      .prepare(
-        `INSERT INTO agent_activity_session_inventory_member_cleanup_requests (
+    {
+      text: `INSERT INTO "openmeld"."agent_activity_session_inventory_member_cleanup_requests" (
            organization_id,
            owner_user_id,
            requested_at_ms,
            last_attempt_at_ms,
            attempt_count,
            last_error
-         ) VALUES (?, ?, ?, ?, 0, NULL)
+         ) SELECT id, $2, $3, $4, 0, NULL
+           FROM "openmeld"."organizations" WHERE id = $1
+           FOR KEY SHARE
          ON CONFLICT (organization_id, owner_user_id) DO UPDATE SET
            requested_at_ms = excluded.requested_at_ms,
            last_attempt_at_ms = excluded.last_attempt_at_ms,
            attempt_count = 0,
-           last_error = NULL`
-      )
-      .bind(input.organizationId, input.ownerUserId, input.nowMs, input.nowMs),
-    input.db
-      .prepare(
-        `DELETE FROM agent_activity_session_inventory_candidates
-         WHERE organization_id = ? AND owner_user_id = ?`
-      )
-      .bind(input.organizationId, input.ownerUserId),
-    input.db
-      .prepare(
-        `DELETE FROM agent_activity_session_inventory
-         WHERE organization_id = ? AND owner_user_id = ?`
-      )
-      .bind(input.organizationId, input.ownerUserId),
-    input.db
-      .prepare(
-        `DELETE FROM agent_activity_session_inventory_sources
-         WHERE organization_id = ? AND owner_user_id = ?`
-      )
-      .bind(input.organizationId, input.ownerUserId),
+           last_error = NULL`,
+      values: [
+        input.organizationId,
+        input.ownerUserId,
+        input.nowMs,
+        input.nowMs,
+      ],
+    },
+    {
+      text: `DELETE FROM "openmeld"."agent_activity_session_inventory_candidates"
+         WHERE organization_id = $1 AND owner_user_id = $2`,
+      values: [input.organizationId, input.ownerUserId],
+    },
+    {
+      text: `DELETE FROM "openmeld"."agent_activity_session_inventory"
+         WHERE organization_id = $1 AND owner_user_id = $2`,
+      values: [input.organizationId, input.ownerUserId],
+    },
+    {
+      text: `DELETE FROM "openmeld"."agent_activity_session_inventory_sources"
+         WHERE organization_id = $1 AND owner_user_id = $2`,
+      values: [input.organizationId, input.ownerUserId],
+    },
   ];
   if (input.finalize) {
-    statements.push(
-      input.db
-        .prepare(
-          `DELETE FROM agent_activity_session_inventory_member_cleanup_requests
-           WHERE organization_id = ? AND owner_user_id = ?`
-        )
-        .bind(input.organizationId, input.ownerUserId)
+    statements.push({
+      text: `DELETE FROM "openmeld"."agent_activity_session_inventory_member_cleanup_requests"
+           WHERE organization_id = $1 AND owner_user_id = $2`,
+      values: [input.organizationId, input.ownerUserId],
+    });
+  }
+  const [, candidates, inventory, sources] = await input.db.transaction(
+    async (client) => {
+      const results: QueryResult[] = [];
+      for (const query of statements) {
+        results.push(await client.query(query));
+      }
+      return results;
+    }
+  );
+  if (!(candidates && inventory && sources)) {
+    throw new Error(
+      "Session inventory cleanup did not return every mutation result"
     );
   }
-  const [, candidates, inventory, sources] = await input.db.batch(statements);
   return {
-    candidateCount: Number(candidates?.meta.changes ?? 0),
-    inventoryCount: Number(inventory?.meta.changes ?? 0),
-    sourceCount: Number(sources?.meta.changes ?? 0),
+    candidateCount: Number(candidates.rowCount ?? 0),
+    inventoryCount: Number(inventory.rowCount ?? 0),
+    sourceCount: Number(sources.rowCount ?? 0),
   };
 }
-
 export async function readAgentActivitySessionInventoryMemberCleanupRequests(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
 }): Promise<AgentActivitySessionInventoryMemberCleanupRequest[]> {
-  const result = await input.db
-    .prepare(
-      `SELECT
+  const result = await input.db.query<{
+    attempt_count: number;
+    organization_id: string;
+    owner_user_id: string;
+    requested_at_ms: number;
+  }>({
+    text: `SELECT
          organization_id,
          owner_user_id,
          requested_at_ms,
          attempt_count
-       FROM agent_activity_session_inventory_member_cleanup_requests
-       ORDER BY last_attempt_at_ms ASC, requested_at_ms ASC,
-         organization_id ASC, owner_user_id ASC
-       LIMIT ?`
-    )
-    .bind(input.limit)
-    .all<{
-      attempt_count: number;
-      organization_id: string;
-      owner_user_id: string;
-      requested_at_ms: number;
-    }>();
-  return (result.results ?? []).map((row) => ({
+       FROM "openmeld"."agent_activity_session_inventory_member_cleanup_requests"
+       ORDER BY last_attempt_at_ms ASC NULLS FIRST, requested_at_ms ASC NULLS FIRST,
+         organization_id ASC NULLS FIRST, owner_user_id ASC NULLS FIRST
+       LIMIT $1`,
+    values: [input.limit],
+  });
+  return (result.rows ?? []).map((row) => ({
     attemptCount: Number(row.attempt_count),
     organizationId: row.organization_id,
     ownerUserId: row.owner_user_id,
     requestedAtMs: Number(row.requested_at_ms),
   }));
 }
-
 export async function recordAgentActivitySessionInventoryMemberCleanupFailure(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   error: string;
   nowMs: number;
   organizationId: string;
   ownerUserId: string;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `UPDATE agent_activity_session_inventory_member_cleanup_requests
+  await input.db.query({
+    text: `UPDATE "openmeld"."agent_activity_session_inventory_member_cleanup_requests"
        SET attempt_count = attempt_count + 1,
-           last_attempt_at_ms = ?,
-           last_error = ?
-       WHERE organization_id = ? AND owner_user_id = ?`
-    )
-    .bind(
+           last_attempt_at_ms = $1,
+           last_error = $2
+       WHERE organization_id = $3 AND owner_user_id = $4`,
+    values: [
       input.nowMs,
       input.error.slice(0, 512),
       input.organizationId,
-      input.ownerUserId
-    )
-    .run();
+      input.ownerUserId,
+    ],
+  });
 }
-
 export async function recordAgentActivitySessionInventoryMemberCleanupWaiting(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   ownerUserId: string;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `UPDATE agent_activity_session_inventory_member_cleanup_requests
-       SET last_attempt_at_ms = ?, last_error = NULL
-       WHERE organization_id = ? AND owner_user_id = ?`
-    )
-    .bind(input.nowMs, input.organizationId, input.ownerUserId)
-    .run();
+  await input.db.query({
+    text: `UPDATE "openmeld"."agent_activity_session_inventory_member_cleanup_requests"
+       SET last_attempt_at_ms = $1, last_error = NULL
+       WHERE organization_id = $2 AND owner_user_id = $3`,
+    values: [input.nowMs, input.organizationId, input.ownerUserId],
+  });
 }
-
 export async function readConnectedComputerId(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   deviceId: string;
   ownerUserId: string;
 }): Promise<string | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      connected_computer_id: string | null;
+    }>({
+      text: `
         SELECT connected_computer_id
-        FROM openMeldDaemon_owned_devices
-        WHERE owner_user_id = ? AND device_id = ?
+        FROM "openmeld"."openMeldDaemon_owned_devices"
+        WHERE owner_user_id = $1 AND device_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.ownerUserId, input.deviceId)
-    .first<{ connected_computer_id: string | null }>();
+      `,
+      values: [input.ownerUserId, input.deviceId],
+    })
+    .then((result) => result.rows[0] ?? null);
   const value = row?.connected_computer_id?.trim();
   return value ? value : null;
 }
-
 export async function canResumeAgentActivitySessionSelection(
   input: {
-    db: D1Database;
+    db: PostgresDatabase;
   } & AgentActivitySessionResumeEligibility
 ): Promise<boolean> {
   const query = buildAgentActivitySessionResumeEligibilityQuery(input);
@@ -271,17 +269,17 @@ export async function canResumeAgentActivitySessionSelection(
     return false;
   }
   const row = await input.db
-    .prepare(query.sql)
-    .bind(...query.bindings)
-    .first<{ allowed: number }>();
+    .query<{
+      allowed: number;
+    }>({ text: query.sql, values: [...query.bindings] })
+    .then((result) => result.rows[0] ?? null);
   return row?.allowed === 1;
 }
-
 export async function resolveAgentActivitySessionInventorySelection(input: {
   agentControllerRef: string;
   capability: AgentActivitySessionInventorySelectionCapability;
   computerId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nativeSessionId: string;
   nowMs: number;
   organizationId: string;
@@ -328,7 +326,6 @@ export async function resolveAgentActivitySessionInventorySelection(input: {
     provider: session.localAgent.provider,
   };
 }
-
 export async function resolveAgentActivitySessionInventoryExecutionSelection(
   input: Parameters<typeof resolveAgentActivitySessionInventorySelection>[0]
 ): Promise<{
@@ -340,34 +337,39 @@ export async function resolveAgentActivitySessionInventoryExecutionSelection(
     return null;
   }
   const row = await input.db
-    .prepare(
-      `SELECT device_id
-       FROM agent_activity_session_inventory
-       WHERE organization_id = ?
-         AND owner_user_id = ?
-         AND project_id = ?
-         AND connected_computer_id = ?
-         AND agent_controller_ref = ?
-         AND native_session_id = ?
+    .query<{
+      device_id: string;
+    }>({
+      text: `SELECT device_id
+       FROM "openmeld"."agent_activity_session_inventory"
+       WHERE organization_id = $1
+         AND owner_user_id = $2
+         AND project_id = $3
+         AND connected_computer_id = $4
+         AND agent_controller_ref = $5
+         AND native_session_id = $6
          AND visible = 1
-       LIMIT 1`
-    )
-    .bind(
-      selection.organizationId,
-      selection.ownerUserId,
-      selection.projectId,
-      selection.computerId,
-      input.agentControllerRef,
-      selection.nativeSessionId
-    )
-    .first<{ device_id: string }>();
+       LIMIT 1`,
+      values: [
+        selection.organizationId,
+        selection.ownerUserId,
+        selection.projectId,
+        selection.computerId,
+        input.agentControllerRef,
+        selection.nativeSessionId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   const runtimeDeviceId = row?.device_id?.trim();
   return runtimeDeviceId ? { runtimeDeviceId, selection } : null;
 }
-
 export function buildAgentActivitySessionResumeEligibilityQuery(
-  input: AgentActivitySessionResumeEligibility
-): { bindings: unknown[]; sql: string } | null {
+  input: AgentActivitySessionResumeEligibility,
+  parameterOffset = 0
+): {
+  bindings: unknown[];
+  sql: string;
+} | null {
   if (
     input.activeOrganizationId !== input.selection.organizationId ||
     input.ownerUserId !== input.selection.ownerUserId
@@ -389,36 +391,36 @@ export function buildAgentActivitySessionResumeEligibilityQuery(
     ],
     sql: `
         SELECT 1 AS allowed
-        FROM agent_activity_session_inventory inventory
-        INNER JOIN agent_activity_session_inventory_sources source
+        FROM "openmeld"."agent_activity_session_inventory" inventory
+        INNER JOIN "openmeld"."agent_activity_session_inventory_sources" source
           ON source.source_scope_key = inventory.source_scope_key
-        INNER JOIN projects
+        INNER JOIN "openmeld"."projects"
           ON projects.id = inventory.project_id
           AND projects.organization_id = inventory.organization_id
           AND projects.archived_at_ms IS NULL
-        INNER JOIN members
+        INNER JOIN "openmeld"."members"
           ON members.organization_id = inventory.organization_id
           AND members.user_id = inventory.owner_user_id
-        INNER JOIN openMeldDaemon_owned_devices owned
+        INNER JOIN "openmeld"."openMeldDaemon_owned_devices" owned
           ON owned.owner_user_id = inventory.owner_user_id
           AND owned.device_id = inventory.device_id
           AND owned.connected_computer_id = inventory.connected_computer_id
-        WHERE inventory.organization_id = ?
-          AND inventory.owner_user_id = ?
-          AND inventory.project_id = ?
-          AND inventory.connected_computer_id = ?
-          AND inventory.device_id = ?
-          AND inventory.agent_controller_ref = ?
-          AND inventory.provider = ?
-          AND inventory.native_session_id = ?
+        WHERE inventory.organization_id = $${parameterOffset + 1}
+          AND inventory.owner_user_id = $${parameterOffset + 2}
+          AND inventory.project_id = $${parameterOffset + 3}
+          AND inventory.connected_computer_id = $${parameterOffset + 4}
+          AND inventory.device_id = $${parameterOffset + 5}
+          AND inventory.agent_controller_ref = $${parameterOffset + 6}
+          AND inventory.provider = $${parameterOffset + 7}
+          AND inventory.native_session_id = $${parameterOffset + 8}
           AND inventory.visible = 1
           AND inventory.can_resume = 1
           AND source.state = 'current'
-          AND source.last_complete_at_ms >= ?
+          AND source.last_complete_at_ms >= $${parameterOffset + 9}
           AND NOT EXISTS (
             SELECT 1
-            FROM openMeldDaemon_agent_profile_bindings binding
-            INNER JOIN openmeld_profiles profile
+            FROM "openmeld"."openMeldDaemon_agent_profile_bindings" binding
+            INNER JOIN "openmeld"."openmeld_profiles" profile
               ON profile.profile_id = binding.agent_profile_id
               AND profile.organization_id = inventory.organization_id
               AND profile.owner_user_id = inventory.owner_user_id
@@ -429,16 +431,15 @@ export function buildAgentActivitySessionResumeEligibilityQuery(
               AND binding.agent_controller_ref = inventory.agent_controller_ref
               AND binding.agent_controller_conversation_id = inventory.native_session_id
               AND binding.binding_state = 'enabled_primary'
-              AND binding.agent_profile_id <> ?
+              AND binding.agent_profile_id <> $${parameterOffset + 10}
           )
         LIMIT 1
       `,
   };
 }
-
 export async function acceptAgentActivitySessionReconciliation(input: {
   authority: InventorySourceAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   reconciliation: SubmitAgentActivitySessionReconciliationBody;
 }): Promise<SubmitAgentActivitySessionReconciliationResponse> {
@@ -451,17 +452,16 @@ export async function acceptAgentActivitySessionReconciliation(input: {
     input.reconciliation.agentControllerRef,
   ]);
   const existing = await input.db
-    .prepare(
-      `
+    .query<SourceRow>({
+      text: `
         SELECT current_reconciliation_id, next_page_index, state
-        FROM agent_activity_session_inventory_sources
-        WHERE source_scope_key = ?
+        FROM "openmeld"."agent_activity_session_inventory_sources"
+        WHERE source_scope_key = $1
         LIMIT 1
-      `
-    )
-    .bind(sourceScopeKey)
-    .first<SourceRow>();
-
+      `,
+      values: [sourceScopeKey],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (
     existing?.current_reconciliation_id ===
       input.reconciliation.reconciliationId &&
@@ -477,7 +477,6 @@ export async function acceptAgentActivitySessionReconciliation(input: {
       status: "reused",
     });
   }
-
   const startsNewReconciliation =
     !existing ||
     existing.current_reconciliation_id !==
@@ -490,7 +489,6 @@ export async function acceptAgentActivitySessionReconciliation(input: {
       `Agent Activity Session reconciliation expected page ${expectedPageIndex}.`
     );
   }
-
   if (input.reconciliation.result !== "sessions") {
     return await acceptTerminalCoverageResult({
       ...input,
@@ -499,7 +497,6 @@ export async function acceptAgentActivitySessionReconciliation(input: {
       sourceScopeKey,
     });
   }
-
   await stageSessionPage({
     ...input,
     sourceScopeKey,
@@ -513,58 +510,63 @@ export async function acceptAgentActivitySessionReconciliation(input: {
       status: "accepted",
     });
   }
-
   const conflictingIdentity = await input.db
-    .prepare(
-      `
+    .query<{
+      native_session_id: string;
+    }>({
+      text: `
         SELECT inventory.native_session_id
-        FROM agent_activity_session_inventory inventory
-        INNER JOIN agent_activity_session_inventory_candidates candidate
+        FROM "openmeld"."agent_activity_session_inventory" inventory
+        INNER JOIN "openmeld"."agent_activity_session_inventory_candidates" candidate
           ON candidate.organization_id = inventory.organization_id
           AND candidate.owner_user_id = inventory.owner_user_id
           AND candidate.agent_controller_ref = inventory.agent_controller_ref
           AND candidate.native_session_id = inventory.native_session_id
-        WHERE candidate.source_scope_key = ?
-          AND candidate.reconciliation_id = ?
-          AND inventory.source_scope_key <> ?
+        WHERE candidate.source_scope_key = $1
+          AND candidate.reconciliation_id = $2
+          AND inventory.source_scope_key <> $3
           AND inventory.visible = 1
         LIMIT 1
-      `
-    )
-    .bind(sourceScopeKey, input.reconciliation.reconciliationId, sourceScopeKey)
-    .first<{ native_session_id: string }>();
+      `,
+      values: [
+        sourceScopeKey,
+        input.reconciliation.reconciliationId,
+        sourceScopeKey,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (conflictingIdentity) {
-    await input.db.batch([
-      input.db
-        .prepare(
-          `
-            DELETE FROM agent_activity_session_inventory_candidates
-            WHERE source_scope_key = ? AND reconciliation_id = ?
-          `
-        )
-        .bind(sourceScopeKey, input.reconciliation.reconciliationId),
-      input.db
-        .prepare(
-          `
-            UPDATE agent_activity_session_inventory_sources
+    await input.db.transaction(
+      async (client) =>
+        [
+          await client.query({
+            text: `
+            DELETE FROM "openmeld"."agent_activity_session_inventory_candidates"
+            WHERE source_scope_key = $1 AND reconciliation_id = $2
+          `,
+            values: [sourceScopeKey, input.reconciliation.reconciliationId],
+          }),
+          await client.query({
+            text: `
+            UPDATE "openmeld"."agent_activity_session_inventory_sources"
             SET state = 'error', problem_code = 'session_identity_conflict',
-                updated_at_ms = ?
-            WHERE source_scope_key = ?
-              AND current_reconciliation_id = ?
+                updated_at_ms = $1
+            WHERE source_scope_key = $2
+              AND current_reconciliation_id = $3
               AND state = 'syncing'
-          `
-        )
-        .bind(
-          input.nowMs,
-          sourceScopeKey,
-          input.reconciliation.reconciliationId
-        ),
-    ]);
+          `,
+            values: [
+              input.nowMs,
+              sourceScopeKey,
+              input.reconciliation.reconciliationId,
+            ],
+          }),
+        ] as const
+    );
     throw new Error(
       "Agent Activity Session identity is already claimed by another current source."
     );
   }
-
   await publishStagedSessions({
     db: input.db,
     nowMs: input.nowMs,
@@ -582,24 +584,20 @@ export async function acceptAgentActivitySessionReconciliation(input: {
     status: "published",
   });
 }
-
 async function stageSessionPage(input: {
   authority: InventorySourceAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   reconciliation: SubmitAgentActivitySessionReconciliationBody;
   sourceScopeKey: string;
   startsNewReconciliation: boolean;
 }): Promise<void> {
-  const statements: D1PreparedStatement[] = [];
+  const statements: QueryConfig[] = [];
   if (input.startsNewReconciliation) {
-    statements.push(
-      input.db
-        .prepare(
-          "DELETE FROM agent_activity_session_inventory_candidates WHERE source_scope_key = ?"
-        )
-        .bind(input.sourceScopeKey)
-    );
+    statements.push({
+      text: 'DELETE FROM "openmeld"."agent_activity_session_inventory_candidates" WHERE source_scope_key = $1',
+      values: [input.sourceScopeKey],
+    });
   }
   for (const session of input.reconciliation.sessions) {
     const candidateId = await sha256Key([
@@ -608,57 +606,52 @@ async function stageSessionPage(input: {
       input.reconciliation.agentControllerRef,
       session.nativeSessionId,
     ]);
-    statements.push(
-      input.db
-        .prepare(
-          `
-            INSERT INTO agent_activity_session_inventory_candidates (
+    statements.push({
+      text: `
+            INSERT INTO "openmeld"."agent_activity_session_inventory_candidates" (
               id, source_scope_key, reconciliation_id, page_index,
               organization_id, owner_user_id, agent_controller_ref,
               native_session_id, project_id, device_id,
               connected_computer_id, local_connection_id, provider,
               native_session_title, status, last_active_at_ms, started_at_ms,
               origin, can_resume, can_fork, observed_at_ms, created_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
-        )
-        .bind(
-          candidateId,
-          input.sourceScopeKey,
-          input.reconciliation.reconciliationId,
-          input.reconciliation.pageIndex,
-          input.authority.organizationId,
-          input.authority.ownerUserId,
-          input.reconciliation.agentControllerRef,
-          session.nativeSessionId,
-          input.reconciliation.projectId,
-          input.authority.deviceId,
-          input.authority.connectedComputerId,
-          input.reconciliation.localConnectionId,
-          input.reconciliation.provider,
-          session.nativeSessionTitle,
-          session.status,
-          session.lastActiveAtMs,
-          session.startedAtMs,
-          session.origin,
-          session.canResume ? 1 : 0,
-          session.canFork ? 1 : 0,
-          input.reconciliation.observedAtMs,
-          input.nowMs
-        )
-    );
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+          `,
+      values: [
+        candidateId,
+        input.sourceScopeKey,
+        input.reconciliation.reconciliationId,
+        input.reconciliation.pageIndex,
+        input.authority.organizationId,
+        input.authority.ownerUserId,
+        input.reconciliation.agentControllerRef,
+        session.nativeSessionId,
+        input.reconciliation.projectId,
+        input.authority.deviceId,
+        input.authority.connectedComputerId,
+        input.reconciliation.localConnectionId,
+        input.reconciliation.provider,
+        session.nativeSessionTitle,
+        session.status,
+        session.lastActiveAtMs,
+        session.startedAtMs,
+        session.origin,
+        session.canResume ? 1 : 0,
+        session.canFork ? 1 : 0,
+        input.reconciliation.observedAtMs,
+        input.nowMs,
+      ],
+    });
   }
-  statements.push(
-    input.db
-      .prepare(
-        `
-          INSERT INTO agent_activity_session_inventory_sources (
+  statements.push({
+    text: `
+          INSERT INTO "openmeld"."agent_activity_session_inventory_sources" (
             source_scope_key, organization_id, owner_user_id, project_id,
             device_id, connected_computer_id, local_connection_id,
             agent_controller_ref, provider, state, current_reconciliation_id,
             next_page_index, problem_code, last_attempt_at_ms,
             last_complete_at_ms, updated_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'syncing', ?, ?, NULL, ?, NULL, ?)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'syncing', $10, $11, NULL, $12, NULL, $13)
           ON CONFLICT(source_scope_key) DO UPDATE SET
             organization_id = excluded.organization_id,
             owner_user_id = excluded.owner_user_id,
@@ -674,85 +667,89 @@ async function stageSessionPage(input: {
             problem_code = NULL,
             last_attempt_at_ms = excluded.last_attempt_at_ms,
             updated_at_ms = excluded.updated_at_ms
-        `
-      )
-      .bind(
-        input.sourceScopeKey,
-        input.authority.organizationId,
-        input.authority.ownerUserId,
-        input.reconciliation.projectId,
-        input.authority.deviceId,
-        input.authority.connectedComputerId,
-        input.reconciliation.localConnectionId,
-        input.reconciliation.agentControllerRef,
-        input.reconciliation.provider,
-        input.reconciliation.reconciliationId,
-        input.reconciliation.pageIndex + 1,
-        input.nowMs,
-        input.nowMs
-      )
-  );
-  await input.db.batch(statements);
+        `,
+    values: [
+      input.sourceScopeKey,
+      input.authority.organizationId,
+      input.authority.ownerUserId,
+      input.reconciliation.projectId,
+      input.authority.deviceId,
+      input.authority.connectedComputerId,
+      input.reconciliation.localConnectionId,
+      input.reconciliation.agentControllerRef,
+      input.reconciliation.provider,
+      input.reconciliation.reconciliationId,
+      input.reconciliation.pageIndex + 1,
+      input.nowMs,
+      input.nowMs,
+    ],
+  });
+  await input.db.transaction(async (client) => {
+    const results: QueryResult[] = [];
+    for (const query of statements) {
+      results.push(await client.query(query));
+    }
+    return results;
+  });
 }
-
 async function publishStagedSessions(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   reconciliationId: string;
   sourceScopeKey: string;
 }): Promise<void> {
-  await input.db.batch([
-    input.db
-      .prepare(
-        `
-          DELETE FROM agent_activity_session_inventory
-          WHERE source_scope_key = ?
+  await input.db.transaction(
+    async (client) =>
+      [
+        await client.query({
+          text: `
+          DELETE FROM "openmeld"."agent_activity_session_inventory"
+          WHERE source_scope_key = $1
             AND EXISTS (
               SELECT 1
-              FROM agent_activity_session_inventory_sources active_source
-              WHERE active_source.source_scope_key = ?
-                AND active_source.current_reconciliation_id = ?
+              FROM "openmeld"."agent_activity_session_inventory_sources" active_source
+              WHERE active_source.source_scope_key = $2
+                AND active_source.current_reconciliation_id = $3
                 AND active_source.state = 'syncing'
             )
             AND NOT EXISTS (
               SELECT 1
-              FROM agent_activity_session_inventory_candidates candidate
-              INNER JOIN agent_activity_session_inventory claimed
+              FROM "openmeld"."agent_activity_session_inventory_candidates" candidate
+              INNER JOIN "openmeld"."agent_activity_session_inventory" claimed
                 ON claimed.organization_id = candidate.organization_id
                 AND claimed.owner_user_id = candidate.owner_user_id
                 AND claimed.agent_controller_ref = candidate.agent_controller_ref
                 AND claimed.native_session_id = candidate.native_session_id
-              WHERE candidate.source_scope_key = ?
-                AND candidate.reconciliation_id = ?
-                AND claimed.source_scope_key <> ?
+              WHERE candidate.source_scope_key = $4
+                AND candidate.reconciliation_id = $5
+                AND claimed.source_scope_key <> $6
                 AND claimed.visible = 1
             )
             AND NOT EXISTS (
               SELECT 1
-              FROM agent_activity_session_inventory_candidates candidate
-              WHERE candidate.source_scope_key = ?
-                AND candidate.reconciliation_id = ?
+              FROM "openmeld"."agent_activity_session_inventory_candidates" candidate
+              WHERE candidate.source_scope_key = $7
+                AND candidate.reconciliation_id = $8
                 AND candidate.organization_id = agent_activity_session_inventory.organization_id
                 AND candidate.owner_user_id = agent_activity_session_inventory.owner_user_id
                 AND candidate.agent_controller_ref = agent_activity_session_inventory.agent_controller_ref
                 AND candidate.native_session_id = agent_activity_session_inventory.native_session_id
             )
-        `
-      )
-      .bind(
-        input.sourceScopeKey,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey,
-        input.sourceScopeKey,
-        input.reconciliationId
-      ),
-    input.db
-      .prepare(
-        `
-          INSERT INTO agent_activity_session_inventory (
+        `,
+          values: [
+            input.sourceScopeKey,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+            input.sourceScopeKey,
+            input.reconciliationId,
+          ],
+        }),
+        await client.query({
+          text: `
+          INSERT INTO "openmeld"."agent_activity_session_inventory" (
             id, organization_id, owner_user_id, agent_controller_ref,
             native_session_id, project_id, device_id, connected_computer_id,
             local_connection_id, source_scope_key, provider,
@@ -771,28 +768,28 @@ async function publishStagedSessions(input: {
             candidate.native_session_title, candidate.status,
             candidate.last_active_at_ms, candidate.started_at_ms,
             candidate.origin, candidate.can_resume, candidate.can_fork, 1,
-            candidate.reconciliation_id, candidate.observed_at_ms, ?, ?
-          FROM agent_activity_session_inventory_candidates candidate
-          WHERE candidate.source_scope_key = ?
-            AND candidate.reconciliation_id = ?
+            candidate.reconciliation_id, candidate.observed_at_ms, $1, $2
+          FROM "openmeld"."agent_activity_session_inventory_candidates" candidate
+          WHERE candidate.source_scope_key = $3
+            AND candidate.reconciliation_id = $4
             AND EXISTS (
               SELECT 1
-              FROM agent_activity_session_inventory_sources active_source
-              WHERE active_source.source_scope_key = ?
-                AND active_source.current_reconciliation_id = ?
+              FROM "openmeld"."agent_activity_session_inventory_sources" active_source
+              WHERE active_source.source_scope_key = $5
+                AND active_source.current_reconciliation_id = $6
                 AND active_source.state = 'syncing'
             )
             AND NOT EXISTS (
               SELECT 1
-              FROM agent_activity_session_inventory_candidates proposed
-              INNER JOIN agent_activity_session_inventory claimed
+              FROM "openmeld"."agent_activity_session_inventory_candidates" proposed
+              INNER JOIN "openmeld"."agent_activity_session_inventory" claimed
                 ON claimed.organization_id = proposed.organization_id
                 AND claimed.owner_user_id = proposed.owner_user_id
                 AND claimed.agent_controller_ref = proposed.agent_controller_ref
                 AND claimed.native_session_id = proposed.native_session_id
-              WHERE proposed.source_scope_key = ?
-                AND proposed.reconciliation_id = ?
-                AND claimed.source_scope_key <> ?
+              WHERE proposed.source_scope_key = $7
+                AND proposed.reconciliation_id = $8
+                AND claimed.source_scope_key <> $9
                 AND claimed.visible = 1
             )
           ON CONFLICT(organization_id, owner_user_id, agent_controller_ref, native_session_id)
@@ -817,109 +814,109 @@ async function publishStagedSessions(input: {
             updated_at_ms = excluded.updated_at_ms
           WHERE agent_activity_session_inventory.source_scope_key = excluded.source_scope_key
             OR agent_activity_session_inventory.visible = 0
-        `
-      )
-      .bind(
-        input.nowMs,
-        input.nowMs,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey
-      ),
-    input.db
-      .prepare(
-        `
-          UPDATE agent_activity_session_inventory_sources
+        `,
+          values: [
+            input.nowMs,
+            input.nowMs,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+          ],
+        }),
+        await client.query({
+          text: `
+          UPDATE "openmeld"."agent_activity_session_inventory_sources"
           SET state = 'current', problem_code = NULL,
-              last_complete_at_ms = ?, updated_at_ms = ?
-          WHERE source_scope_key = ?
-            AND current_reconciliation_id = ?
+              last_complete_at_ms = $1, updated_at_ms = $2
+          WHERE source_scope_key = $3
+            AND current_reconciliation_id = $4
             AND state = 'syncing'
             AND NOT EXISTS (
               SELECT 1
-              FROM agent_activity_session_inventory_candidates candidate
-              INNER JOIN agent_activity_session_inventory claimed
+              FROM "openmeld"."agent_activity_session_inventory_candidates" candidate
+              INNER JOIN "openmeld"."agent_activity_session_inventory" claimed
                 ON claimed.organization_id = candidate.organization_id
                 AND claimed.owner_user_id = candidate.owner_user_id
                 AND claimed.agent_controller_ref = candidate.agent_controller_ref
                 AND claimed.native_session_id = candidate.native_session_id
-              WHERE candidate.source_scope_key = ?
-                AND candidate.reconciliation_id = ?
-                AND claimed.source_scope_key <> ?
+              WHERE candidate.source_scope_key = $5
+                AND candidate.reconciliation_id = $6
+                AND claimed.source_scope_key <> $7
                 AND claimed.visible = 1
             )
-        `
-      )
-      .bind(
-        input.nowMs,
-        input.nowMs,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey
-      ),
-    input.db
-      .prepare(
-        `
-          UPDATE agent_activity_session_inventory_sources
+        `,
+          values: [
+            input.nowMs,
+            input.nowMs,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+          ],
+        }),
+        await client.query({
+          text: `
+          UPDATE "openmeld"."agent_activity_session_inventory_sources"
           SET state = 'error', problem_code = 'session_identity_conflict',
-              updated_at_ms = ?
-          WHERE source_scope_key = ?
-            AND current_reconciliation_id = ?
+              updated_at_ms = $1
+          WHERE source_scope_key = $2
+            AND current_reconciliation_id = $3
             AND state = 'syncing'
             AND EXISTS (
               SELECT 1
-              FROM agent_activity_session_inventory_candidates candidate
-              INNER JOIN agent_activity_session_inventory claimed
+              FROM "openmeld"."agent_activity_session_inventory_candidates" candidate
+              INNER JOIN "openmeld"."agent_activity_session_inventory" claimed
                 ON claimed.organization_id = candidate.organization_id
                 AND claimed.owner_user_id = candidate.owner_user_id
                 AND claimed.agent_controller_ref = candidate.agent_controller_ref
                 AND claimed.native_session_id = candidate.native_session_id
-              WHERE candidate.source_scope_key = ?
-                AND candidate.reconciliation_id = ?
-                AND claimed.source_scope_key <> ?
+              WHERE candidate.source_scope_key = $4
+                AND candidate.reconciliation_id = $5
+                AND claimed.source_scope_key <> $6
                 AND claimed.visible = 1
             )
-        `
-      )
-      .bind(
-        input.nowMs,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey,
-        input.reconciliationId,
-        input.sourceScopeKey
-      ),
-    retireReplacedDisconnectedSourcesStatement({
-      db: input.db,
-      reconciliationId: input.reconciliationId,
-      sourceScopeKey: input.sourceScopeKey,
-    }),
-    input.db
-      .prepare(
-        `
-          DELETE FROM agent_activity_session_inventory_candidates
-          WHERE source_scope_key = ? AND reconciliation_id = ?
-        `
-      )
-      .bind(input.sourceScopeKey, input.reconciliationId),
-  ]);
+        `,
+          values: [
+            input.nowMs,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+            input.reconciliationId,
+            input.sourceScopeKey,
+          ],
+        }),
+        await client.query(
+          retireReplacedDisconnectedSourcesStatement({
+            db: input.db,
+            reconciliationId: input.reconciliationId,
+            sourceScopeKey: input.sourceScopeKey,
+          })
+        ),
+        await client.query({
+          text: `
+          DELETE FROM "openmeld"."agent_activity_session_inventory_candidates"
+          WHERE source_scope_key = $1 AND reconciliation_id = $2
+        `,
+          values: [input.sourceScopeKey, input.reconciliationId],
+        }),
+      ] as const
+  );
   const source = await input.db
-    .prepare(
-      `
+    .query<SourceRow>({
+      text: `
         SELECT current_reconciliation_id, next_page_index, state
-        FROM agent_activity_session_inventory_sources
-        WHERE source_scope_key = ?
+        FROM "openmeld"."agent_activity_session_inventory_sources"
+        WHERE source_scope_key = $1
         LIMIT 1
-      `
-    )
-    .bind(input.sourceScopeKey)
-    .first<SourceRow>();
+      `,
+      values: [input.sourceScopeKey],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (
     source?.current_reconciliation_id !== input.reconciliationId ||
     source.state !== "current"
@@ -934,10 +931,9 @@ async function publishStagedSessions(input: {
     );
   }
 }
-
 async function acceptTerminalCoverageResult(input: {
   authority: InventorySourceAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   expectedCurrentReconciliationId: string | null;
   nowMs: number;
   reconciliation: SubmitAgentActivitySessionReconciliationBody;
@@ -947,17 +943,16 @@ async function acceptTerminalCoverageResult(input: {
     input.reconciliation.result === "unsupported" ||
     input.reconciliation.result === "disconnected";
   const state = input.reconciliation.result;
-  const statements: D1PreparedStatement[] = [
-    input.db
-      .prepare(
-        `
-          INSERT INTO agent_activity_session_inventory_sources (
+  const statements: QueryConfig[] = [
+    {
+      text: `
+          INSERT INTO "openmeld"."agent_activity_session_inventory_sources" (
             source_scope_key, organization_id, owner_user_id, project_id,
             device_id, connected_computer_id, local_connection_id,
             agent_controller_ref, provider, state, current_reconciliation_id,
             next_page_index, problem_code, last_attempt_at_ms,
             last_complete_at_ms, updated_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1, $12, $13, $14, $15)
           ON CONFLICT(source_scope_key) DO UPDATE SET
             organization_id = excluded.organization_id,
             owner_user_id = excluded.owner_user_id,
@@ -978,10 +973,9 @@ async function acceptTerminalCoverageResult(input: {
               ELSE agent_activity_session_inventory_sources.last_complete_at_ms
             END,
             updated_at_ms = excluded.updated_at_ms
-          WHERE agent_activity_session_inventory_sources.current_reconciliation_id IS ?
-        `
-      )
-      .bind(
+          WHERE agent_activity_session_inventory_sources.current_reconciliation_id IS NOT DISTINCT FROM $16
+        `,
+      values: [
         input.sourceScopeKey,
         input.authority.organizationId,
         input.authority.ownerUserId,
@@ -997,52 +991,49 @@ async function acceptTerminalCoverageResult(input: {
         input.nowMs,
         hidesCurrentRows ? input.nowMs : null,
         input.nowMs,
-        input.expectedCurrentReconciliationId
-      ),
-    input.db
-      .prepare(
-        `
-          DELETE FROM agent_activity_session_inventory_candidates
-          WHERE source_scope_key = ?
+        input.expectedCurrentReconciliationId,
+      ],
+    },
+    {
+      text: `
+          DELETE FROM "openmeld"."agent_activity_session_inventory_candidates"
+          WHERE source_scope_key = $1
             AND EXISTS (
               SELECT 1
-              FROM agent_activity_session_inventory_sources active_source
-              WHERE active_source.source_scope_key = ?
-                AND active_source.current_reconciliation_id = ?
-                AND active_source.state = ?
+              FROM "openmeld"."agent_activity_session_inventory_sources" active_source
+              WHERE active_source.source_scope_key = $2
+                AND active_source.current_reconciliation_id = $3
+                AND active_source.state = $4
             )
-        `
-      )
-      .bind(
+        `,
+      values: [
         input.sourceScopeKey,
         input.sourceScopeKey,
         input.reconciliation.reconciliationId,
-        state
-      ),
+        state,
+      ],
+    },
   ];
   if (hidesCurrentRows) {
-    statements.push(
-      input.db
-        .prepare(
-          `
-            DELETE FROM agent_activity_session_inventory
-            WHERE source_scope_key = ?
+    statements.push({
+      text: `
+            DELETE FROM "openmeld"."agent_activity_session_inventory"
+            WHERE source_scope_key = $1
               AND EXISTS (
                 SELECT 1
-                FROM agent_activity_session_inventory_sources active_source
-                WHERE active_source.source_scope_key = ?
-                  AND active_source.current_reconciliation_id = ?
-                  AND active_source.state = ?
+                FROM "openmeld"."agent_activity_session_inventory_sources" active_source
+                WHERE active_source.source_scope_key = $2
+                  AND active_source.current_reconciliation_id = $3
+                  AND active_source.state = $4
               )
-          `
-        )
-        .bind(
-          input.sourceScopeKey,
-          input.sourceScopeKey,
-          input.reconciliation.reconciliationId,
-          state
-        )
-    );
+          `,
+      values: [
+        input.sourceScopeKey,
+        input.sourceScopeKey,
+        input.reconciliation.reconciliationId,
+        state,
+      ],
+    });
   }
   statements.push(
     retireReplacedDisconnectedSourcesStatement({
@@ -1051,18 +1042,24 @@ async function acceptTerminalCoverageResult(input: {
       sourceScopeKey: input.sourceScopeKey,
     })
   );
-  await input.db.batch(statements);
+  await input.db.transaction(async (client) => {
+    const results: QueryResult[] = [];
+    for (const query of statements) {
+      results.push(await client.query(query));
+    }
+    return results;
+  });
   const source = await input.db
-    .prepare(
-      `
+    .query<SourceRow>({
+      text: `
         SELECT current_reconciliation_id, next_page_index, state
-        FROM agent_activity_session_inventory_sources
-        WHERE source_scope_key = ?
+        FROM "openmeld"."agent_activity_session_inventory_sources"
+        WHERE source_scope_key = $1
         LIMIT 1
-      `
-    )
-    .bind(input.sourceScopeKey)
-    .first<SourceRow>();
+      `,
+      values: [input.sourceScopeKey],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (
     source?.current_reconciliation_id !==
       input.reconciliation.reconciliationId ||
@@ -1079,23 +1076,21 @@ async function acceptTerminalCoverageResult(input: {
     status: "published",
   });
 }
-
 function retireReplacedDisconnectedSourcesStatement(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   reconciliationId: string;
   sourceScopeKey: string;
-}): D1PreparedStatement {
-  return input.db
-    .prepare(
-      `
-        DELETE FROM agent_activity_session_inventory_sources
+}): QueryConfig {
+  return {
+    text: `
+        DELETE FROM "openmeld"."agent_activity_session_inventory_sources"
         WHERE state = 'disconnected'
-          AND source_scope_key <> ?
+          AND source_scope_key <> $1
           AND EXISTS (
             SELECT 1
-            FROM agent_activity_session_inventory_sources replacement
-            WHERE replacement.source_scope_key = ?
-              AND replacement.current_reconciliation_id = ?
+            FROM "openmeld"."agent_activity_session_inventory_sources" replacement
+            WHERE replacement.source_scope_key = $2
+              AND replacement.current_reconciliation_id = $3
               AND replacement.state IN ('current', 'unsupported')
               AND replacement.organization_id = agent_activity_session_inventory_sources.organization_id
               AND replacement.owner_user_id = agent_activity_session_inventory_sources.owner_user_id
@@ -1105,13 +1100,16 @@ function retireReplacedDisconnectedSourcesStatement(input: {
               AND replacement.agent_controller_ref = agent_activity_session_inventory_sources.agent_controller_ref
               AND replacement.provider = agent_activity_session_inventory_sources.provider
           )
-      `
-    )
-    .bind(input.sourceScopeKey, input.sourceScopeKey, input.reconciliationId);
+      `,
+    values: [
+      input.sourceScopeKey,
+      input.sourceScopeKey,
+      input.reconciliationId,
+    ],
+  };
 }
-
 export async function readAgentActivitySessionInventory(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   query: AgentActivitySessionInventoryQuery;
@@ -1128,9 +1126,8 @@ export async function readAgentActivitySessionInventory(input: {
     organizationId: input.organizationId,
     query: input.query,
   });
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<InventoryRow>({
+    text: `
         SELECT
           inventory.organization_id,
           organizations.name AS organization_name,
@@ -1146,19 +1143,19 @@ export async function readAgentActivitySessionInventory(input: {
           CASE
             WHEN EXISTS (
               SELECT 1
-              FROM openMeldDaemon_runtime_registry_records runtime
-              INNER JOIN openMeldDaemon_runtime_agent_controller_reports report
+              FROM "openmeld"."openMeldDaemon_runtime_registry_records" runtime
+              INNER JOIN "openmeld"."openMeldDaemon_runtime_agent_controller_reports" report
                 ON report.openmeld_service_runtime_id = runtime.openmeld_service_runtime_id
                 AND report.agent_controller_ref = inventory.agent_controller_ref
               WHERE runtime.owner_kind = 'owner_account'
                 AND runtime.owner_id = inventory.owner_user_id
                 AND runtime.device_id = inventory.device_id
-                AND report.expires_at_ms > ?
+                AND report.expires_at_ms > $1
             ) THEN 'online'
             WHEN EXISTS (
               SELECT 1
-              FROM openMeldDaemon_runtime_registry_records runtime
-              INNER JOIN openMeldDaemon_runtime_agent_controller_reports report
+              FROM "openmeld"."openMeldDaemon_runtime_registry_records" runtime
+              INNER JOIN "openmeld"."openMeldDaemon_runtime_agent_controller_reports" report
                 ON report.openmeld_service_runtime_id = runtime.openmeld_service_runtime_id
                 AND report.agent_controller_ref = inventory.agent_controller_ref
               WHERE runtime.owner_kind = 'owner_account'
@@ -1182,8 +1179,8 @@ export async function readAgentActivitySessionInventory(input: {
           source.last_complete_at_ms AS source_last_complete_at_ms,
           (
             SELECT count(DISTINCT profile.profile_id)
-            FROM openMeldDaemon_agent_profile_bindings binding
-            INNER JOIN openmeld_profiles profile
+            FROM "openmeld"."openMeldDaemon_agent_profile_bindings" binding
+            INNER JOIN "openmeld"."openmeld_profiles" profile
               ON profile.profile_id = binding.agent_profile_id
               AND profile.organization_id = inventory.organization_id
               AND profile.owner_user_id = inventory.owner_user_id
@@ -1197,8 +1194,8 @@ export async function readAgentActivitySessionInventory(input: {
           ) AS binding_count,
           (
             SELECT min(profile.profile_id)
-            FROM openMeldDaemon_agent_profile_bindings binding
-            INNER JOIN openmeld_profiles profile
+            FROM "openmeld"."openMeldDaemon_agent_profile_bindings" binding
+            INNER JOIN "openmeld"."openmeld_profiles" profile
               ON profile.profile_id = binding.agent_profile_id
               AND profile.organization_id = inventory.organization_id
               AND profile.owner_user_id = inventory.owner_user_id
@@ -1210,37 +1207,36 @@ export async function readAgentActivitySessionInventory(input: {
               AND binding.agent_controller_conversation_id = inventory.native_session_id
               AND binding.binding_state = 'enabled_primary'
           ) AS bound_agent_profile_id
-        FROM agent_activity_session_inventory inventory
-        INNER JOIN agent_activity_session_inventory_sources source
+        FROM "openmeld"."agent_activity_session_inventory" inventory
+        INNER JOIN "openmeld"."agent_activity_session_inventory_sources" source
           ON source.source_scope_key = inventory.source_scope_key
-        INNER JOIN organizations ON organizations.id = inventory.organization_id
-        INNER JOIN members
+        INNER JOIN "openmeld"."organizations" ON organizations.id = inventory.organization_id
+        INNER JOIN "openmeld"."members"
           ON members.organization_id = inventory.organization_id
           AND members.user_id = inventory.owner_user_id
-        INNER JOIN users ON users.id = inventory.owner_user_id
-        INNER JOIN projects
+        INNER JOIN "openmeld"."users" ON users.id = inventory.owner_user_id
+        INNER JOIN "openmeld"."projects"
           ON projects.id = inventory.project_id
           AND projects.organization_id = inventory.organization_id
           AND projects.archived_at_ms IS NULL
-        INNER JOIN openMeldDaemon_owned_devices owned
+        INNER JOIN "openmeld"."openMeldDaemon_owned_devices" owned
           ON owned.owner_user_id = inventory.owner_user_id
           AND owned.device_id = inventory.device_id
           AND owned.connected_computer_id = inventory.connected_computer_id
         WHERE ${filters.sql}
-        ORDER BY inventory.last_active_at_ms DESC,
-          inventory.owner_user_id ASC,
-          inventory.agent_controller_ref ASC,
-          inventory.native_session_id ASC
-        LIMIT ?
-      `
-    )
-    .bind(input.nowMs, ...filters.bindings, input.query.limit + 1)
-    .all<InventoryRow>();
-  const pageRows = (rows.results ?? []).slice(0, input.query.limit);
+        ORDER BY inventory.last_active_at_ms DESC NULLS LAST,
+          inventory.owner_user_id ASC NULLS FIRST,
+          inventory.agent_controller_ref ASC NULLS FIRST,
+          inventory.native_session_id ASC NULLS FIRST
+        LIMIT $${filters.bindings.length + 2}
+      `,
+    values: [input.nowMs, ...filters.bindings, input.query.limit + 1],
+  });
+  const pageRows = (rows.rows ?? []).slice(0, input.query.limit);
   const sessions = pageRows.map((row) => mapInventoryRow(row, input.nowMs));
   const last = pageRows.at(-1);
   const nextCursor =
-    (rows.results ?? []).length > input.query.limit && last
+    (rows.rows ?? []).length > input.query.limit && last
       ? encodeCursor({
           agentControllerRef: last.agent_controller_ref,
           lastActiveAtMs: Number(last.last_active_at_ms),
@@ -1262,61 +1258,57 @@ export async function readAgentActivitySessionInventory(input: {
     sessions,
   });
 }
-
 function buildInventoryFilters(input: {
   cursor: PageCursor | null;
   organizationId: string;
   query: AgentActivitySessionInventoryQuery;
-}): { bindings: unknown[]; sql: string } {
+}): {
+  bindings: unknown[];
+  sql: string;
+} {
   const clauses = [
-    "inventory.organization_id = ?",
+    "inventory.organization_id = $2",
     "inventory.visible = 1",
     "source.state IN ('syncing', 'current', 'stale', 'error')",
   ];
   const bindings: unknown[] = [input.organizationId];
-  const add = (clause: string, value: unknown) => {
-    clauses.push(clause);
+  const add = (column: string, value: unknown) => {
+    clauses.push(`${column} = $${bindings.length + 2}`);
     bindings.push(value);
   };
   if (input.query.memberUserId) {
-    add("inventory.owner_user_id = ?", input.query.memberUserId);
+    add("inventory.owner_user_id", input.query.memberUserId);
   }
   if (input.query.projectId) {
-    add("inventory.project_id = ?", input.query.projectId);
+    add("inventory.project_id", input.query.projectId);
   }
   if (input.query.provider) {
-    add("inventory.provider = ?", input.query.provider);
+    add("inventory.provider", input.query.provider);
   }
   if (input.query.status) {
-    add("inventory.status = ?", input.query.status);
+    add("inventory.status", input.query.status);
   }
   if (input.query.origin) {
-    add("inventory.origin = ?", input.query.origin);
+    add("inventory.origin", input.query.origin);
   }
   if (input.query.nativeSessionId) {
-    add("inventory.native_session_id = ?", input.query.nativeSessionId);
+    add("inventory.native_session_id", input.query.nativeSessionId);
   }
   if (input.query.query) {
     const pattern = `%${escapeLike(input.query.query.toLowerCase())}%`;
     clauses.push(
-      "(lower(inventory.native_session_id) LIKE ? ESCAPE '\\' OR lower(coalesce(inventory.native_session_title, '')) LIKE ? ESCAPE '\\')"
+      `(lower(inventory.native_session_id) LIKE $${bindings.length + 2} ESCAPE '\\' OR lower(coalesce(inventory.native_session_title, '')) LIKE $${bindings.length + 2} ESCAPE '\\')`
     );
-    bindings.push(pattern, pattern);
+    bindings.push(pattern);
   }
   if (input.cursor) {
     clauses.push(`(
-      inventory.last_active_at_ms < ?
-      OR (inventory.last_active_at_ms = ? AND inventory.owner_user_id > ?)
-      OR (inventory.last_active_at_ms = ? AND inventory.owner_user_id = ? AND inventory.agent_controller_ref > ?)
-      OR (inventory.last_active_at_ms = ? AND inventory.owner_user_id = ? AND inventory.agent_controller_ref = ? AND inventory.native_session_id > ?)
+      inventory.last_active_at_ms < $${bindings.length + 2}
+      OR (inventory.last_active_at_ms = $${bindings.length + 2}
+        AND (inventory.owner_user_id, inventory.agent_controller_ref, inventory.native_session_id)
+          > ($${bindings.length + 3}, $${bindings.length + 4}, $${bindings.length + 5}))
     )`);
     bindings.push(
-      input.cursor.lastActiveAtMs,
-      input.cursor.lastActiveAtMs,
-      input.cursor.ownerUserId,
-      input.cursor.lastActiveAtMs,
-      input.cursor.ownerUserId,
-      input.cursor.agentControllerRef,
       input.cursor.lastActiveAtMs,
       input.cursor.ownerUserId,
       input.cursor.agentControllerRef,
@@ -1325,33 +1317,31 @@ function buildInventoryFilters(input: {
   }
   return { bindings, sql: clauses.join(" AND ") };
 }
-
 async function readCoverage(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   query: AgentActivitySessionInventoryQuery;
 }): Promise<AgentActivityInventoryCoverage[]> {
   const clauses = [
-    "source.organization_id = ?",
+    "source.organization_id = $2",
     "projects.archived_at_ms IS NULL",
   ];
   const bindings: unknown[] = [input.organizationId];
   if (input.query.projectId) {
-    clauses.push("source.project_id = ?");
+    clauses.push(`source.project_id = $${bindings.length + 2}`);
     bindings.push(input.query.projectId);
   }
   if (input.query.memberUserId) {
-    clauses.push("source.owner_user_id = ?");
+    clauses.push(`source.owner_user_id = $${bindings.length + 2}`);
     bindings.push(input.query.memberUserId);
   }
   if (input.query.provider) {
-    clauses.push("source.provider = ?");
+    clauses.push(`source.provider = $${bindings.length + 2}`);
     bindings.push(input.query.provider);
   }
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<CoverageRow>({
+    text: `
         SELECT
           source.agent_controller_ref,
           source.connected_computer_id AS computer_id,
@@ -1362,27 +1352,26 @@ async function readCoverage(input: {
           source.provider,
           CASE
             WHEN source.state = 'current'
-              AND source.last_complete_at_ms < ? THEN 'stale'
+              AND source.last_complete_at_ms < $1 THEN 'stale'
             ELSE source.state
           END AS state
-        FROM agent_activity_session_inventory_sources source
-        INNER JOIN members
+        FROM "openmeld"."agent_activity_session_inventory_sources" source
+        INNER JOIN "openmeld"."members"
           ON members.organization_id = source.organization_id
           AND members.user_id = source.owner_user_id
-        INNER JOIN projects
+        INNER JOIN "openmeld"."projects"
           ON projects.id = source.project_id
           AND projects.organization_id = source.organization_id
         WHERE ${clauses.join(" AND ")}
         ORDER BY source.project_id, source.owner_user_id,
           source.connected_computer_id, source.agent_controller_ref
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.nowMs - AGENT_ACTIVITY_SESSION_INVENTORY_STALE_AFTER_MS,
-      ...bindings
-    )
-    .all<CoverageRow>();
-  return (rows.results ?? []).map((row) =>
+      ...bindings,
+    ],
+  });
+  return (rows.rows ?? []).map((row) =>
     agentActivityInventoryCoverageSchema.parse({
       agentControllerRef: row.agent_controller_ref,
       computerId: row.computer_id,
@@ -1399,21 +1388,27 @@ async function readCoverage(input: {
     })
   );
 }
-
 async function readOrganizationIdentity(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
-}): Promise<{ id: string; name: string }> {
+}): Promise<{
+  id: string;
+  name: string;
+}> {
   const row = await input.db
-    .prepare("SELECT id, name FROM organizations WHERE id = ? LIMIT 1")
-    .bind(input.organizationId)
-    .first<{ id: string; name: string }>();
+    .query<{
+      id: string;
+      name: string;
+    }>({
+      text: 'SELECT id, name FROM "openmeld"."organizations" WHERE id = $1 LIMIT 1',
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw new Error("Authorized Organization identity is missing.");
   }
   return { id: row.id, name: row.name };
 }
-
 function mapInventoryRow(
   row: InventoryRow,
   nowMs: number
@@ -1471,7 +1466,6 @@ function mapInventoryRow(
     status: row.status,
   });
 }
-
 function providerDisplayName(provider: LocalAgentSessionProvider): string {
   return {
     "claude-code": "Claude Code",
@@ -1481,24 +1475,24 @@ function providerDisplayName(provider: LocalAgentSessionProvider): string {
     opencode: "OpenCode",
   }[provider];
 }
-
 async function countPublishedSessions(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   sourceScopeKey: string;
 }): Promise<number> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      count: number;
+    }>({
+      text: `
         SELECT count(*) AS count
-        FROM agent_activity_session_inventory
-        WHERE source_scope_key = ? AND visible = 1
-      `
-    )
-    .bind(input.sourceScopeKey)
-    .first<{ count: number }>();
+        FROM "openmeld"."agent_activity_session_inventory"
+        WHERE source_scope_key = $1 AND visible = 1
+      `,
+      values: [input.sourceScopeKey],
+    })
+    .then((result) => result.rows[0] ?? null);
   return Number(row?.count ?? 0);
 }
-
 async function buildQuerySignature(input: {
   organizationId: string;
   query: AgentActivitySessionInventoryQuery;
@@ -1515,7 +1509,6 @@ async function buildQuerySignature(input: {
     String(input.query.limit),
   ]);
 }
-
 async function sha256Key(parts: readonly string[]): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(parts));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -1523,11 +1516,9 @@ async function sha256Key(parts: readonly string[]): Promise<string> {
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")}`;
 }
-
 function encodeCursor(cursor: PageCursor): string {
   return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(cursor)));
 }
-
 function decodeCursor(value: string, querySignature: string): PageCursor {
   try {
     const decoded: unknown = JSON.parse(
@@ -1558,7 +1549,6 @@ function decodeCursor(value: string, querySignature: string): PageCursor {
     });
   }
 }
-
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) {
@@ -1569,7 +1559,6 @@ function bytesToBase64Url(bytes: Uint8Array): string {
     .replaceAll("/", "_")
     .replace(BASE64_PADDING_PATTERN, "");
 }
-
 function base64UrlToBytes(value: string): Uint8Array {
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
   const padded = normalized.padEnd(
@@ -1579,14 +1568,12 @@ function base64UrlToBytes(value: string): Uint8Array {
   const binary = atob(padded);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
-
 function escapeLike(value: string): string {
   return value
     .replaceAll("\\", "\\\\")
     .replaceAll("%", "\\%")
     .replaceAll("_", "\\_");
 }
-
 function parseReconciliationResponse(
   value: unknown
 ): SubmitAgentActivitySessionReconciliationResponse {

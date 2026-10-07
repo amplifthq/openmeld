@@ -10,6 +10,7 @@ export function AgentCard(input: {
 	name: string;
 	description: string;
 	renderAvatar: (size: number) => ReactNode;
+	interactiveAvatar?: boolean;
 	indicators?: ReactNode;
 	badge?: ReactNode;
 	describedBy?: string;
@@ -19,23 +20,13 @@ export function AgentCard(input: {
 }) {
 	const selectionId = useId();
 	const group = useContext(AgentGroupContext);
-	const content = (
+	const avatar = (
+		<AgentGroupAvatar profileId={input.profileId}>
+			{input.renderAvatar(56)}
+		</AgentGroupAvatar>
+	);
+	const details = (
 		<>
-			{input.selection && (
-				<input
-					aria-describedby={input.describedBy}
-					aria-label={`Select ${input.name}`}
-					checked={input.selection.checked}
-					className="size-4 shrink-0 accent-primary"
-					disabled={input.selection.disabled}
-					id={selectionId}
-					onChange={input.selection.onChange}
-					type="checkbox"
-				/>
-			)}
-			<AgentGroupAvatar profileId={input.profileId}>
-				{input.renderAvatar(56)}
-			</AgentGroupAvatar>
 			<span className={group ? "w-full min-w-0" : "min-w-0 flex-1"}>
 				<span
 					className={`flex min-w-0 items-center gap-1.5 ${group ? "justify-center" : ""}`}
@@ -56,6 +47,24 @@ export function AgentCard(input: {
 			{input.badge}
 		</>
 	);
+	const content = (
+		<>
+			{input.selection && (
+				<input
+					aria-describedby={input.describedBy}
+					aria-label={`Select ${input.name}`}
+					checked={input.selection.checked}
+					className="size-4 shrink-0 accent-primary"
+					disabled={input.selection.disabled}
+					id={selectionId}
+					onChange={input.selection.onChange}
+					type="checkbox"
+				/>
+			)}
+			{avatar}
+			{details}
+		</>
+	);
 	const props = {
 		"aria-label": `${input.selection ? "Select" : "Open"} ${input.name}`,
 		"aria-describedby": input.describedBy,
@@ -69,7 +78,20 @@ export function AgentCard(input: {
 		</button>
 	);
 	if (input.to) {
-		action = (
+		action = input.interactiveAvatar ? (
+			<div className={props.className} data-profile-id={input.profileId}>
+				<span className="relative z-10 shrink-0">{avatar}</span>
+				<Link
+					aria-describedby={input.describedBy}
+					aria-label={props["aria-label"]}
+					className="flex h-full min-w-0 flex-1 items-center gap-3 outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring"
+					onClick={input.onClick}
+					to={input.to}
+				>
+					{details}
+				</Link>
+			</div>
+		) : (
 			<Link {...props} to={input.to}>
 				{content}
 			</Link>

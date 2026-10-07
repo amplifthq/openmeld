@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildAgentTaskKey } from "@openmeld/schemas";
 import type {
   AgentTaskCompletionCondition,
@@ -9,14 +10,13 @@ import {
   AgentControllerTaskRegistrationMissingError,
   type AgentTaskCompletionSubscriptionRecord,
   registerAgentTaskCompletionSubscription,
-} from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+} from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../../lib/bindings";
 import {
   CenterAgentDelegationPreparationError,
   requireCenterAgentContinuationParent,
 } from "./center-agent-delegation-service";
 import { shouldWriteDestinationNeutralTaskContinuations } from "./task-continuation-rollout";
-
 export type PreparedCenterAgentTaskWatch = {
   completionCondition: AgentTaskCompletionCondition;
   controllerTaskRegistration?: {
@@ -34,7 +34,6 @@ export type PreparedCenterAgentTaskWatch = {
   task: AgentTaskHandle;
   watchId: string;
 };
-
 export async function prepareCenterAgentTaskWatch(input: {
   actorProfileId: string;
   completionCondition: AgentTaskCompletionCondition;
@@ -42,7 +41,7 @@ export async function prepareCenterAgentTaskWatch(input: {
     ownerUserId: string;
     registrationSource: SubmitAgentControllerTaskLifecycleEventItem["source"];
   };
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   instruction: string;
   replyLanguageTag?: string;
@@ -80,7 +79,6 @@ export async function prepareCenterAgentTaskWatch(input: {
       "A task cannot watch its own completion."
     );
   }
-
   const subscriptionId = `sub:${input.watchId}`;
   const replyLanguage = input.replyLanguageTag
     ? { replyLanguageTag: input.replyLanguageTag }

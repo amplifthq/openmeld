@@ -3,16 +3,23 @@ import type {
 	AccountSpaceIndexItem,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
+import { cn } from "@openmeld/ui/lib/utils";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 
 // All layers stay inside the leading icon slot: no row growth or text overlap.
 const TRIANGLE_POSITIONS = [
-	"top-0 left-1",
+	"top-0 left-1/2 -translate-x-1/2",
 	"bottom-0 left-0",
 	"right-0 bottom-0",
 ];
 const PAIR_POSITIONS = ["top-0 left-0", "right-0 bottom-0"];
+const GRID_COLUMNS = {
+	2: "grid-cols-[repeat(2,40px)]",
+	4: "grid-cols-[repeat(2,40px)]",
+	6: "grid-cols-[repeat(3,40px)]",
+	8: "grid-cols-[repeat(4,40px)]",
+};
 export function resolveSpaceMemberAppearances(
 	directory: OrganizationProfileDirectoryResponse | undefined
 ) {
@@ -48,14 +55,56 @@ export type SpaceMemberAppearance = {
 	avatarModelId?: string | null;
 };
 
-export function SpaceMemberAvatars(input: {
+type SpaceMemberAvatarsProps = {
 	members: NonNullable<AccountSpaceIndexItem["memberPreviews"]>;
 	appearances?: ReadonlyMap<string, SpaceMemberAppearance>;
-	layout?: "compact" | "horizontal";
-}) {
+	layout?: "compact" | "horizontal" | "grid";
+	memberCount?: number | null;
+	compactSize?: 20 | 24;
+};
+function visibleGridMembers(total: number, available: number, slots: number) {
+	return Math.min(available, total > slots ? slots - 1 : slots);
+}
+export function SpaceMemberAvatars(input: SpaceMemberAvatarsProps) {
+	if (input.layout === "grid") {
+		return (
+			<span aria-hidden="true" className="block">
+				<span className="block @min-[112px]/space-card:hidden">
+					<SpaceMemberAvatarSlots {...input} gridSlots={2} />
+				</span>
+				<span className="@min-[112px]/space-card:block @min-[176px]/space-card:hidden hidden">
+					<SpaceMemberAvatarSlots {...input} gridSlots={4} />
+				</span>
+				<span className="@min-[176px]/space-card:block @min-[224px]/space-card:hidden hidden">
+					<SpaceMemberAvatarSlots {...input} gridSlots={6} />
+				</span>
+				<span className="@min-[224px]/space-card:block hidden">
+					<SpaceMemberAvatarSlots {...input} gridSlots={8} />
+				</span>
+			</span>
+		);
+	}
+	return <SpaceMemberAvatarSlots {...input} />;
+}
+function SpaceMemberAvatarSlots(
+	input: SpaceMemberAvatarsProps & { gridSlots?: 2 | 4 | 6 | 8 }
+) {
 	const horizontal = input.layout === "horizontal";
-	const members = input.members.slice(0, horizontal ? 5 : 3);
-	const size = horizontal || members.length === 1 ? 20 : 12;
+	const grid = input.layout === "grid";
+	const slots = input.gridSlots ?? 6;
+	const total = input.memberCount ?? input.members.length;
+	const gridCount = visibleGridMembers(total, input.members.length, slots);
+	const compactCount = horizontal ? 5 : 3;
+	const members = input.members.slice(0, grid ? gridCount : compactCount);
+	const remaining = Math.max(
+		0,
+		(input.memberCount ?? members.length) - members.length
+	);
+	const compactSize = input.compactSize ?? 20;
+	const compactMemberSize =
+		members.length === 1 ? compactSize : Math.round(compactSize * 0.6);
+	const rowSize = horizontal ? 20 : compactMemberSize;
+	const size = grid ? 40 : rowSize;
 	let positions = ["inset-0"];
 	if (members.length === 3) {
 		positions = TRIANGLE_POSITIONS;
@@ -66,20 +115,30 @@ export function SpaceMemberAvatars(input: {
 	return (
 		<span
 			aria-hidden="true"
-			className={
-				horizontal
-					? "isolate inline-flex h-5 max-w-full shrink-0 items-center"
-					: "relative size-5 shrink-0"
-			}
+			className={cn(
+				"shrink-0",
+				grid && "grid h-24 auto-rows-[40px] justify-start gap-2",
+				grid && GRID_COLUMNS[slots],
+				horizontal && "isolate inline-flex h-5 max-w-full items-center",
+				!(grid || horizontal) && "relative"
+			)}
 			data-slot="space-member-avatars"
+			style={
+				horizontal || grid
+					? undefined
+					: { width: compactSize, height: compactSize }
+			}
 		>
 			{members.map((member, index) => (
 				<span
-					className={
-						horizontal
-							? "relative flex shrink-0 overflow-hidden bg-background ring-1 ring-background"
-							: `absolute flex overflow-hidden bg-sidebar ring-1 ring-sidebar ${positions[index]}`
-					}
+					className={cn(
+						"flex",
+						horizontal &&
+							"relative shrink-0 bg-background ring-1 ring-background",
+						!(grid || horizontal) &&
+							`absolute bg-sidebar ring-1 ring-sidebar ${positions[index]}`
+					)}
+					data-slot="space-member-avatar"
 					key={member.profileId}
 					style={{
 						borderRadius:
@@ -123,10 +182,19 @@ export function SpaceMemberAvatars(input: {
 							profileId={member.profileId}
 							profileName={member.profileName}
 							size={size}
+							variant={grid ? "plain" : undefined}
 						/>
 					)}
 				</span>
 			))}
+			{grid && remaining > 0 && (
+				<span
+					className="grid place-items-center text-muted-foreground text-sm tabular-nums"
+					data-slot="space-member-avatar"
+				>
+					+{remaining}
+				</span>
+			)}
 		</span>
 	);
 }

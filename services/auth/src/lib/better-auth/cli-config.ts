@@ -10,6 +10,7 @@ const BETTER_AUTH_CODEGEN_SECRET =
 export const auth = betterAuth(
   createAuthConfig({
     AUTH_WORKER_NODE_ENV: "development",
+    AUTH_SCHEMA_CODEGEN: true,
     BETTER_AUTH_OPENMELD_SECRET: BETTER_AUTH_CODEGEN_SECRET,
   })
 );

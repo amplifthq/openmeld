@@ -33,6 +33,7 @@ const scrollPositions = new Map<string, number>();
 export function AppModuleSidebarProvider(input: {
 	children: ReactNode;
 	available: boolean;
+	defaultOpen?: boolean;
 	initialState?: SidebarPersistedState;
 	preferenceKey: string;
 }) {
@@ -44,11 +45,15 @@ export function AppModuleSidebarProvider(input: {
 		)
 	);
 	const width = state.pageWidths?.[input.preferenceKey] ?? state.width;
+	const open = state.useRouteDefault
+		? (input.defaultOpen ?? false)
+		: state.tier === "expanded";
 	const onGeometryChange = useCallback(
 		(geometry: SidebarGeometry) => {
 			setState((current) => {
 				const next = {
 					...current,
+					useRouteDefault: false,
 					tier: geometry.mode === "icon" ? ("hidden" as const) : geometry.mode,
 					width: `${geometry.width}px`,
 					pageWidths: {
@@ -66,7 +71,7 @@ export function AppModuleSidebarProvider(input: {
 		<ModuleSidebarContext.Provider value={input.available}>
 			<SidebarProvider
 				geometry={{
-					mode: state.tier === "expanded" ? "expanded" : "hidden",
+					mode: open ? "expanded" : "hidden",
 					width: Number.parseFloat(width) * (width.endsWith("rem") ? 16 : 1),
 				}}
 				keyboardShortcuts={!desktop}

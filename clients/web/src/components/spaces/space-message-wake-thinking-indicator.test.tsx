@@ -1,6 +1,10 @@
+import { createWakeProgressItem } from "@openmeld/space";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
+import {
+	resolveWakeProgressThinkingEntry,
+	type SpaceMessageWakeThinkingEntry,
+} from "#/lib/spaces/wake-progress-presentation";
 import { SpaceMessageWakeThinkingIndicator } from "./space-message-wake-thinking-indicator";
 
 const STARTED_AT_MS = 1_800_000_000_000;
@@ -67,7 +71,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						kind: "status",
 						step: {
 							description: "OpenMeld accepted the Stop request.",
-							kind: "sent",
+							kind: "working",
 							label: "Stop requested",
 							status: "complete",
 						},
@@ -110,76 +114,36 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		expect(preview.className).toContain("whitespace-nowrap");
 	});
 
-	it("uses weaving while OpenMeld posts the reply", () => {
-		render(
-			<SpaceMessageWakeThinkingIndicator
-				entries={[
-					createThinkingEntry({
-						elapsedStartedAtMs: null,
-						phase: "publishing",
-						step: {
-							description: "OpenMeld is finalizing the reply.",
-							kind: "posting",
-							label: "Finalizing reply",
-							status: "active",
-						},
-						text: "Finalizing reply",
-					}),
-				]}
-			/>
-		);
-
-		expect(
-			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBe("weaving");
-	});
-
-	it("uses connecting before execution starts", () => {
-		render(
-			<SpaceMessageWakeThinkingIndicator
-				entries={[
-					createThinkingEntry({
-						elapsedStartedAtMs: null,
-						phase: "sending",
-						step: {
-							description: "OpenMeld is sending the Wake request.",
-							kind: "starting",
-							label: "Sending to agent",
-							status: "active",
-						},
-						text: "Sending to agent",
-					}),
-				]}
-			/>
-		);
-
-		const indicator = screen.getByTestId("space-wake-thinking-indicator");
-		expect(resolveOrbState(indicator)).toBe("connecting");
-	});
-
-	it("uses final-status waiting copy after forty-five seconds without new evidence", () => {
+	it("keeps the authoritative running state after forty-five seconds without visible progress", () => {
 		vi.setSystemTime(STARTED_AT_MS + 45_000);
 
 		render(
 			<SpaceMessageWakeThinkingIndicator
-				entries={[
-					createThinkingEntry({
-						elapsedStartedAtMs: STARTED_AT_MS,
-						lastEvidenceAtMs: STARTED_AT_MS,
+				entries={resolveWakeProgressThinkingEntry({
+					item: createWakeProgressItem({
+						clientMessageId: "request-1",
+						dispatchId: null,
+						sourceSignalId: null,
+						targetProfileId: "agt_runner",
+						targetLabel: "Agent",
+						phase: "running",
+						startedAtMs: STARTED_AT_MS,
+						updatedAtMs: STARTED_AT_MS,
 					}),
-				]}
+					showElapsedTime: true,
+				})}
 			/>
 		);
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe("Still waiting for the final status.");
+		).toBe("Agent · Working… · 45s");
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBe("breathing");
+		).toBe("solving");
 	});
 
-	it("keeps showing active progress when recent evidence refreshed the Wake", () => {
+	it("keeps showing elapsed time after fifty seconds", () => {
 		vi.setSystemTime(STARTED_AT_MS + 50_000);
 
 		render(
@@ -187,7 +151,6 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 				entries={[
 					createThinkingEntry({
 						elapsedStartedAtMs: STARTED_AT_MS,
-						lastEvidenceAtMs: STARTED_AT_MS + 20_000,
 					}),
 				]}
 			/>
@@ -207,7 +170,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						elapsedStartedAtMs: null,
 						step: {
 							description: "This agent was included in the Wake.",
-							kind: "sent",
+							kind: "working",
 							label: "Wake started",
 							status: "complete",
 						},
@@ -239,7 +202,6 @@ function createThinkingEntry(
 	const targetProfileId = input.targetProfileId ?? "agt_runner";
 	return {
 		elapsedStartedAtMs: input.elapsedStartedAtMs,
-		lastEvidenceAtMs: input.lastEvidenceAtMs ?? input.elapsedStartedAtMs,
 		key: input.key ?? `dispatch:${targetProfileId}`,
 		kind: input.kind ?? "progress",
 		phase: input.phase ?? (input.kind === "preview" ? "writing" : "running"),

@@ -2,7 +2,9 @@
 
 import { useAgentFinish, useModel, useSkill, useTool } from "@flue/runtime";
 import { extend, getCloudflareContext } from "@flue/runtime/cloudflare";
+import { renderTaskKnowledgeIndex } from "@openmeld/agent-runtime";
 import {
+  accountDeletionConversationSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerExecutionInputQuerySchema,
@@ -20,6 +22,7 @@ import type { Agent } from "agents";
 import { summarizeAgentActivityDigest } from "../../agent-core/agent-activity-digest";
 import { flushRemoteAiUsage } from "../../agent-core/ai-usage";
 import {
+  listRemoteAgentCallbackContexts,
   listRemoteAgentUsageRecords,
   type RemoteAgentCoreWorkerBinding,
   waitForRemoteAgentCallbackContext,
@@ -50,7 +53,17 @@ import {
   resolveRemoteAgentTurnEnvelopeForExecution,
   submitRemoteAgentConversationTurn,
 } from "../../agent-core/submission";
-import { buildRemoteAgentCoreContext } from "../../agent-core/tool-context";
+import {
+  buildOrganizationDocumentReadContext,
+  buildRemoteAgentCoreContext,
+  resolveOrganizationMemberTurnEnvelopeSpeaker,
+} from "../../agent-core/tool-context";
+import {
+  ACCOUNT_ERASED_KEY,
+  acknowledgeAccountErasure,
+  eraseAccountStorage,
+  requireRetainedAccountStorage,
+} from "../../flue-adapter/account-deletion";
 import {
   abortFlueCenterAgentSubmission,
   createFlueCenterAgentAdmissionHost,
@@ -71,6 +84,7 @@ import {
   emitRemoteAgentExecutionStageEvidence,
 } from "../../flue-adapter/cloudflare-runtime-evidence";
 import { stopRemoteAgentComputerCommands } from "../../flue-adapter/computer-command";
+import { resolveRemoteAgentComputerName } from "../../flue-adapter/computer-identity";
 import {
   createRemoteAgentComputerCapability,
   isRemoteAgentComputerEnabled,
@@ -82,6 +96,7 @@ import {
 } from "../../flue-adapter/conversation-footprint";
 import { cancelFlueRemoteAgentExecution } from "../../flue-adapter/execution-cancellation";
 import {
+  acknowledgeRemoteAgentExecutionPreparation,
   installRemoteAgentExecutionInstrumentation,
   registerRemoteAgentExecutionPreparation,
   requireRemoteAgentExecutionResources,
@@ -104,6 +119,7 @@ import {
   resolveRemoteAgentCompactionReserveTokens,
   resolveRemoteAgentProviderContextCapacity,
 } from "../../flue-adapter/provider-context-capacity";
+import { createRetainedToolResultReducer } from "../../flue-adapter/retained-context";
 import { readRemoteAgentRuntimeDiagnostics } from "../../flue-adapter/runtime-diagnostics";
 import { disabledNoNetworkSandbox } from "../../flue-adapter/sandbox";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
@@ -146,6 +162,7 @@ async function prepareCenterAgentRender() {
       };
   const personalAgent =
     executionContext?.conversationIdentity?.kind === "personal_agent";
+  const includeTaskDocuments = runtimeContextPlan.includeOrganizationDocuments;
   const summaryOnly =
     turnEnvelope?.trigger.source === "task_continuation" &&
     turnEnvelope.trigger.summaryOnly;
@@ -159,12 +176,50 @@ async function prepareCenterAgentRender() {
   // Space work handoffs pin explicit Skills. Automatically included Skills are
   // optional and may have been disabled while this delivery waited to start.
   const optionalOrganizationSkills = !executionContext?.workHandoff;
+  const speakerMember = resolveOrganizationMemberTurnEnvelopeSpeaker(
+    turnEnvelope ?? undefined
+  );
+  // Use the ordinary member read, never the Center-only protected prompt RPC.
+  const taskDocuments =
+    executionContext && (personalAgent || speakerMember) && includeTaskDocuments
+      ? await callCoreRpc(
+          coreWorker,
+          "centerAgentReadOrganizationDocuments",
+          {
+            ...buildOrganizationDocumentReadContext({
+              context: buildRemoteAgentCoreContext(
+                executionContext,
+                `task-documents:${executionContext.submissionId}`
+              ),
+              turnEnvelope: turnEnvelope ?? undefined,
+            }),
+            action: "list" as const,
+          },
+          (binding, request) =>
+            binding.centerAgentReadOrganizationDocuments?.(request)
+        )
+          .then((result) =>
+            result.action === "list" ? result.documents : null
+          )
+          .catch((error: unknown) => {
+            console.warn("[remote_agent.task_documents.unavailable]", {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+            });
+            return null;
+          })
+      : null;
+  const taskKnowledgeIndex = renderTaskKnowledgeIndex({
+    documents: taskDocuments,
+    skills: organizationSkillSelections,
+    readHint:
+      "Use openmeld_read_org_documents action=list for the full authorized directory; action=get with documentId reads the current approved body. Use openmeld_search_task_skills to find omitted Skills in this task's frozen catalog. Activate the named Skill and use openmeld_read_skill_resource for its pinned resources. Never substitute the latest release.",
+  });
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
       !summaryOnly &&
-      executionContext.computerIsolationVersion === 2 &&
+      executionContext.computerIsolationVersion === 3 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             connectorExecution: {
@@ -220,6 +275,11 @@ async function prepareCenterAgentRender() {
       if (!executionContext) {
         return;
       }
+      await acknowledgeRemoteAgentExecutionPreparation({
+        context: executionContext,
+        coreWorker,
+        storage,
+      });
       await markRemoteAgentExecutionProgress({
         identity: buildRemoteAgentExecutionIdentity(executionContext),
         nowMs: Date.now(),
@@ -328,6 +388,7 @@ async function prepareCenterAgentRender() {
           >[0]["finish"]
         ) =>
           checkRemoteAgentExecutionFinish({
+            env,
             context: executionContext,
             storage,
             finish,
@@ -336,12 +397,22 @@ async function prepareCenterAgentRender() {
     steeringSource: executionContext
       ? createRemoteAgentSteeringSource({ context: executionContext, storage })
       : null,
-    compaction: materialization.model.compaction,
+    compaction: {
+      ...materialization.model.compaction,
+      reduceToolResultPreviews: executionContext
+        ? createRetainedToolResultReducer({
+            storage,
+            submissionId: executionContext.submissionId,
+            coreWorker,
+          })
+        : undefined,
+    },
     durability: CENTER_AGENT_DURABILITY,
     model: materialization.model.modelSpecifier,
     thinkingLevel: executionContext?.modelRoute?.reasoningLevel ?? "high",
     instructions: buildRemoteAgentSystemPrompt({
       personalAgent,
+      taskKnowledgeIndex: `${taskKnowledgeIndex}${runtimeContextPlan.includeOrganizationDocuments && !materialization.documents ? "\nCenter document context could not be refreshed. No cached Brief or rules were supplied; use the document read tool before work that depends on them." : ""}`,
       modelDisplayName: resolveRemoteAgentModelDisplayName(
         env,
         executionContext?.modelRoute
@@ -407,6 +478,57 @@ CenterAgentV2.steeringSource = (_submissionId: string) => {
 export const cloudflare = extend<Agent<CloudflareBindings>>({
   base: (Base) =>
     class extends Base {
+      async eraseAccountConversation(raw: unknown) {
+        const request = accountDeletionConversationSchema.parse(raw);
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Historical Computer generations have distinct ownership boundaries; keep erasure decisions together.
+        return await this.ctx.blockConcurrencyWhile(async () => {
+          if (await this.ctx.storage.get(ACCOUNT_ERASED_KEY)) {
+            return;
+          }
+          const contexts = await listRemoteAgentCallbackContexts(
+            createRemoteAgentSqlStorage(this.ctx.storage.sql)
+          );
+          for (const context of contexts) {
+            if (
+              context.organizationId !== request.organizationId ||
+              context.spaceId !== request.spaceId
+            ) {
+              throw new Error("Account conversation identity mismatch.");
+            }
+            // The legacy Center computer is a team workspace shared across Spaces.
+            // A private Space cannot erase the team's shared disk.
+            // Current personal Computers belong to the account, not a conversation.
+            // Core erases them from the account's Computer inventory.
+            if (context.computerIsolationVersion === 3) {
+              continue;
+            }
+            const namespace = (this.env as CloudflareBindings).AGENT_COMPUTER;
+            const computer = namespace.get(
+              namespace.idFromName(resolveRemoteAgentComputerName(context))
+            );
+            if (
+              !(
+                request.deleteSharedComputer || context.computerIsolationVersion
+              ) &&
+              context.conversationIdentity?.kind !== "personal_agent"
+            ) {
+              await computer.eraseAccountSpaceDirectory(request.spaceId);
+            } else {
+              await acknowledgeAccountErasure(
+                async () =>
+                  await namespace
+                    .get(
+                      namespace.idFromName(
+                        resolveRemoteAgentComputerName(context)
+                      )
+                    )
+                    .eraseAccountComputer()
+              );
+            }
+          }
+          await eraseAccountStorage(this.ctx);
+        });
+      }
       async readAdmission(input: unknown) {
         return await readRemoteAgentAdmission({
           request: parseRemoteAgentSubmitTurnRequest(input),
@@ -421,6 +543,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         });
       }
       async generateCenterAgentSessionTitle(request: unknown) {
+        await requireRetainedAccountStorage(this.ctx.storage);
         return await generateCenterAgentSessionTitle({
           env: this.env as CloudflareBindings,
           request,
@@ -434,6 +557,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
       async summarizeAgentActivityDigest(
         request: Parameters<typeof summarizeAgentActivityDigest>[0]["request"]
       ) {
+        await requireRetainedAccountStorage(this.ctx.storage);
         return await summarizeAgentActivityDigest({
           env: this.env as CloudflareBindings,
           request,
@@ -445,6 +569,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
       }
 
       async receiveExecutionInput(input: unknown) {
+        await requireRetainedAccountStorage(this.ctx.storage);
         const request =
           remoteAgentWorkerExecutionInputRequestSchema.parse(input);
         return await receiveRemoteAgentExecutionInput({
@@ -465,6 +590,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
       async submitConversationTurn(
         request: RemoteAgentWorkerSubmitTurnRequest
       ) {
+        await requireRetainedAccountStorage(this.ctx.storage);
         const logContext = {
           dispatchId: request.dispatchId,
           idempotencyKey: request.idempotencyKey,

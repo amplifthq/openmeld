@@ -68,7 +68,7 @@ describe("useSpaceUnread", () => {
 		expect(result.current.firstSignalId).toBe("first-unread");
 	});
 
-	it("can establish the boundary after an initially empty ready snapshot", () => {
+	it("does not mark arrivals during an already open visit as new", () => {
 		const { result, rerender } = renderHook(
 			({ targets }) =>
 				useSpaceUnread({
@@ -89,7 +89,7 @@ describe("useSpaceUnread", () => {
 			],
 		});
 
-		expect(result.current.firstSignalId).toBe("late-loaded-unread");
+		expect(result.current.firstSignalId).toBeNull();
 	});
 
 	it("resets the boundary when the visit identity changes", () => {
@@ -112,5 +112,35 @@ describe("useSpaceUnread", () => {
 		rerender({ identity: "space-b:profile", signalId: "b" });
 
 		expect(result.current.firstSignalId).toBe("b");
+	});
+	it("waits for an existing unread target before capturing the entry boundary", () => {
+		const { result, rerender } = renderHook(
+			({ targets }: { targets: SpaceInboxUnreadTarget[] }) =>
+				useSpaceUnread({
+					identity: "same",
+					isReady: true,
+					scopes: [{ threadRootSignalId: null, unreadCount: 1 }],
+					targets,
+				}),
+			{ initialProps: { targets: [] as SpaceInboxUnreadTarget[] } }
+		);
+		rerender({
+			targets: [
+				{ signalId: "entry-unread", occurredAtMs: 1, threadRootSignalId: null },
+			],
+		});
+		expect(result.current.firstSignalId).toBe("entry-unread");
+	});
+	it("removes a read boundary without introducing another during the visit", () => {
+		const old = { signalId: "old", occurredAtMs: 1, threadRootSignalId: null };
+		const { result, rerender } = renderHook(
+			({ targets }: { targets: SpaceInboxUnreadTarget[] }) =>
+				useSpaceUnread({ identity: "same", isReady: true, targets }),
+			{ initialProps: { targets: [old] } }
+		);
+		rerender({ targets: [] });
+		expect(result.current.firstSignalId).toBeNull();
+		rerender({ targets: [{ ...old, signalId: "new", occurredAtMs: 2 }] });
+		expect(result.current.firstSignalId).toBeNull();
 	});
 });

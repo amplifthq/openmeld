@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { init, useModel, useSkill } from "@flue/runtime";
 import { start } from "@flue/runtime/node";
+import { renderTaskKnowledgeIndex } from "@openmeld/agent-runtime";
 import { stringifyOrganizationSkillBundleCanonicalJson } from "@openmeld/schemas";
 import type {
   OrganizationSkillBundle,
@@ -16,6 +17,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
 import {
+  createOrganizationSkillCatalogTool,
   createOrganizationSkillResourceTool,
   materializeOrganizationSkillFlueSkillsFromCatalog,
 } from "../flue-adapter/organization-skills";
@@ -25,6 +27,67 @@ import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("Organization Skill Flue adapter", () => {
+  it("finds an omitted frozen release without replacing it with latest", async () => {
+    const bundle = createBundle();
+    const selection = await createSelection(bundle);
+    const display = renderTaskKnowledgeIndex({
+      documents: [],
+      skills: [selection],
+      maxChars: 180,
+      readHint: "Search with openmeld_search_task_skills.",
+    });
+    expect(display).not.toContain(selection.name);
+    const request = createSubmitTurnRequest({
+      organizationSkillReleases: [selection],
+    });
+    const context = createRemoteAgentCallbackContext({
+      ack: {
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: request.idempotencyKey,
+        requestId: "omitted-skill",
+        status: "pending",
+        submissionId: "omitted-skill",
+      },
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const readOrganizationSkillRuntimeCatalog = vi.fn(async () => ({
+      organizationId: context.organizationId,
+      releases: [
+        {
+          skillId: selection.skillId,
+          releaseId: selection.releaseId,
+          digest: selection.digest,
+          instructions: bundle.instructions,
+          portable: bundle.portable,
+          files: [],
+        },
+      ],
+    }));
+    const tool = createOrganizationSkillCatalogTool({
+      context,
+      coreWorker: { readOrganizationSkillRuntimeCatalog },
+    });
+    await expect(tool.execute({ query: "checklist" })).resolves.toMatchObject({
+      skills: [
+        {
+          name: selection.name,
+          releaseId: selection.releaseId,
+          digest: selection.digest,
+        },
+      ],
+    });
+    expect(readOrganizationSkillRuntimeCatalog).toHaveBeenCalledWith(
+      expect.objectContaining({ releases: [selection] })
+    );
+    readOrganizationSkillRuntimeCatalog.mockResolvedValueOnce({
+      organizationId: context.organizationId,
+      releases: [],
+    });
+    await expect(tool.execute({})).resolves.toEqual({ skills: [] });
+  });
+
   it("preserves the unavailable pinned Skill reason without publishing raw Core errors", () => {
     expect(
       createRemoteAgentTerminalFailureFact({

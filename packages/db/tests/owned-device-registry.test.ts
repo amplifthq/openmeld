@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { assertNativeStorageContract } from "./native-storage.test-support";
 
 const repoRootDirectoryPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -16,43 +17,39 @@ const readRepoFile = (relativePath: string): string => {
 };
 
 describe("owned device registry schema", () => {
-  it("keeps a canonical owned-device schema module, exports, and migration", () => {
-    const schemaSource = readRepoFile(
-      "packages/db/src/core/owned-device.schema.ts"
-    );
-    const coreIndexSource = readRepoFile("packages/db/src/core/index.ts");
-    const dispatchSchemaSource = readRepoFile(
-      "packages/db/src/core/dispatch.schema.ts"
-    );
-    const rootSchemaSource = readRepoFile("packages/db/src/schema.ts");
+  it("keeps a canonical owned-device schema module, exports, and migration", async () => {
+    await assertNativeStorageContract({
+      table: "openMeldDaemon_owned_devices",
+      uniqueKey: ["owner_user_id", "device_id"],
+      epochColumns: [
+        "first_seen_at_ms",
+        "last_observed_at_ms",
+        "updated_at_ms",
+      ],
+      record: {
+        owner_user_id: "owner-a",
+        device_id: "device-1",
+        connected_computer_id: "computer-1",
+        first_seen_at_ms: 1_700_000_000_000,
+        last_observed_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+      distinctRecord: {
+        owner_user_id: "owner-b",
+        device_id: "device-1",
+        connected_computer_id: "computer-1",
+        first_seen_at_ms: 1_700_000_000_000,
+        last_observed_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+    });
+
     const migrationSource = readRepoFile(
       "packages/db/drizzle/0000_openmeld_initial_schema.sql"
     );
     const journalSource = readRepoFile(
       "packages/db/drizzle/meta/_journal.json"
     );
-
-    expect(schemaSource).toContain(
-      "export const openMeldDaemonOwnedDevices = sqliteTable("
-    );
-    expect(schemaSource).toContain('"openMeldDaemon_owned_devices"');
-    expect(schemaSource).toContain('text("owner_user_id").notNull()');
-    expect(schemaSource).toContain('text("device_id").notNull()');
-    expect(schemaSource).toContain('text("observed_display_name")');
-    expect(schemaSource).toContain('text("user_display_name")');
-    expect(schemaSource).toContain('text("platform_family")');
-    expect(schemaSource).toContain('text("os_version")');
-    expect(schemaSource).toContain('text("device_type")');
-    expect(schemaSource).toContain('integer("first_seen_at_ms").notNull()');
-    expect(schemaSource).toContain('integer("last_observed_at_ms")');
-    expect(schemaSource).toContain('integer("updated_at_ms").notNull()');
-    expect(schemaSource).toContain(
-      'uniqueIndex("openMeldDaemon_owned_devices_owner_device_unique")'
-    );
-
-    expect(coreIndexSource).toContain("openMeldDaemonOwnedDevices");
-    expect(dispatchSchemaSource).toContain("openMeldDaemonOwnedDevices");
-    expect(rootSchemaSource).toContain("openMeldDaemonOwnedDevices");
 
     expect(migrationSource).toContain(
       "CREATE TABLE `openMeldDaemon_owned_devices`"

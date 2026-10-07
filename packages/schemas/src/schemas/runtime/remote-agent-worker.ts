@@ -365,6 +365,15 @@ export const remoteAgentWorkerSubmitMessagesResultSchema = z.strictObject({
   accepted: z.boolean(),
 });
 
+export const remoteAgentWorkerSubmitCapabilitiesRequestSchema = z.strictObject({
+  v: z.literal(1),
+});
+
+export const remoteAgentWorkerSubmitCapabilitiesSchema = z.strictObject({
+  v: z.literal(1),
+  taskId: z.literal(true),
+});
+
 /** A missing or unfinished receipt never proves that execution did not occur. */
 export const remoteAgentWorkerReadAdmissionResponseSchema =
   z.discriminatedUnion("status", [
@@ -813,6 +822,7 @@ const remoteAgentRuntimeScheduleDiagnosticSchema = z.strictObject({
 });
 
 const remoteAgentRuntimeCallbackContextDiagnosticSchema = z.strictObject({
+  conversationCompaction: conversationCompactionMarkerSchema.optional(),
   callbackAttempts: z.number().int().nonnegative(),
   callbackCompletedAt: z.iso.datetime({ offset: true }).nullable(),
   callbackNextAttemptAt: z.iso.datetime({ offset: true }).nullable(),
@@ -868,6 +878,8 @@ export const remoteAgentTurnRuntimeEvidenceSchema = z.strictObject({
   firstProviderResponseHeadersAtMs: nullableNonNegativeIntegerSchema,
   firstVisibleContentAtMs: nullableNonNegativeIntegerSchema,
   lastModelCompletedAtMs: nullableNonNegativeIntegerSchema,
+  // Legacy wire name: counts completed agent prompt operations, including
+  // their tool loop. providerRequestCount counts individual provider requests.
   modelCallCount: z.number().int().nonnegative(),
   modelId: nullableNonEmptyStringSchema,
   providerAvailableToolCount: z.number().int().nonnegative(),
@@ -972,6 +984,12 @@ const remoteAgentStreamDeltaCallbackIdentitySchema = {
   triggerMessageId: nonEmptyStringSchema,
   dispatchId: nonEmptyStringSchema,
 };
+
+// Sent by the admitted native execution before it prepares model/tools/Computer.
+// This confirms the existing admission; it never starts or authorizes a new turn.
+export const remoteAgentCoreAdmissionCallbackSchema = z.strictObject({
+  ...remoteAgentStreamDeltaCallbackIdentitySchema,
+});
 
 const legacyRemoteAgentStreamDeltaCallbackBodySchema = z.strictObject({
   v: z.literal(1),

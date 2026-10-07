@@ -1,5 +1,9 @@
 "use client";
 
+import {
+	findPluginDefinition,
+	type PluginDefinition,
+} from "@openmeld/product-catalog/plugins";
 import type {
 	NavigationAction,
 	OpenMeldNavigationTarget,
@@ -22,7 +26,6 @@ import { canManageOrganizationArea } from "#/lib/organizations/organization-perm
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 import { organizationPluginServiceConnectionsQueryOptions } from "#/query/organizations/plugin-connections";
-import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
 import {
 	PluginConnectionContinuation,
 	type PluginConnectionContinuationContext,
@@ -150,7 +153,9 @@ export function PluginConnectionSetupPanel(input: {
 		isPersonalWorkspace ||
 		canManageOrganizationArea(role.data, { connector: ["manage"] });
 	const active = connections.data.connections.filter(
-		(connection) => connection.status === "active"
+		(connection) =>
+			connection.status === "active" &&
+			connection.health?.state !== "reconnect_required"
 	);
 	const member = active.find(
 		(connection) =>

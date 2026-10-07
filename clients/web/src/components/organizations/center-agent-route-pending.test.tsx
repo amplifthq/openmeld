@@ -6,6 +6,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -188,11 +189,11 @@ describe("CenterAgentRoutePendingPage", () => {
 		expect(
 			await screen.findByRole("button", { name: "Sending…" })
 		).toBeTruthy();
-		expect(
-			readCenterAgentPendingMessage(queryClient, {
-				organizationSlug: "acme",
-			})
-		).toMatchObject({ text: "Hello from first paint" });
+		await waitFor(() =>
+			expect(
+				readCenterAgentPendingMessage(queryClient, { organizationSlug: "acme" })
+			).toMatchObject({ text: "Hello from first paint" })
+		);
 	});
 
 	it("renders conversation-only pending content inside the resolved route layout", () => {

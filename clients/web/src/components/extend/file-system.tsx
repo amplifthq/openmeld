@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area"
+
 import {
   createFileTreeIconResolver,
   getBuiltInSpriteSheet,
@@ -14,6 +14,7 @@ import { createPortal } from "react-dom"
 
 import { cn } from "@openmeld/ui/lib/utils"
 import { Button } from "@openmeld/ui/components/button"
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content"
 import {
   FluidDropdownMenuContent,
   FluidDropdownMenuItem,
@@ -50,19 +51,17 @@ import {
   DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu"
 import { Input } from "@openmeld/ui/components/input"
+import { PageToolbar } from "@openmeld/ui/components/page-toolbar"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@openmeld/ui/components/popover"
-import {
-  ScrollArea as InlineScrollArea,
-  ScrollBar,
-} from "#/components/extend/ui/scroll-area"
+import { ScrollArea as InlineScrollArea, type ScrollAreaProps } from "@openmeld/ui/fluid/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "#/components/extend/ui/tabs"
 import { FileThumbnail } from "#/components/extend/file-thumbnail"
 import { OfficeFileViewer } from "#/components/extend/office-file-viewer"
-import { CaretDownIcon, CaretUpIcon, CalendarIcon, FileZipIcon, ImagesIcon, SquaresFourIcon, ColumnsIcon, CaretLeftIcon, ArrowRightIcon, XIcon, MagnifyingGlassIcon, ArrowsDownUpIcon, CheckIcon, FunnelIcon, CircleNotchIcon } from "@phosphor-icons/react"
+import { CaretDownIcon, CaretUpIcon, CalendarIcon, FileZipIcon, ImagesIcon, SquaresFourIcon, ColumnsIcon, ListBulletsIcon, CaretLeftIcon, ArrowRightIcon, XIcon, MagnifyingGlassIcon, ArrowsDownUpIcon, CheckIcon, FunnelIcon, CircleNotchIcon } from "@phosphor-icons/react"
 
 function ArrowDown01Glyph(props: InlineRegistryIconProps) {
   return (
@@ -82,26 +81,6 @@ function Calendar03Glyph(props: InlineRegistryIconProps) {
 function File01Glyph(props: InlineRegistryIconProps) {
   return (
     <FileZipIcon {...props} />
-  )
-}
-function GalleryThumbnailsGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ImagesIcon {...props} />
-  )
-}
-function GridViewGlyph(props: InlineRegistryIconProps) {
-  return (
-    <SquaresFourIcon {...props} />
-  )
-}
-function LayoutThreeColumnGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ColumnsIcon {...props} />
-  )
-}
-function LeftToRightListBulletGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ColumnsIcon {...props} />
   )
 }
 const LazyPDFViewer = React.lazy(() =>
@@ -1257,10 +1236,10 @@ const VIEW_OPTIONS: Array<{
   label: string
   value: FileSystemView
 }> = [
-  { icon: GridViewGlyph, label: "Grid", value: "icons" },
-  { icon: LeftToRightListBulletGlyph, label: "List", value: "list" },
-  { icon: LayoutThreeColumnGlyph, label: "Columns", value: "columns" },
-  { icon: GalleryThumbnailsGlyph, label: "Gallery", value: "gallery" },
+  { icon: SquaresFourIcon, label: "Grid", value: "icons" },
+  { icon: ListBulletsIcon, label: "List", value: "list" },
+  { icon: ColumnsIcon, label: "Columns", value: "columns" },
+  { icon: ImagesIcon, label: "Gallery", value: "gallery" },
 ]
 export function FileSystem({
   items,
@@ -1936,7 +1915,7 @@ export function FileSystem({
       )}
     >
       <FileSystemIconSpriteSheet />
-      <div className={cn("relative flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 px-2", !embedded && "border-b bg-muted/40")}>
+      <PageToolbar className={cn("px-2", !embedded && "border-b bg-muted/40")}>
         <div className="flex min-w-0 items-center gap-0.5">
           {!embedded ? (
             <>
@@ -2036,7 +2015,7 @@ export function FileSystem({
           />
         </div>
         </div>
-      </div>
+      </PageToolbar>
       {breadcrumb || reserveBreadcrumbSpace ? (
         <div className="flex min-h-9 shrink-0 items-center gap-1 px-2 text-sm">
           {breadcrumb ? <nav aria-label="File location">{breadcrumb}</nav> : null}
@@ -2102,8 +2081,8 @@ export function FileSystem({
       <div className="relative min-h-0 flex-1">
         {errorContent ? (
           errorContent
-        ) : isLoading || (isLoadingCurrentFolder && currentEntries.length === 0) ? (
-          <FileSystemEmptyState label="Loading…" isLoading />
+        ) : (isLoading || isLoadingCurrentFolder) && currentEntries.length === 0 ? (
+          <SkeletonRows className="p-3" label="Loading files" />
         ) : currentEntries.length === 0 &&
           (view !== "columns" || isSearching || hasActiveFilters || emptyContent) ? (
           !isSearching && !hasActiveFilters && emptyContent ? emptyContent : <FileSystemEmptyState
@@ -3065,19 +3044,10 @@ function useSettledValue<T>(value: T, delay: number): T {
   }, [delay, settled, value])
   return settled
 }
-function FileSystemEmptyState({
-  label,
-  isLoading = false,
-}: {
-  label: string
-  isLoading?: boolean
-}) {
+function FileSystemEmptyState({ label }: { label: string }) {
   return (
     <div
-      className={cn(
-        "flex size-full items-center justify-center text-sm text-muted-foreground",
-        isLoading && "animate-pulse motion-reduce:animate-none"
-      )}
+      className="flex size-full items-center justify-center text-sm text-muted-foreground"
     >
       {label}
     </div>
@@ -4141,15 +4111,12 @@ function FileSystemColumnsView(props: FileSystemViewProps) {
   return (
     <InlineScrollArea2
       orientation="horizontal"
+      contentClassName="h-full"
       viewportRef={scrollContainerRef}
       viewportClassName="overscroll-x-contain"
     >
-      {/* The Content part's ResizeObserver tells the scroll area when the
-            trail shrinks (deselect, shallower selection) so the horizontal
-            scrollbar hides; the viewport alone only observes its own box. Its
-            built-in inline min-width (fit-content) would beat a min-w-full
-            class, so the full-width floor is inline too. */}
-      <InlineScrollAreaContent
+      {/* Shared ScrollArea.Content measures the trail as columns change. */}
+      <div
         className="flex h-full w-max"
         style={{ minWidth: "100%" }}
         onKeyDown={handleKeyDown}
@@ -4218,7 +4185,7 @@ function FileSystemColumnsView(props: FileSystemViewProps) {
             </div>
           </InlineScrollArea2>
         ) : null}
-      </InlineScrollAreaContent>
+      </div>
     </InlineScrollArea2>
   )
 }
@@ -4281,9 +4248,7 @@ const FileSystemColumn = React.memo(function FileSystemColumn({
       viewportProps={{ "aria-label": "Files", role: "listbox" }}
     >
       {isLoading && entries.length === 0 ? (
-        <div className="animate-pulse px-2 py-1.5 text-xs text-muted-foreground motion-reduce:animate-none">
-          Loading…
-        </div>
+        <SkeletonRows className="p-2" label="Loading folder" />
       ) : (
         <div
           className="relative"
@@ -4831,113 +4796,13 @@ type InlineRegistryIconProps = Omit<
   React.ComponentProps<"svg">,
   "children" | "strokeWidth"
 > & { strokeWidth?: number }
-function InlineScrollArea2({
-  className,
-  children,
-  orientation = "both",
-  scrollFade = false,
-  scrollbarGutter = false,
-  scrollbarOverflowOnly = false,
-  viewportClassName,
-  viewportProps,
-  viewportRef,
-  ...props
-}: InlineScrollAreaProps) {
-  const {
-    className: viewportPropsClassName,
-    ref: viewportPropsRef,
-    ...resolvedViewportProps
-  } = viewportProps ?? {}
-  const composedViewportRef = React.useMemo(
-    () => InlineComposeRefs(viewportPropsRef, viewportRef),
-    [viewportPropsRef, viewportRef]
-  )
+function InlineScrollArea2({ className, orientation = "both", ...props }: ScrollAreaProps) {
+ return <InlineScrollArea {...props} className={cn("size-full min-h-0", className)} orientation={orientation} />;
+}
 
-  if (
-    !viewportProps &&
-    !viewportRef &&
-    !viewportClassName &&
-    !scrollFade &&
-    !scrollbarGutter &&
-    !scrollbarOverflowOnly
-  ) {
-    return (
-      <InlineScrollArea
-        {...props}
-        className={cn(
-          "size-full min-h-0",
-          orientation === "horizontal" &&
-            "[&>[data-orientation=vertical]]:hidden",
-          className
-        )}
-      >
-        {children}
-        {orientation !== "vertical" ? (
-          <ScrollBar orientation="horizontal" />
-        ) : null}
-      </InlineScrollArea>
-    )
-  }
 
-  return (
-    <ScrollAreaPrimitive.Root
-      className={cn(
-        "size-full min-h-0",
-        scrollbarOverflowOnly &&
-          "[&:not(:has([data-slot=scroll-area-viewport][data-has-overflow-x]))_[data-orientation=horizontal]]:hidden [&:not(:has([data-slot=scroll-area-viewport][data-has-overflow-y]))_[data-orientation=vertical]]:hidden",
-        className
-      )}
-      {...props}
-    >
-      <ScrollAreaPrimitive.Viewport
-        {...resolvedViewportProps}
-        ref={composedViewportRef}
-        className={cn(
-          "h-full rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          scrollFade &&
-            "mask-t-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-start)))] mask-r-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-end)))] mask-b-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-end)))] mask-l-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-start)))] [--fade-size:1.5rem]",
-          scrollbarGutter && orientation !== "vertical" && "pb-3.5",
-          scrollbarGutter && orientation !== "horizontal" && "pe-3.5",
-          viewportPropsClassName,
-          viewportClassName
-        )}
-        data-slot="scroll-area-viewport"
-      >
-        {children}
-      </ScrollAreaPrimitive.Viewport>
-      {orientation !== "horizontal" ? (
-        <ScrollBar orientation="vertical" />
-      ) : null}
-      {orientation !== "vertical" ? (
-        <ScrollBar orientation="horizontal" />
-      ) : null}
-      {orientation === "both" ? <ScrollAreaPrimitive.Corner /> : null}
-    </ScrollAreaPrimitive.Root>
-  )
-}
-type InlineScrollAreaProps = ScrollAreaPrimitive.Root.Props & {
-  orientation?: "vertical" | "horizontal" | "both"
-  scrollFade?: boolean
-  scrollbarGutter?: boolean
-  scrollbarOverflowOnly?: boolean
-  viewportClassName?: string
-  viewportProps?: ScrollAreaPrimitive.Viewport.Props
-  viewportRef?: React.Ref<HTMLDivElement>
-}
-function InlineComposeRefs<T>(...refs: Array<React.Ref<T> | undefined>) {
-  return (node: T | null) => {
-    for (const ref of refs) {
-      if (!ref) continue
-      if (typeof ref === "function") ref(node)
-      else ref.current = node
-    }
-  }
-}
 function InlineSpinner({ className, ...props }: InlineRegistryIconProps) {
   return (
     <CircleNotchIcon role="status" aria-label="Loading" className={cn("size-4 animate-spin", className)} {...props} />
   )
-}
-function InlineScrollAreaContent(props: ScrollAreaPrimitive.Content.Props) {
-  return <ScrollAreaPrimitive.Content {...props} />
 }

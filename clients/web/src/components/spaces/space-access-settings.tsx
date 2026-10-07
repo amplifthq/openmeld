@@ -276,7 +276,6 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					contentClassName="space-y-4 pr-1"
 					data-testid="space-share-dialog-scroll-area"
 					orientation="vertical"
-					scrollFade={false}
 				>
 					<TabPanel value="link">
 						{renderEditor("reading")}

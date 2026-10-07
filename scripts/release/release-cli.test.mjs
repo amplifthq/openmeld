@@ -1958,6 +1958,19 @@ for (const interrupted of [false, true]) {
       adapters.sleep = () => {
         visible = true;
       };
+      if (interrupted) {
+        // The hosted publisher supplies an async Core owner. Final alignment
+        // must wait for its deployment, without rerunning completed npm work.
+        adapters.deployCore = async (input) => {
+          assert.equal(input.verifyLocalComponents, true);
+          assert.equal(input.tag, coreTag);
+          await new Promise((resolve) => setImmediate(resolve));
+          steps.push(
+            "Deploy Core with the published local-components manifest"
+          );
+          coreDeployed = true;
+        };
+      }
       const final = await run();
       assert.equal(final.alignment.action, "SKIP");
       if (interrupted) {

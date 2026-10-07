@@ -14,6 +14,14 @@ it("restores after a new browser session while keeping each live tab's own posit
 	writeSpaceConversationPosition("profile:space", {
 		anchorSignalId: "earlier",
 		offsetFromVisibleTop: 8,
+		atBottom: true,
+	});
+	expect(readSpaceConversationPosition("profile:space")?.atBottom).toBe(true);
+	window.sessionStorage.clear();
+	expect(readSpaceConversationPosition("profile:space")?.atBottom).toBe(true);
+	writeSpaceConversationPosition("profile:space", {
+		anchorSignalId: "earlier",
+		offsetFromVisibleTop: 8,
 	});
 	window.localStorage.setItem(
 		"openmeld:space-conversation-position:v2:profile:space",
@@ -29,6 +37,9 @@ it("restores after a new browser session while keeping each live tab's own posit
 	expect(readSpaceConversationPosition("profile:space")?.anchorSignalId).toBe(
 		"later"
 	);
+	expect(
+		readSpaceConversationPosition("profile:space")?.atBottom
+	).toBeUndefined();
 	expect(readSpaceConversationPosition("other:space")).toBeNull();
 });
 it("expires durable positions and clears both storage layers at the auth boundary", () => {

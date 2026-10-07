@@ -14,6 +14,10 @@ export {
   agentControllerInterfaceSnapshotSchema,
   agentControllerInterfaceStatusSchema,
 } from "./agent-controller-interface";
+export {
+  agentExecutionSteerRequestSchema,
+  agentExecutionSteerResponseSchema,
+} from "./agent-execution-steer";
 export { agentFailureFactsSchema } from "./agent-failure";
 export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,
@@ -178,6 +182,7 @@ export {
   remoteAgentConversationContinuityContextSchema,
   remoteAgentConversationContinuityEntrySchema,
   remoteAgentConversationContinuityEntrySourceSchema,
+  remoteAgentCoreAdmissionCallbackSchema,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
@@ -213,6 +218,8 @@ export {
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   remoteAgentWorkerSubmissionStatusSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnRequestV1Schema,

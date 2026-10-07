@@ -1,6 +1,8 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { rpcCenterAgentRequestMemberAttention } from "../src/center-agent/application/center-agent-attention-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
 
 const readNativeDelivery = vi.hoisted(() => vi.fn());
 const prepareCenterAgentCandidate = vi.hoisted(() => vi.fn());
@@ -8,7 +10,7 @@ const createAttentionRequest = vi.hoisted(() => vi.fn());
 const prepareHostedRequest = vi.hoisted(() => vi.fn());
 
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
+  "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo",
   () => ({
     readRemoteAgentNativeDeliveryBySubmissionId: readNativeDelivery,
   })
@@ -114,19 +116,13 @@ describe("Center Agent attention RPC", () => {
   });
 });
 
-function env(
-  stores: {
-    deliveryDb?: D1Database;
-    inboxDb?: D1Database;
-    taskDb?: D1Database;
-  } = {}
-): CoreBindings {
-  const db = stores.inboxDb ?? ({} as D1Database);
+function env(): CoreBindings {
   return {
-    OPENMELD_DB: db,
-    OPENMELD_LOCAL_STATE_DB: stores.taskDb ?? db,
+    OPENMELD_POSTGRESQL: {
+      connectionString:
+        "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+    },
     OPENMELD_SPACES: {} as DurableObjectNamespace,
-    OPENMELD_WAKE_EVIDENCE_DB: stores.deliveryDb ?? db,
   } as unknown as CoreBindings;
 }
 
@@ -168,12 +164,12 @@ function nativeDelivery(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function membershipDb(active: boolean): D1Database {
-  return {
-    prepare: () => ({
-      bind: () => ({
-        first: async () => (active ? { active: 1 } : null),
-      }),
-    }),
-  } as unknown as D1Database;
+function membershipDb(active: boolean): PostgresDatabase {
+  return createProjectionPostgresDatabase((query) => {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: The projection fixture enforces exact membership and tenant query ownership.
+    expect(query.text).toContain('"openmeld"."members"');
+    // biome-ignore lint/suspicious/noMisplacedAssertion: The projection fixture enforces exact membership and tenant query ownership.
+    expect(query.values).toEqual(["org-one", "user-one"]);
+    return active ? [{ active: 1 }] : [];
+  });
 }

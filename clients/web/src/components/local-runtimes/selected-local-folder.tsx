@@ -1,3 +1,4 @@
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 export function SelectedLocalFolder(input: { path: string; testId?: string }) {
 	return (
 		<div
@@ -8,9 +9,11 @@ export function SelectedLocalFolder(input: { path: string; testId?: string }) {
 			<p className="font-medium text-sm">
 				{resolveLocalFolderName(input.path)}
 			</p>
-			<p className="max-w-full overflow-x-auto whitespace-nowrap font-mono text-muted-foreground text-xs">
-				{input.path}
-			</p>
+			<ScrollArea className="max-w-full" orientation="horizontal">
+				<p className="whitespace-nowrap font-mono text-muted-foreground text-xs">
+					{input.path}
+				</p>
+			</ScrollArea>
 		</div>
 	);
 }

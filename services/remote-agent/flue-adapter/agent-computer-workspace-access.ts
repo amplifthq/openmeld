@@ -1,5 +1,7 @@
 import { getWorkspace, type WorkspaceClient } from "@cloudflare/computer";
 import {
+  type CloudComputerOperation,
+  type PluginConnectionGrant,
   type RemoteAgentGitPackStart,
   type RemoteAgentGitPackStatus,
   type RemoteAgentGitTransferGrant,
@@ -11,7 +13,6 @@ import { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import { ensureAgentComputerLayout } from "./computer-workspace";
 import { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import {
-  clearLegacyOrganizationDocumentsComputerProjection,
   type OrganizationDocumentsComputerSnapshot,
   prepareOrganizationDocumentsComputerSnapshot,
 } from "./organization-document-computer-snapshot";
@@ -28,6 +29,9 @@ export type AgentComputerNamespace = {
 };
 
 export type AgentComputerWorkspaceAccess = {
+  registerPluginConnectionGrant?(grant: PluginConnectionGrant): Promise<void>;
+  computerOperation?(request: CloudComputerOperation): Promise<unknown>;
+  writeComputerFile?(path: string, content: string | Uint8Array): Promise<void>;
   withWorkspace<T>(
     operation: (workspace: WorkspaceClient) => Promise<T>
   ): Promise<T>;
@@ -48,6 +52,31 @@ export function createAgentComputerWorkspaceAccess(input: {
   authorize?: () => Promise<unknown>;
 }): AgentComputerWorkspaceAccess {
   return {
+    async registerPluginConnectionGrant(grant) {
+      await input.authorize?.();
+      const stub = input.namespace.get(input.computerId) as DurableObjectStub<
+        import("./computer-workspace").AgentComputer
+      >;
+      await stub.registerPluginConnectionGrant(grant);
+      await input.authorize?.();
+    },
+    async computerOperation(request) {
+      await input.authorize?.();
+      const stub = input.namespace.get(input.computerId) as DurableObjectStub<
+        import("./computer-workspace").AgentComputer
+      >;
+      const result = await stub.computerOperation(request);
+      await input.authorize?.();
+      return result;
+    },
+    async writeComputerFile(path, content) {
+      await input.authorize?.();
+      const stub = input.namespace.get(input.computerId) as DurableObjectStub<
+        import("./computer-workspace").AgentComputer
+      >;
+      await stub.writeComputerFile(path, content);
+      await input.authorize?.();
+    },
     async startGitPackTransfer(request) {
       await input.authorize?.();
       const stub = input.namespace.get(input.computerId) as DurableObjectStub<
@@ -110,6 +139,7 @@ export async function materializeAgentComputerWorkspace(input: {
         const { workingDirectory } = await ensureAgentComputerLayout(
           workspace,
           {
+            taskId: input.context.submissionId,
             conversationId: input.context.conversationId ?? null,
             routineId: resolveComputerRoutineId(input.context),
             spaceId: input.context.spaceId ?? null,
@@ -120,9 +150,6 @@ export async function materializeAgentComputerWorkspace(input: {
               input.organizationDocumentsSnapshot
             )
           : null;
-        // Retire only the old reserved automatic projection. Current turns
-        // never write there; explicit working copies live in their Space.
-        await clearLegacyOrganizationDocumentsComputerProjection(workspace);
         return { documents, workingDirectory };
       });
     } catch (error) {

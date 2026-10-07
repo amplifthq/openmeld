@@ -29,6 +29,7 @@ import {
   buildCoreCurrentCliProjectionPreflightStepSpecs,
   buildProductionDeployStepSpecs,
   buildProductionPreflightStepSpecs,
+  buildProductionReleaseImpact,
   buildProductionReleasePlan,
   buildProductionVerifyStepSpecs,
   executeProductionDeploySteps,
@@ -71,6 +72,89 @@ const FULL_BACKLOG_PATHS = [
 const EVIDENCE_ORDER_ERROR = /evidence tools require the Core RPC receiver/u;
 const SPACE_MESSAGE_SEARCH_SCOPE_ERROR =
   /Web callers require the Gateway and Core short-query receivers/u;
+const INCOMPATIBLE_DEPENDENCIES = /incompatible.*dependencies/iu;
+
+test("orders the October product backlog without treating a proxy export as a request change", () => {
+  const base = "20425528edfe6aec5b11700e52cef34735e284aa";
+  const sourceSha = "064d93ae1af570ecc0ced8aa212bff5e27ba60b2";
+  const changedPaths = execFileSync(
+    "git",
+    ["diff", "--name-only", base, sourceSha],
+    {
+      encoding: "utf8",
+    }
+  )
+    .trim()
+    .split("\n");
+  const plan = buildProductionReleasePlan({
+    base,
+    sourceSha,
+    changedPaths,
+    scope: "auth,core,gateway,web,remote-agent,cli",
+  });
+  assert.deepEqual(plan.deployScopeOrder, [
+    "auth",
+    "core",
+    "gateway",
+    "web",
+    "remote-agent",
+    "cli",
+  ]);
+  assert.ok(
+    plan.compatibilityDependencies.some(
+      ([a, b]) => a === "core" && b === "remote-agent"
+    )
+  );
+  assert.ok(
+    !plan.compatibilityDependencies.some(
+      ([a, b]) => a === "remote-agent" && b === "core"
+    )
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        base,
+        sourceSha,
+        changedPaths,
+        scope: "auth,core,gateway,web,remote-agent,cli",
+        readGitFile: (ref, file) =>
+          execFileSync("git", ["show", `${ref}:${file}`], {
+            encoding: "utf8",
+          }) +
+          (ref === sourceSha &&
+          file === "services/remote-agent/.flue/cloudflare.ts"
+            ? "\n// unknown receiver edit\n"
+            : ""),
+      }),
+    INCOMPATIBLE_DEPENDENCIES
+  );
+});
+
+test("independent Website and Docs impact does not require unrelated historical App compatibility", () => {
+  const changedPaths = execFileSync(
+    "git",
+    [
+      "diff",
+      "--name-only",
+      "d799f3f66b6465564f4a9f11709a16292541db2d",
+      "064d93ae1af570ecc0ced8aa212bff5e27ba60b2",
+    ],
+    { encoding: "utf8" }
+  )
+    .trim()
+    .split("\n");
+  for (const componentScope of ["website", "docs"]) {
+    const impact = buildProductionReleaseImpact({
+      base: "d799f3f66b6465564f4a9f11709a16292541db2d",
+      sourceSha: "064d93ae1af570ecc0ced8aa212bff5e27ba60b2",
+      componentScope,
+      changedPaths,
+      affectedPackages: [`openmeld-${componentScope}`],
+    });
+    assert.deepEqual(impact.scopes, [componentScope]);
+    assert.deepEqual(impact.compatibilityDependencies, []);
+  }
+});
 
 test("local execution honors control interpreter, arguments, and product root", async () => {
   const root = realpathSync(
@@ -534,6 +618,16 @@ test("parses the local production release command", () => {
       scope: "web,core",
     }
   );
+  assert.equal(
+    parseProductionReleaseArgs(["plan", "--database-cutover"]).databaseCutover,
+    true
+  );
+  for (const command of ["deploy", "preflight", "verify"]) {
+    assert.throws(
+      () => parseProductionReleaseArgs([command, "--database-cutover"]),
+      { message: "Unknown production release option: --database-cutover" }
+    );
+  }
 });
 
 test("identifies a local release owner across computers", () => {
@@ -566,6 +660,8 @@ test("keeps full cloud release separate from immutable CLI publishing", () => {
     "gateway",
     "core",
     "remote-agent",
+    "website",
+    "docs",
   ]);
   assert.deepEqual(expandRequestedReleaseScopes("full"), [
     "db",
@@ -574,6 +670,8 @@ test("keeps full cloud release separate from immutable CLI publishing", () => {
     "gateway",
     "core",
     "remote-agent",
+    "website",
+    "docs",
   ]);
   assert.deepEqual(expandRequestedReleaseScopes("cli"), ["cli"]);
 });
@@ -1659,14 +1757,44 @@ test("binds Web health to the exact preflight artifact receipt", () => {
 
   assert.deepEqual(health.args, [
     "scripts/release/production-web-health.mjs",
+    "--scope",
+    "web",
     "--url",
-    "https://openmeld.ai",
+    "https://app.openmeld.ai",
     "--source-sha",
     sourceSha,
     "--artifact-receipt",
     "dev-tmp/release-artifact-check/web.json",
   ]);
 });
+
+for (const [scope, label, url] of [
+  ["website", "Website", "https://openmeld.ai"],
+  ["docs", "Docs", "https://docs.openmeld.ai"],
+]) {
+  test(`a ${label}-only source change deploys and verifies its Worker without touching the App`, () => {
+    const plan = buildProductionReleasePlan({
+      affectedPackages: [`openmeld-${scope}`],
+      changedPaths: [`clients/${scope}/src/routes/index.tsx`],
+      sourceSha: REMOTE_SOURCE_SHA,
+      scope: "auto",
+      base: "previous-release",
+    });
+    assert.deepEqual(plan.scopes, [scope]);
+    assert.deepEqual(
+      plan.deploySteps.map((step) => step.label),
+      [`Deploy ${label}`, `Verify ${label} health`]
+    );
+    assert.equal(plan.deploySteps[0].args.includes(`openmeld-${scope}`), true);
+    assert.equal(plan.deploySteps[1].args.includes(url), true);
+    assert.equal(
+      plan.deploySteps[1].args.includes(
+        `dev-tmp/release-artifact-check/${scope}.json`
+      ),
+      true
+    );
+  });
+}
 
 test("keeps the Center Agent Task CLI behind every cloud receiver", () => {
   const steps = buildProductionDeployStepSpecs(
@@ -1897,6 +2025,20 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
         false
       );
     }
+    const afterRemoteReceiver = buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "previous-release",
+      changedPaths: [
+        ...changedPaths,
+        "services/remote-agent/.flue/cloudflare.ts",
+      ],
+      scope: "core,gateway",
+      sourceSha: REMOTE_SOURCE_SHA,
+    });
+    assert.equal(
+      afterRemoteReceiver.deploySteps[0].args[0],
+      "scripts/release/deploy-core-current-cli-projection.mjs"
+    );
   }
 });
 
@@ -2075,6 +2217,29 @@ test("deploys worker-response and activity readers before the Remote Agent produ
   });
 
   assert.equal(plan.deployOrderProfile, "core-worker-response-reader-first");
+  const receiver = buildProductionReleasePlan({
+    base: "previous-release",
+    changedPaths: plan.changedPaths,
+    scope: "core",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+  assert.deepEqual(
+    receiver.deploySteps.map((step) => step.label),
+    [
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
+    ]
+  );
+  assert.ok(
+    !receiver.preflightSteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
+  );
+  assert.ok(
+    !receiver.verifySteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
+  );
   assert.deepEqual(
     plan.deploySteps.map((step) => step.label),
     [
@@ -2357,8 +2522,8 @@ test("composes Remote Agent and Inbox receiver-first constraints before Core", (
       "Verify Web health",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
     ]
   );
 });
@@ -2588,8 +2753,8 @@ test("keeps Core before a response producer while retaining Inbox receiver-first
       "Verify Web health",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
     ]

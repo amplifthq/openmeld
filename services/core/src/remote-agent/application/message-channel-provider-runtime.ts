@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CoreBindings } from "../../lib/bindings";
 import { createLarkPlatformMessageChannelAdapter } from "./lark-platform-message-channel-adapter";
 import {
@@ -5,9 +6,8 @@ import {
   type MessageChannelProviderAdapter,
   type MessageChannelProviderRegistry,
 } from "./message-channel-adapters";
-
 export function createConfiguredMessageChannelProviderRegistry(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: Pick<
     CoreBindings,
     | "OPENMELD_FEISHU_CHANNEL_ENABLED"
@@ -41,7 +41,6 @@ export function createConfiguredMessageChannelProviderRegistry(input: {
     ? createMessageChannelProviderRegistry(adapters)
     : undefined;
 }
-
 function isEnabled(value: string | undefined): boolean {
   return value?.trim().toLowerCase() === "true";
 }

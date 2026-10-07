@@ -1,15 +1,9 @@
 import { desc, sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const routines = sqliteTable(
+export const routines = applicationTable(
   "routines",
   {
     id: text("id").primaryKey(),
@@ -20,6 +14,8 @@ export const routines = sqliteTable(
     // Null preserves the Organization's designated Center Agent executor.
     // Personal Routines keep an immutable, explicit Agent Profile identity.
     agentProfileId: text("agent_profile_id"),
+    scope: text("scope").default("team").notNull(),
+    executorKind: text("executor_kind").default("center_agent").notNull(),
     instructions: text("instructions").notNull(),
     authorizedActionsJson: text("authorized_actions_json")
       .default("[]")
@@ -30,7 +26,7 @@ export const routines = sqliteTable(
     scheduleKind: text("schedule_kind").default("cron").notNull(),
     cronExpression: text("cron_expression"),
     timezone: text("timezone"),
-    runAtMs: integer("run_at_ms"),
+    runAtMs: bigint("run_at_ms", { mode: "number" }),
     destinationKind: text("destination_kind").default("space").notNull(),
     messageChannelDestinationJson: text("message_channel_destination_json"),
     targetSpaceId: text("target_space_id"),
@@ -41,13 +37,18 @@ export const routines = sqliteTable(
     slackThreadLabel: text("slack_thread_label"),
     creationAttributionJson: text("creation_attribution_json"),
     status: text("status").default("enabled").notNull(),
-    nextDueAt: integer("next_due_at"),
+    nextDueAt: bigint("next_due_at", { mode: "number" }),
     createdByUserId: text("created_by_user_id").notNull(),
     updatedByUserId: text("updated_by_user_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
+    check("routines_scope_check", sql`"scope" in ('personal', 'team')`),
+    check(
+      "routines_executor_kind_check",
+      sql`"executor_kind" in ('center_agent', 'remote_agent', 'local_agent')`
+    ),
     index("routines_status_next_due_idx").on(table.status, table.nextDueAt),
     index("routines_org_status_next_due_idx").on(
       table.organizationId,
@@ -98,7 +99,7 @@ export const routines = sqliteTable(
     ),
     check(
       "routines_destination_fields_check",
-      sql`("destination_kind" = 'space' and "message_channel_destination_json" is null and "target_space_id" is not null and "slack_team_id" is null and "slack_channel_id" is null and "slack_thread_ts" is null and "slack_conversation_id" is null) or ("destination_kind" = 'slack_thread' and "message_channel_destination_json" is null and "target_space_id" is null and "slack_team_id" is not null and "slack_channel_id" is not null and "slack_thread_ts" is not null and "slack_conversation_id" is not null) or ("destination_kind" = 'message_channel' and "message_channel_destination_json" is not null and json_valid("message_channel_destination_json") and "target_space_id" is null and "slack_team_id" is null and "slack_channel_id" is null and "slack_thread_ts" is null and "slack_conversation_id" is null)`
+      sql`("destination_kind" = 'space' and "message_channel_destination_json" is null and "target_space_id" is not null and "slack_team_id" is null and "slack_channel_id" is null and "slack_thread_ts" is null and "slack_conversation_id" is null) or ("destination_kind" = 'slack_thread' and "message_channel_destination_json" is null and "target_space_id" is null and "slack_team_id" is not null and "slack_channel_id" is not null and "slack_thread_ts" is not null and "slack_conversation_id" is not null) or ("destination_kind" = 'message_channel' and "message_channel_destination_json" is not null and ("message_channel_destination_json" is json) and "target_space_id" is null and "slack_team_id" is null and "slack_channel_id" is null and "slack_thread_ts" is null and "slack_conversation_id" is null)`
     ),
     check(
       "routines_status_check",
@@ -123,7 +124,7 @@ export const routines = sqliteTable(
   ]
 );
 
-export const routineRuns = sqliteTable(
+export const routineRuns = applicationTable(
   "routine_runs",
   {
     id: text("id").primaryKey(),
@@ -131,11 +132,13 @@ export const routineRuns = sqliteTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    scheduledFor: integer("scheduled_for").notNull(),
+    scheduledFor: bigint("scheduled_for", { mode: "number" }).notNull(),
     status: text("status").notNull(),
     failureCode: text("failure_code"),
     failureDetail: text("failure_detail"),
     routineNameSnapshot: text("routine_name_snapshot"),
+    scopeSnapshot: text("scope_snapshot"),
+    createdByUserIdSnapshot: text("created_by_user_id_snapshot"),
     agentProfileIdSnapshot: text("agent_profile_id_snapshot"),
     destinationKindSnapshot: text("destination_kind_snapshot"),
     messageChannelDestinationJsonSnapshot: text(
@@ -148,20 +151,31 @@ export const routineRuns = sqliteTable(
     slackConversationIdSnapshot: text("slack_conversation_id_snapshot"),
     slackThreadLabelSnapshot: text("slack_thread_label_snapshot"),
     executionEngine: text("execution_engine"),
-    workflowLastCheckedAtMs: integer("workflow_last_checked_at_ms")
+    workflowLastCheckedAtMs: bigint("workflow_last_checked_at_ms", {
+      mode: "number",
+    })
       .default(0)
       .notNull(),
     continuationDelegationId: text("continuation_delegation_id"),
     nativeDeliveryId: text("native_delivery_id"),
+    sourceSignalId: text("source_signal_id"),
+    localSubmissionJson: text("local_submission_json"),
+    localLastCheckedAtMs: bigint("local_last_checked_at_ms", { mode: "number" })
+      .notNull()
+      .default(0),
     publishedSignalId: text("published_signal_id"),
-    failurePublicationAttemptCount: integer("failure_publication_attempt_count")
+    failurePublicationAttemptCount: bigint(
+      "failure_publication_attempt_count",
+      { mode: "number" }
+    )
       .default(0)
       .notNull(),
-    nextFailurePublicationAttemptAtMs: integer(
-      "next_failure_publication_attempt_at_ms"
+    nextFailurePublicationAttemptAtMs: bigint(
+      "next_failure_publication_attempt_at_ms",
+      { mode: "number" }
     ),
-    startedAtMs: integer("started_at_ms"),
-    finishedAtMs: integer("finished_at_ms"),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
+    finishedAtMs: bigint("finished_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("routine_runs_routine_scheduled_unique").on(
@@ -213,7 +227,7 @@ export const routineRuns = sqliteTable(
     ),
     check(
       "routine_runs_execution_engine_check",
-      sql`"execution_engine" is null or "execution_engine" in ('legacy', 'workflow')`
+      sql`"execution_engine" is null or "execution_engine" in ('legacy', 'workflow', 'local')`
     ),
     check(
       "routine_runs_finished_at_valid_check",

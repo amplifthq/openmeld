@@ -1,3 +1,4 @@
+import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
 import {
   aiUsageQueryResponseSchema,
   aiUsageQuerySchema,
@@ -8,42 +9,41 @@ import type {
   AiUsageQueryResponse,
   AiUsageRecord,
 } from "@openmeld/schemas/types";
-
 // A provider event is immutable. Replayed transport deliveries are harmless;
 // conflicting facts surface an error instead of silently changing spend.
 export async function recordAiUsage(
-  db: D1Database,
+  db: PostgresDatabase,
   input: AiUsageRecord
 ): Promise<void> {
   const record = aiUsageRecordSchema.parse(input);
   const json = JSON.stringify(record);
-  await db
-    .prepare(`
-    INSERT INTO ai_usage_records (
+  await db.query({
+    text: `
+    INSERT INTO "openmeld"."ai_usage_records" (
       organization_id, event_id, runtime, provider, model, purpose,
       agent_profile_id, space_id, task_id, attempt_id, computer_id, controller,
       occurred_at_ms, input_tokens, output_tokens, total_tokens,
       cost_nano_usd, cost_kind, record_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
     ON CONFLICT (organization_id, runtime, event_id) DO UPDATE SET
       model = excluded.model,
       input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
       total_tokens = excluded.total_tokens, cost_nano_usd = excluded.cost_nano_usd,
       cost_kind = excluded.cost_kind, record_json = excluded.record_json
-    WHERE json_extract(ai_usage_records.record_json, '$.status') = 'pending'
-      AND json_extract(excluded.record_json, '$.status') <> 'pending'
+    WHERE ((ai_usage_records.record_json)::jsonb #>> '{status}') = 'pending'
+      AND ((excluded.record_json)::jsonb #>> '{status}') <> 'pending'
       AND ai_usage_records.provider = excluded.provider
       AND ai_usage_records.purpose = excluded.purpose
-      AND ai_usage_records.agent_profile_id IS excluded.agent_profile_id
-      AND ai_usage_records.space_id IS excluded.space_id
-      AND ai_usage_records.task_id IS excluded.task_id
-      AND ai_usage_records.attempt_id IS excluded.attempt_id
-      AND ai_usage_records.computer_id IS excluded.computer_id
-      AND ai_usage_records.controller IS excluded.controller
+      AND ai_usage_records.agent_profile_id IS NOT DISTINCT FROM excluded.agent_profile_id
+      AND ai_usage_records.space_id IS NOT DISTINCT FROM excluded.space_id
+      AND ai_usage_records.task_id IS NOT DISTINCT FROM excluded.task_id
+      AND ai_usage_records.attempt_id IS NOT DISTINCT FROM excluded.attempt_id
+      AND ai_usage_records.computer_id IS NOT DISTINCT FROM excluded.computer_id
+      AND ai_usage_records.controller IS NOT DISTINCT FROM excluded.controller
       AND ai_usage_records.occurred_at_ms = excluded.occurred_at_ms
-      AND json_extract(ai_usage_records.record_json, '$.dispatchId') IS json_extract(excluded.record_json, '$.dispatchId')
-  `)
-    .bind(
+      AND ((ai_usage_records.record_json)::jsonb #>> '{dispatchId}') IS NOT DISTINCT FROM ((excluded.record_json)::jsonb #>> '{dispatchId}')
+  `,
+    values: [
       record.organizationId,
       record.eventId,
       record.runtime,
@@ -62,109 +62,128 @@ export async function recordAiUsage(
       record.tokens?.total ?? null,
       record.cost?.nanoUsd ?? null,
       record.cost?.kind ?? null,
-      json
-    )
-    .run();
+      json,
+    ],
+  });
   const stored = await db
-    .prepare(
-      "SELECT record_json FROM ai_usage_records WHERE organization_id = ? AND runtime = ? AND event_id = ?"
-    )
-    .bind(record.organizationId, record.runtime, record.eventId)
-    .first<{ record_json: string }>();
+    .query<{
+      record_json: string;
+    }>({
+      text: 'SELECT record_json FROM "openmeld"."ai_usage_records" WHERE organization_id = $1 AND runtime = $2 AND event_id = $3',
+      values: [record.organizationId, record.runtime, record.eventId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (stored?.record_json !== json) {
     throw new Error(
       "AI usage event identity conflicts with an existing record."
     );
   }
 }
-
 export async function queryAiUsage(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   query: AiUsageQuery;
   nowMs?: number;
 }): Promise<AiUsageQueryResponse> {
   const query = aiUsageQuerySchema.parse(input.query);
   const { where, values } = usageScope(input.organizationId, query);
+  // PostgreSQL SUM(bigint) returns numeric. These public token and nano-dollar
+  // totals remain integers; bigint uses the driver's checked safe-integer parser.
   const aggregate = `COUNT(*) AS requests,
-      COALESCE(SUM(input_tokens), 0) AS inputTokens,
-      COALESCE(SUM(output_tokens), 0) AS outputTokens,
-      COALESCE(SUM(total_tokens), 0) AS totalTokens,
-      COALESCE(SUM(CASE WHEN cost_kind = 'provider_reported' THEN cost_nano_usd ELSE 0 END), 0) AS reportedCostNanoUsd,
-      COALESCE(SUM(CASE WHEN cost_kind = 'provider_estimate' THEN cost_nano_usd ELSE 0 END), 0) AS estimatedCostNanoUsd,
-      COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests,
-      COALESCE(SUM(cost_nano_usd IS NULL), 0) AS missingCostRequests`;
-  const state = "json_extract(record_json, '$.status')";
-  const dispatch = "json_extract(record_json, '$.dispatchId')";
+      COALESCE(SUM(input_tokens)::bigint, 0) AS "inputTokens",
+      COALESCE(SUM(output_tokens)::bigint, 0) AS "outputTokens",
+      COALESCE(SUM(total_tokens)::bigint, 0) AS "totalTokens",
+      COALESCE(SUM(CASE WHEN cost_kind = 'provider_reported' THEN cost_nano_usd ELSE 0 END)::bigint, 0) AS "reportedCostNanoUsd",
+      COALESCE(SUM(CASE WHEN cost_kind = 'provider_estimate' THEN cost_nano_usd ELSE 0 END)::bigint, 0) AS "estimatedCostNanoUsd",
+      COUNT(*) FILTER (WHERE total_tokens IS NULL) AS "missingTokenRequests",
+      COUNT(*) FILTER (WHERE cost_nano_usd IS NULL) AS "missingCostRequests"`;
+  const state = "((record_json)::jsonb #>> '{status}')";
+  const dispatch = "((record_json)::jsonb #>> '{dispatchId}')";
   const staleAfterMs = 60 * 60 * 1000;
-  const modelsStatement = input.db
-    .prepare(`
+  const modelsStatement = {
+    text: `
     SELECT runtime, provider, model, ${aggregate}
-    FROM ai_usage_records WHERE ${where}
+    FROM "openmeld"."ai_usage_records" WHERE ${where}
     GROUP BY runtime, provider, model ORDER BY runtime, provider, model
-  `)
-    .bind(...values);
-  const coverageStatement = input.db
-    .prepare(`
-    SELECT COALESCE(SUM(${state} = 'reported'), 0) AS reportedRequests,
-      COALESCE(SUM(${state} = 'pending'), 0) AS pendingRequests,
-      COALESCE(SUM(${state} = 'pending' AND occurred_at_ms < ?), 0) AS stalePendingRequests,
-      COALESCE(SUM(${state} = 'unavailable'), 0) AS unavailableRequests,
-      COALESCE(SUM(${state} = 'collection_failed'), 0) AS collectionFailedRequests,
-      COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests,
-      COALESCE(SUM(cost_nano_usd IS NULL), 0) AS missingCostRequests,
-      COALESCE(SUM(task_id IS NULL), 0) AS unassignedTaskRequests,
-      MIN(CASE WHEN ${state} = 'pending' THEN occurred_at_ms END) AS oldestPendingAtMs
-    FROM ai_usage_records WHERE ${where}
-  `)
-    .bind((input.nowMs ?? Date.now()) - staleAfterMs, ...values);
+  `,
+    values: [...values],
+  };
+  const coverageStatement = {
+    text: `
+    WITH coverage AS MATERIALIZED (
+      SELECT ${state} AS status, occurred_at_ms, total_tokens, cost_nano_usd, task_id
+      FROM "openmeld"."ai_usage_records" WHERE ${where}
+    )
+    SELECT COUNT(*) FILTER (WHERE status = 'reported') AS "reportedRequests",
+      COUNT(*) FILTER (WHERE status = 'pending') AS "pendingRequests",
+      COUNT(*) FILTER (WHERE status = 'pending' AND occurred_at_ms < $${values.length + 1}) AS "stalePendingRequests",
+      COUNT(*) FILTER (WHERE status = 'unavailable') AS "unavailableRequests",
+      COUNT(*) FILTER (WHERE status = 'collection_failed') AS "collectionFailedRequests",
+      COUNT(*) FILTER (WHERE total_tokens IS NULL) AS "missingTokenRequests",
+      COUNT(*) FILTER (WHERE cost_nano_usd IS NULL) AS "missingCostRequests",
+      COUNT(*) FILTER (WHERE task_id IS NULL) AS "unassignedTaskRequests",
+      MIN(CASE WHEN status = 'pending' THEN occurred_at_ms END) AS "oldestPendingAtMs"
+    FROM coverage
+  `,
+    values: [...values, (input.nowMs ?? Date.now()) - staleAfterMs],
+  };
   const statements = [modelsStatement, coverageStatement];
   const groupBy = query.groupBy ?? "model";
   const sortBy =
     query.sortBy ?? (query.runtime === "local" ? "tokens" : "cost");
   const limit = query.limit ?? 20;
   if (groupBy !== "model") {
-    statements.push(
-      input.db
-        .prepare(
-          buildUsageGroupSql({
-            groupBy,
-            sortBy,
-            aggregate,
-            where,
-            state,
-            dispatch,
-          })
-        )
-        .bind(...values, limit + 1)
-    );
+    statements.push({
+      text: buildUsageGroupSql({
+        groupBy,
+        sortBy,
+        aggregate,
+        where,
+        state,
+        dispatch,
+        limitParameter: values.length + 1,
+      }),
+      values: [...values, limit + 1],
+    });
   }
-  // D1 batch provides one consistent snapshot across totals and ranking.
+  // One repeatable-read transaction keeps totals, ranking and series consistent.
   const issuesIndex = statements.length;
   if (query.includeIssues) {
-    statements.push(
-      input.db
-        .prepare(`
-      SELECT record_json FROM ai_usage_records WHERE ${where}
+    statements.push({
+      text: `
+      SELECT record_json FROM "openmeld"."ai_usage_records" WHERE ${where}
         AND (${state} <> 'reported' OR total_tokens IS NULL OR cost_nano_usd IS NULL)
-      ORDER BY occurred_at_ms, event_id LIMIT ?
-    `)
-        .bind(...values, limit + 1)
-    );
+      ORDER BY occurred_at_ms, event_id LIMIT $${values.length + 1}
+    `,
+      values: [...values, limit + 1],
+    });
   }
   const seriesIndex = statements.length;
   const edges = query.bucketBoundariesMs;
   const seriesGrouping = query.groupTimeSeriesBy;
   if (edges) {
-    statements.push(
-      input.db
-        .prepare(buildUsageTimeSeriesSql(edges, where, seriesGrouping))
-        .bind(...edges.slice(1), ...values)
-    );
+    statements.push({
+      text: buildUsageTimeSeriesSql(
+        edges,
+        where,
+        seriesGrouping,
+        values.length
+      ),
+      values: [...values, ...edges.slice(1)],
+    });
   }
-  const results = await input.db.batch<Record<string, unknown>>(statements);
+  const results = await input.db.transaction(async (client) => {
+    await client.query(
+      "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+    );
+    const results: QueryResult[] = [];
+    for (const query of statements) {
+      results.push(await client.query(query));
+    }
+    return results;
+  });
   const [models, coverage] = results;
-  if (!(models && coverage?.results[0])) {
+  if (!(models && coverage?.rows[0])) {
     throw new Error("AI usage query returned an incomplete snapshot.");
   }
   if (edges && !results[seriesIndex]) {
@@ -175,12 +194,12 @@ export async function queryAiUsage(input: {
   return aiUsageQueryResponseSchema.parse({
     fromMs: query.fromMs,
     toMs: query.toMs,
-    models: models.results,
+    models: models.rows,
     ...(edges
       ? {
           timeSeries: projectUsageTimeSeries(
             edges,
-            results[seriesIndex]?.results ?? [],
+            results[seriesIndex]?.rows ?? [],
             seriesGrouping
           ),
         }
@@ -188,15 +207,25 @@ export async function queryAiUsage(input: {
     ...(issues
       ? {
           issues: {
-            records: issues.results
-              .slice(0, limit)
-              .map((row) => JSON.parse(String(row.record_json))),
-            hasMore: issues.results.length > limit,
+            records: issues.rows.slice(0, limit).map((row) => {
+              const record = aiUsageRecordSchema.parse(
+                JSON.parse(String(row.record_json))
+              );
+              return {
+                ...record,
+                purpose:
+                  record.purpose === "compaction" ||
+                  record.purpose === "compaction_prefix"
+                    ? "agent"
+                    : record.purpose,
+              };
+            }),
+            hasMore: issues.rows.length > limit,
           },
         }
       : {}),
     coverage: {
-      ...coverage.results[0],
+      ...coverage.rows[0],
       scope: "observed_requests",
       staleAfterMs,
     },
@@ -206,21 +235,20 @@ export async function queryAiUsage(input: {
             groupBy,
             sortBy,
             limit,
-            hasMore: groups.results.length > limit,
-            groups: groups.results.slice(0, limit).map(projectUsageGroup),
+            hasMore: groups.rows.length > limit,
+            groups: groups.rows.slice(0, limit).map(projectUsageGroup),
           },
         }
       : {}),
   });
 }
-
 function usageScope(organizationId: string, query: AiUsageQuery) {
   const predicates = [
-    "organization_id = ?",
-    "occurred_at_ms >= ?",
-    "occurred_at_ms < ?",
+    "organization_id = $1",
+    "occurred_at_ms >= $2",
+    "occurred_at_ms < $3",
   ];
-  const values: (string | number)[] = [
+  const values: (string | number | string[])[] = [
     organizationId,
     query.fromMs,
     query.toMs,
@@ -231,52 +259,54 @@ function usageScope(organizationId: string, query: AiUsageQuery) {
     agentProfileId: "agent_profile_id",
     spaceId: "space_id",
     taskId: "task_id",
-    dispatchId: "json_extract(record_json, '$.dispatchId')",
+    dispatchId: "((record_json)::jsonb #>> '{dispatchId}')",
     computerId: "computer_id",
     controller: "controller",
   } as const;
   for (const [key, column] of Object.entries(filters)) {
     const value = query[key as keyof typeof filters];
     if (value !== undefined) {
-      predicates.push(`${column} = ?`);
+      predicates.push(`${column} = $${values.length + 1}`);
       values.push(value);
     }
   }
   if (query.agentProfileIds !== undefined) {
-    predicates.push("agent_profile_id IN (SELECT value FROM json_each(?))");
-    values.push(JSON.stringify(query.agentProfileIds));
+    predicates.push(`agent_profile_id = ANY($${values.length + 1}::text[])`);
+    values.push(query.agentProfileIds);
   }
   return { where: predicates.join(" AND "), values };
 }
-
 function buildUsageTimeSeriesSql(
   edges: number[],
   where: string,
-  groupBy: AiUsageQuery["groupTimeSeriesBy"]
+  groupBy: AiUsageQuery["groupTimeSeriesBy"],
+  parameterOffset: number
 ) {
-  // Bound edges precede the shared scope predicates. No client SQL enters this query.
+  // Bound edges follow shared scope parameters. No client SQL enters this query.
   const buckets = edges
     .slice(1)
-    .map((_, index) => `WHEN occurred_at_ms < ? THEN ${index}`)
+    .map(
+      (_, index) =>
+        `WHEN occurred_at_ms < $${parameterOffset + index + 1} THEN ${index}`
+    )
     .join(" ");
   const grouping = usageTimeSeriesGrouping(groupBy);
-  return `SELECT CASE ${buckets} END AS bucketIndex${grouping},
+  return `SELECT CASE ${buckets} END AS "bucketIndex"${grouping},
     COUNT(*) AS requests,
-    COALESCE(SUM(input_tokens), 0) AS inputTokens,
-    COALESCE(SUM(output_tokens), 0) AS outputTokens,
-    COALESCE(SUM(total_tokens), 0) AS totalTokens,
-    COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests${
+    COALESCE(SUM(input_tokens)::bigint, 0) AS "inputTokens",
+    COALESCE(SUM(output_tokens)::bigint, 0) AS "outputTokens",
+    COALESCE(SUM(total_tokens)::bigint, 0) AS "totalTokens",
+    COUNT(*) FILTER (WHERE total_tokens IS NULL) AS "missingTokenRequests"${
       groupBy === "model"
         ? `,
-    COALESCE(SUM(CASE WHEN cost_kind = 'provider_reported' THEN cost_nano_usd ELSE 0 END), 0) AS reportedCostNanoUsd,
-    COALESCE(SUM(CASE WHEN cost_kind = 'provider_estimate' THEN cost_nano_usd ELSE 0 END), 0) AS estimatedCostNanoUsd,
-    COALESCE(SUM(cost_nano_usd IS NULL), 0) AS missingCostRequests`
+    COALESCE(SUM(CASE WHEN cost_kind = 'provider_reported' THEN cost_nano_usd ELSE 0 END)::bigint, 0) AS "reportedCostNanoUsd",
+    COALESCE(SUM(CASE WHEN cost_kind = 'provider_estimate' THEN cost_nano_usd ELSE 0 END)::bigint, 0) AS "estimatedCostNanoUsd",
+    COUNT(*) FILTER (WHERE cost_nano_usd IS NULL) AS "missingCostRequests"`
         : ""
     }
-    FROM ai_usage_records WHERE ${where}
-    GROUP BY bucketIndex${grouping} ORDER BY bucketIndex${grouping}`;
+    FROM "openmeld"."ai_usage_records" WHERE ${where}
+    GROUP BY "bucketIndex"${grouping} ORDER BY "bucketIndex"${grouping}`;
 }
-
 function usageTimeSeriesGrouping(groupBy: AiUsageQuery["groupTimeSeriesBy"]) {
   if (groupBy === "controller") {
     return ", controller";
@@ -286,7 +316,6 @@ function usageTimeSeriesGrouping(groupBy: AiUsageQuery["groupTimeSeriesBy"]) {
   }
   return "";
 }
-
 function projectUsageTimeSeries(
   edges: number[],
   rows: Record<string, unknown>[],
@@ -320,7 +349,6 @@ function projectUsageTimeSeries(
     };
   });
 }
-
 function buildUsageGroupSql(input: {
   groupBy: "task" | "agent";
   sortBy: "cost" | "tokens";
@@ -328,33 +356,35 @@ function buildUsageGroupSql(input: {
   where: string;
   state: string;
   dispatch: string;
+  limitParameter: number;
 }) {
   const { aggregate, where, state, dispatch, sortBy } = input;
   const task = input.groupBy === "task";
   return `
-      SELECT runtime, ${task ? "task_id" : "NULL"} AS taskId,
-        agent_profile_id AS agentProfileId, ${task ? "space_id" : "NULL"} AS spaceId,
+      SELECT runtime, ${task ? `COALESCE(task_id, ${dispatch})` : "NULL"} AS "taskId",
+        agent_profile_id AS "agentProfileId", ${task ? "space_id" : "NULL"} AS "spaceId",
         ${aggregate},
-        SUM(${state} = 'pending') AS pendingRequests,
-        SUM(${state} = 'collection_failed') AS collectionFailedRequests,
-        SUM(${state} = 'unavailable') AS unavailableRequests,
-        COUNT(DISTINCT attempt_id) AS observedExecutionAttempts,
-        ${task ? "MAX(0, COUNT(DISTINCT attempt_id) - 1)" : "NULL"} AS observedExecutionRetries,
-        SUM(attempt_id IS NULL) AS requestsWithoutAttemptId,
-        MIN(occurred_at_ms) AS firstObservedAtMs,
-        MAX(occurred_at_ms) AS lastObservedAtMs,
-        json_group_array(DISTINCT model) AS modelsJson,
-        json_group_array(DISTINCT purpose) AS purposesJson,
-        ${task ? `json_group_array(DISTINCT ${dispatch})` : "'[]'"} AS dispatchIdsJson
-      FROM ai_usage_records WHERE ${where}
+        COUNT(*) FILTER (WHERE ${state} = 'pending') AS "pendingRequests",
+        COUNT(*) FILTER (WHERE ${state} = 'collection_failed') AS "collectionFailedRequests",
+        COUNT(*) FILTER (WHERE ${state} = 'unavailable') AS "unavailableRequests",
+        COUNT(DISTINCT attempt_id) AS "observedExecutionAttempts",
+        ${task ? "GREATEST(0, COUNT(DISTINCT attempt_id) - 1)" : "NULL"} AS "observedExecutionRetries",
+        COUNT(*) FILTER (WHERE attempt_id IS NULL) AS "requestsWithoutAttemptId",
+        MIN(occurred_at_ms) AS "firstObservedAtMs",
+        MAX(occurred_at_ms) AS "lastObservedAtMs",
+        jsonb_agg(DISTINCT model)::text AS "modelsJson",
+        jsonb_agg(DISTINCT CASE
+          WHEN purpose IN ('compaction', 'compaction_prefix') THEN 'agent'
+          ELSE purpose END)::text AS "purposesJson",
+        ${task ? `jsonb_agg(DISTINCT ${dispatch})::text` : "'[]'"} AS "dispatchIdsJson"
+      FROM "openmeld"."ai_usage_records" WHERE ${where}
         AND ${task ? `(task_id IS NOT NULL OR ${dispatch} IS NOT NULL)` : "agent_profile_id IS NOT NULL"}
       GROUP BY runtime, agent_profile_id${task ? `, space_id, COALESCE(task_id, ${dispatch})` : ""}
-      ORDER BY ${sortBy === "tokens" ? "totalTokens" : "reportedCostNanoUsd"} DESC,
-        runtime, agentProfileId, spaceId, taskId, firstObservedAtMs
-      LIMIT ?
+      ORDER BY ${sortBy === "tokens" ? '"totalTokens"' : '"reportedCostNanoUsd"'} DESC NULLS LAST,
+        runtime, "agentProfileId", "spaceId", "taskId", "firstObservedAtMs"
+      LIMIT $${input.limitParameter}
     `;
 }
-
 function projectUsageGroup(row: Record<string, unknown>) {
   const { modelsJson, purposesJson, dispatchIdsJson, ...summary } = row;
   const dispatchIds = (JSON.parse(String(dispatchIdsJson)) as (string | null)[])

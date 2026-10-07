@@ -54,7 +54,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
-import { SpacePickerCreateAgent } from "#/components/profiles/space-picker-create-agent";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
 import {
@@ -71,7 +70,10 @@ import {
 	spaceMemberDirectoryDisplayQueryOptions,
 } from "#/query/spaces/member-directory-display";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
-import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
+import {
+	buildDirectMessageConversionDefaultName,
+	resolveDirectMessageConversionNames,
+} from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
 import { PeopleAgentPickerDialog } from "./people-agent-picker-dialog";
 import {
@@ -1072,12 +1074,12 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		}
 		const profileIds = [...activeSelectedProfileIds];
 		if (input.onConvertDirectMessageToSpace) {
-			const selectedNames: string[] = [];
-			for (const candidate of allCandidates) {
-				if (effectiveSelectedProfileIds.has(candidate.profileId)) {
-					selectedNames.push(candidate.profileName);
-				}
-			}
+			const selectedNames = resolveDirectMessageConversionNames({
+				snapshot: input.snapshot,
+				selectedMembers: allCandidates.filter((candidate) =>
+					effectiveSelectedProfileIds.has(candidate.profileId)
+				),
+			});
 			const currentMemberNames = input.snapshot
 				? [...input.snapshot.humans, ...input.snapshot.agents].map(
 						(member) => member.profileName
@@ -1367,30 +1369,16 @@ type SpaceAddProfilesDialogProps = {
 };
 
 function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
-	const [creating, setCreating] = useState(false);
-	const [busy, setBusy] = useState(false);
 	const waitsForDirectory =
 		input.usesOrganizationDirectory && !input.directoryHasData;
 	return (
 		<PeopleAgentPickerDialog
 			actions={
-				input.spaceId ? (
-					<div className="flex flex-wrap items-center gap-2">
-						<Button
-							onClick={() => setCreating(true)}
-							size="xs"
-							variant="outline"
-						>
-							<PlusIcon aria-hidden="true" />
-							New Agent
-						</Button>
-						{input.usesOrganizationDirectory ? (
-							<SpaceInvitationsSection
-								spaceId={input.spaceId}
-								triggerLabel="Invite by email"
-							/>
-						) : null}
-					</div>
+				input.spaceId && input.usesOrganizationDirectory ? (
+					<SpaceInvitationsSection
+						spaceId={input.spaceId}
+						triggerLabel="Invite by email"
+					/>
 				) : null
 			}
 			candidateGroups={input.candidateGroups}
@@ -1409,7 +1397,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			isLoading={
 				!input.snapshot || (waitsForDirectory && input.directoryIsPending)
 			}
-			isSubmitting={busy || input.isSubmitting}
+			isSubmitting={input.isSubmitting}
 			notice={
 				<>
 					{input.usesOrganizationDirectory && input.directoryIsError ? (
@@ -1438,13 +1426,9 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 					) : null}
 				</>
 			}
+			onAgentCreated={input.spaceId ? input.onCreated : undefined}
 			onClear={input.onClear}
-			onOpenChange={(open) => {
-				if (!open) {
-					setCreating(false);
-				}
-				input.onOpenChange(open);
-			}}
+			onOpenChange={input.onOpenChange}
 			onQueryChange={input.onAddQueryChange}
 			onSubmit={() => {
 				input.onSubmit().catch(input.onSubmitError);
@@ -1455,15 +1439,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			selectedProfileIds={input.selectedProfileIds}
 			submitLabel={resolveAddMembersSubmitLabel(input)}
 			title="Add People or Agents"
-		>
-			{creating ? (
-				<SpacePickerCreateAgent
-					onBack={() => setCreating(false)}
-					onBusyChange={setBusy}
-					onCreated={input.onCreated}
-				/>
-			) : undefined}
-		</PeopleAgentPickerDialog>
+		/>
 	);
 }
 

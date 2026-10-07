@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
 
 import {
@@ -25,13 +26,389 @@ const WINDOWS_PREVIEW_PATHS = [
   "scripts/release/publish-windows-internal-preview.mjs",
 ];
 const PENDING_RECEIVER = /pending prerequisite/u;
+const PENDING_DB = /pending prerequisite db/u;
+const PENDING_CORE = /pending prerequisite core/u;
+const PENDING_REMOTE = /pending prerequisite remote-agent/u;
+const PENDING_AUTH = /pending prerequisite auth/u;
+const UNKNOWN_COMPUTER_CONTRACT =
+  /Personal cloud Computer release requires proven unchanged native/u;
 const CONTRACT_CYCLE = /incompatible.*dependencies/iu;
+const REMOTE_AI_USAGE = [
+  "packages/schemas/src/schemas/ai-usage.ts",
+  "services/core/src/usage/ai-usage-rpc.ts",
+  "services/remote-agent/agent-core/ai-usage.ts",
+];
+
+// The bridge witnesses this exact historical source, not the moving checkout.
+// Final Candidate already requires complete Git history. Keep the production
+// digest and drift fence intact instead of re-blessing later protocol changes.
+const REVIEWED_SOURCE_SHA = "b660a196af4f24c6a4f4cf3a38cf4ef83b90431b";
+const reviewedSources = new Map();
+function readReviewedSource(path) {
+  if (!reviewedSources.has(path)) {
+    reviewedSources.set(
+      path,
+      execFileSync("git", ["show", `${REVIEWED_SOURCE_SHA}:${path}`], {
+        cwd: new URL("../../", import.meta.url),
+        encoding: "utf8",
+      })
+    );
+  }
+  return reviewedSources.get(path);
+}
+
+const COMPUTER_SOURCE = "46c1d3a78e23f1f96ae4532f5e1ee6ab98b10fbc";
+const COMPUTER_CORE_BASE = "c6ba8899f8f97491bdf129749af7f5333f8be975";
+const COMPUTER_REMOTE_BASE = "d799f3f66b6465564f4a9f11709a16292541db2d";
+const computerSources = new Map();
+function readComputerSource(ref, path) {
+  const key = `${ref}:${path}`;
+  if (!computerSources.has(key)) {
+    computerSources.set(
+      key,
+      execFileSync("git", ["show", key], {
+        cwd: new URL("../../", import.meta.url),
+        encoding: "utf8",
+      })
+    );
+  }
+  return computerSources.get(key);
+}
+
+function computerPlan(base, scope, readGitFile = readComputerSource) {
+  return buildProductionReleasePlan({
+    base,
+    changedPaths: execFileSync(
+      "git",
+      ["diff", "--name-only", base, COMPUTER_SOURCE],
+      { cwd: new URL("../../", import.meta.url), encoding: "utf8" }
+    )
+      .trim()
+      .split("\n"),
+    databaseBackend: "postgresql",
+    scope,
+    sourceSha: COMPUTER_SOURCE,
+    readGitFile,
+  });
+}
+
+test("admits personal Computers through deployed database, Core and Remote receivers before CLI publication", () => {
+  const scopes = [
+    "db",
+    "auth",
+    "core",
+    "remote-agent",
+    "gateway",
+    "web",
+    "cli",
+  ];
+  const plan = computerPlan(COMPUTER_CORE_BASE, scopes.join(","));
+  assert.deepEqual(plan.deployScopeOrder, scopes);
+  assert.equal(
+    plan.compatibilityBridges[0].kind,
+    "additive-personal-cloud-computer"
+  );
+  const coreStage = computerPlan(COMPUTER_CORE_BASE, "core");
+  assert.ok(
+    coreStage.deploySteps.some(
+      (step) =>
+        step.args?.includes(
+          "scripts/release/deploy-core-current-cli-projection.mjs"
+        ) && step.args.includes("--deployment-only")
+    )
+  );
+  assert.equal(
+    coreStage.preflightSteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    ),
+    false
+  );
+  const components = scopes.map((scope) => {
+    const sha = scope === "core" ? COMPUTER_CORE_BASE : COMPUTER_REMOTE_BASE;
+    return {
+      scope,
+      sha,
+      state: "pending",
+      compatibilityDependencies: computerPlan(sha, scopes.join(","))
+        .compatibilityDependencies,
+    };
+  });
+  const admit = (selectedScopes) =>
+    assertProductionStageAdmission({
+      components,
+      selectedScopes,
+      sourceSha: COMPUTER_SOURCE,
+    });
+  assert.throws(() => admit(["core"]), PENDING_DB);
+  assert.doesNotThrow(() => admit(["db", "auth"]));
+  for (const scope of ["db", "auth"]) {
+    components.find((component) => component.scope === scope).state = "current";
+  }
+  assert.doesNotThrow(() => admit(["core"]));
+  assert.throws(() => admit(["core", "remote-agent"]), PENDING_CORE);
+  assert.throws(() => admit(["gateway"]), PENDING_REMOTE);
+  assert.throws(() => admit(["cli"]), PENDING_RECEIVER);
+  components.find((component) => component.scope === "core").state = "current";
+  assert.doesNotThrow(() => admit(["remote-agent", "gateway", "web"]));
+  assert.throws(() => admit(["cli"]), PENDING_RECEIVER);
+  for (const scope of ["remote-agent", "gateway", "web"]) {
+    components.find((component) => component.scope === scope).state = "current";
+  }
+  assert.doesNotThrow(() => admit(["cli"]));
+  components.find((component) => component.scope === "auth").state = "pending";
+  assert.throws(() => admit(["cli"]), PENDING_AUTH);
+});
+
+for (const fault of [
+  "native_request",
+  "remote_entrypoint",
+  "center_receiver",
+  "missing_history",
+]) {
+  test(`rejects the personal Computer release after ${fault}`, () => {
+    assert.throws(
+      () =>
+        computerPlan(COMPUTER_CORE_BASE, "core,remote-agent", (ref, path) => {
+          if (fault === "missing_history") {
+            throw new Error("missing receipt baseline");
+          }
+          const source = readComputerSource(ref, path);
+          const driftPath = {
+            native_request:
+              "services/core/src/remote-agent/application/native-delivery-service.ts",
+            remote_entrypoint: "services/remote-agent/.flue/cloudflare.ts",
+            center_receiver:
+              "services/remote-agent/.flue/agents/center-agent.ts",
+          }[fault];
+          return ref === COMPUTER_SOURCE && path === driftPath
+            ? `${source}\n// Unreviewed owner change.\n`
+            : source;
+        }),
+      UNKNOWN_COMPUTER_CONTRACT
+    );
+  });
+}
+
+test("admits the reviewed Core request bridge while retaining the metering receiver dependency", () => {
+  const base = "e4454cf165b96c7f918e420f28205c2b2ed3c575";
+  const sourceSha = REVIEWED_SOURCE_SHA;
+  const readGitFile = (ref, path) =>
+    ref === base
+      ? "// Core before the metering receiver was introduced."
+      : readReviewedSource(path);
+  const paths = [
+    ...REMOTE_AI_USAGE,
+    "services/remote-agent/.flue/cloudflare.ts",
+  ];
+  const plan = buildProductionReleasePlan({
+    base,
+    sourceSha,
+    changedPaths: paths,
+    scope: "core,remote-agent",
+    readGitFile,
+  });
+  assert.deepEqual(plan.deployScopeOrder, ["core", "remote-agent"]);
+  assert.deepEqual(plan.compatibilityDependencies, [["core", "remote-agent"]]);
+  assert.equal(
+    plan.compatibilityBridges[0].kind,
+    "negotiated-remote-task-attribution"
+  );
+  assert.equal(plan.compatibilityBridges[0].baselineSha, base);
+  const components = [
+    { scope: "core", state: "pending", sha: base, ...plan },
+    { scope: "remote-agent", state: "pending", sha: base, ...plan },
+  ];
+  assert.doesNotThrow(() =>
+    assertProductionStageAdmission({
+      components,
+      sourceSha,
+      selectedScopes: ["core"],
+    })
+  );
+  assert.throws(
+    () =>
+      assertProductionStageAdmission({
+        components,
+        sourceSha,
+        selectedScopes: ["remote-agent"],
+      }),
+    PENDING_RECEIVER
+  );
+});
+
+for (const fault of ["source_drift", "missing_history", "unknown_baseline"]) {
+  test(`refuses to reuse the request bridge after ${fault}`, () => {
+    const base =
+      fault === "unknown_baseline"
+        ? "b".repeat(40)
+        : "e4454cf165b96c7f918e420f28205c2b2ed3c575";
+    assert.throws(
+      () =>
+        buildProductionReleasePlan({
+          base,
+          sourceSha: "a".repeat(40),
+          scope: "core,remote-agent",
+          changedPaths: [
+            ...REMOTE_AI_USAGE,
+            "services/remote-agent/.flue/cloudflare.ts",
+          ],
+          readGitFile: (_ref, path) => {
+            if (fault === "missing_history") {
+              throw new Error("missing source");
+            }
+            const source = readReviewedSource(path);
+            return fault === "source_drift" &&
+              path.endsWith("remote-agent-worker.ts")
+              ? `${source}\n// different contract`
+              : source;
+          },
+        }),
+      CONTRACT_CYCLE
+    );
+  });
+}
+
+test("does not invent a protocol cycle from Core receiver and persistence edits", () => {
+  const plan = buildProductionReleasePlan({
+    changedPaths: [
+      "services/core/src/usage/ai-usage-rpc.ts",
+      "services/core/src/center-agent/center-agent-context-manifest-repository.ts",
+    ],
+    sourceSha: "a".repeat(40),
+    scope: "core,remote-agent",
+  });
+  assert.deepEqual(plan.compatibilityDependencies, []);
+  assert.equal(plan.deployScopeOrder.length, 2);
+  for (const signal of plan.compatibilityPathSignals) {
+    assert.deepEqual(signal.matchedPaths, []);
+    assert.equal(signal.nonTriggerPaths.length, 1);
+  }
+});
+
+for (const receiverPath of [
+  "services/remote-agent/.flue/cloudflare.ts",
+  "services/core/src/center-agent/application/center-agent-context-manifest-service.ts",
+]) {
+  test(`does not hide the Core metering receiver behind ${receiverPath}`, () => {
+    const paths = [...REMOTE_AI_USAGE, receiverPath];
+    const edges = resolveProductionCompatibilityDependencies(paths);
+    assert.ok(
+      edges.some(
+        ([receiver, producer]) =>
+          receiver === "core" && producer === "remote-agent"
+      )
+    );
+    assert.ok(
+      edges.some(
+        ([receiver, producer]) =>
+          receiver === "remote-agent" && producer === "core"
+      )
+    );
+    assert.throws(
+      () =>
+        buildProductionReleasePlan({
+          changedPaths: paths,
+          sourceSha: "a".repeat(40),
+          scope: "core,remote-agent",
+        }),
+      CONTRACT_CYCLE
+    );
+  });
+}
 const INBOX_OBSERVATIONS = [
   "packages/schemas/src/schemas/http/inbox.ts",
   "services/core/src/inbox/application/inbox-notification-observations.ts",
   "services/gateway/src/routes/rpc-http.inbox.ts",
   "clients/web/src/lib/inbox/notification-observer.ts",
 ];
+
+test("keeps Inbox readers before a new target writer during a storage migration", () => {
+  const plan = buildProductionReleasePlan({
+    changedPaths: [
+      "packages/schemas/src/schemas/http/inbox.ts",
+      "services/core/src/inbox/application/inbox-notification-observations.ts",
+      "services/core/src/remote-agent/application/native-delivery-service.ts",
+      "services/gateway/src/routes/rpc-http.inbox.ts",
+      "clients/web/src/components/inbox/inbox-page.tsx",
+    ],
+    sourceSha: "a".repeat(40),
+    scope: "web,gateway,core,cli",
+  });
+  assert.deepEqual(plan.deployScopeOrder, ["web", "gateway", "core", "cli"]);
+  assert.deepEqual(plan.compatibilityDependencies, [
+    ["web", "core"],
+    ["gateway", "core"],
+  ]);
+});
+
+for (const remoteReceiver of [false, true]) {
+  test(`preserves the published CLI during an Inbox cloud stage${remoteReceiver ? " with a Remote receiver" : ""}`, () => {
+    const sourceSha = "a".repeat(40);
+    const plan = buildProductionReleasePlan({
+      changedPaths: [
+        "packages/schemas/src/schemas/http/inbox.ts",
+        "services/core/src/remote-agent/application/native-delivery-service.ts",
+        "release/local-components.json",
+        "clients/openmeld-cli/package.json",
+        ...(remoteReceiver
+          ? ["services/remote-agent/.flue/cloudflare.ts"]
+          : []),
+      ],
+      sourceSha,
+      scope: `db,auth,web,gateway,core${remoteReceiver ? ",remote-agent" : ""}`,
+    });
+    assert.deepEqual(plan.deployScopeOrder, [
+      "db",
+      ...(remoteReceiver ? ["remote-agent"] : []),
+      "auth",
+      "web",
+      "gateway",
+      "core",
+    ]);
+    const core = plan.deploySteps.filter(
+      (step) => step.releaseScope === "core"
+    );
+    assert.deepEqual(
+      core.map((step) => step.args),
+      [
+        [
+          "scripts/release/deploy-core-current-cli-projection.mjs",
+          "--deployment-only",
+          "--release-sha",
+          sourceSha,
+        ],
+        [
+          "scripts/release/deploy-core-current-cli-projection.mjs",
+          "--verify-only",
+          "--release-sha",
+          sourceSha,
+        ],
+      ]
+    );
+    assert.equal(core[0].completesReleaseScope, false);
+    assert.equal(core[1].completesReleaseScope, true);
+    assert.ok(
+      !plan.deploySteps.some((step) => step.internalOperation === "publish-cli")
+    );
+    for (const steps of [plan.preflightSteps, plan.verifySteps]) {
+      assert.ok(
+        !steps.some(
+          (step) => step.label === "Verify Core CLI channel compatibility"
+        )
+      );
+    }
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Admit receipt-based Production train stage"
+      )
+    );
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Verify declared Production train artifacts"
+      )
+    );
+  });
+}
 
 test("deploys Inbox observation receivers before callers, composed with Remote titles", () => {
   const plan = buildProductionReleasePlan({

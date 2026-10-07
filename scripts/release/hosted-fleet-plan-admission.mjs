@@ -18,6 +18,8 @@ const STATIC_HOSTED_SCOPE_ORDER = [
   "gateway",
   "core",
   "remote-agent",
+  "website",
+  "docs",
 ];
 const FLEET_SCOPES = new Set(["cloud", "full"]);
 

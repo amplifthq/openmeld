@@ -64,14 +64,11 @@ import {
 	writeLastUsedHumanProfileId,
 } from "#/lib/spaces/last-used-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
-import { organizationSpacesQueryOptions } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { isQueryCancellationError } from "#/query/query-cancellation";
-import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import { spaceConversationDisplaySnapshotQueryOptions } from "#/query/spaces/display-snapshot";
-import { spaceHistoryQueryOptions } from "#/query/spaces/history";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
 
 const appSpaceRouteSearchSchema = z.object({
@@ -122,17 +119,7 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 				prefetch: readSpacePrefetch(prefetchKey),
 			});
 		}
-		await restoreSpaceConversationRouteData({
-			organizationSlug: params.orgSlug,
-			profileId: deps.profileId,
-			queryClient: context.queryClient,
-			queryPersistence: context.queryPersistence,
-			routeFamily: location.href,
-			spaceId: params.spaceId,
-		});
-		prefetchSpaceConversationRouteData({
-			focusSignalId: deps.focusSignalId,
-			focusThreadRootSignalId: deps.focusThreadRootSignalId,
+		restoreSpaceConversationRouteData({
 			organizationSlug: params.orgSlug,
 			profileId: deps.profileId,
 			queryClient: context.queryClient,
@@ -140,6 +127,18 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 			routeFamily: location.href,
 			spaceId: params.spaceId,
 		})
+			.then(() =>
+				prefetchSpaceConversationRouteData({
+					focusSignalId: deps.focusSignalId,
+					focusThreadRootSignalId: deps.focusThreadRootSignalId,
+					organizationSlug: params.orgSlug,
+					profileId: deps.profileId,
+					queryClient: context.queryClient,
+					queryPersistence: context.queryPersistence,
+					routeFamily: location.href,
+					spaceId: params.spaceId,
+				})
+			)
 			.then(() => {
 				if (preload) {
 					recordSpacePrefetch(prefetchKey, "complete");
@@ -588,7 +587,6 @@ function ResolvedAppSpaceEntryContent(
 			orgSlug={input.orgSlug}
 			profileId={input.profileId}
 			spaceId={input.spaceId}
-			threadOpen={Boolean(input.focusThreadRootSignalId)}
 		>
 			{allowedContent}
 		</AppSpaceAccessGate>
@@ -603,15 +601,10 @@ function AppSpaceAccessGate(
 		orgSlug: string;
 		profileId: string;
 		spaceId: string;
-		threadOpen: boolean;
 	} & Pick<AppSpaceFocusSearch, "focusSignalId" | "focusThreadRootSignalId">
 ) {
 	const organization = useAppOrganization();
 	const queryClient = useQueryClient();
-	const membersPanel = useSpacePanelWidth({
-		panel: "members",
-		spaceId: input.spaceId,
-	});
 	// SSR loader hydration does not rerun the route loader in the browser.
 	// Activate here too, after the account, Organization, and Profile checks.
 	useEffect(() => {
@@ -635,43 +628,6 @@ function AppSpaceAccessGate(
 		input.spaceId,
 		input.profileId,
 	]);
-	const display = useQuery(
-		spaceConversationDisplaySnapshotQueryOptions({
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-		})
-	);
-	const accountSpaces = useQuery(
-		accountSpaceItemsQueryOptions({
-			profileId: input.profileId,
-			enabled: false,
-		})
-	);
-	const directory = useQuery(
-		organizationSpacesQueryOptions({
-			organizationId: organization.currentOrganization.id,
-			enabled: false,
-		})
-	);
-	const knownTitle =
-		display.data?.status.name ??
-		[
-			...(accountSpaces.data?.pinnedItems ?? []),
-			...(accountSpaces.data?.spaceItems ?? []),
-		].find(
-			(space) =>
-				space.spaceId === input.spaceId &&
-				space.organizationId === organization.currentOrganization.id
-		)?.spaceName ??
-		directory.data?.spaces.find((space) => space.spaceId === input.spaceId)
-			?.name;
-	const history = useQuery(
-		spaceHistoryQueryOptions({
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-			enabled: false,
-		})
-	);
 	const onAccessRejected = useCallback(() => {
 		clearSpaceConversationPositions(
 			`${input.profileId}:space-conversation:${input.spaceId}`
@@ -708,23 +664,14 @@ function AppSpaceAccessGate(
 		}),
 		spaceId: input.spaceId,
 	});
-	const pendingContent = (
-		<SpaceLandingLoadingShell
-			membersPanelWidth={membersPanel.width}
-			spaceId={input.spaceId}
-			threadOpen={input.threadOpen}
-			title={knownTitle}
-		/>
-	);
 	return (
 		<SpaceEntryGate
 			backHref={buildOrganizationSpacesPath(input.orgSlug)}
+			draftContent={input.children}
 			onAccessRejected={onAccessRejected}
 			openMeldProfileId={input.profileId}
-			pendingContent={pendingContent}
 			renderFrame={(content) => (
 				<AppSpaceEntryShell
-					conversationLayout={content === pendingContent}
 					initialSidebarStates={input.initialSidebarStates}
 					navigationSurface={input.navigationSurface}
 					spaceId={input.spaceId}
@@ -733,9 +680,6 @@ function AppSpaceAccessGate(
 					{content}
 				</AppSpaceEntryShell>
 			)}
-			restoredContent={
-				display.data && history.data ? input.children : undefined
-			}
 			signalId={input.focusSignalId}
 			signInHref={`/login?redirect=${encodeURIComponent(appTarget)}`}
 			spaceId={input.spaceId}

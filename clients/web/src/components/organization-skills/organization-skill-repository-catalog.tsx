@@ -1,5 +1,6 @@
 import type { OrganizationSkillGitHubRepositoryPreview } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 
 export type RepositoryBatchResult = {
@@ -60,7 +61,7 @@ export function OrganizationSkillRepositoryCatalog(input: {
 					</output>
 				)}
 			</div>
-			<div className="grid max-h-72 overflow-y-auto">
+			<ScrollArea className="max-h-72" contentClassName="grid">
 				{input.preview.skills.map((skill) => {
 					const selected = input.selectedUrls.has(skill.url);
 					const result = input.results.get(skill.url);
@@ -126,7 +127,7 @@ export function OrganizationSkillRepositoryCatalog(input: {
 						</div>
 					);
 				})}
-			</div>
+			</ScrollArea>
 		</div>
 	);
 }

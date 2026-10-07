@@ -8,7 +8,6 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
-import { resolveNativeDeliveryReplyPlacement } from "./reply-placement";
 import {
   buildRemoteAgentStreamRejectedResponse,
   resolveRemoteAgentStreamCallbackTarget,
@@ -43,19 +42,8 @@ export async function submitRemoteAgentStreamPart(
   }
 
   try {
-    const placement = await resolveNativeDeliveryReplyPlacement({
-      env,
-      delivery: target.delivery,
-      lock: false,
-    });
     return remoteAgentStreamDeltaCallbackResponseSchema.parse(
       await target.stub.rpcApplyAgentStreamPart({
-        ...(placement
-          ? {
-              replyThreadRootSignalId:
-                placement.threadContext?.rootSignalId ?? null,
-            }
-          : {}),
         v: parsed.data.v,
         spaceId: parsed.data.spaceId,
         streamId: parsed.data.streamId,

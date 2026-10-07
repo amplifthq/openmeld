@@ -1,0 +1,18 @@
+{
+  "title": "Work with agents",
+  "defaultOpen": false,
+  "pages": [
+    "center-agent",
+    "navigation",
+    "cloud-computer",
+    "agents",
+    "spaces",
+    "messages",
+    "tasks",
+    "files",
+    "projects",
+    "routines",
+    "activity",
+    "memory"
+  ]
+}

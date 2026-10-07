@@ -3,9 +3,11 @@ import {
 	createRootRoute,
 	createRoute,
 	createRouter,
+	Outlet,
 	RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, render, screen } from "@testing-library/react";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { OrganizationSkillDetailPage } from "./organization-skill-detail-page";
@@ -77,7 +79,13 @@ describe("OrganizationSkillDetailPage", () => {
 	afterEach(cleanup);
 
 	it("opens directly into one document with a persistent action bar rather than a metadata form", async () => {
-		const root = createRootRoute();
+		const root = createRootRoute({
+			component: () => (
+				<NuqsAdapter>
+					<Outlet />
+				</NuqsAdapter>
+			),
+		});
 		const detail = createRoute({
 			getParentRoute: () => root,
 			path: "/o/$orgSlug/skills/$skillId",
@@ -107,7 +115,7 @@ describe("OrganizationSkillDetailPage", () => {
 		).toBe("true");
 		expect(screen.queryByLabelText("License")).toBeNull();
 		expect(screen.queryByText("Metadata")).toBeNull();
-		expect(screen.queryByRole("tab", { name: "Files (0)" })).toBeNull();
+		expect(screen.getByRole("tab", { name: "Files (0)" })).toBeDefined();
 		const save = screen.getByRole("button", { name: "Save" });
 		const actions = save.closest('[data-slot="skill-document-actions"]');
 		expect(

@@ -14,13 +14,12 @@ export type SpaceInboxUnreadDestination =
 
 type Rollback = () => void;
 
-export function optimisticallyMarkSpaceInboxReadThrough(input: {
+export function optimisticallyMarkSpaceInboxItemsRead(input: {
 	destination: SpaceInboxUnreadDestination;
 	organizationId: string;
 	queryClient: QueryClient;
 	spaceId: string;
-	threadRootSignalId?: string;
-	throughOccurredAtMs: number;
+	items: readonly { itemId: string; occurredAtMs: number }[];
 }): { rollback: Rollback } {
 	const targetsKey = inboxQueryKeys.spaceUnreadTargets(
 		input.organizationId,
@@ -33,7 +32,11 @@ export function optimisticallyMarkSpaceInboxReadThrough(input: {
 	}
 
 	const removedTargets = currentTargets.targets.filter((target) =>
-		matchesReadThrough(target, input)
+		input.items.some(
+			(item) =>
+				item.itemId === target.itemId &&
+				item.occurredAtMs === target.occurredAtMs
+		)
 	);
 	if (removedTargets.length === 0) {
 		return { rollback: () => undefined };
@@ -41,11 +44,31 @@ export function optimisticallyMarkSpaceInboxReadThrough(input: {
 
 	const rollbacks: Rollback[] = [];
 	const remainingTargets = currentTargets.targets.filter(
-		(target) => !matchesReadThrough(target, input)
+		(target) =>
+			!input.items.some(
+				(item) =>
+					item.itemId === target.itemId &&
+					item.occurredAtMs === target.occurredAtMs
+			)
 	);
 	const nextTargets: SpaceInboxUnreadTargetsResponse = {
 		...currentTargets,
 		targets: remainingTargets,
+		...(currentTargets.scopes
+			? {
+					scopes: currentTargets.scopes.map((scope) => ({
+						...scope,
+						unreadCount: Math.max(
+							0,
+							scope.unreadCount -
+								removedTargets.filter(
+									(target) =>
+										target.threadRootSignalId === scope.threadRootSignalId
+								).length
+						),
+					})),
+				}
+			: {}),
 		totalUnreadCount: Math.max(
 			0,
 			currentTargets.totalUnreadCount - removedTargets.length
@@ -82,20 +105,6 @@ export function optimisticallyMarkSpaceInboxReadThrough(input: {
 			}
 		},
 	};
-}
-
-function matchesReadThrough(
-	target: SpaceInboxUnreadTarget,
-	input: {
-		threadRootSignalId?: string;
-		throughOccurredAtMs: number;
-	}
-): boolean {
-	const targetThreadRootSignalId = target.threadRootSignalId ?? undefined;
-	return (
-		targetThreadRootSignalId === input.threadRootSignalId &&
-		target.occurredAtMs <= input.throughOccurredAtMs
-	);
 }
 
 function updateSpaceSummary(input: {

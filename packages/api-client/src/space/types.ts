@@ -306,6 +306,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       includePageInfo?: boolean;
       includePreviewText?: boolean;
+      includeReplyPlacement?: boolean;
       includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
@@ -338,6 +339,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       clientMessageId: string;
       includePreviewText?: boolean;
+      includeReplyPlacement?: boolean;
       includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;

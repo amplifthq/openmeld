@@ -1,9 +1,10 @@
+import { DropdownMenuSub } from "@openmeld/ui/components/dropdown-menu";
 import {
-	DropdownMenuCheckboxItem,
-	DropdownMenuSub,
-	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
-} from "@openmeld/ui/components/dropdown-menu";
+	FluidDropdownMenuCheckboxItem as DropdownMenuCheckboxItem,
+	FluidDropdownMenuSubContent as DropdownMenuSubContent,
+	FluidDropdownMenuSubTrigger as DropdownMenuSubTrigger,
+	FluidDropdownMenuGroup,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { FolderIcon, type Icon, ListIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { SidebarFilterBadge } from "./sidebar-filter-badge";
@@ -29,18 +30,20 @@ export function useSidebarFilter(
 		selected,
 		includes: (id: string) => selected.length === 0 || selected.includes(id),
 		menu: (
-			<>
+			<FluidDropdownMenuGroup>
 				<DropdownMenuCheckboxItem
 					checked={selected.length === 0}
 					closeOnClick={false}
+					index={0}
 					onCheckedChange={() => setSelection([])}
 				>
 					<ListIcon /> {allLabel}
 				</DropdownMenuCheckboxItem>
-				{options.map((option) => (
+				{options.map((option, index) => (
 					<DropdownMenuCheckboxItem
 						checked={selected.includes(option.id)}
 						closeOnClick={false}
+						index={index + 1}
 						key={option.id}
 						onCheckedChange={() => toggle(option.id)}
 					>
@@ -50,7 +53,7 @@ export function useSidebarFilter(
 						</span>
 					</DropdownMenuCheckboxItem>
 				))}
-			</>
+			</FluidDropdownMenuGroup>
 		),
 		badges:
 			selected.length > 0 ? (
@@ -69,21 +72,30 @@ export function useSidebarFilter(
 	};
 }
 
-export function useSidebarGroupFilter(options: readonly SidebarFilterOption[]) {
+export function useSidebarGroupFilter(
+	options: readonly SidebarFilterOption[],
+	index?: number
+) {
 	const filter = useSidebarFilter(options, "All groups");
+	const menu = (
+		<DropdownMenuSub>
+			<DropdownMenuSubTrigger index={index ?? 0}>
+				<FolderIcon />
+				Groups
+				{filter.selected.length > 0 ? ` (${filter.selected.length})` : ""}
+			</DropdownMenuSubTrigger>
+			<DropdownMenuSubContent className="max-h-80 w-60">
+				{filter.menu}
+			</DropdownMenuSubContent>
+		</DropdownMenuSub>
+	);
 	return {
 		...filter,
-		menu: (
-			<DropdownMenuSub>
-				<DropdownMenuSubTrigger>
-					<FolderIcon />
-					Groups
-					{filter.selected.length > 0 ? ` (${filter.selected.length})` : ""}
-				</DropdownMenuSubTrigger>
-				<DropdownMenuSubContent className="max-h-80 w-60 overflow-y-auto">
-					{filter.menu}
-				</DropdownMenuSubContent>
-			</DropdownMenuSub>
-		),
+		menu:
+			index === undefined ? (
+				<FluidDropdownMenuGroup>{menu}</FluidDropdownMenuGroup>
+			) : (
+				menu
+			),
 	};
 }

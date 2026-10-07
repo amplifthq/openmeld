@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   agentActivitySnapshotResponseSchema,
   agentActivitySnapshotRpcInputSchema,
@@ -7,7 +8,7 @@ import type {
   AgentActivitySnapshotResponse,
   AgentActivitySnapshotRpcInput,
 } from "@openmeld/schemas/types";
-import { agentActivityDb, type CoreBindings } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import type { ProjectReadAuthority } from "../projects/project-authority";
 import { prepareHumanProjectRequest } from "../projects/project-request-preparation";
 import type { createProjectService } from "../projects/project-service";
@@ -51,7 +52,7 @@ export async function readAgentActivitySnapshotForAuthority(input: {
     input.authority
   );
   const nowMs = Date.now();
-  const db = agentActivityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "agent_activity.store_unavailable",

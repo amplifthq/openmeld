@@ -362,9 +362,19 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "listing available plugin accounts",
     profileAction: null,
   },
+  "plugins.connect": {
+    ...DEFAULT_COPY,
+    signInAction: "connecting a plugin account",
+    profileAction: null,
+  },
   "plugins.actions": {
     ...DEFAULT_COPY,
     signInAction: "discovering plugin actions",
+    profileAction: null,
+  },
+  "plugins.connection": {
+    ...DEFAULT_COPY,
+    signInAction: "using a plugin account on your cloud Computer",
     profileAction: null,
   },
   "plugins.call": {
@@ -417,6 +427,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     profileAction: null,
   },
   "agents.config": { ...DEFAULT_COPY, signInAction: null, profileAction: null },
+  "computer.cloud": {
+    signInAction: "using your cloud Computer",
+    profileAction: null,
+    cliUpdateAction: "using your cloud Computer",
+    serviceAction: null,
+  },
   "computer.list": {
     signInAction: "listing computers",
     profileAction: null,

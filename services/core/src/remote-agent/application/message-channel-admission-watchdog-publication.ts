@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   markRemoteAgentMessageChannelAdmissionWatchdogOutcomeUnknown,
   markRemoteAgentMessageChannelAdmissionWatchdogPublished,
@@ -5,14 +6,13 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   releaseRemoteAgentMessageChannelAdmissionWatchdogClaim,
   releaseRemoteAgentMessageChannelTerminalFailureClaim,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
 import { resolveMessageChannelPublicationTarget } from "./message-channel-publication-target";
 import {
   type MessageChannelTerminalPublicationResult,
   publishMessageChannelTerminalResult,
 } from "./message-channel-terminal-publication";
-
 export type RemoteAgentMessageChannelAdmissionFailurePublicationOutcome =
   | {
       delivery: RemoteAgentNativeDeliveryRecord;
@@ -26,11 +26,10 @@ export type RemoteAgentMessageChannelAdmissionFailurePublicationOutcome =
   | {
       status: "outcome_unknown";
     };
-
 export async function publishRemoteAgentMessageChannelAdmissionFailure(input: {
   claimId: string;
   clock?: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord & {
     status: "failed" | "worker_unavailable";
   };
@@ -54,7 +53,6 @@ export async function publishRemoteAgentMessageChannelAdmissionFailure(input: {
       reasonCode: targetResolution.reasonCode,
     });
   }
-
   const clock = input.clock ?? Date.now;
   let publication: MessageChannelTerminalPublicationResult;
   try {
@@ -76,7 +74,6 @@ export async function publishRemoteAgentMessageChannelAdmissionFailure(input: {
       ? { status: "outcome_unknown" }
       : await resolveAdmissionFailurePublicationRace(input);
   }
-
   if (publication.status === "outcome_unknown") {
     const marked = await markOutcomeUnknown({
       ...input,
@@ -95,7 +92,6 @@ export async function publishRemoteAgentMessageChannelAdmissionFailure(input: {
       reasonCode: publication.reasonCode,
     });
   }
-
   const resultId = publication.resultId;
   const published =
     await markRemoteAgentMessageChannelAdmissionWatchdogPublished({
@@ -121,7 +117,6 @@ export async function publishRemoteAgentMessageChannelAdmissionFailure(input: {
   }
   return { delivery: published, resultId, status: "published" };
 }
-
 function assertClaimedAdmissionFailure(input: {
   claimId: string;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -142,7 +137,6 @@ function assertClaimedAdmissionFailure(input: {
     );
   }
 }
-
 function requireProviderPublicationIdempotencyKey(
   delivery: RemoteAgentNativeDeliveryRecord
 ): string {
@@ -154,11 +148,10 @@ function requireProviderPublicationIdempotencyKey(
   }
   return value;
 }
-
 async function releaseForRetry(input: {
   claimId: string;
   clock?: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   failureCode: string;
   providerPublicationIdempotencyKey: string;
@@ -191,10 +184,9 @@ async function releaseForRetry(input: {
     ? { status: "outcome_unknown" }
     : await resolveAdmissionFailurePublicationRace(input);
 }
-
 async function markOutcomeUnknown(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   failureCode: string;
   nowMs: number;
@@ -211,9 +203,8 @@ async function markOutcomeUnknown(input: {
     providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
   });
 }
-
 async function resolveAdmissionFailurePublicationRace(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
 }): Promise<RemoteAgentMessageChannelAdmissionFailurePublicationOutcome> {
   const current = await readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -238,7 +229,6 @@ async function resolveAdmissionFailurePublicationRace(input: {
     status: "retryable",
   };
 }
-
 function isConfirmedAdmissionFailurePublication(
   delivery: RemoteAgentNativeDeliveryRecord | null,
   resultId: string

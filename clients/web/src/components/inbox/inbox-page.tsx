@@ -53,9 +53,25 @@ import {
 import { INBOX_TABS } from "./inbox-page-tabs";
 import { useInboxRemoval } from "./inbox-removal-dialog";
 import { InvitationReview } from "./invitation-review";
+import { PluginActionRequest } from "./plugin-action-request";
 import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
+
+function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
+	if (target.kind === "desktop_update") {
+		return <InboxDesktopUpdateDetails target={target} />;
+	}
+	if (target.kind === "plugin_action_request") {
+		return (
+			<PluginActionRequest
+				key={target.requestId}
+				requestId={target.requestId}
+			/>
+		);
+	}
+	return null;
+}
 
 function markReadLabel(count: number | null): string {
 	if (count === null) {
@@ -94,7 +110,9 @@ function InboxExpansionAction({
 	rows: readonly InboxFeedRow[];
 	expansion: ReturnType<typeof useInboxExpansion>;
 }) {
-	const groups = rows.filter((row) => row.itemCount > 1);
+	const groups = rows.filter(
+		(row) => row.group?.kind === "space" || row.group?.kind === "system"
+	);
 	const allExpanded = groups.every((row) => expansion.isExpanded(row.groupKey));
 	if (!groups.length) {
 		return null;
@@ -105,7 +123,7 @@ function InboxExpansionAction({
 			size="sm"
 			variant="secondary"
 		>
-			{allExpanded ? "Collapse all activities" : "Expand all activities"}
+			{allExpanded ? "Collapse groups" : "Expand groups"}
 		</Button>
 	);
 }
@@ -130,6 +148,7 @@ export function InboxPage(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const expansion = useInboxExpansion(currentUserId, currentOrganization.id);
 	const filters = {
+		grouping: "space" as const,
 		category: input.view,
 		unreadOnly: input.unreadOnly ?? false,
 		agentsOnly: input.agentsOnly ?? false,
@@ -191,10 +210,10 @@ export function InboxPage(input: {
 		onSelection: mutateSelection,
 	});
 	const sourceItem = deepLink.data?.item;
-	const itemElement = useRef<HTMLAnchorElement | null>(null);
+	const itemElement = useRef<HTMLElement | null>(null);
 	const appliedItem = useRef<string | null>(null);
 	const registerItem = useCallback(
-		(_id: string, element: HTMLAnchorElement | null) => {
+		(_id: string, element: HTMLElement | null) => {
 			itemElement.current = element;
 		},
 		[]
@@ -238,6 +257,10 @@ export function InboxPage(input: {
 		);
 	}, [feed.data, sourceItem?.id, input.requestId]);
 	const firstPage = feed.data?.pages[0];
+	const snapshotExpired = firstPage
+		? Date.parse(firstPage.snapshotExpiresAt) <= Date.now()
+		: false;
+	const selectionPending = selection.isPending || snapshotExpired;
 	const selectionUnreadCount = firstPage?.selectionUnreadCount ?? null;
 	const selectionAction = (
 		<InboxSelectionActions
@@ -249,7 +272,7 @@ export function InboxPage(input: {
 					});
 				}
 			}}
-			pending={selection.isPending}
+			pending={selectionPending}
 			unreadCount={selectionUnreadCount}
 		/>
 	);
@@ -257,7 +280,7 @@ export function InboxPage(input: {
 		0,
 		INBOX_TABS.findIndex((tab) => tab.view === input.view)
 	);
-	const loadMoreState = resolveInboxFeedLoadMoreState(feed);
+	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
 	const openItem = (item: InboxItem) => setRead(item, true);
 	const confirmationLabel = markReadLabel(confirmation?.unreadCount ?? null);
 	return (
@@ -299,7 +322,6 @@ export function InboxPage(input: {
 							htmlFor="inbox-unread-only"
 						>
 							<Switch
-								aria-label="Unread only"
 								checked={filters.unreadOnly}
 								id="inbox-unread-only"
 								onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}
@@ -348,9 +370,7 @@ export function InboxPage(input: {
 							organizationSlug={currentOrganization.slug}
 							registerItemElement={registerItem}
 						/>
-						{sourceItem.sourceTarget.kind === "desktop_update" ? (
-							<InboxDesktopUpdateDetails target={sourceItem.sourceTarget} />
-						) : null}
+						<InboxSourceDetails target={sourceItem.sourceTarget} />
 					</section>
 				) : null}
 				{input.itemId && deepLink.isPending ? <InboxListSkeleton /> : null}
@@ -384,7 +404,7 @@ export function InboxPage(input: {
 										accountId={currentUserId}
 										expansion={expansion}
 										filters={filters}
-										isMutating={selection.isPending}
+										isMutating={selectionPending}
 										onDismiss={requestRemoval}
 										onOpenItem={openItem}
 										onSelection={requestSelection}
@@ -408,7 +428,11 @@ export function InboxPage(input: {
 								) : null}
 								{loadMoreState ? (
 									<InboxInfiniteScrollTrigger
-										onLoadMore={() => feed.fetchNextPage()}
+										onLoadMore={async () => {
+											if (!feed.isFetching) {
+												await feed.fetchNextPage();
+											}
+										}}
 										state={loadMoreState}
 									/>
 								) : null}

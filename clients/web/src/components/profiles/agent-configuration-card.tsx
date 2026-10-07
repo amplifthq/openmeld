@@ -11,6 +11,7 @@ import {
 } from "@openmeld/ui/components/morphing-dialog";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { SurfaceProvider, useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -226,9 +227,9 @@ export function AgentConfigurationCard(input: {
 								) : null}
 							</div>
 						</div>
-						<div className="max-h-[calc(100dvh-10rem)] overflow-y-auto">
+						<ScrollArea className="max-h-[calc(100dvh-10rem)]">
 							{input.children}
-						</div>
+						</ScrollArea>
 						<MorphingDialogClose />
 					</SurfaceProvider>
 				</MorphingDialogContent>

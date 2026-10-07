@@ -1,14 +1,15 @@
 import { desc, sql } from "drizzle-orm";
 import {
+  bigint,
   check,
   index,
-  integer,
   primaryKey,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 import { organizations } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
+import { integerBoolean } from "../postgresql/schema-types.ts";
 import {
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,
@@ -67,6 +68,7 @@ import {
   centerAgentTaskEvents,
   centerAgentTasks,
 } from "./center-agent-tasks.schema.ts";
+import { cloudComputers } from "./cloud-computer.schema.ts";
 import { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 import {
   connectorAccessEvents,
@@ -74,6 +76,7 @@ import {
   connectorConnections,
   githubAppInstallationStates,
   pluginActionConfirmations,
+  pluginActionRequests,
 } from "./connector-connection.schema.ts";
 import { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 import { evalReports } from "./eval-report.schema.ts";
@@ -158,14 +161,14 @@ import {
   spaceTaskGitHubIssueLinks,
 } from "./space-task-github.schema.ts";
 
-export const openMeldDaemonOpsDecisions = sqliteTable(
+export const openMeldDaemonOpsDecisions = applicationTable(
   "openMeldDaemon_ops_decisions",
   {
     id: text("id").primaryKey(),
     decisionCode: text("decision_code").notNull(),
     decisionPayloadJson: text("decision_payload_json").notNull(),
     decidedBy: text("decided_by").notNull(),
-    decidedAtMs: integer("decided_at_ms").notNull(),
+    decidedAtMs: bigint("decided_at_ms", { mode: "number" }).notNull(),
     expectedRecoveryCriteria: text("expected_recovery_criteria"),
     source: text("source").notNull(),
     correlationId: text("correlation_id"),
@@ -195,10 +198,12 @@ export const openMeldDaemonOpsDecisions = sqliteTable(
   ]
 );
 
-export const openMeldDaemonDispatchLedger = sqliteTable(
+export const openMeldDaemonDispatchLedger = applicationTable(
   "openMeldDaemon_dispatch_ledger",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: bigint("id", { mode: "number" })
+      .generatedByDefaultAsIdentity()
+      .primaryKey(),
     idempotencyKey: text("idempotency_key").notNull(),
     dispatchId: text("dispatch_id").notNull(),
     spaceId: text("space_id").notNull(),
@@ -209,12 +214,12 @@ export const openMeldDaemonDispatchLedger = sqliteTable(
     dispatchOwnerId: text("dispatch_owner_id"),
     targetProfileId: text("target_profile_id").notNull(),
     status: text("status").notNull(),
-    firstSeenAtMs: integer("first_seen_at_ms").notNull(),
-    lastAttemptAtMs: integer("last_attempt_at_ms").notNull(),
-    attemptCount: integer("attempt_count").notNull(),
+    firstSeenAtMs: bigint("first_seen_at_ms", { mode: "number" }).notNull(),
+    lastAttemptAtMs: bigint("last_attempt_at_ms", { mode: "number" }).notNull(),
+    attemptCount: bigint("attempt_count", { mode: "number" }).notNull(),
     latestAttemptId: text("latest_attempt_id"),
-    replyHintSentAtMs: integer("reply_hint_sent_at_ms"),
-    finalReplySentAtMs: integer("final_reply_sent_at_ms"),
+    replyHintSentAtMs: bigint("reply_hint_sent_at_ms", { mode: "number" }),
+    finalReplySentAtMs: bigint("final_reply_sent_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("openMeldDaemon_dispatch_ledger_idempotency_key_unique").on(
@@ -246,26 +251,26 @@ export const openMeldDaemonDispatchLedger = sqliteTable(
   ]
 );
 
-export const openMeldDaemonDispatchAttempts = sqliteTable(
+export const openMeldDaemonDispatchAttempts = applicationTable(
   "openMeldDaemon_dispatch_attempts",
   {
     attemptId: text("attempt_id").primaryKey(),
     dispatchId: text("dispatch_id").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
-    attemptNo: integer("attempt_no").notNull(),
+    attemptNo: bigint("attempt_no", { mode: "number" }).notNull(),
     status: text("status").notNull(),
     daemonSessionId: text("daemon_session_id"),
-    connectionGeneration: integer("connection_generation"),
-    leaseEpoch: integer("lease_epoch"),
+    connectionGeneration: bigint("connection_generation", { mode: "number" }),
+    leaseEpoch: bigint("lease_epoch", { mode: "number" }),
     taskId: text("task_id"),
     targetProfileId: text("target_profile_id"),
     executionIdentityModelVersion: text("execution_identity_model_version"),
     executionBindingId: text("execution_binding_id"),
     executionRuntimeId: text("execution_openmeld_service_runtime_id"),
     executionAgentControllerRef: text("execution_agent_controller_ref"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    startedAtMs: integer("started_at_ms"),
-    finishedAtMs: integer("finished_at_ms"),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
+    finishedAtMs: bigint("finished_at_ms", { mode: "number" }),
     errorCode: text("error_code"),
     errorMessage: text("error_message"),
   },
@@ -281,22 +286,24 @@ export const openMeldDaemonDispatchAttempts = sqliteTable(
   ]
 );
 
-export const openMeldDaemonDlq = sqliteTable(
+export const openMeldDaemonDlq = applicationTable(
   "openMeldDaemon_dlq",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: bigint("id", { mode: "number" })
+      .generatedByDefaultAsIdentity()
+      .primaryKey(),
     dispatchId: text("dispatch_id").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     sourceEventId: text("source_event_id").notNull(),
     targetProfileId: text("target_profile_id").notNull(),
     errorCode: text("error_code").notNull(),
     errorMessage: text("error_message"),
-    failedAtMs: integer("failed_at_ms").notNull(),
+    failedAtMs: bigint("failed_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [index("idx_openMeldDaemon_dlq_failed_at").on(table.failedAtMs)]
 );
 
-export const openMeldDaemonDispatchResults = sqliteTable(
+export const openMeldDaemonDispatchResults = applicationTable(
   "openMeldDaemon_dispatch_results",
   {
     resultRef: text("result_ref").primaryKey(),
@@ -312,7 +319,7 @@ export const openMeldDaemonDispatchResults = sqliteTable(
     previewText: text("preview_text"),
     publicOutcome: text("public_outcome").notNull(),
     publishedSignalId: text("published_signal_id"),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("openMeldDaemon_dispatch_results_dispatch_id_unique").on(
@@ -329,7 +336,7 @@ export const openMeldDaemonDispatchResults = sqliteTable(
   ]
 );
 
-export const openMeldDaemonDispatchResultInbox = sqliteTable(
+export const openMeldDaemonDispatchResultInbox = applicationTable(
   "openMeldDaemon_dispatch_result_inbox",
   {
     resultKey: text("result_key").primaryKey(),
@@ -338,19 +345,19 @@ export const openMeldDaemonDispatchResultInbox = sqliteTable(
     taskId: text("task_id").notNull(),
     targetProfileId: text("target_profile_id").notNull(),
     daemonSessionId: text("daemon_session_id").notNull(),
-    leaseEpoch: integer("lease_epoch").notNull(),
-    submittedConnectionGeneration: integer(
-      "submitted_connection_generation"
-    ).notNull(),
+    leaseEpoch: bigint("lease_epoch", { mode: "number" }).notNull(),
+    submittedConnectionGeneration: bigint("submitted_connection_generation", {
+      mode: "number",
+    }).notNull(),
     runtimeCoordinatorExecutionId: text("runtime_coordinator_execution_id"),
     executionTokenRunId: text("execution_token_run_id"),
     executionTokenFingerprint: text("execution_token_fingerprint"),
     resultPayloadJson: text("result_payload_json").notNull(),
-    acceptedAtMs: integer("accepted_at_ms").notNull(),
+    acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }).notNull(),
     publishState: text("publish_state").notNull(),
     publishedSignalId: text("published_signal_id"),
     publicationErrorCode: text("publication_error_code"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_openMeldDaemon_dispatch_result_inbox_dispatch_attempt").on(
@@ -368,7 +375,7 @@ export const openMeldDaemonDispatchResultInbox = sqliteTable(
   ]
 );
 
-export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
+export const openMeldRemoteAgentNativeDeliveryLedger = applicationTable(
   "openMeldRemoteAgent_native_delivery_ledger",
   {
     deliveryId: text("delivery_id").primaryKey(),
@@ -383,7 +390,9 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     controllerStoredAgentControllerRefStatus: text(
       "controller_stored_agent_controller_ref_status"
     ),
-    controllerBindingUpdatedAtMs: integer("controller_binding_updated_at_ms"),
+    controllerBindingUpdatedAtMs: bigint("controller_binding_updated_at_ms", {
+      mode: "number",
+    }),
     triggerMessageId: text("trigger_message_id").notNull(),
     sourceClientMessageId: text("source_client_message_id"),
     triggerText: text("trigger_text"),
@@ -393,6 +402,10 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     routineRunId: text("routine_run_id"),
     routineNameSnapshot: text("routine_name_snapshot"),
     workerSubmitRequestJson: text("worker_submit_request_json"),
+    workerSubmitClaimId: text("worker_submit_claim_id"),
+    workerSubmitClaimExpiresAtMs: bigint("worker_submit_claim_expires_at_ms", {
+      mode: "number",
+    }),
     executionRecoverySubmitRequestJson: text(
       "execution_recovery_submit_request_json"
     ),
@@ -422,9 +435,12 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     providerPublicationResultId: text("provider_publication_result_id"),
     providerProgressState: text("provider_progress_state"),
     providerProgressClaimId: text("provider_progress_claim_id"),
-    providerProgressClaimedAtMs: integer("provider_progress_claimed_at_ms"),
-    providerProgressClaimExpiresAtMs: integer(
-      "provider_progress_claim_expires_at_ms"
+    providerProgressClaimedAtMs: bigint("provider_progress_claimed_at_ms", {
+      mode: "number",
+    }),
+    providerProgressClaimExpiresAtMs: bigint(
+      "provider_progress_claim_expires_at_ms",
+      { mode: "number" }
     ),
     providerProgressCardId: text("provider_progress_card_id"),
     providerProgressCardHistoryJson: text(
@@ -434,18 +450,26 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     providerProgressPublicationIdempotencyKey: text(
       "provider_progress_publication_idempotency_key"
     ),
-    providerProgressSequence: integer("provider_progress_sequence"),
-    providerProgressPendingSequence: integer(
-      "provider_progress_pending_sequence"
+    providerProgressSequence: bigint("provider_progress_sequence", {
+      mode: "number",
+    }),
+    providerProgressPendingSequence: bigint(
+      "provider_progress_pending_sequence",
+      { mode: "number" }
     ),
-    providerProgressSourceOffset: integer("provider_progress_source_offset")
+    providerProgressSourceOffset: bigint("provider_progress_source_offset", {
+      mode: "number",
+    })
       .notNull()
       .default(0),
-    providerProgressRolloverIndex: integer("provider_progress_rollover_index")
+    providerProgressRolloverIndex: bigint("provider_progress_rollover_index", {
+      mode: "number",
+    })
       .notNull()
       .default(0),
-    providerProgressPendingSourceOffset: integer(
-      "provider_progress_pending_source_offset"
+    providerProgressPendingSourceOffset: bigint(
+      "provider_progress_pending_source_offset",
+      { mode: "number" }
     ),
     providerProgressPendingTextHash: text(
       "provider_progress_pending_text_hash"
@@ -454,55 +478,87 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     providerProgressFailureCode: text("provider_progress_failure_code"),
     finalPublicationState: text("final_publication_state"),
     finalPublicationClaimId: text("final_publication_claim_id"),
-    finalPublicationClaimedAtMs: integer("final_publication_claimed_at_ms"),
-    finalPublicationClaimExpiresAtMs: integer(
-      "final_publication_claim_expires_at_ms"
+    finalPublicationClaimedAtMs: bigint("final_publication_claimed_at_ms", {
+      mode: "number",
+    }),
+    finalPublicationClaimExpiresAtMs: bigint(
+      "final_publication_claim_expires_at_ms",
+      { mode: "number" }
     ),
     finalPublicationPayloadJson: text("final_publication_payload_json"),
-    finalPublicationAttemptCount: integer("final_publication_attempt_count")
+    finalPublicationAttemptCount: bigint("final_publication_attempt_count", {
+      mode: "number",
+    })
       .notNull()
       .default(0),
-    finalPublicationAmbiguityDeadlineAtMs: integer(
-      "final_publication_ambiguity_deadline_at_ms"
+    finalPublicationAmbiguityDeadlineAtMs: bigint(
+      "final_publication_ambiguity_deadline_at_ms",
+      { mode: "number" }
     ),
-    finalPublicationNextAttemptAtMs: integer(
-      "final_publication_next_attempt_at_ms"
+    finalPublicationNextAttemptAtMs: bigint(
+      "final_publication_next_attempt_at_ms",
+      { mode: "number" }
     ),
-    finalPublicationProviderProgressSequence: integer(
-      "final_publication_provider_progress_sequence"
+    finalPublicationProviderProgressSequence: bigint(
+      "final_publication_provider_progress_sequence",
+      { mode: "number" }
     ),
     inboxProjectionSuppressedReason: text("inbox_projection_suppressed_reason"),
-    inboxProjectionSuppressedAtMs: integer("inbox_projection_suppressed_at_ms"),
-    inboxProjectionAttemptedAtMs: integer("inbox_projection_attempted_at_ms"),
+    inboxProjectionSuppressedAtMs: bigint("inbox_projection_suppressed_at_ms", {
+      mode: "number",
+    }),
+    inboxProjectionAttemptedAtMs: bigint("inbox_projection_attempted_at_ms", {
+      mode: "number",
+    }),
     publishedSignalId: text("published_signal_id"),
-    executionEvidenceAtMs: integer("execution_evidence_at_ms"),
-    executionEvidenceSequence: integer("execution_evidence_sequence"),
-    centerAgentTaskTerminalProjectionAttemptedAtMs: integer(
-      "center_agent_task_terminal_projection_attempted_at_ms"
+    executionEvidenceAtMs: bigint("execution_evidence_at_ms", {
+      mode: "number",
+    }),
+    executionEvidenceSequence: bigint("execution_evidence_sequence", {
+      mode: "number",
+    }),
+    centerAgentTaskTerminalProjectionAttemptedAtMs: bigint(
+      "center_agent_task_terminal_projection_attempted_at_ms",
+      { mode: "number" }
     ),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    submittedAtMs: integer("submitted_at_ms"),
-    admissionAttemptCount: integer("admission_attempt_count")
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    submittedAtMs: bigint("submitted_at_ms", { mode: "number" }),
+    admissionAttemptCount: bigint("admission_attempt_count", { mode: "number" })
       .notNull()
       .default(1),
-    admissionRetryDueAtMs: integer("admission_retry_due_at_ms"),
-    acceptedAtMs: integer("accepted_at_ms"),
-    callbackReceivedAtMs: integer("callback_received_at_ms"),
-    completedAtMs: integer("completed_at_ms"),
-    deadlineProbeEnqueuedAtMs: integer("deadline_probe_enqueued_at_ms"),
-    acceptedProbeNextDueAtMs: integer("accepted_probe_next_due_at_ms"),
+    admissionRetryDueAtMs: bigint("admission_retry_due_at_ms", {
+      mode: "number",
+    }),
+    acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }),
+    callbackReceivedAtMs: bigint("callback_received_at_ms", { mode: "number" }),
+    completedAtMs: bigint("completed_at_ms", { mode: "number" }),
+    deadlineProbeEnqueuedAtMs: bigint("deadline_probe_enqueued_at_ms", {
+      mode: "number",
+    }),
+    acceptedProbeNextDueAtMs: bigint("accepted_probe_next_due_at_ms", {
+      mode: "number",
+    }),
     executionReconciliationJson: text("execution_reconciliation_json"),
     retiredDeadlineFailureCode: text("retired_deadline_failure_code"),
     retiredDeadlineFailurePublishedSignalId: text(
       "retired_deadline_failure_published_signal_id"
     ),
-    retiredDeadlineFailureReconciledAtMs: integer(
-      "retired_deadline_failure_reconciled_at_ms"
+    retiredDeadlineFailureReconciledAtMs: bigint(
+      "retired_deadline_failure_reconciled_at_ms",
+      { mode: "number" }
     ),
     dailyAdmissionDayUtc: text("daily_admission_day_utc"),
   },
   (table) => [
+    check(
+      "native_delivery_worker_submit_claim_shape",
+      sql`(
+      ("worker_submit_claim_id" IS NULL AND "worker_submit_claim_expires_at_ms" IS NULL)
+      OR ("worker_submit_claim_id" IS NOT NULL AND "worker_submit_claim_expires_at_ms" IS NOT NULL
+        AND length(trim("worker_submit_claim_id")) > 0 AND "worker_submit_claim_expires_at_ms" > 0)
+    )`
+    ),
     uniqueIndex(
       "openMeldRemoteAgent_native_delivery_idempotency_key_unique"
     ).on(table.idempotencyKey),
@@ -561,7 +617,7 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
   ]
 );
 
-export const openMeldRemoteAgentWorkLoopAttempts = sqliteTable(
+export const openMeldRemoteAgentWorkLoopAttempts = applicationTable(
   "openMeldRemoteAgent_work_loop_attempts",
   {
     deliveryId: text("delivery_id")
@@ -569,14 +625,14 @@ export const openMeldRemoteAgentWorkLoopAttempts = sqliteTable(
       .references(() => openMeldRemoteAgentNativeDeliveryLedger.deliveryId, {
         onDelete: "cascade",
       }),
-    attempt: integer("attempt").notNull(),
+    attempt: bigint("attempt", { mode: "number" }).notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     submissionId: text("submission_id").notNull(),
     workerSubmitRequestJson: text("worker_submit_request_json").notNull(),
     checkpointReason: text("checkpoint_reason").notNull(),
-    toolCallLimit: integer("tool_call_limit").notNull(),
+    toolCallLimit: bigint("tool_call_limit", { mode: "number" }).notNull(),
     nextIdempotencyKey: text("next_idempotency_key").notNull(),
-    continuedAtMs: integer("continued_at_ms").notNull(),
+    continuedAtMs: bigint("continued_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -611,17 +667,17 @@ export const openMeldRemoteAgentWorkLoopAttempts = sqliteTable(
   ]
 );
 
-export const openMeldRemoteAgentDailyAdmissions = sqliteTable(
+export const openMeldRemoteAgentDailyAdmissions = applicationTable(
   "openMeldRemoteAgent_daily_admissions",
   {
     organizationId: text("organization_id").notNull(),
     dayUtc: text("day_utc").notNull(),
-    admittedCount: integer("admitted_count").notNull(),
+    admittedCount: bigint("admitted_count", { mode: "number" }).notNull(),
     lastAdmissionIdempotencyKey: text(
       "last_admission_idempotency_key"
     ).notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -647,16 +703,16 @@ export const openMeldRemoteAgentDailyAdmissions = sqliteTable(
   ]
 );
 
-export const openMeldRemoteAgentConversationGenerations = sqliteTable(
+export const openMeldRemoteAgentConversationGenerations = applicationTable(
   "openMeldRemoteAgent_conversation_generations",
   {
     organizationId: text("organization_id").notNull(),
     logicalConversationId: text("logical_conversation_id").notNull(),
-    activeGeneration: integer("active_generation").notNull(),
-    startedAtMs: integer("started_at_ms"),
+    activeGeneration: bigint("active_generation", { mode: "number" }).notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
     rolloverDeliveryId: text("rollover_delivery_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -681,7 +737,7 @@ export const openMeldRemoteAgentConversationGenerations = sqliteTable(
   ]
 );
 
-export const openMeldRemoteAgentSlackEventIngress = sqliteTable(
+export const openMeldRemoteAgentSlackEventIngress = applicationTable(
   "openMeldRemoteAgent_slack_event_ingress",
   {
     eventKey: text("event_key").primaryKey(),
@@ -689,21 +745,25 @@ export const openMeldRemoteAgentSlackEventIngress = sqliteTable(
     slackTeamId: text("slack_team_id").notNull(),
     state: text("state").default("queued").notNull(),
     claimId: text("claim_id"),
-    claimExpiresAtMs: integer("claim_expires_at_ms"),
-    firstReceivedAtMs: integer("first_received_at_ms").notNull(),
-    lastReceivedAtMs: integer("last_received_at_ms").notNull(),
-    deliveryAttemptCount: integer("delivery_attempt_count")
+    claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
+    firstReceivedAtMs: bigint("first_received_at_ms", {
+      mode: "number",
+    }).notNull(),
+    lastReceivedAtMs: bigint("last_received_at_ms", {
+      mode: "number",
+    }).notNull(),
+    deliveryAttemptCount: bigint("delivery_attempt_count", { mode: "number" })
       .default(0)
       .notNull(),
-    slackRetryNum: integer("slack_retry_num"),
+    slackRetryNum: bigint("slack_retry_num", { mode: "number" }),
     slackRetryReason: text("slack_retry_reason"),
     gatewayRequestId: text("gateway_request_id").notNull(),
     queueMessageId: text("queue_message_id"),
-    queueAttempts: integer("queue_attempts"),
+    queueAttempts: bigint("queue_attempts", { mode: "number" }),
     outcomeStatus: text("outcome_status"),
     failureCode: text("failure_code"),
-    completedAtMs: integer("completed_at_ms"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    completedAtMs: bigint("completed_at_ms", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_openMeldRemoteAgent_slack_event_ingress_state_claim").on(
@@ -725,13 +785,13 @@ export const openMeldRemoteAgentSlackEventIngress = sqliteTable(
   ]
 );
 
-export const openMeldRemoteAgentSlackWorkspaceBindings = sqliteTable(
+export const openMeldRemoteAgentSlackWorkspaceBindings = applicationTable(
   "openMeldRemoteAgent_slack_workspace_bindings",
   {
     slackTeamId: text("slack_team_id").primaryKey(),
     organizationId: text("organization_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("openMeldRemoteAgent_slack_workspace_org_unique").on(
@@ -752,18 +812,22 @@ export const openMeldRemoteAgentSlackWorkspaceBindings = sqliteTable(
   ]
 );
 
-export const openMeldRemoteAgentSlackThreadContextCursors = sqliteTable(
+export const openMeldRemoteAgentSlackThreadContextCursors = applicationTable(
   "openMeldRemoteAgent_slack_thread_context_cursors",
   {
     organizationId: text("organization_id").notNull(),
     slackTeamId: text("slack_team_id").notNull(),
     slackChannelId: text("slack_channel_id").notNull(),
     slackThreadTs: text("slack_thread_ts").notNull(),
-    connectionCreatedAtMs: integer("connection_created_at_ms").notNull(),
+    connectionCreatedAtMs: bigint("connection_created_at_ms", {
+      mode: "number",
+    }).notNull(),
     syncedThroughTs: text("synced_through_ts").notNull(),
-    syncedThroughEpochMicros: integer("synced_through_epoch_micros").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    syncedThroughEpochMicros: bigint("synced_through_epoch_micros", {
+      mode: "number",
+    }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -810,7 +874,7 @@ export const openMeldRemoteAgentSlackThreadContextCursors = sqliteTable(
   ]
 );
 
-export const slackWorkspaceTokens = sqliteTable(
+export const slackWorkspaceTokens = applicationTable(
   "slack_workspace_tokens",
   {
     slackTeamId: text("slack_team_id").primaryKey(),
@@ -819,8 +883,8 @@ export const slackWorkspaceTokens = sqliteTable(
     grantedBotScopes: text("granted_bot_scopes"),
     installedByUserId: text("installed_by_user_id").notNull(),
     organizationId: text("organization_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("slack_workspace_tokens_org_unique").on(table.organizationId),
@@ -855,7 +919,7 @@ export const slackWorkspaceTokens = sqliteTable(
   ]
 );
 
-export const slackChannelIntroductionRuns = sqliteTable(
+export const slackChannelIntroductionRuns = applicationTable(
   "slack_channel_introduction_runs",
   {
     interactionId: text("interaction_id").primaryKey(),
@@ -880,12 +944,14 @@ export const slackChannelIntroductionRuns = sqliteTable(
     }).notNull(),
     acknowledgementTs: text("acknowledgement_ts"),
     recoveryNoticeTs: text("recovery_notice_ts"),
-    recoveryNoticeAttemptCount: integer("recovery_notice_attempt_count")
+    recoveryNoticeAttemptCount: bigint("recovery_notice_attempt_count", {
+      mode: "number",
+    })
       .notNull()
       .default(0),
     failureCode: text("failure_code"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_slack_channel_introduction_runs_status_updated").on(
@@ -926,24 +992,22 @@ export const slackChannelIntroductionRuns = sqliteTable(
   ]
 );
 
-export const slackChannelIntroductionItems = sqliteTable(
+export const slackChannelIntroductionItems = applicationTable(
   "slack_channel_introduction_items",
   {
     interactionId: text("interaction_id").notNull(),
     slackChannelId: text("slack_channel_id").notNull(),
     slackChannelName: text("slack_channel_name").notNull(),
-    position: integer("position").notNull(),
-    botWasChannelMember: integer("bot_was_channel_member", {
-      mode: "boolean",
-    }).notNull(),
+    position: bigint("position", { mode: "number" }).notNull(),
+    botWasChannelMember: integerBoolean("bot_was_channel_member").notNull(),
     status: text("status", {
       enum: ["ready", "submitting", "submitted", "failed", "outcome_unknown"],
     }).notNull(),
     claimId: text("claim_id"),
-    attemptCount: integer("attempt_count").notNull(),
+    attemptCount: bigint("attempt_count", { mode: "number" }).notNull(),
     failureCode: text("failure_code"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.interactionId, table.slackChannelId] }),
@@ -986,14 +1050,16 @@ export const slackChannelIntroductionItems = sqliteTable(
   ]
 );
 
-export const slackInstallationWelcomeDeliveries = sqliteTable(
+export const slackInstallationWelcomeDeliveries = applicationTable(
   "slack_installation_welcome_deliveries",
   {
     slackTeamId: text("slack_team_id").notNull(),
     organizationId: text("organization_id").notNull(),
     recipientSlackUserId: text("recipient_slack_user_id").notNull(),
-    connectionCreatedAtMs: integer("connection_created_at_ms").notNull(),
-    welcomeVersion: integer("welcome_version").notNull(),
+    connectionCreatedAtMs: bigint("connection_created_at_ms", {
+      mode: "number",
+    }).notNull(),
+    welcomeVersion: bigint("welcome_version", { mode: "number" }).notNull(),
     messageKind: text("message_kind", {
       enum: ["connected", "moved"],
     }).notNull(),
@@ -1001,11 +1067,11 @@ export const slackInstallationWelcomeDeliveries = sqliteTable(
       enum: ["pending", "delivered", "failed", "outcome_unknown"],
     }).notNull(),
     claimId: text("claim_id").notNull(),
-    attemptCount: integer("attempt_count").notNull(),
+    attemptCount: bigint("attempt_count", { mode: "number" }).notNull(),
     messageTs: text("message_ts"),
     failureCode: text("failure_code"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -1080,14 +1146,16 @@ export const slackInstallationWelcomeDeliveries = sqliteTable(
   ]
 );
 
-export const slackInstallationWelcomePreparations = sqliteTable(
+export const slackInstallationWelcomePreparations = applicationTable(
   "slack_installation_welcome_preparations",
   {
     slackTeamId: text("slack_team_id").notNull(),
     organizationId: text("organization_id").notNull(),
     recipientSlackUserId: text("recipient_slack_user_id").notNull(),
-    connectionCreatedAtMs: integer("connection_created_at_ms").notNull(),
-    welcomeVersion: integer("welcome_version").notNull(),
+    connectionCreatedAtMs: bigint("connection_created_at_ms", {
+      mode: "number",
+    }).notNull(),
+    welcomeVersion: bigint("welcome_version", { mode: "number" }).notNull(),
     messageKind: text("message_kind", {
       enum: ["connected", "moved"],
     }).notNull(),
@@ -1099,8 +1167,8 @@ export const slackInstallationWelcomePreparations = sqliteTable(
     claimId: text("claim_id"),
     researchTaskId: text("research_task_id"),
     failureCode: text("failure_code"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -1136,7 +1204,7 @@ export const slackInstallationWelcomePreparations = sqliteTable(
       sql`(
         ("status" = 'queued' AND "claim_id" IS NULL AND "research_task_id" IS NULL AND "failure_code" IS NULL)
         OR ("status" = 'researching' AND length(trim("claim_id")) > 0 AND "failure_code" IS NULL)
-        OR ("status" = 'ready' AND length(trim("claim_id")) > 0 AND length(trim("research_task_id")) > 0 AND "failure_code" IS NULL)
+        OR ("status" = 'ready' AND length(trim("claim_id")) > 0 AND length(trim("research_task_id")) > 0 AND ("failure_code" IS NULL OR "failure_code" = 'slack_delivery_retry_authorized'))
         OR ("status" = 'completed' AND length(trim("claim_id")) > 0 AND length(trim("research_task_id")) > 0 AND "failure_code" IS NULL)
         OR ("status" = 'failed' AND length(trim("claim_id")) > 0 AND length(trim("failure_code")) > 0)
       )`
@@ -1150,7 +1218,7 @@ export const slackInstallationWelcomePreparations = sqliteTable(
   ]
 );
 
-export const slackTeammateInvitationDeliveries = sqliteTable(
+export const slackTeammateInvitationDeliveries = applicationTable(
   "slack_teammate_invitation_deliveries",
   {
     interactionId: text("interaction_id").notNull(),
@@ -1180,8 +1248,8 @@ export const slackTeammateInvitationDeliveries = sqliteTable(
     researchTaskId: text("research_task_id"),
     welcomeMessageTs: text("welcome_message_ts"),
     onboardingFailureCode: text("onboarding_failure_code"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -1262,7 +1330,7 @@ export const slackTeammateInvitationDeliveries = sqliteTable(
   ]
 );
 
-export const slackInvitedMemberWelcomeDeliveries = sqliteTable(
+export const slackInvitedMemberWelcomeDeliveries = applicationTable(
   "slack_invited_member_welcome_deliveries",
   {
     interactionId: text("interaction_id").notNull(),
@@ -1272,11 +1340,11 @@ export const slackInvitedMemberWelcomeDeliveries = sqliteTable(
       enum: ["pending", "delivered", "failed", "outcome_unknown"],
     }).notNull(),
     claimId: text("claim_id").notNull(),
-    attemptCount: integer("attempt_count").notNull(),
+    attemptCount: bigint("attempt_count", { mode: "number" }).notNull(),
     messageTs: text("message_ts"),
     failureCode: text("failure_code"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -1316,7 +1384,7 @@ export const slackInvitedMemberWelcomeDeliveries = sqliteTable(
   ]
 );
 
-export const slackOAuthStates = sqliteTable(
+export const slackOAuthStates = applicationTable(
   "slack_oauth_states",
   {
     stateDigest: text("state_digest").primaryKey(),
@@ -1325,8 +1393,8 @@ export const slackOAuthStates = sqliteTable(
     actorProfileId: text("actor_profile_id").notNull(),
     returnPath: text("return_path").notNull(),
     moveFromOrganizationId: text("move_from_organization_id"),
-    expiresAtMs: integer("expires_at_ms").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_slack_oauth_states_expires").on(table.expiresAtMs),
@@ -1357,7 +1425,7 @@ export const slackOAuthStates = sqliteTable(
   ]
 );
 
-export const slackUserIdentityLinks = sqliteTable(
+export const slackUserIdentityLinks = applicationTable(
   "slack_user_identity_links",
   {
     organizationId: text("organization_id").notNull(),
@@ -1365,7 +1433,7 @@ export const slackUserIdentityLinks = sqliteTable(
     slackUserId: text("slack_user_id").notNull(),
     openmeldUserId: text("openmeld_user_id").notNull(),
     source: text("source", { enum: ["explicit", "email_auto"] }).notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("slack_user_identity_links_slack_user_unique").on(
@@ -1399,7 +1467,7 @@ export const slackUserIdentityLinks = sqliteTable(
   ]
 );
 
-export const slackUserIdentityLinkTokens = sqliteTable(
+export const slackUserIdentityLinkTokens = applicationTable(
   "slack_user_identity_link_tokens",
   {
     tokenHash: text("token_hash").primaryKey(),
@@ -1407,19 +1475,21 @@ export const slackUserIdentityLinkTokens = sqliteTable(
     slackTeamId: text("slack_team_id").notNull(),
     slackUserId: text("slack_user_id").notNull(),
     slackUserDisplayName: text("slack_user_display_name").notNull(),
-    issuedAtMs: integer("issued_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
-    consumedAtMs: integer("consumed_at_ms"),
+    issuedAtMs: bigint("issued_at_ms", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
+    consumedAtMs: bigint("consumed_at_ms", { mode: "number" }),
     consumeNonce: text("consume_nonce"),
     consumedByUserId: text("consumed_by_user_id"),
-    claimedAtMs: integer("claimed_at_ms"),
+    claimedAtMs: bigint("claimed_at_ms", { mode: "number" }),
     claimedByUserId: text("claimed_by_user_id"),
     membershipRequirement: text("membership_requirement", {
       enum: ["allow_enrollment", "current_member"],
     })
       .notNull()
       .default("allow_enrollment"),
-    continuationAttempt: integer("continuation_attempt").notNull().default(0),
+    continuationAttempt: bigint("continuation_attempt", { mode: "number" })
+      .notNull()
+      .default(0),
     deliveryScope: text("delivery_scope"),
     sourceDeliveryId: text("source_delivery_id"),
   },
@@ -1463,7 +1533,7 @@ export const slackUserIdentityLinkTokens = sqliteTable(
   ]
 );
 
-export const openMeldRemoteAgentOrgGuardrails = sqliteTable(
+export const openMeldRemoteAgentOrgGuardrails = applicationTable(
   "openMeldRemoteAgent_org_guardrails",
   {
     organizationId: text("organization_id").primaryKey(),
@@ -1475,23 +1545,33 @@ export const openMeldRemoteAgentOrgGuardrails = sqliteTable(
     breakerSource: text("breaker_source").notNull().default("none"),
     // Legacy Core breaker/reset fields. Historical rows are durable evidence;
     // do not drop or mutate the 0009/0010 migrations.
-    restingUntilMs: integer("resting_until_ms"),
-    dailyBudgetCents: integer("daily_budget_cents").notNull().default(5000),
+    restingUntilMs: bigint("resting_until_ms", { mode: "number" }),
+    dailyBudgetCents: bigint("daily_budget_cents", { mode: "number" })
+      .notNull()
+      .default(5000),
     failureCode: text("failure_code"),
     manuallyTrippedBy: text("manually_tripped_by"),
-    manuallyTrippedAtMs: integer("manually_tripped_at_ms"),
+    manuallyTrippedAtMs: bigint("manually_tripped_at_ms", { mode: "number" }),
     // Legacy Core AI Gateway REST Logs projection fields. Usage reporting now
     // lives in the Remote Agent worker's OpenMeld-owned records and Analytics
     // Engine; active Core code no longer reads or writes these fields.
-    meteredSpendCents: integer("metered_spend_cents").notNull().default(0),
-    meteredWindowStartMs: integer("metered_window_start_ms"),
-    lastMeteredAtMs: integer("last_metered_at_ms"),
-    firstMeterFailureAtMs: integer("first_meter_failure_at_ms"),
-    lastMeterFailureAtMs: integer("last_meter_failure_at_ms"),
+    meteredSpendCents: bigint("metered_spend_cents", { mode: "number" })
+      .notNull()
+      .default(0),
+    meteredWindowStartMs: bigint("metered_window_start_ms", { mode: "number" }),
+    lastMeteredAtMs: bigint("last_metered_at_ms", { mode: "number" }),
+    firstMeterFailureAtMs: bigint("first_meter_failure_at_ms", {
+      mode: "number",
+    }),
+    lastMeterFailureAtMs: bigint("last_meter_failure_at_ms", {
+      mode: "number",
+    }),
     lastMeterFailureCode: text("last_meter_failure_code"),
-    meterFailureStreak: integer("meter_failure_streak").notNull().default(0),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    meterFailureStreak: bigint("meter_failure_streak", { mode: "number" })
+      .notNull()
+      .default(0),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_openMeldRemoteAgent_org_guardrails_status").on(
@@ -1513,7 +1593,7 @@ export const openMeldRemoteAgentOrgGuardrails = sqliteTable(
   ]
 );
 
-export const openMeldDaemonRuntimeCoordinatorExecutions = sqliteTable(
+export const openMeldDaemonRuntimeCoordinatorExecutions = applicationTable(
   "openMeldDaemon_runtime_coordinator_executions",
   {
     runtimeCoordinatorExecutionId: text(
@@ -1536,10 +1616,10 @@ export const openMeldDaemonRuntimeCoordinatorExecutions = sqliteTable(
     // Legacy diagnostic pointer retained for older RuntimeCoordinator rows only.
     claimLeaseId: text("claim_lease_id"),
     daemonSessionId: text("daemon_session_id"),
-    connectionGeneration: integer("connection_generation"),
-    leaseEpoch: integer("lease_epoch"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    connectionGeneration: bigint("connection_generation", { mode: "number" }),
+    leaseEpoch: bigint("lease_epoch", { mode: "number" }),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_openMeldDaemon_rce_space_dispatch_target").on(
@@ -1572,7 +1652,7 @@ export const openMeldDaemonRuntimeCoordinatorExecutions = sqliteTable(
   ]
 );
 
-export const openMeldDaemonRuntimeCoordinatorExecutionEvents = sqliteTable(
+export const openMeldDaemonRuntimeCoordinatorExecutionEvents = applicationTable(
   "openMeldDaemon_runtime_coordinator_execution_events",
   {
     eventId: text("event_id").primaryKey(),
@@ -1582,7 +1662,7 @@ export const openMeldDaemonRuntimeCoordinatorExecutionEvents = sqliteTable(
     eventType: text("event_type").notNull(),
     statusAfter: text("status_after"),
     reasonCode: text("reason_code"),
-    observedAtMs: integer("observed_at_ms").notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     payloadJson: text("payload_json").notNull(),
   },
@@ -1603,41 +1683,43 @@ export const openMeldDaemonRuntimeCoordinatorExecutionEvents = sqliteTable(
   ]
 );
 
-export const openMeldDaemonRuntimeCoordinatorCreationDiagnostics = sqliteTable(
-  "openMeldDaemon_runtime_coordinator_creation_diagnostics",
-  {
-    diagnosticId: text("diagnostic_id").primaryKey(),
-    modelVersion: text("model_version").notNull(),
-    spaceId: text("space_id").notNull(),
-    dispatchId: text("dispatch_id").notNull(),
-    targetProfileId: text("target_profile_id").notNull(),
-    sourceClientMessageId: text("source_client_message_id"),
-    creationStatus: text("creation_status").notNull(),
-    reasonCode: text("reason_code").notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
-    legacyAttemptId: text("legacy_attempt_id"),
-  },
-  (table) => [
-    index("idx_openMeldDaemon_rce_diag_space_dispatch_target").on(
-      table.spaceId,
-      table.dispatchId,
-      table.targetProfileId
-    ),
-    index("idx_openMeldDaemon_rce_diag_space_client_target").on(
-      table.spaceId,
-      table.sourceClientMessageId,
-      table.targetProfileId
-    ),
-    index("idx_openMeldDaemon_rce_diag_reason_observed").on(
-      table.reasonCode,
-      desc(table.observedAtMs)
-    ),
-  ]
-);
+export const openMeldDaemonRuntimeCoordinatorCreationDiagnostics =
+  applicationTable(
+    "openMeldDaemon_runtime_coordinator_creation_diagnostics",
+    {
+      diagnosticId: text("diagnostic_id").primaryKey(),
+      modelVersion: text("model_version").notNull(),
+      spaceId: text("space_id").notNull(),
+      dispatchId: text("dispatch_id").notNull(),
+      targetProfileId: text("target_profile_id").notNull(),
+      sourceClientMessageId: text("source_client_message_id"),
+      creationStatus: text("creation_status").notNull(),
+      reasonCode: text("reason_code").notNull(),
+      observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+      legacyAttemptId: text("legacy_attempt_id"),
+    },
+    (table) => [
+      index("idx_openMeldDaemon_rce_diag_observed").on(table.observedAtMs),
+      index("idx_openMeldDaemon_rce_diag_space_dispatch_target").on(
+        table.spaceId,
+        table.dispatchId,
+        table.targetProfileId
+      ),
+      index("idx_openMeldDaemon_rce_diag_space_client_target").on(
+        table.spaceId,
+        table.sourceClientMessageId,
+        table.targetProfileId
+      ),
+      index("idx_openMeldDaemon_rce_diag_reason_observed").on(
+        table.reasonCode,
+        desc(table.observedAtMs)
+      ),
+    ]
+  );
 
 // This relation belongs beside RuntimeCoordinator storage so the Agent Activity
 // schema stays acyclic under native ESM initialization and production bundling.
-export const agentActivityExecutionLinks = sqliteTable(
+export const agentActivityExecutionLinks = applicationTable(
   "agent_activity_execution_links",
   {
     id: text("id").primaryKey(),
@@ -1659,7 +1741,7 @@ export const agentActivityExecutionLinks = sqliteTable(
     bindingId: text("binding_id").notNull(),
     agentControllerRef: text("agent_controller_ref").notNull(),
     providerConversationId: text("provider_conversation_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_activity_execution_links_rce_unique").on(
@@ -1717,6 +1799,7 @@ export const coreSchema = {
   routineRuns,
   connectorAccessEvents,
   pluginActionConfirmations,
+  pluginActionRequests,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
@@ -1764,6 +1847,7 @@ export const coreSchema = {
   openMeldFeedbackInboxes,
   openMeldFeedbackIssues,
   openMeldDaemonConnectedComputers,
+  cloudComputers,
   openMeldDaemonPreHeadFailurePublicationOutbox,
   openMeldDaemonOpsDecisions,
   openMeldDaemonDispatchLedger,

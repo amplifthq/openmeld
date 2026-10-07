@@ -3,8 +3,11 @@ import type {
 	InboxFeedQuery,
 } from "@openmeld/schemas/types";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { parseAsString, useQueryStates } from "nuqs";
 import { InboxAvatarProvider } from "#/components/inbox/inbox-avatars";
 import { InboxPage } from "#/components/inbox/inbox-page";
+import { prefetchInboxRouteData } from "#/lib/organizations/app-route-prefetch";
+import { inboxViewParser } from "#/lib/page-tab-search";
 
 type InboxRouteView = "all" | "mentions" | "needs-action" | "needs-review";
 
@@ -45,12 +48,36 @@ export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 					: undefined,
 		};
 	},
+	loaderDeps: ({ search }) => ({
+		grouping: "space" as const,
+		category: parseInboxRouteView(search.view),
+		unreadOnly: search.unread === true,
+		agentsOnly: search.agents === true,
+		peopleOnly: search.people === true,
+		conversationType: search.conversation ?? "all",
+	}),
+	loader: ({ context, params, location, deps }) => {
+		prefetchInboxRouteData({
+			organizationSlug: params.orgSlug,
+			queryClient: context.queryClient,
+			queryPersistence: context.queryPersistence,
+			routeFamily: location.href,
+			filters: deps,
+		}).catch((error: unknown) => {
+			console.error("Failed to prefetch Inbox data.", error);
+		});
+	},
 	component: InboxIndexRoute,
 });
 
 function InboxIndexRoute() {
 	const navigate = useNavigate({ from: Route.fullPath });
 	const search = Route.useSearch();
+	const [, setView] = useQueryStates({
+		view: inboxViewParser,
+		item: parseAsString,
+		requestId: parseAsString,
+	});
 	return (
 		<InboxAvatarProvider>
 			<InboxPage
@@ -98,16 +125,10 @@ function InboxIndexRoute() {
 					});
 				}}
 				onViewChange={(view) => {
-					navigate({
-						replace: true,
-						search: {
-							...search,
-							item: undefined,
-							requestId: undefined,
-							view: buildInboxRouteView(view),
-						},
-					}).catch((error: unknown) => {
-						console.error("Failed to change the Inbox view.", error);
+					setView({
+						view: buildInboxRouteView(view) ?? "all",
+						item: null,
+						requestId: null,
 					});
 				}}
 				peopleOnly={search.people === true}
@@ -120,11 +141,9 @@ function InboxIndexRoute() {
 }
 
 function resolveInboxRouteView(value: unknown): InboxRouteView | undefined {
-	return value === "needs-action" ||
-		value === "needs-review" ||
-		value === "mentions"
-		? value
-		: undefined;
+	const parsed =
+		typeof value === "string" ? inboxViewParser.parse(value) : null;
+	return parsed === "all" ? undefined : (parsed ?? undefined);
 }
 
 function resolveInboxItemId(value: unknown): string | undefined {

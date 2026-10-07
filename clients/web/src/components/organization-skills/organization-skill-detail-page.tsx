@@ -357,7 +357,7 @@ function OrganizationSkillEditor(input: {
 				skillId: input.skill.id,
 			}),
 		onError: (error) =>
-			setErrorMessage(resolveOrganizationSkillErrorMessage(error)),
+			setErrorMessage(resolveOrganizationSkillErrorMessage(error, "remove")),
 		onSuccess: async () => {
 			setRemoved(true);
 			setDeleteOpen(false);
@@ -448,6 +448,7 @@ function OrganizationSkillEditor(input: {
 	return (
 		<div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-6 pb-8">
 			<UnsavedChangesGuard
+				allowSamePageNavigation
 				description="Your changes to this skill haven't been saved."
 				hasUnsavedChanges={hasUnsavedChanges}
 				onSave={save}

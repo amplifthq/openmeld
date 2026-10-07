@@ -3,6 +3,8 @@ import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS } from "../protocol/center-agent-interaction-source";
 import { MAX_PROFILE_NAME_LENGTH } from "../protocol/constants";
+import { profileSchema } from "../protocol/profile";
+import { wakeDeviceWaitSchema } from "../protocol/wake-device-wait";
 import { messageChannelConversationLocatorSchema } from "../runtime/message-channel";
 import { centerAgentVerifiedMemberToolSpeakerSchema } from "./center-agent-speaker";
 import { spaceNameSchema } from "./space-name";
@@ -16,7 +18,16 @@ export const CENTER_AGENT_ROUTINE_RUN_FAILURE_DETAIL_MAX_CHARS = 4000;
 export const CENTER_AGENT_ROUTINE_RUN_LIST_MAX_LIMIT = 100;
 export const CENTER_AGENT_ROUTINE_TARGET_SPACE_LIST_MAX_ITEMS = 500;
 export const CENTER_AGENT_ROUTINE_LIMIT = 50;
+export const ROUTINE_MANAGEMENT_CONTRACT = "routines-v3" as const;
+export const routineScopeSchema = z.enum(["personal", "team"]);
+export const routineExecutorKindSchema = z.enum([
+  "center_agent",
+  "remote_agent",
+  "local_agent",
+]);
 export const CENTER_AGENT_ROUTINE_ERROR_CODES = [
+  "routine.executor_unavailable",
+  "routine.private_conversation_required",
   "routine.center_agent_required",
   "routine.client_update_required",
   "routine.forbidden",
@@ -74,6 +85,17 @@ export const CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT =
 
 const trimmedIdentifierSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
+export const routineLocalSubmissionSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  profile: profileSchema,
+  spaceId: trimmedIdentifierSchema,
+  targetProfileId: trimmedIdentifierSchema,
+  text: z
+    .string()
+    .min(1)
+    .max(CENTER_AGENT_ROUTINE_INSTRUCTIONS_MAX_CHARS + 512),
+  deviceWait: wakeDeviceWaitSchema,
+});
 export const centerAgentRoutineRunScheduledForMsSchema = z
   .number()
   .int()
@@ -107,6 +129,7 @@ export const centerAgentRoutineContractSchema = z.literal(
   CENTER_AGENT_ROUTINE_PRACTICAL_CONTRACT
 );
 export const centerAgentRoutineListContractSchema = z.enum([
+  ROUTINE_MANAGEMENT_CONTRACT,
   CENTER_AGENT_ROUTINE_PRACTICAL_CONTRACT,
   CENTER_AGENT_ROUTINE_MANAGEMENT_V1_CONTRACT,
   CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT,
@@ -225,6 +248,29 @@ export const centerAgentRoutineManagementSchema = z
   })
   .superRefine(validateRoutineScheduleAndDestination);
 
+export const routineManagementSchema = z
+  .strictObject({
+    ...centerAgentRoutineManagementSchema.shape,
+    scope: routineScopeSchema,
+    agentProfileId: trimmedIdentifierSchema.nullable(),
+    executorKind: routineExecutorKindSchema,
+    executorName: z.string(),
+  })
+  .superRefine(validateRoutineScheduleAndDestination);
+
+export const listRoutineManagementResponseSchema = z.strictObject({
+  currentUserId: trimmedIdentifierSchema,
+  organizationId: trimmedIdentifierSchema,
+  routines: z.array(routineManagementSchema).max(CENTER_AGENT_ROUTINE_LIMIT),
+  executors: z.array(
+    z.strictObject({
+      agentProfileId: trimmedIdentifierSchema.nullable(),
+      kind: routineExecutorKindSchema,
+      name: z.string(),
+    })
+  ),
+});
+
 export const centerAgentRoutineRunSchema = z
   .strictObject({
     ...routineDestinationShape,
@@ -337,7 +383,9 @@ export const listCenterAgentRoutinesLegacyV1ResponseSchema = z.strictObject({
     .max(CENTER_AGENT_ROUTINE_LIMIT),
 });
 
-export const listCenterAgentRoutineTargetSpacesQuerySchema = z.strictObject({});
+export const listCenterAgentRoutineTargetSpacesQuerySchema = z.strictObject({
+  agentProfileId: trimmedIdentifierSchema.optional(),
+});
 
 export const listCenterAgentRoutineTargetSpacesResponseSchema = z.strictObject({
   organizationId: trimmedIdentifierSchema,
@@ -347,6 +395,8 @@ export const listCenterAgentRoutineTargetSpacesResponseSchema = z.strictObject({
 });
 
 const createCenterAgentRoutineBodyShape = {
+  scope: routineScopeSchema.optional(),
+  agentProfileId: trimmedIdentifierSchema.nullable().optional(),
   authorizedActions: centerAgentRoutineAuthorizedActionsSchema.optional(),
   externalActionPolicy: centerAgentRoutineExternalActionPolicySchema.optional(),
   ...routineScheduleShape,
@@ -499,9 +549,10 @@ export const listCenterAgentRoutinesRpcInputSchema = z.strictObject({
   contract: centerAgentRoutineListContractSchema.optional(),
 });
 
-export const listCenterAgentRoutineTargetSpacesRpcInputSchema = z.strictObject(
-  routineRpcContextShape
-);
+export const listCenterAgentRoutineTargetSpacesRpcInputSchema = z.strictObject({
+  ...routineRpcContextShape,
+  ...listCenterAgentRoutineTargetSpacesQuerySchema.shape,
+});
 
 export const createCenterAgentRoutineRpcInputSchema = z
   .strictObject({
@@ -554,9 +605,10 @@ const routineToolRpcContextShape = {
   speakerMember: centerAgentRoutineToolSpeakerSchema,
 };
 
-export const centerAgentListRoutinesToolRpcInputSchema = z.strictObject(
-  routineToolRpcContextShape
-);
+export const centerAgentListRoutinesToolRpcInputSchema = z.strictObject({
+  ...routineToolRpcContextShape,
+  contract: z.literal(ROUTINE_MANAGEMENT_CONTRACT).optional(),
+});
 
 export const centerAgentCreateRoutineToolRpcInputSchema = z
   .strictObject({

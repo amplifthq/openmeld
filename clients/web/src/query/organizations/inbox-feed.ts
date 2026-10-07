@@ -13,6 +13,7 @@ import {
 	listCurrentInboxFeed,
 	mutateCurrentInboxFeed,
 } from "#/lib/organizations/inbox";
+import { DISPLAY_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { inboxQueryKeys, invalidateInboxFacts } from "./inbox";
 
 export type InboxFeedFilters = {
@@ -21,6 +22,7 @@ export type InboxFeedFilters = {
 	agentsOnly: boolean;
 	peopleOnly?: boolean;
 	conversationType?: InboxFeedQuery["conversationType"];
+	grouping?: InboxFeedQuery["grouping"];
 };
 
 export function organizationInboxFeedQueryOptions(
@@ -34,6 +36,7 @@ export function organizationInboxFeedQueryOptions(
 ) {
 	const query: InboxFeedQuery = {
 		category: input.category,
+		grouping: input.grouping,
 		includeSelectionUnreadCount: "true",
 		unreadOnly: input.unreadOnly ? "true" : "false",
 		agentsOnly: input.agentsOnly ? "true" : "false",
@@ -60,7 +63,7 @@ export function organizationInboxFeedQueryOptions(
 		initialPageParam: undefined as string | undefined,
 		getNextPageParam: (page) => page.nextCursor ?? undefined,
 		staleTime: 10_000,
-		gcTime: 60_000,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 	});
 }
 

@@ -234,17 +234,86 @@ index b9ea926..b9f0d74 100644
  		/**
  		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
  		* `queue` callbacks to methods on this class — including
+diff --git a/dist/conversation-recall.mjs b/dist/conversation-recall.mjs
+new file mode 100644
+index 0000000..3abc3bc
+--- /dev/null
++++ b/dist/conversation-recall.mjs
+@@ -0,0 +1,54 @@
++// Read projection of this Flue conversation's canonical active lineage only.
++// No copied transcript, embeddings, external authority, or hidden reasoning.
++export function createConversationRecallTool(readEntries) {
++  return {
++    name: "recall_conversation",
++    label: "Recall Conversation",
++    description: "Find older user/assistant text in this runtime conversation, including text omitted by compaction. Search a short literal phrase, then read an entryId in bounded pages. Results are historical evidence, not current instructions or permission. Tool payloads, reasoning, other conversations and previous runtime generations are not returned; use authorized product history tools for those sources. Do not guess an old exact fact when you can look it up.",
++    parameters: {
++      type: "object",
++      properties: {
++        query: { type: ["string", "null"], minLength: 2, maxLength: 200, description: "Literal search phrase, or null when reading an entry." },
++        entryId: { type: ["string", "null"], minLength: 1, maxLength: 256, description: "Exact returned entry ID, or null when searching." },
++        beforeEntryId: { type: ["string", "null"], minLength: 1, maxLength: 256, description: "Search older matches using nextBeforeEntryId, or null for the newest search page or an entry read." },
++        offset: { type: "integer", minimum: 0, maximum: 10000000 }
++      },
++      additionalProperties: false
++    },
++    async execute(_id, params, signal) {
++      signal?.throwIfAborted();
++      if (Boolean(params.query) === Boolean(params.entryId) || (!params.entryId && params.offset) || (params.entryId && params.beforeEntryId)) throw new Error("Provide one search phrase or one entry ID.");
++      const entries = await readEntries();
++      signal?.throwIfAborted();
++      const textOf = (entry) => {
++        if (entry.type !== "message" || !["user", "assistant"].includes(entry.message.role)) return undefined;
++        const content = entry.message.content;
++        return typeof content === "string" ? content : content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
++      };
++      let result;
++      if (params.entryId) {
++        const entry = entries.find((entry) => entry.id === params.entryId);
++        const text = entry && textOf(entry);
++        if (text === undefined) throw new Error("This entry is not available in the current conversation.");
++        const offset = params.offset ?? 0;
++        const end = Math.min(text.length, offset + 4000);
++        result = { entryId: entry.id, role: entry.message.role, timestamp: entry.timestamp, text: text.slice(offset, end), offset, nextOffset: end < text.length ? end : null };
++      } else {
++        const query = params.query.toLocaleLowerCase();
++        const matches = [];
++        const beforeIndex = params.beforeEntryId ? entries.findIndex((entry) => entry.id === params.beforeEntryId) : entries.length;
++        if (beforeIndex < 0) throw new Error("This search cursor is not available in the current conversation.");
++        for (const entry of entries.slice(0, beforeIndex)) {
++          const text = textOf(entry);
++          if (!text) continue;
++          const index = text.toLocaleLowerCase().indexOf(query);
++          if (index < 0) continue;
++          const offset = Math.max(0, index - 160);
++          matches.push({ entryId: entry.id, role: entry.message.role, timestamp: entry.timestamp, offset, text: text.slice(offset, offset + 800), hasMore: text.length > offset + 800 });
++        }
++        result = { matches: matches.slice(-8), totalMatches: matches.length, nextBeforeEntryId: matches.length > 8 ? matches[matches.length - 8].entryId : null, order: "chronological; newest eight matches", scope: "current runtime conversation" };
++      }
++      return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
++    }
++  };
++}
 diff --git a/dist/conversation-stream-store-2-jUriih.mjs b/dist/conversation-stream-store-2-jUriih.mjs
-index 210bfa0..8e90d62 100644
+index 210bfa0..af8e901 100644
 --- a/dist/conversation-stream-store-2-jUriih.mjs
 +++ b/dist/conversation-stream-store-2-jUriih.mjs
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,6 @@
  import { c as encodeBase64, d as abortErrorFor, f as composeTimeoutSignal, m as raceToolWithDeadline, p as createCallHandle, r as createCwdSandbox, s as decodeBase64, u as abandonToolOnAbort } from "./sandbox-CR3o1Qmd.mjs";
 +import { buildCanonicalActionEvidence, collectRecordedSubmissionMetadata, projectSubmissionRetryTextPrefix } from "./dispatch-BlxCz6iq.mjs";
++import { measureWorkingContext, workingContextBudget } from "./working-context.mjs";
  import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-BWvTzP0z.mjs";
  import { A as SubmissionAbortedError, B as classifyError, C as SessionBusyError, E as SkillNotRegisteredError, G as normalizeLogAttributes, I as ToolNameConflictError, M as SubmissionInterruptedError, N as SubmissionRetryExhaustedError, P as SubmissionTimeoutError, Q as generateBlockId, X as deriveKeyedSubmissionId, Y as createConversationIdentity, Z as generateAttemptId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateTaskId, d as FlueError, et as generateIncarnationId, g as OperationFailedError, it as generateOperationId, j as SubmissionConflictError, k as SubagentNotDeclaredError, l as ConversationStreamStoreError, lt as generateToolCallId, m as InvalidRequestError, n as AgentInstanceNotFoundError, nt as generateInstanceUid, pt as interceptExecution, q as serializeEventError, rt as generateInvocationId, st as generateSubmissionId, t as AgentInstanceExistsError, u as DelegationDepthExceededError, ut as generateTurnId } from "./errors-BcRwz-UD.mjs";
  import { $ as MAX_READ_LIMIT, B as DEFAULT_COMPACTION_SETTINGS, C as DeliveredMessageSchema, Ct as prepareDocumentRequest, Dt as generateConversationEntryId, E as assertDurability, Et as encodeCanonicalId, F as getActiveConversationPathSince, G as prepareCompaction, H as compact, I as getLatestConversationCompaction, J as emptyUsage, K as shouldCompact, L as countConsecutiveRetryableModelErrors, N as aggregateConversationUsageSince, Ot as generateConversationRecordId, P as classifyConversationSubmission, R as findTrailingPartialToolBatch, St as mergeOperationAttachments, Tt as RESERVED_SIGNAL_TYPES, U as deriveCompactionDefaults, V as calculateContextTokens, W as isAssistantContextOverflow, Y as fromProviderUsage, _t as assertAppendMessage, bt as fnv1a64, ct as toolOutcomeKey, d as resolveAgentInitialDataSchema, et as agentStreamPath, ft as createSessionStorageKey, gt as renderSignalMessage, ht as createUserContextMessage, it as buildConversationContextEntries, kt as toolStepRecordId, lt as toolResultEntryId, mt as parseSessionStorageKey, nt as parseOffset, ot as getActiveConversationPath, q as addUsage, rt as buildConversationContext, tt as formatOffset, w as MAX_IMAGE_DATA_LENGTH, wt as toPublicAttachment, xt as isDocumentMimeType, yt as runResponseMetadataHooks, z as isRetryableModelError } from "./dispatch-BlxCz6iq.mjs";
-@@ -1044,8 +1045,8 @@ function parseProviderEndpoint(value) {
+@@ -10,6 +12,7 @@ import { r as migrateFlueSqlSchema, s as createAttachmentRef } from "./format-ve
+ import { createInitialSystemMessage, getCurrentSystemPrompt, getCurrentTools, toToolDeclaration } from "@earendil-works/pi-ai";
+ import * as v from "valibot";
+ import { Agent } from "@earendil-works/pi-agent-core";
++import { createConversationRecallTool } from "./conversation-recall.mjs";
+ //#region src/agent-execution-store.ts
+ /** Default maximum total attempts before terminalization. */
+ const DURABILITY_DEFAULT_MAX_ATTEMPTS = 10;
+@@ -1044,8 +1047,8 @@ function parseProviderEndpoint(value) {
  		return;
  	}
  }
@@ -255,7 +324,7 @@ index 210bfa0..8e90d62 100644
  	return Math.round(baseDelay * (.75 + Math.random() * .25));
  }
  function sleepUntilRetry(delayMs, signal) {
-@@ -1064,6 +1065,7 @@ function sleepUntilRetry(delayMs, signal) {
+@@ -1064,6 +1067,7 @@ function sleepUntilRetry(delayMs, signal) {
  	});
  }
  var Session = class {
@@ -263,7 +332,7 @@ index 210bfa0..8e90d62 100644
  	name;
  	conversationId;
  	fs;
-@@ -1137,6 +1139,8 @@ var Session = class {
+@@ -1137,6 +1141,8 @@ var Session = class {
  	conversationWriter;
  	attachmentStore;
  	canonicalAssistant;
@@ -272,7 +341,7 @@ index 210bfa0..8e90d62 100644
  	canonicalToolRequestMessageId;
  	/**
  	* The just-committed tool batch, stashed by the `turn_end` handler for the
-@@ -1557,7 +1561,7 @@ var Session = class {
+@@ -1557,7 +1563,7 @@ var Session = class {
  			content: signal.body,
  			attributes: signal.attributes,
  			timestamp: new Date(timestamp).getTime()
@@ -281,7 +350,7 @@ index 210bfa0..8e90d62 100644
  		if (options?.advance === false) return;
  		this.advanceDelivery?.({
  			kind: "signal",
-@@ -1844,11 +1848,11 @@ var Session = class {
+@@ -1844,11 +1850,11 @@ var Session = class {
  		const entryId = submissionEntryId(input.kind, input.submissionId);
  		if (!await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  			const parentId = await this.conversationWriter.getConversationLeaf(this.conversationId);
@@ -295,7 +364,7 @@ index 210bfa0..8e90d62 100644
  		await source.finalize(input.submissionId);
  	}
  	/**
-@@ -1860,7 +1864,7 @@ var Session = class {
+@@ -1860,7 +1866,7 @@ var Session = class {
  	async steerJoinedEntry(entryId) {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -304,7 +373,7 @@ index 210bfa0..8e90d62 100644
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -1885,13 +1889,13 @@ var Session = class {
+@@ -1885,13 +1891,13 @@ var Session = class {
  			if (submission.status === "joining") {
  				if (await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  					this.advanceDelivery?.(input.message);
@@ -320,7 +389,7 @@ index 210bfa0..8e90d62 100644
  		}
  		await this.restoreDeliveryCursor();
  	}
-@@ -2035,6 +2039,7 @@ var Session = class {
+@@ -2035,6 +2041,7 @@ var Session = class {
  	* adopts them instead: the wake hooks ran on the original attempt.
  	*/
  	async beginResponseOutput() {
@@ -328,7 +397,15 @@ index 210bfa0..8e90d62 100644
  		this.responseMessageId = void 0;
  		this.responseHasCompletedStep = false;
  		this.responseUsage = void 0;
-@@ -2253,6 +2258,10 @@ var Session = class {
+@@ -2211,6 +2218,7 @@ var Session = class {
+ 				thinkingLevel: this.config.thinkingLevel ?? "medium"
+ 			},
+ 			streamFn: this.emitTurnRequestAndStream,
++			transformContext: (messages, signal) => this.prepareWorkingContext(messages, signal),
+ 			toolExecution: "parallel",
+ 			steeringMode: "all",
+ 			followUpMode: "all",
+@@ -2253,6 +2261,10 @@ var Session = class {
  							modelInfo,
  							...isResponseFirstMessage && this.responseStartMetadata ? { responseMetadata: this.responseStartMetadata } : {}
  						}]);
@@ -339,7 +416,7 @@ index 210bfa0..8e90d62 100644
  					}
  					this.emit({
  						type: "message_start",
-@@ -2263,6 +2272,10 @@ var Session = class {
+@@ -2263,6 +2275,10 @@ var Session = class {
  				}
  				case "message_update": {
  					const aEvent = event.assistantMessageEvent;
@@ -350,7 +427,7 @@ index 210bfa0..8e90d62 100644
  					const assistant = this.canonicalAssistant;
  					if (assistant && aEvent.type === "text_start") {
  						const blockId = generateBlockId();
-@@ -2282,6 +2295,8 @@ var Session = class {
+@@ -2282,6 +2298,8 @@ var Session = class {
  					} else if (assistant && aEvent.type === "text_delta") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
  						if (block?.type !== "text") throw new Error("[flue] Canonical text delta has no started block.");
@@ -359,7 +436,7 @@ index 210bfa0..8e90d62 100644
  						this.enqueueCanonical([{
  							...this.canonicalEnvelope("assistant_text_delta"),
  							type: "assistant_text_delta",
-@@ -2291,7 +2306,8 @@ var Session = class {
+@@ -2291,7 +2309,8 @@ var Session = class {
  							delta: aEvent.delta
  						}], () => this.emit({
  							type: "text_delta",
@@ -369,7 +446,67 @@ index 210bfa0..8e90d62 100644
  						}));
  					} else if (assistant && aEvent.type === "text_end") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
-@@ -2595,7 +2611,7 @@ var Session = class {
+@@ -2567,9 +2586,58 @@ var Session = class {
+ 		return {
+ 			enabled: true,
+ 			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
+-			keepRecentTokens: cc.keepRecentTokens ?? defaults.keepRecentTokens
++			keepRecentTokens: cc.keepRecentTokens ?? defaults.keepRecentTokens,
++			maxSummaryTokens: cc.maxSummaryTokens,
++			recallAvailable: Boolean(cc.workingContextTokens)
+ 		};
+ 	}
++	/** The canonical owner replaces history before inference, including tool-loop turns. */
++	async prepareWorkingContext(messages, signal) {
++		const config = this.config.compaction;
++		if (!config || !config.workingContextTokens) return messages;
++		const measure = () => measureWorkingContext({
++			systemPrompt: this.agentLoop.state.systemPrompt,
++			tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
++			messages
++		});
++		if (measure() <= config.workingContextTokens) return messages;
++		if (signal?.aborted) throw abortErrorFor(signal);
++		// This is an ephemeral provider projection. Never replace canonical or
++		// loop state: expiry/revocation must not strand a persisted shortened body.
++		const reduced = await this.reduceWorkingToolResults(messages, signal);
++		if (signal?.aborted) throw abortErrorFor(signal);
++		if (measureWorkingContext({ systemPrompt: this.agentLoop.state.systemPrompt,
++			tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
++			messages: reduced }) <= config.workingContextTokens) return reduced;
++		await this.flushCanonical();
++		if (signal?.aborted) throw abortErrorFor(signal);
++		if (!await this.runCompaction("threshold")) throw new Error("[flue] Working context could not be compacted within its configured budget.");
++		if (signal?.aborted) throw abortErrorFor(signal);
++		// Pi owns its loop snapshot, Flue owns the durable projection. Update both
++		// from the committed checkpoint so a subsequent tool turn cannot restore it.
++		messages.splice(0, messages.length, ...this.agentLoop.state.messages);
++		if (measure() > config.workingContextTokens) throw new Error("[flue] Compacted working context still exceeds its configured budget.");
++		return messages;
++	}
++	async reduceWorkingToolResults(messages, signal) {
++		const config = this.config.compaction;
++		if (!config?.reduceToolResultPreviews) return messages;
++		let boundary = messages.length, tokens = 0, recentResults = 0;
++		while (boundary > 0 && (tokens < (config.keepRecentTokens ?? 8000) || recentResults < 2)) {
++			const message = messages[--boundary];
++			tokens += measureWorkingContext({ messages: [message] });
++			if (message.role === "toolResult") recentResults++;
++		}
++		const candidates = messages.slice(0, boundary).filter((message) => message.role === "toolResult" && !message.isError && message.content.length === 1 && message.content[0].type === "text");
++		if (!candidates.length) return messages;
++		const replacements = await config.reduceToolResultPreviews(structuredClone(candidates), signal);
++		return messages.map((message, index) => {
++			if (index >= boundary || !candidates.includes(message) || !replacements.has(message.toolCallId)) return message;
++			const text = replacements.get(message.toolCallId);
++			if (typeof text !== "string" || new TextEncoder().encode(text).byteLength >= new TextEncoder().encode(message.content[0].text).byteLength) throw new Error("[flue] Tool-result reduction must return smaller text.");
++			return { ...message, content: [{ type: "text", text }] };
++		});
++	}
+ 	async initializeCanonicalContext() {
+ 		await this.rebuildCanonicalContext();
+ 	}
+@@ -2595,7 +2663,7 @@ var Session = class {
  	}
  	processSubmissionInput(input, options) {
  		return createCallHandle(void 0, async (signal) => {
@@ -378,16 +515,17 @@ index 210bfa0..8e90d62 100644
  		});
  	}
  	/**
-@@ -3569,7 +3585,7 @@ var Session = class {
+@@ -3569,7 +3637,8 @@ var Session = class {
  		const activateSkillTool = Object.keys(this.liveSkills).length > 0 ? createActivateSkillTool((name) => this.activateSkillForTool(name)) : void 0;
  		const packagedRead = Object.values(packagedSkills).some((skill) => Object.keys(skill.files).some((path) => path !== "SKILL.md")) ? createPackagedSkillReadTool(packagedSkills) : void 0;
  		const frameworkTools = () => [
 -			createTaskTool(runTask),
++			...this.config.compaction?.workingContextTokens ? [createConversationRecallTool(async () => getActiveConversationPath(await this.requireConversation()))] : [],
 +			...Object.keys(this.liveSubagents).length > 0 ? [createTaskTool(runTask)] : [],
  			...activateSkillTool ? [activateSkillTool] : [],
  			...packagedRead ? [packagedRead] : []
  		];
-@@ -3772,7 +3788,7 @@ var Session = class {
+@@ -3772,7 +3841,7 @@ var Session = class {
  			}
  		}
  	}
@@ -396,7 +534,7 @@ index 210bfa0..8e90d62 100644
  		const operationSignal = signal && this.scopeSignal ? AbortSignal.any([signal, this.scopeSignal]) : signal ?? this.scopeSignal;
  		return this.runExclusive(operation, async () => {
  			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
-@@ -3808,12 +3824,25 @@ var Session = class {
+@@ -3808,12 +3877,25 @@ var Session = class {
  				return result;
  			} catch (error) {
  				const surfaced = operationSignal?.aborted ? abortErrorFor(operationSignal) : error;
@@ -422,7 +560,7 @@ index 210bfa0..8e90d62 100644
  					error: serializeEventError(surfaced)
  				}, operation === "prompt" || operation === "skill" ? {
  					agentInput: this.activeAgentInput,
-@@ -4041,7 +4070,7 @@ var Session = class {
+@@ -4041,7 +4123,7 @@ var Session = class {
  	async rebuildCanonicalContext() {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -431,7 +569,7 @@ index 210bfa0..8e90d62 100644
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -4078,6 +4107,7 @@ var Session = class {
+@@ -4078,6 +4160,7 @@ var Session = class {
  	* caller's `throwIfError` could not surface the failure.
  	*/
  	async runModelTurnWithRecovery(options) {
@@ -439,7 +577,7 @@ index 210bfa0..8e90d62 100644
  		let start = options.start;
  		let assistant = options.resume?.assistant;
  		let turnCompleted = false;
-@@ -4088,12 +4118,16 @@ var Session = class {
+@@ -4088,12 +4171,16 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -457,7 +595,7 @@ index 210bfa0..8e90d62 100644
  				const settledAssistant = assistant ?? this.agentLoop.state.messages.findLast((message) => message.role === "assistant");
  				if (settledAssistant !== void 0) await this.checkCompaction(settledAssistant);
  				if (assistant?.stopReason === "error" || assistant?.stopReason === "aborted") await this.rebuildCanonicalContext();
-@@ -4145,20 +4179,24 @@ var Session = class {
+@@ -4145,20 +4232,24 @@ var Session = class {
  		}
  	}
  	async waitForTransientModelRetry(assistant, attempt) {
@@ -485,7 +623,31 @@ index 210bfa0..8e90d62 100644
  			delayMs,
  			error: assistant.errorMessage
  		});
-@@ -4200,7 +4238,7 @@ var Session = class {
+@@ -4171,6 +4262,10 @@ var Session = class {
+ 	}
+ 	async checkCompaction(assistantMessage) {
+ 		if (assistantMessage.stopReason === "aborted" || assistantMessage.stopReason === "error") return;
++		// The preflight policy measures the assembled request. Supplier usage can
++		// include internal inference (notably Pro) and must not trigger a second
++		// summary of an already bounded working set after every response.
++		if (this.config.compaction?.workingContextTokens) return;
+ 		const model = this.agentLoop.state.model;
+ 		const settings = this.resolveCompactionSettings(model);
+ 		if (!settings.enabled) return;
+@@ -4197,16 +4292,34 @@ var Session = class {
+ 			const sessionModel = this.agentLoop.state.model;
+ 			const settings = this.resolveCompactionSettings(sessionModel);
+ 			const compactionConfig = this.config.compaction === false ? void 0 : this.config.compaction;
++			const workingBudget = compactionConfig?.workingContextTokens ? workingContextBudget({
++				systemPrompt: this.agentLoop.state.systemPrompt,
++				tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters }))
++			}, compactionConfig.workingContextTokens, compactionConfig.workingContextHeadroomTokens) : undefined;
++			const measure = () => measureWorkingContext({
++				systemPrompt: this.agentLoop.state.systemPrompt,
++				tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
++				messages: this.agentLoop.state.messages
++			});
++			const workingTokensBefore = workingBudget ? measure() : undefined;
  			const summarizationModel = compactionConfig?.model ? this.resolveModelForCall(compactionConfig.model) : sessionModel;
  			const canonicalConversation = await this.requireConversation();
  			const resolvedAttachments = await this.resolveCanonicalContextAttachments(canonicalConversation);
@@ -494,15 +656,37 @@ index 210bfa0..8e90d62 100644
  				const image = resolvedAttachments.get(attachment.id);
  				if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  				return image;
-@@ -4221,6 +4259,7 @@ var Session = class {
+ 			} });
+ 			const messages = contextEntries.map((entry) => entry.message);
+ 			const latestCompaction = getLatestConversationCompaction(canonicalConversation);
++			const canonicalActionEvidence = buildCanonicalActionEvidence(canonicalConversation);
++			if (workingBudget && compactionConfig.workingContextHeadroomTokens) {
++				// Budget the complete checkpoint and fixed prompt before selecting a
++				// recent tail. Tool pairs remain indivisible at the normal cut seam.
++				const checkpointTokens = (settings.maxSummaryTokens ?? 4096) + Math.ceil(new TextEncoder().encode(canonicalActionEvidence).byteLength / 4);
++				settings.keepRecentTokens = Math.max(0, Math.min(settings.keepRecentTokens,
++					workingBudget.targetTokens - workingBudget.fixedTokens - checkpointTokens));
++			}
+ 			const preparation = prepareCompaction(messages, settings, latestCompaction ? {
+ 				summary: latestCompaction.summary,
+ 				firstKeptIndex: 1,
+@@ -4221,6 +4334,7 @@ var Session = class {
  				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
  				return false;
  			}
-+			preparation.canonicalActionEvidence = buildCanonicalActionEvidence(canonicalConversation);
++			preparation.canonicalActionEvidence = canonicalActionEvidence;
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4574,7 +4613,7 @@ var Session = class {
+@@ -4288,6 +4402,7 @@ var Session = class {
+ 				messagesAfter,
+ 				durationMs: durationSince(compactionStartMs),
+ 				isError: false,
++				...workingBudget ? { workingContext: { ...workingBudget, beforeTokens: workingTokensBefore, afterTokens: measure() } } : {},
+ 				usage: result.usage
+ 			});
+ 			terminalPending = false;
+@@ -4574,7 +4689,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -511,7 +695,7 @@ index 210bfa0..8e90d62 100644
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4616,12 +4655,19 @@ var Session = class {
+@@ -4616,12 +4731,19 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -532,7 +716,7 @@ index 210bfa0..8e90d62 100644
  				this.activeSubmissionAttemptId = void 0;
  				this.activeJoinSource = void 0;
  				this.activeJoinSignal = void 0;
-@@ -5018,7 +5064,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+@@ -5018,7 +5140,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -552,7 +736,7 @@ index 210bfa0..8e90d62 100644
  	};
  }
  /**
-@@ -5039,10 +5096,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5039,10 +5172,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -580,7 +764,7 @@ index 210bfa0..8e90d62 100644
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5056,7 +5129,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5056,7 +5205,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -589,7 +773,7 @@ index 210bfa0..8e90d62 100644
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5082,6 +5155,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5082,6 +5231,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -606,7 +790,7 @@ index 210bfa0..8e90d62 100644
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5098,7 +5181,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5098,7 +5257,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -615,7 +799,7 @@ index 210bfa0..8e90d62 100644
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5113,6 +5196,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5113,6 +5272,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -626,7 +810,7 @@ index 210bfa0..8e90d62 100644
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5126,8 +5213,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5126,8 +5289,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -657,7 +841,7 @@ index 210bfa0..8e90d62 100644
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5159,11 +5268,32 @@ async function processSubmission(opts) {
+@@ -5159,11 +5344,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -694,7 +878,7 @@ index 210bfa0..8e90d62 100644
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5193,17 +5323,7 @@ async function processSubmission(opts) {
+@@ -5193,17 +5399,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -713,7 +897,7 @@ index 210bfa0..8e90d62 100644
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5223,7 +5343,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5223,7 +5419,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -726,7 +910,7 @@ index 210bfa0..8e90d62 100644
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5257,10 +5381,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5257,10 +5457,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -740,10 +924,14 @@ index 210bfa0..8e90d62 100644
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-BlxCz6iq.mjs b/dist/dispatch-BlxCz6iq.mjs
-index 94d0dc4..8bb4a17 100644
+index 94d0dc4..97e4867 100644
 --- a/dist/dispatch-BlxCz6iq.mjs
 +++ b/dist/dispatch-BlxCz6iq.mjs
-@@ -4,6 +4,7 @@ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
+@@ -1,9 +1,11 @@
+ import { $ as generateEntryId, D as StreamNotFoundError, J as toHttpResponse, K as parseJsonBody, O as StreamOffsetGoneError, V as configureErrorRendering, X as deriveKeyedSubmissionId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, f as HistoryCursorNotFoundError, ft as extractTraceCarrier, h as MethodNotAllowedError, m as InvalidRequestError, o as AttachmentNotFoundError, ot as generateRecordId, st as generateSubmissionId, y as RouteNotFoundError } from "./errors-BcRwz-UD.mjs";
+ import { n as getRuntimeModels } from "./providers-DnRSdXFS.mjs";
++import { COMPACTION_IMAGE_TOKENS } from "./working-context.mjs";
+ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
  import { isContextOverflow } from "@earendil-works/pi-ai";
  import * as v from "valibot";
  import { Hono } from "hono";
@@ -751,7 +939,7 @@ index 94d0dc4..8bb4a17 100644
  //#region src/conversation-records.ts
  /**
  * Signal types reserved as framework vocabulary: `dispatch()` admission and
-@@ -378,9 +379,14 @@ function toolResultOutput(content) {
+@@ -378,9 +380,14 @@ function toolResultOutput(content) {
  function toolResultText(content) {
  	return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
  }
@@ -768,7 +956,7 @@ index 94d0dc4..8bb4a17 100644
  }
  function escapeXmlText(value) {
  	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-@@ -945,7 +951,7 @@ function pathToContextEntries(path, options) {
+@@ -945,7 +952,7 @@ function pathToContextEntries(path, options) {
  		const message = resolveMessageAttachments(entry, options);
  		if (message.role === "signal") {
  			messages.push({
@@ -777,7 +965,24 @@ index 94d0dc4..8bb4a17 100644
  				sourceEntry: entry
  			});
  			index += 1;
-@@ -1812,6 +1818,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
+@@ -1730,6 +1737,7 @@ function estimateTokens(message) {
+ 			if (typeof content === "string") chars = content.length;
+ 			else if (Array.isArray(content)) {
+ 				for (const block of content) if (block.type === "text") chars += block.text.length;
++				else if (block.type === "image") chars += COMPACTION_IMAGE_TOKENS * 4;
+ 			}
+ 			return Math.ceil(chars / 4);
+ 		}
+@@ -1743,7 +1751,7 @@ function estimateTokens(message) {
+ 		case "toolResult": {
+ 			const { content } = message;
+ 			for (const block of content) if (block.type === "text") chars += block.text.length;
+-			else if (block.type === "image") chars += 4800;
++			else if (block.type === "image") chars += COMPACTION_IMAGE_TOKENS * 4;
+ 			return Math.ceil(chars / 4);
+ 		}
+ 	}
+@@ -1812,6 +1820,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
  	return `\n\n${sections.join("\n\n")}`;
  }
  const TOOL_RESULT_MAX_CHARS = 2e3;
@@ -786,7 +991,7 @@ index 94d0dc4..8bb4a17 100644
  function truncateForSummary(text, maxChars) {
  	if (text.length <= maxChars) return text;
  	const truncatedChars = text.length - maxChars;
-@@ -1845,6 +1853,60 @@ function serializeConversation(messages) {
+@@ -1845,6 +1855,60 @@ function serializeConversation(messages) {
  	}
  	return parts.join("\n\n");
  }
@@ -821,8 +1026,8 @@ index 94d0dc4..8bb4a17 100644
 +	const ordered = [...byToolName.entries()].sort((left, right) => right[1].latestAt.localeCompare(left[1].latestAt) || left[0].localeCompare(right[0]));
 +	if (ordered.length === 0) return "- (none)";
 +	const visible = ordered.slice(0, CANONICAL_ACTION_EVIDENCE_MAX_TOOLS);
-+	const lines = [];
-+	let projectedChars = 0;
++	const lines = ["Scope: cumulative totals for the active conversation at this checkpoint, including calls whose original messages remain below. Those retained messages are the same events, not additional calls. Do not add their counts again or infer repeated execution from seeing both representations."];
++	let projectedChars = lines[0].length + 1;
 +	let omitted = ordered.length - visible.length;
 +	for (let index = 0; index < visible.length; index += 1) {
 +		const [toolName, evidence] = visible[index];
@@ -847,7 +1052,7 @@ index 94d0dc4..8bb4a17 100644
  const SUMMARIZATION_SYSTEM_PROMPT = "You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
  const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
  
-@@ -1857,36 +1919,45 @@ Use this EXACT format:
+@@ -1857,36 +1921,45 @@ Use this EXACT format:
  - [Any constraints, preferences, or requirements mentioned by user]
  - [Or "(none)" if none were mentioned]
  
@@ -907,7 +1112,7 @@ index 94d0dc4..8bb4a17 100644
  
  Use this EXACT format:
  
-@@ -1896,22 +1967,18 @@ Use this EXACT format:
+@@ -1896,22 +1969,18 @@ Use this EXACT format:
  ## Constraints & Preferences
  - [Preserve existing, add new ones discovered]
  
@@ -936,7 +1141,7 @@ index 94d0dc4..8bb4a17 100644
  ## Critical Context
  - [Preserve important context, add new if needed]
  
-@@ -1924,12 +1991,18 @@ Summarize the prefix to provide context for the retained suffix:
+@@ -1924,12 +1993,18 @@ Summarize the prefix to provide context for the retained suffix:
  [What did the user ask for in this turn?]
  
  ## Early Progress
@@ -957,14 +1162,46 @@ index 94d0dc4..8bb4a17 100644
  /** Valid cut points: user or assistant messages. Never cut at toolResult. */
  function findValidCutPoints(messages, start, end) {
  	const cutPoints = [];
-@@ -2040,11 +2113,12 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+@@ -1958,10 +2033,10 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
+ 		const messageTokens = estimateTokens(message);
+ 		accumulatedTokens += messageTokens;
+ 		if (accumulatedTokens >= keepRecentTokens) {
+-			for (const cutPoint of cutPoints) if (cutPoint >= i) {
+-				cutIndex = cutPoint;
+-				break;
+-			}
++			// Pre-inference compaction can end on a large tool result. If there
++			// is no later message boundary, retain its issuing assistant and all
++			// paired results instead of falling back to the start of history.
++			cutIndex = cutPoints.find((cutPoint) => cutPoint >= i) ?? cutPoints.at(-1) ?? start;
+ 			break;
+ 		}
+ 	}
+@@ -2034,26 +2109,34 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+ 		observer.end(purpose, handle, void 0, error);
+ 		throw error;
+ 	}
+-	if (response.stopReason === "error") throw new Error(`${errorPrefix}: ${response.errorMessage || "Unknown error"}`);
++	if (response.stopReason !== "stop") throw new Error(`${errorPrefix}: ${response.errorMessage || `Incomplete summary (${response.stopReason})`}`);
++	const text = response.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
++	if (!text.trim()) throw new Error(`${errorPrefix}: Empty summary`);
+ 	return {
+-		text: response.content.filter((c) => c.type === "text").map((c) => c.text).join("\n"),
++		text,
  		usage: response.usage
  	};
  }
 -async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, observer) {
-+async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, canonicalActionEvidence, observer) {
- 	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), 16e3);
- 	const basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
+-	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), 16e3);
+-	const basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
++const WORKING_CONTEXT_SUMMARIZATION_PROMPT = `Create a concise working checkpoint for continuing the current task, incorporating the previous checkpoint if present.
++Use headings: Goal, Constraints & Preferences, Observed Facts, Current Status, Pending Plan, Key Decisions, Critical Context.
++Preserve active requirements, explicit limits on authority, unresolved work, corrections, and exact identifiers needed for the next action. Keep observed actions separate from current status and future plans. A later state must not turn "not since checkpoint X" into "never happened", nor turn a pending action into a completed one. Preserve the time and scope of corrections or conflicts.
++Do not copy the entire archive into the checkpoint. Older user and assistant messages remain in the canonical conversation and can be searched with recall_conversation. For large historical collections, retain distinctive literal search phrases or identifiers and explain what records exist, instead of enumerating every record. Keep task-critical facts directly in the checkpoint. For tool artifacts, retain the owning source reference or path and the authorized way to read it again; never imply recall_conversation returns tool payloads.
++Use <canonical-action-evidence> to check recorded tool work, but do not reproduce its heading; the runtime appends that bounded evidence section. Be brief enough to leave room for recent messages and new work.`;
++async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, maxSummaryTokens = 16e3, recallAvailable = false) {
++	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), maxSummaryTokens);
++	const basePrompt = recallAvailable ? WORKING_CONTEXT_SUMMARIZATION_PROMPT : previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
  	let promptText = `<conversation>\n${serializeConversation(currentMessages)}\n</conversation>\n\n`;
 -	if (previousSummary) promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
 +	if (previousSummary) promptText += `<previous-summary>\n${stripCanonicalActionEvidence(previousSummary)}\n</previous-summary>\n\n`;
@@ -972,7 +1209,10 @@ index 94d0dc4..8bb4a17 100644
  	promptText += basePrompt;
  	return runSummarizationCall("compaction", promptText, maxTokens, model, signal, observer, "Summarization failed");
  }
-@@ -2053,7 +2127,7 @@ async function generateTurnPrefixSummary(messages, model, reserveTokens, signal,
+-async function generateTurnPrefixSummary(messages, model, reserveTokens, signal, observer) {
+-	const maxTokens = Math.min(Math.floor(.5 * reserveTokens), 16e3);
++async function generateTurnPrefixSummary(messages, model, reserveTokens, signal, observer, maxSummaryTokens = 16e3) {
++	const maxTokens = Math.min(Math.floor(.5 * reserveTokens), maxSummaryTokens);
  	return runSummarizationCall("compaction_prefix", `<conversation>\n${serializeConversation(messages)}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`, maxTokens, model, signal, observer, "Turn prefix summarization failed");
  }
  async function compact(preparation, model, signal, observer) {
@@ -981,21 +1221,31 @@ index 94d0dc4..8bb4a17 100644
  	let summary;
  	let aggregateUsage;
  	const addCallUsage = (usage) => {
-@@ -2062,7 +2136,7 @@ async function compact(preparation, model, signal, observer) {
+@@ -2061,19 +2144,28 @@ async function compact(preparation, model, signal, observer) {
+ 		if (!normalized) return;
  		aggregateUsage = aggregateUsage ? addUsage(aggregateUsage, normalized) : normalized;
  	};
- 	if (isSplitTurn && turnPrefixMessages.length > 0) {
+-	if (isSplitTurn && turnPrefixMessages.length > 0) {
 -		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, observer) : Promise.resolve({
-+		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer) : Promise.resolve({
++	if (settings.recallAvailable) {
++		// One bounded checkpoint owns both earlier history and the current turn.
++		// A second independent prefix summary doubles maintenance and can lose
++		// the relationship between prior findings and the unfinished request.
++		const result = await generateSummary([...messagesToSummarize, ...turnPrefixMessages], model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, true);
++		addCallUsage(result.usage);
++		summary = result.text;
++	} else if (isSplitTurn && turnPrefixMessages.length > 0) {
++		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, settings.recallAvailable) : Promise.resolve({
  			text: "No prior history.",
  			usage: void 0
- 		}), generateTurnPrefixSummary(turnPrefixMessages, model, settings.reserveTokens, signal, observer)]);
-@@ -2070,10 +2144,12 @@ async function compact(preparation, model, signal, observer) {
+-		}), generateTurnPrefixSummary(turnPrefixMessages, model, settings.reserveTokens, signal, observer)]);
++		}), generateTurnPrefixSummary(turnPrefixMessages, model, settings.reserveTokens, signal, observer, settings.maxSummaryTokens)]);
+ 		addCallUsage(historyResult.usage);
  		addCallUsage(turnPrefixResult.usage);
  		summary = `${historyResult.text}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
  	} else {
 -		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, observer);
-+		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer);
++		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, settings.recallAvailable);
  		addCallUsage(historyResult.usage);
  		summary = historyResult.text;
  	}
@@ -1004,7 +1254,7 @@ index 94d0dc4..8bb4a17 100644
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2421,6 +2497,17 @@ function supersededAssistantErrorEntryIds(conversation) {
+@@ -2421,6 +2513,17 @@ function supersededAssistantErrorEntryIds(conversation) {
  	}
  	return superseded;
  }
@@ -1022,7 +1272,7 @@ index 94d0dc4..8bb4a17 100644
  function projectConversationUi(conversation, streamOffset) {
  	const messages = [];
  	const byId = /* @__PURE__ */ new Map();
-@@ -3129,6 +3216,44 @@ async function readSubmissionReply(options) {
+@@ -3129,6 +3232,44 @@ async function readSubmissionReply(options) {
  	};
  	return replyFromSnapshot(snapshot, options.submissionId);
  }
@@ -1067,7 +1317,23 @@ index 94d0dc4..8bb4a17 100644
  /**
  * Extract a submission's reply from a materialized conversation snapshot.
  * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
-@@ -3192,7 +3317,7 @@ function assertDurability(definition, label) {
+@@ -3182,9 +3323,14 @@ function assertThinkingLevel(value, label) {
+ function assertCompaction(definition, label) {
+ 	if (definition === void 0 || definition === false) return;
+ 	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
+-	for (const key of Object.keys(definition)) if (key !== "reserveTokens" && key !== "keepRecentTokens" && key !== "model") throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
++	for (const key of Object.keys(definition)) if (!["reserveTokens", "keepRecentTokens", "model", "workingContextTokens", "workingContextHeadroomTokens", "maxSummaryTokens", "reduceToolResultPreviews"].includes(key)) throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
++	if (definition.reduceToolResultPreviews !== undefined && typeof definition.reduceToolResultPreviews !== "function") throw new Error(`[flue] ${label} compaction.reduceToolResultPreviews must be a function.`);
+ 	assertTokenCount(definition.reserveTokens, `${label} compaction.reserveTokens`);
+ 	assertTokenCount(definition.keepRecentTokens, `${label} compaction.keepRecentTokens`);
++	assertPositiveInteger(definition.workingContextTokens, `${label} compaction.workingContextTokens`);
++	assertTokenCount(definition.workingContextHeadroomTokens, `${label} compaction.workingContextHeadroomTokens`);
++	if (definition.workingContextHeadroomTokens !== undefined && !(definition.workingContextTokens > definition.workingContextHeadroomTokens)) throw new Error(`[flue] ${label} working-context headroom must be smaller than its limit.`);
++	assertPositiveInteger(definition.maxSummaryTokens, `${label} compaction.maxSummaryTokens`);
+ 	if (definition.model !== void 0 && typeof definition.model !== "string") throw new Error(`[flue] ${label} compaction.model must be a string.`);
+ }
+ function assertDurability(definition, label) {
+@@ -3192,7 +3338,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);
@@ -1140,10 +1406,27 @@ index 8d022fc..1be99af 100644
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
 diff --git a/dist/types-B1PuLhZt.d.mts b/dist/types-B1PuLhZt.d.mts
-index 8c2299c..58e65be 100644
+index 8c2299c..a579ea5 100644
 --- a/dist/types-B1PuLhZt.d.mts
 +++ b/dist/types-B1PuLhZt.d.mts
-@@ -606,6 +606,7 @@ interface DurabilityConfig {
+@@ -562,6 +562,16 @@ interface FlueFs {
+   }): Promise<void>;
+ }
+ interface CompactionConfig {
++  /** Optional authorized replacement text for older tool results under budget pressure.
++   * Flue protects the recent tail and retains canonical originals for summaries/replay.
++   */
++  reduceToolResultPreviews?: (results: readonly LlmToolResultMessage[], signal?: AbortSignal) => Promise<ReadonlyMap<string, string>>;
++  /** OpenMeld: estimated total working context checked before each model call. */
++  workingContextTokens?: number;
++  /** Space reserved for new work when selecting the recent tail. */
++  workingContextHeadroomTokens?: number;
++  /** OpenMeld: independent per-summary output ceiling, including reasoning. */
++  maxSummaryTokens?: number;
+   /**
+    * Token headroom to reserve in the context window. Compaction triggers
+    * when used tokens exceed `contextWindow - reserveTokens`.
+@@ -606,6 +616,7 @@ interface DurabilityConfig {
    timeoutMs?: number;
  }
  interface AgentConfig {
@@ -1151,7 +1434,7 @@ index 8c2299c..58e65be 100644
    /** Discovered at runtime from AGENTS.md + .agents/skills/ in the session's cwd. */
    systemPrompt: string;
    /** Agent instructions prepended ahead of discovered workspace context. */
-@@ -766,7 +767,47 @@ interface AgentProps {
+@@ -766,7 +777,47 @@ interface AgentProps {
   * IssueTriage.durability = { maxAttempts: 5, timeoutMs: 7_200_000 };
   * ```
   */
@@ -1199,7 +1482,7 @@ index 8c2299c..58e65be 100644
    /**
     * The agent's durable identity — keys conversation storage everywhere and
     * the Durable Object class on Cloudflare. Defaults to the function's own
-@@ -1308,6 +1349,13 @@ type FlueEventVariant = {
+@@ -1308,6 +1359,13 @@ type FlueEventVariant = {
  } | {
    type: 'text_delta';
    text: string;
@@ -1213,10 +1496,52 @@ index 8c2299c..58e65be 100644
  } | {
    type: 'thinking_start';
    contentIndex?: number;
-@@ -1504,4 +1552,4 @@ type AttachedAgentEvent = FlueEvent & {
+@@ -1368,6 +1426,7 @@ type FlueEventVariant = {
+   estimatedTokens: number;
+ } | {
+   type: 'compaction';
++  workingContext?: { beforeTokens: number; afterTokens: number; fixedTokens: number; targetTokens: number; limitTokens: number };
+   messagesBefore: number;
+   messagesAfter: number;
+   durationMs: number;
+@@ -1504,4 +1563,4 @@ type AttachedAgentEvent = FlueEvent & {
  type FlueEventInputCallback = (event: FlueEventInput, observation?: FlueObservationDetail) => void | Promise<void>;
  type FlueEventCallback = (event: FlueEvent) => void | Promise<void>;
  //#endregion
 -export { RegisteredSkill as $, LlmAssistantMessage as A, ModelRequest as B, FlueEventInputCallback as C, ToolStep as Ct, FlueObservation as D, McpTransport as Dt, FlueLogger as E, McpToolAnnotations as Et, LlmTool as F, PackagedSkillFile as G, ModelRequestInput as H, LlmToolCall as I, PromptModel as J, PromptDocument as K, LlmToolResultMessage as L, LlmMessage as M, LlmTextContent as N, FlueObservationDetail as O, McpUnavailableConnection as Ot, LlmThinkingContent as P, PromptUsage as Q, LlmTurnPurpose as R, FlueEventInput as S, ToolRunEnvelope as St, FlueHarness as T, McpConnectionDefinition as Tt, ModelResponse as U, ModelRequestInfo as V, PackagedSkillDirectory as W, PromptResponse as X, PromptOptions as Y, PromptResultResponse as Z, DurabilityConfig as _, ToolDefinition as _t, AgentProps as a, SessionToolFactory as at, FlueEventCallback as b, ToolOutput as bt, AttachedAgentEvent as c, ShellResult as ct, CallHandle as d, SkillOptions as dt, Sandbox as et, CompactionConfig as f, SkillReference as ft, DispatchReceipt as g, ToolContext as gt, DeliveredMessageInput as h, ThinkingLevel as ht, AgentFunction as i, SessionEnv as it, LlmImageContent as j, FlueSession as k, BashFactory as l, Skill as lt, DeliveredMessage as m, TaskOptions as mt, AgentConfig as n, SandboxToolFactory as nt, AgentRuntimeConfig as o, SessionToolFactoryOptions as ot, DeliveredAttachment as p, SubagentDefinition as pt, PromptImage as q, AgentDispatchRequest as r, SandboxToolFactoryOptions as rt, AgentStatics as s, ShellOptions as st, Agent$1 as t, SandboxFactory as tt, BashLike as u, SkillDefinition as ut, FileStat as v, ToolInput as vt, FlueFs as w, McpAuth as wt, FlueEventContext as x, ToolOutputSchema as xt, FlueEvent as y, ToolInputSchema as yt, LlmUserMessage as z };
 \ No newline at end of file
 +export { RegisteredSkill as $, LlmAssistantMessage as A, ModelRequest as B, FlueEventInputCallback as C, ToolStep as Ct, FlueObservation as D, McpTransport as Dt, FlueLogger as E, McpToolAnnotations as Et, LlmTool as F, PackagedSkillFile as G, ModelRequestInput as H, LlmToolCall as I, PromptModel as J, PromptDocument as K, LlmToolResultMessage as L, LlmMessage as M, LlmTextContent as N, FlueObservationDetail as O, McpUnavailableConnection as Ot, LlmThinkingContent as P, PromptUsage as Q, LlmTurnPurpose as R, FlueEventInput as S, ToolRunEnvelope as St, FlueHarness as T, McpConnectionDefinition as Tt, ModelResponse as U, ModelRequestInfo as V, PackagedSkillDirectory as W, PromptResponse as X, PromptOptions as Y, PromptResultResponse as Z, DurabilityConfig as _, ToolDefinition as _t, AgentProps as a, SessionToolFactory as at, FlueEventCallback as b, ToolOutput as bt, AttachedAgentEvent as c, ShellResult as ct, CallHandle as d, SkillOptions as dt, Sandbox as et, CompactionConfig as f, SkillReference as ft, DispatchReceipt as g, ToolContext as gt, DeliveredMessageInput as h, ThinkingLevel as ht, AgentFunction as i, SessionEnv as it, LlmImageContent as j, FlueSession as k, BashFactory as l, Skill as lt, DeliveredMessage as m, TaskOptions as mt, AgentConfig as n, SandboxToolFactory as nt, AgentRuntimeConfig as o, SessionToolFactoryOptions as ot, DeliveredAttachment as p, SubagentDefinition as pt, PromptImage as q, AgentDispatchRequest as r, SandboxToolFactoryOptions as rt, AgentStatics as s, ShellOptions as st, Agent$1 as t, SandboxFactory as tt, BashLike as u, SkillDefinition as ut, FileStat as v, ToolInput as vt, FlueFs as w, McpAuth as wt, FlueEventContext as x, ToolOutputSchema as xt, FlueEvent as y, ToolInputSchema as yt, LlmUserMessage as z };
+diff --git a/dist/working-context.mjs b/dist/working-context.mjs
+new file mode 100644
+index 0000000..ccf43ca
+--- /dev/null
++++ b/dist/working-context.mjs
+@@ -0,0 +1,28 @@
++// Keep the native compactor's image heuristic in one place. This is an
++// economic projection, not vendor tokenization or physical image admission.
++export const COMPACTION_IMAGE_TOKENS = 1200;
++
++export function measureWorkingContext(input) {
++  let imageTokens = 0;
++  // Pi 0.87 carries system/tools declarations in messages. When the current
++  // fixed context is supplied separately, count it once instead of twice.
++  const messages = input.messages.filter((message) => message.role !== "system" || (input.systemPrompt === undefined && input.tools === undefined)).map((message) => {
++    const { role, content, toolCallId, toolName, isError } = message;
++    const visible = { role, content, toolCallId, toolName, isError };
++    if (!Array.isArray(content)) return visible;
++    return {
++      ...visible,
++      content: content.map((block) => {
++        if (block.type !== "image") return block;
++        imageTokens += COMPACTION_IMAGE_TOKENS;
++        return { type: "image", mimeType: block.mimeType };
++      })
++    };
++  });
++  return Math.ceil(new TextEncoder().encode(JSON.stringify({ ...input, messages })).byteLength / 4) + imageTokens;
++}
++
++export function workingContextBudget(input, limit, headroom = 0) {
++  const fixedTokens = measureWorkingContext({ ...input, messages: [] });
++  return { limitTokens: limit, targetTokens: limit - headroom, fixedTokens };
++}

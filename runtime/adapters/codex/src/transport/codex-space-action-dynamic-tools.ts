@@ -6,11 +6,11 @@ import type {
   AgentControllerPermissionMode,
 } from "@openmeld/adapter-core";
 import { OPENMELD_SPACE_ACTION_MCP_SERVER_ID } from "@openmeld/adapter-core";
+import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 import { toJSONSchema } from "zod/v4";
 
 const NATIVE_THREAD_SUFFIX = "/openmeld-space-tools-v1";
 const NATIVE_TOOL_PREFIX = "openmeld_space_";
-const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/u;
 
 // Only transport fields are safe to carry across without interpreting policy.
 // A new/unknown native policy stays on MCP rather than silently losing it.
@@ -34,17 +34,8 @@ const TRANSPORT_FIELDS = new Set([
 export function supportsCodexSpaceDynamicTools(
   version: string | null
 ): boolean {
-  const match = version?.match(VERSION_PATTERN);
-  if (!match) {
-    return false;
-  }
-  const [, major, minor, patch] = match;
   // 0.150.1 is the executable/protocol baseline verified by this adapter.
-  return (
-    Number(major) > 0 ||
-    Number(minor) > 150 ||
-    (Number(minor) === 150 && Number(patch) >= 1)
-  );
+  return supportsAgentControllerVersion(version, ">=0.150.1");
 }
 
 export function hasCodexSpaceDynamicTools(source: string | null): boolean {

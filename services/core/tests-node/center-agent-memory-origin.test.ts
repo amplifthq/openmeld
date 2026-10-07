@@ -9,19 +9,60 @@ import {
   resolveExplicitMemorySourceTurnRequest,
 } from "../src/center-agent-memory/explicit-memory-origin";
 import type { CoreBindings } from "../src/lib/bindings";
+import {
+  readRemoteAgentNativeDeliveryByDeliveryId,
+  upsertRemoteAgentNativeDeliveryRecord,
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import {
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("explicit organization memory origin", () => {
-  it("reads the source delivery from the Wake evidence ledger when domain stores are split", () => {
-    const localStateDb = {} as D1Database;
-    const wakeEvidenceDb = {} as D1Database;
-    const env = {
-      OPENMELD_DB: undefined,
-      OPENMELD_LOCAL_STATE_DB: localStateDb,
-      OPENMELD_WAKE_EVIDENCE_DB: wakeEvidenceDb,
-    } as unknown as CoreBindings;
-
-    expect(resolveExplicitMemorySourceDeliveryDb(env)).toBe(wakeEvidenceDb);
-    expect(resolveExplicitMemorySourceDeliveryDb(env)).not.toBe(localStateDb);
+  it("reads the exact native source delivery through the canonical PostgreSQL binding", async () => {
+    const harness = await createPostgresHarness();
+    try {
+      await upsertRemoteAgentNativeDeliveryRecord({
+        db: harness.db,
+        deliveryId: "source-delivery",
+        nowMs: 1000,
+        organizationId: "org_1",
+        spaceId: "space_launch",
+        profileId: "agent_1",
+        bindingId: "binding_1",
+        triggerMessageId: "message_1",
+        dispatchId: "dispatch_1",
+        attemptId: null,
+        idempotencyKey: "source-delivery",
+        status: "submitted",
+      });
+      const db = resolveExplicitMemorySourceDeliveryDb({
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as CoreBindings);
+      await expect(
+        readRemoteAgentNativeDeliveryByDeliveryId({
+          db,
+          deliveryId: "source-delivery",
+        })
+      ).resolves.toMatchObject({
+        organizationId: "org_1",
+        profileId: "agent_1",
+        triggerMessageId: "message_1",
+        dispatchId: "dispatch_1",
+        status: "submitted",
+      });
+      await expect(
+        readRemoteAgentNativeDeliveryByDeliveryId({
+          db,
+          deliveryId: "other-delivery",
+        })
+      ).resolves.toBeNull();
+      expect(() =>
+        resolveExplicitMemorySourceDeliveryDb({} as CoreBindings)
+      ).toThrow("OPENMELD_POSTGRESQL Hyperdrive binding is required");
+    } finally {
+      await harness.close();
+    }
   });
 
   it("uses the execution recovery request after hosted admission clears the transient request", () => {

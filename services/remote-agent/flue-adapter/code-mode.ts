@@ -23,6 +23,7 @@ import type {
   RemoteAgentToolDefinition,
   RemoteAgentToolInputSchema,
 } from "../agent-core/tool-definition";
+import { REMOTE_AGENT_TOOL_RESULT_MAX_BYTES } from "../agent-core/tool-result-boundary";
 import { prepareRemoteAgentToolResult } from "./retained-tool-results";
 import { remoteAgentStreamPublisher } from "./stream-publisher-instance";
 import {
@@ -322,6 +323,9 @@ function buildCodeModeToolSet(input: {
               submissionId: input.submissionId,
               toolName: definition.name,
               value: result,
+              // Code runs on the full transport-sized value so it can select
+              // relevant fields before the outer model-presentation boundary.
+              maxBytes: REMOTE_AGENT_TOOL_RESULT_MAX_BYTES,
             })) ?? null
           );
         },

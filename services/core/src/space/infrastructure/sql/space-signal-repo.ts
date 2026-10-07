@@ -453,6 +453,7 @@ export const listSignalEntriesAfterAnchor = (
 export const countPublicTextSignalsAfterDispatchAnchor = (
   sql: SqlStorage,
   input: {
+    dispatchId: string;
     afterSignalId: string;
     afterTimestampMs: number;
     excludeProfileId: string;
@@ -504,9 +505,20 @@ export const countPublicTextSignalsAfterDispatchAnchor = (
           AND profile_kind != 'system'
           AND profile_id != ?
           AND COALESCE(json_extract(payload_json, '$.data.meta.transient'), 0) != 1
+          AND NOT EXISTS (
+            SELECT 1 FROM space_execution_input_outbox AS execution_input
+            WHERE execution_input.input_id = json_extract(space_signals.payload_json, '$.data.meta.clientMessageId')
+              AND execution_input.queue_state = 'consumed'
+              AND execution_input.queue_claim = 'steer'
+              AND json_extract(execution_input.signal_json, '$.id') = space_signals.id
+              AND json_extract(execution_input.signal_json, '$.data.meta.centerAgentExecutionInput.dispatchId') = ?
+              AND json_extract(execution_input.signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId') = ?
+          )
       `,
       normalizedSignalId,
       normalizedAfterTimestampMs,
+      normalizedExcludedProfileId,
+      input.dispatchId,
       normalizedExcludedProfileId
     )
     .toArray();
@@ -790,6 +802,8 @@ export const deleteAllSqlSpaceData = (sql: SqlStorage): void => {
   sql.exec("DELETE FROM space_signals");
   sql.exec("DELETE FROM space_execution_input_outbox");
   sql.exec("DELETE FROM space_client_message_rejections");
+  sql.exec("DELETE FROM space_pending_wake_stops");
+  sql.exec("DELETE FROM space_wake_stop_outcome_outbox");
   sql.exec("DELETE FROM space_final_reply_claims");
   sql.exec("DELETE FROM space_member_profile_liveness");
   sql.exec("DELETE FROM space_member_projection_dirty");

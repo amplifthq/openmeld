@@ -30,6 +30,7 @@ import {
 	DesktopIcon,
 	GearSixIcon,
 	ListIcon,
+	RobotIcon,
 	SlidersHorizontalIcon,
 	SortAscendingIcon,
 	SquaresFourIcon,
@@ -37,9 +38,11 @@ import {
 	WifiSlashIcon,
 } from "@phosphor-icons/react";
 import { type ReactNode, useId, useState } from "react";
+import { AppEmptyState } from "#/components/app/app-empty-state";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { DirectorySearch } from "#/components/directory/directory-search";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
+import { useBrowserPreference } from "#/lib/use-browser-preference";
 import { AgentGroupCards } from "./agent-group-cards";
 import {
 	AGENT_LIST_FACETS,
@@ -274,7 +277,7 @@ export function AgentListControls(input: {
 									</span>
 								)}
 							</DropdownMenuSubTrigger>
-							<DropdownMenuSubContent className="max-h-[min(24rem,var(--available-height))] w-72 overflow-y-auto">
+							<DropdownMenuSubContent className="max-h-[min(24rem,var(--available-height))] w-72">
 								{choices}
 							</DropdownMenuSubContent>
 						</DropdownMenuSub>
@@ -408,6 +411,7 @@ function ExpandAllControl({
 }
 
 export function AgentList(input: {
+	viewPreferenceKey: string;
 	items: readonly AgentListItem[];
 	search?: string;
 	defaults?: AgentListView;
@@ -424,7 +428,10 @@ export function AgentList(input: {
 	onDelete?: DeleteAgents;
 }) {
 	const [collapsed, setCollapsed] = useState(false);
-	const [expandAll, setExpandAll] = useState(false);
+	const [presentation, setPresentation] = useBrowserPreference(
+		input.viewPreferenceKey
+	);
+	const expandAll = presentation === "expanded";
 	const contentId = useId();
 	const [override, setOverride] = useState<AgentListView | null>(null);
 	const [search, setSearch] = useState("");
@@ -469,7 +476,7 @@ export function AgentList(input: {
 							{selection.trigger}
 						</div>
 					)}
-					{!input.hideControls && (
+					{!collapsed && (
 						<div
 							className={`flex items-center gap-1 ${search || override ? "" : "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 has-[[data-popup-open]]:opacity-100 has-[input]:opacity-100 [@media(hover:none)]:opacity-100"}`}
 							hidden={collapsed}
@@ -480,28 +487,35 @@ export function AgentList(input: {
 								label={input.label}
 								onClick={() => {
 									selection.reset();
-									setExpandAll(!expandAll);
+									setPresentation(expandAll ? "grouped" : "expanded");
 								}}
 							/>
-							<DirectorySearch
-								label={`Search ${input.label}`}
-								onChange={(value) => {
-									selection.reset();
-									setSearch(value);
-								}}
-								value={search}
-							/>
-							<AgentListControls
-								items={globallyFiltered}
-								label={`${input.label} settings`}
-								onChange={changeView}
-								onReset={() => {
-									selection.reset();
-									setOverride(null);
-								}}
-								resetValue={{ ...defaults, filters: EMPTY_AGENT_LIST_FILTERS }}
-								value={view}
-							/>
+							{!input.hideControls && (
+								<>
+									<DirectorySearch
+										label={`Search ${input.label}`}
+										onChange={(value) => {
+											selection.reset();
+											setSearch(value);
+										}}
+										value={search}
+									/>
+									<AgentListControls
+										items={globallyFiltered}
+										label={`${input.label} settings`}
+										onChange={changeView}
+										onReset={() => {
+											selection.reset();
+											setOverride(null);
+										}}
+										resetValue={{
+											...defaults,
+											filters: EMPTY_AGENT_LIST_FILTERS,
+										}}
+										value={view}
+									/>
+								</>
+							)}
 						</div>
 					)}
 					{input.collapsible && (
@@ -541,30 +555,52 @@ export function AgentList(input: {
 						}
 					/>
 				) : (
-					<div className="space-y-2 py-4 text-muted-foreground text-sm">
-						<p>
-							{input.items.length
-								? "No Agents match. Try another search or clear filters."
-								: "No Agents yet."}
-						</p>
-						{input.items.length > 0 && (search || override) && (
-							<Button
-								onClick={() => {
-									setSearch("");
-									setOverride(null);
-									selection.reset();
-								}}
-								size="sm"
-								variant="secondary"
-							>
-								Clear search and filters
-							</Button>
-						)}
-						{input.items.length === 0 && input.emptyAction}
-					</div>
+					<AgentListEmptyState
+						action={input.emptyAction}
+						canClear={Boolean(search || override)}
+						hasAgents={input.items.length > 0}
+						onClear={() => {
+							setSearch("");
+							setOverride(null);
+							selection.reset();
+						}}
+					/>
 				)}
 			</div>
 		</section>
+	);
+}
+
+function AgentListEmptyState(input: {
+	action?: ReactNode;
+	canClear: boolean;
+	hasAgents: boolean;
+	onClear: () => void;
+}) {
+	if (!input.hasAgents && input.action) {
+		return (
+			<AppEmptyState
+				actions={input.action}
+				className="min-h-56 w-full"
+				description="Create your first Agent to start working together."
+				icon={<RobotIcon aria-hidden="true" className="size-5" />}
+				title="No Agents yet."
+			/>
+		);
+	}
+	return (
+		<div className="space-y-2 py-4 text-muted-foreground text-sm">
+			<p>
+				{input.hasAgents
+					? "No Agents match. Try another search or clear filters."
+					: "No Agents yet."}
+			</p>
+			{input.hasAgents && input.canClear && (
+				<Button onClick={input.onClear} size="sm" variant="secondary">
+					Clear search and filters
+				</Button>
+			)}
+		</div>
 	);
 }
 

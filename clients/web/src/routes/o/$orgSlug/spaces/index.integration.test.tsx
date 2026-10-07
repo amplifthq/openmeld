@@ -9,6 +9,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { NuqsTestingAdapter } from "nuqs/adapters/testing";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -99,12 +100,17 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 		Link: ({
 			children,
 			to,
+			search,
 			...props
 		}: {
 			children: ReactNode;
 			to: string;
+			search?: Record<string, string | undefined>;
 		} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-			<a href={to} {...props}>
+			<a
+				href={`${to}${search && Object.values(search).some((value) => value !== undefined) ? `?${new URLSearchParams(Object.entries(search).filter((entry): entry is [string, string] => entry[1] !== undefined)).toString()}` : ""}`}
+				{...props}
+			>
 				{children}
 			</a>
 		),
@@ -113,6 +119,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 			return <div data-testid="route-redirect" data-to={props.to} />;
 		},
 		useNavigate: () => navigateMock,
+		useLocation: (input: { select: (location: { href: string }) => string }) =>
+			input.select({ href: "/o/acme/spaces" }),
 		useRouterState: (input: {
 			select: (state: { location: { pathname: string } }) => string;
 		}) => input.select({ location: { pathname: "/o/acme/spaces" } }),
@@ -230,6 +238,7 @@ import { AppSpacesIndexContent } from "./index";
 
 describe("app spaces index route", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
 		window.sessionStorage.clear();
 		appOrganizationMock.activeOrganization = null;
 		appOrganizationMock.currentOrganization = {
@@ -334,11 +343,13 @@ describe("app spaces index route", () => {
 			)
 		);
 		fireEvent.click(screen.getByRole("tab", { name: "Direct messages" }));
-		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/$orgSlug/spaces",
-			params: { orgSlug: "acme" },
-			search: { view: "messages" },
-		});
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("tab", { name: "Direct messages" })
+					.getAttribute("aria-selected")
+			).toBe("true")
+		);
 		expect(screen.queryByRole("searchbox")).toBeNull();
 		expect(
 			screen.getByRole("link", { name: PLANNING_ROW }).getAttribute("href")
@@ -468,6 +479,7 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
+		fireEvent.click(await screen.findByRole("button", { name: "Table" }));
 		const workingRow = await screen.findByRole("row", {
 			name: WORKING_ROW,
 		});
@@ -503,7 +515,7 @@ describe("app spaces index route", () => {
 		).toBeNull();
 	});
 
-	it("pins a joined Space from its directory row and updates the shared index", async () => {
+	it("pins a joined Space from the default card view and updates the shared index", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
 				openMeldProfileId: "selected-human",
@@ -530,11 +542,13 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		const planning = await screen.findByRole("row", {
-			name: PLANNING_ROW,
-		});
+		expect(
+			(await screen.findByRole("button", { name: "Cards" })).getAttribute(
+				"aria-pressed"
+			)
+		).toBe("true");
 		fireEvent.click(
-			within(planning).getByRole("button", { name: "Pin Planning" })
+			await screen.findByRole("button", { name: "Pin Planning" })
 		);
 		await waitFor(() =>
 			expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
@@ -548,6 +562,27 @@ describe("app spaces index route", () => {
 		).toBeTruthy();
 		const pinned = screen.getByRole("heading", { name: "Pinned" });
 		expect(pinned).toBeTruthy();
+	});
+
+	it("remembers the selected Space layout when returning to the directory", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
+		]);
+		renderSpacesIndex();
+		expect(
+			(await screen.findByRole("button", { name: "Cards" })).getAttribute(
+				"aria-pressed"
+			)
+		).toBe("true");
+		fireEvent.click(screen.getByRole("button", { name: "Table" }));
+		cleanup();
+		renderSpacesIndex();
+		expect(
+			(await screen.findByRole("button", { name: "Table" })).getAttribute(
+				"aria-pressed"
+			)
+		).toBe("true");
+		expect(await screen.findByRole("row", { name: PLANNING_ROW })).toBeTruthy();
 	});
 
 	it("shows a newly joined Space while the discovery snapshot is still older", async () => {
@@ -970,9 +1005,9 @@ describe("app spaces index route", () => {
 		expect(await screen.findByText("Support")).toBeTruthy();
 		expect(screen.queryByRole("searchbox")).toBeNull();
 		fireEvent.click(screen.getByRole("tab", { name: "Your Spaces" }));
-		expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe(
-			"planning"
-		);
+		expect(
+			((await screen.findByRole("searchbox")) as HTMLInputElement).value
+		).toBe("planning");
 		expect(screen.queryByText("Finance")).toBeNull();
 	});
 
@@ -1154,14 +1189,17 @@ function renderSpacesIndex(
 	} = {}
 ) {
 	return render(
-		<TestQueryClientProvider queryClient={input.queryClient}>
-			<StartFlowStateProvider storageScope="user-123">
-				<AppSpacesIndexContent
-					initialView={input.initialView}
-					orgSlug={input.orgSlug ?? "acme"}
-				/>
-			</StartFlowStateProvider>
-		</TestQueryClientProvider>
+		<NuqsTestingAdapter
+			hasMemory
+			resetUrlUpdateQueueOnMount={false}
+			searchParams={input.initialView ? { view: input.initialView } : {}}
+		>
+			<TestQueryClientProvider queryClient={input.queryClient}>
+				<StartFlowStateProvider storageScope="user-123">
+					<AppSpacesIndexContent orgSlug={input.orgSlug ?? "acme"} />
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		</NuqsTestingAdapter>
 	);
 }
 

@@ -1,3 +1,4 @@
+import { HOSTED_REMOTE_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type { AuthProfileView } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
@@ -53,6 +54,40 @@ describe("shared Agent lists", () => {
 	);
 	const fresh = item("fresh", "2026-09-10T00:00:00Z");
 	const idle = item("idle", "2026-09-08T00:00:00Z");
+	it.each([
+		["openai/gpt-6-sol", "Claude", "OpenAI"],
+		["anthropic/claude-opus-5.5", "GPT", "Anthropic"],
+		["google/gemini-3.1-pro", "Gemini", "Google"],
+		["unknown/claude-gpt", "Claude GPT", "Unknown provider"],
+		["gpt-6-sol", "GPT", "Unknown provider"],
+	])("groups Remote model %s by its author, independent of its label", (modelId, displayName, provider) => {
+		const remote = buildAgentListItem({
+			profile: fresh.profile,
+			agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+			modelCatalog: {
+				schemaVersion: 1,
+				updatedAt: "2026-09-01T00:00:00Z",
+				agentControllers: {
+					"center-agent": {
+						defaultModelId: modelId,
+						models: [
+							{
+								id: modelId,
+								displayName,
+								unavailable: false,
+								supportedReasoningLevels: [],
+								minCliVersion: null,
+							},
+						],
+					},
+				},
+			},
+		});
+		expect(remote.provider).toBe(provider);
+		expect(groupAgentListItems([remote], "controller-provider")[0]?.[0]).toBe(
+			`${provider} · Remote`
+		);
+	});
 	it("keeps local controllers separate from remote providers and respects the filtered order", () => {
 		const remote = {
 			...fresh,

@@ -92,6 +92,9 @@ describe("Zep Center Agent memory adapter", () => {
           sourceNodeUuid: "node_launch_room",
           targetNodeUuid: "node_release_blockers",
           uuid: "edge_1",
+          validAt: "2025-07-26T00:00:00Z",
+          invalidAt: "2025-08-01T00:00:00Z",
+          expiredAt: "2025-08-02T00:00:00Z",
         },
       ],
     } satisfies Zep.GraphSearchResults;
@@ -125,7 +128,7 @@ describe("Zep Center Agent memory adapter", () => {
         sourceConversationId: "space_launch_room",
         sourceMessageId: "signal_launch_1",
         subject: "organization",
-        text: "The Launch Room tracks release blockers.",
+        text: "[Fact validity: from 2025-07-26T00:00:00.000Z; until 2025-08-01T00:00:00.000Z; superseded 2025-08-02T00:00:00.000Z] The Launch Room tracks release blockers.",
       },
     ]);
     expect(zepMocks.getEpisode).toHaveBeenCalledWith("episode_space_1");
@@ -174,7 +177,7 @@ describe("Zep Center Agent memory adapter", () => {
         sourceConversationId: "lark:connection_1:chat_1:message_1",
         sourceMessageId: "message_1",
         subject: "organization",
-        text: "Launch reviews happen on Fridays.",
+        text: "[Fact validity: unknown] Launch reviews happen on Fridays.",
       },
     ]);
   });
@@ -240,7 +243,7 @@ describe("Zep Center Agent memory adapter", () => {
         sourceConversationId: "space_original",
         sourceMessageId: "message_original",
         subject: "organization",
-        text: "The release review happens on Fridays.",
+        text: "[Fact validity: unknown] The release review happens on Fridays.",
       },
     ]);
     expect(zepMocks.getEpisode).toHaveBeenCalledWith("episode_lark_later");

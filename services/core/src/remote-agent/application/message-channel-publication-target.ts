@@ -1,9 +1,10 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { MessageChannelConversationLocator } from "@openmeld/schemas/types";
 import {
   type RemoteAgentLarkPlatformChannelConnectionRecord,
   readRemoteAgentLarkPlatformChannelConnection,
-} from "../infrastructure/d1/lark-platform-channel-connection-repo";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type {
   MessageChannelProviderAdapter,
   MessageChannelProviderRegistry,
@@ -11,18 +12,18 @@ import type {
 
 type LarkPlatformConversationLocator = Extract<
   MessageChannelConversationLocator,
-  { provider: "feishu" | "lark" }
+  {
+    provider: "feishu" | "lark";
+  }
 >;
-
 export type MessageChannelPublicationTarget = {
   adapter: MessageChannelProviderAdapter;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   locator: LarkPlatformConversationLocator;
   providerPublicationIdempotencyKey: string;
 };
-
 export async function resolveMessageChannelPublicationTarget(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   registry: MessageChannelProviderRegistry;
 }): Promise<
@@ -55,7 +56,6 @@ export async function resolveMessageChannelPublicationTarget(input: {
       status: "retryable",
     };
   }
-
   let adapter: MessageChannelProviderAdapter;
   try {
     adapter = input.registry.require(locator.provider);
@@ -75,7 +75,6 @@ export async function resolveMessageChannelPublicationTarget(input: {
     },
   };
 }
-
 function requireLarkPlatformLocator(
   delivery: RemoteAgentNativeDeliveryRecord
 ): LarkPlatformConversationLocator {
@@ -90,7 +89,6 @@ function requireLarkPlatformLocator(
   }
   return locator;
 }
-
 function requireProviderPublicationIdempotencyKey(
   delivery: RemoteAgentNativeDeliveryRecord
 ): string {

@@ -1,17 +1,18 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   check,
   index,
-  integer,
   primaryKey,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
+import { integerBoolean } from "../postgresql/schema-types.ts";
 
 /** Monotonic native installation facts, not another notification/read ledger. */
-export const desktopUpdateInstallations = sqliteTable(
+export const desktopUpdateInstallations = applicationTable(
   "desktop_update_installations",
   {
     ownerUserId: text("owner_user_id")
@@ -19,9 +20,9 @@ export const desktopUpdateInstallations = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     installationId: text("installation_id").notNull(),
     lane: text("lane").notNull(),
-    sequence: integer("sequence").notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
     observationJson: text("observation_json").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -33,7 +34,7 @@ export const desktopUpdateInstallations = sqliteTable(
     ),
     check(
       "desktop_update_installations_json_check",
-      sql`json_valid("observation_json") and json_type("observation_json") = 'object'`
+      sql`"observation_json" is json object`
     ),
     check(
       "desktop_update_installations_lane_check",
@@ -43,7 +44,7 @@ export const desktopUpdateInstallations = sqliteTable(
 );
 
 /** Short-lived query cutoffs, never copies of conversation or Inbox content. */
-export const inboxFeedSnapshots = sqliteTable(
+export const inboxFeedSnapshots = applicationTable(
   "inbox_feed_snapshots",
   {
     id: text("id").primaryKey(),
@@ -54,15 +55,13 @@ export const inboxFeedSnapshots = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     category: text("category").notNull(),
-    unreadOnly: integer("unread_only", { mode: "boolean" }).notNull(),
-    agentsOnly: integer("agents_only", { mode: "boolean" }).notNull(),
-    peopleOnly: integer("people_only", { mode: "boolean" })
-      .notNull()
-      .default(false),
+    unreadOnly: integerBoolean("unread_only").notNull(),
+    agentsOnly: integerBoolean("agents_only").notNull(),
+    peopleOnly: integerBoolean("people_only").notNull().default(sql`0`),
     conversationType: text("conversation_type").notNull().default("all"),
-    throughRowId: integer("through_row_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
+    throughRowId: bigint("through_row_id", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("inbox_feed_snapshot_expiry_idx").on(table.expiresAtMs),
@@ -82,10 +81,13 @@ export const inboxFeedSnapshots = sqliteTable(
   ]
 );
 
-export const inboxItems = sqliteTable(
+export const inboxItems = applicationTable(
   "inbox_items",
   {
     id: text("id").primaryKey(),
+    sequence: bigint("sequence", { mode: "number" })
+      .generatedAlwaysAsIdentity()
+      .notNull(),
     organizationId: text("organization_id").references(() => organizations.id, {
       onDelete: "cascade",
     }),
@@ -103,20 +105,27 @@ export const inboxItems = sqliteTable(
     sourceTargetJson: text("source_target_json").notNull(),
     sourceFactsJson: text("source_facts_json"),
     resolutionStatus: text("resolution_status").notNull(),
-    readAtMs: integer("read_at_ms"),
-    clearedAtMs: integer("cleared_at_ms"),
-    resolvedAtMs: integer("resolved_at_ms"),
-    occurredAtMs: integer("occurred_at_ms").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    readAtMs: bigint("read_at_ms", { mode: "number" }),
+    clearedAtMs: bigint("cleared_at_ms", { mode: "number" }),
+    resolvedAtMs: bigint("resolved_at_ms", { mode: "number" }),
+    occurredAtMs: bigint("occurred_at_ms", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
+    uniqueIndex("inbox_items_sequence_unique").on(table.sequence),
+    // PostgreSQL requires the insertion-order key explicitly in this index.
+    index("inbox_items_observation_idx").on(
+      table.recipientUserId,
+      table.organizationId,
+      table.sequence
+    ),
     uniqueIndex("inbox_items_account_source_unique")
       .on(table.recipientUserId, table.sourceKind, table.sourceKey)
       .where(sql`"organization_id" is null`),
     check(
       "inbox_items_account_scope_check",
-      sql`("organization_id" is not null and "source_kind" not in ('computer_connection', 'desktop_update')) or ("organization_id" is null and "source_kind" in ('computer_connection', 'desktop_update') and "kind" = "source_kind" and json_extract("source_target_json", '$.kind') = "source_kind")`
+      sql`("organization_id" is not null and "source_kind" not in ('computer_connection', 'desktop_update')) or ("organization_id" is null and "source_kind" in ('computer_connection', 'desktop_update') and "kind" = "source_kind" and (("source_target_json")::jsonb #>> '{kind}') = "source_kind")`
     ),
     uniqueIndex("inbox_items_recipient_source_unique").on(
       table.organizationId,
@@ -190,7 +199,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_source_target_json_check",
-      sql`length("source_target_json") between 2 and 2048 and json_valid("source_target_json") and json_type("source_target_json") = 'object'`
+      sql`length("source_target_json") between 2 and 2048 and "source_target_json" is json object`
     ),
     check(
       "inbox_items_timestamps_check",
@@ -200,7 +209,7 @@ export const inboxItems = sqliteTable(
 );
 
 /** Membership only: contents and read state stay in the canonical Inbox item. */
-export const inboxFeedSnapshotMembers = sqliteTable(
+export const inboxFeedSnapshotMembers = applicationTable(
   "inbox_feed_snapshot_members",
   {
     snapshotId: text("snapshot_id")
@@ -216,17 +225,17 @@ export const inboxFeedSnapshotMembers = sqliteTable(
   ]
 );
 
-export const inboxNotificationPreferences = sqliteTable(
+export const inboxNotificationPreferences = applicationTable(
   "inbox_notification_preferences",
   {
     userId: text("user_id")
       .primaryKey()
       .references(() => users.id, { onDelete: "cascade" }),
-    urgentEmailEnabled: integer("urgent_email_enabled", { mode: "boolean" })
-      .default(true)
+    urgentEmailEnabled: integerBoolean("urgent_email_enabled")
+      .default(sql`1`)
       .notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (_table) => [
     check(
@@ -244,7 +253,7 @@ export const inboxNotificationPreferences = sqliteTable(
   ]
 );
 
-export const inboxMessageNotificationDefaults = sqliteTable(
+export const inboxMessageNotificationDefaults = applicationTable(
   "inbox_message_notification_defaults",
   {
     userId: text("user_id")
@@ -260,7 +269,7 @@ export const inboxMessageNotificationDefaults = sqliteTable(
   ]
 );
 
-export const inboxConversationNotificationPreferences = sqliteTable(
+export const inboxConversationNotificationPreferences = applicationTable(
   "inbox_conversation_notification_preferences",
   {
     userId: text("user_id")
@@ -287,7 +296,7 @@ export const inboxConversationNotificationPreferences = sqliteTable(
   ]
 );
 
-export const inboxCenterAgentReadWatermarks = sqliteTable(
+export const inboxCenterAgentReadWatermarks = applicationTable(
   "inbox_center_agent_read_watermarks",
   {
     organizationId: text("organization_id")
@@ -297,10 +306,12 @@ export const inboxCenterAgentReadWatermarks = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     spaceId: text("space_id").notNull(),
-    throughOccurredAtMs: integer("through_occurred_at_ms").notNull(),
-    readAtMs: integer("read_at_ms").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    throughOccurredAtMs: bigint("through_occurred_at_ms", {
+      mode: "number",
+    }).notNull(),
+    readAtMs: bigint("read_at_ms", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("inbox_center_agent_read_watermarks_scope_unique").on(
@@ -319,7 +330,7 @@ export const inboxCenterAgentReadWatermarks = sqliteTable(
   ]
 );
 
-export const inboxSpaceThreadReadWatermarks = sqliteTable(
+export const inboxSpaceThreadReadWatermarks = applicationTable(
   "inbox_space_thread_read_watermarks",
   {
     organizationId: text("organization_id")
@@ -330,10 +341,12 @@ export const inboxSpaceThreadReadWatermarks = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     spaceId: text("space_id").notNull(),
     threadRootSignalId: text("thread_root_signal_id").notNull(),
-    throughOccurredAtMs: integer("through_occurred_at_ms").notNull(),
-    readAtMs: integer("read_at_ms").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    throughOccurredAtMs: bigint("through_occurred_at_ms", {
+      mode: "number",
+    }).notNull(),
+    readAtMs: bigint("read_at_ms", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("inbox_space_thread_read_watermarks_scope_unique").on(
@@ -353,7 +366,7 @@ export const inboxSpaceThreadReadWatermarks = sqliteTable(
   ]
 );
 
-export const inboxEmailDeliveries = sqliteTable(
+export const inboxEmailDeliveries = applicationTable(
   "inbox_email_deliveries",
   {
     id: text("id").primaryKey(),
@@ -361,19 +374,21 @@ export const inboxEmailDeliveries = sqliteTable(
       .notNull()
       .references(() => inboxItems.id, { onDelete: "cascade" }),
     state: text("state").default("pending").notNull(),
-    attemptCount: integer("attempt_count").default(0).notNull(),
-    nextAttemptAtMs: integer("next_attempt_at_ms").notNull(),
+    attemptCount: bigint("attempt_count", { mode: "number" })
+      .default(0)
+      .notNull(),
+    nextAttemptAtMs: bigint("next_attempt_at_ms", { mode: "number" }).notNull(),
     claimId: text("claim_id"),
-    claimExpiresAtMs: integer("claim_expires_at_ms"),
+    claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
     messageId: text("message_id"),
     lastErrorCode: text("last_error_code"),
-    lastErrorRetryable: integer("last_error_retryable", { mode: "boolean" }),
+    lastErrorRetryable: integerBoolean("last_error_retryable"),
     suppressedReason: text("suppressed_reason"),
-    sentAtMs: integer("sent_at_ms"),
-    failedAtMs: integer("failed_at_ms"),
-    suppressedAtMs: integer("suppressed_at_ms"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    sentAtMs: bigint("sent_at_ms", { mode: "number" }),
+    failedAtMs: bigint("failed_at_ms", { mode: "number" }),
+    suppressedAtMs: bigint("suppressed_at_ms", { mode: "number" }),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("inbox_email_deliveries_item_unique").on(table.inboxItemId),

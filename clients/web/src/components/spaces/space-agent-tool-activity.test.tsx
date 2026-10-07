@@ -33,12 +33,12 @@ describe("SpaceAgentToolActivity", () => {
 		);
 
 		const trigger = screen.getByRole("button", {
-			name: "Agent is working. Work summary: Searching GitHub issues…",
+			name: "Working…. Work summary: Searching GitHub issues…",
 		});
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 		expect(trigger.getAttribute("aria-busy")).toBe("true");
 		expect(trigger.classList.contains("px-0")).toBe(true);
-		expect(trigger.textContent).toContain("Agent is working");
+		expect(trigger.textContent).toContain("Working…");
 		expect(trigger.textContent).toContain("Searching GitHub issues…");
 		expect(
 			trigger
@@ -52,7 +52,6 @@ describe("SpaceAgentToolActivity", () => {
 				.closest('[data-slot="thinking-steps-content"]')
 				?.classList.contains("px-1")
 		).toBe(false);
-		expect(viewport.className).toContain("max-h-[min(12rem,30dvh)]");
 		expect(within(viewport).getByText("Checked available Spaces")).toBeTruthy();
 		expect(within(viewport).getByText("Searching GitHub issues…")).toBeTruthy();
 		expect(screen.queryByText("OpenMeld task complete")).toBeNull();
@@ -136,7 +135,7 @@ describe("SpaceAgentToolActivity", () => {
 		);
 
 		const trigger = screen.getByRole("button", {
-			name: `Agent is working. Work summary: ${expectedSummary}`,
+			name: `Working…. Work summary: ${expectedSummary}`,
 		});
 		expect(trigger).toBeTruthy();
 		expect(
@@ -161,7 +160,7 @@ describe("SpaceAgentToolActivity", () => {
 		expect(
 			screen
 				.getByRole("button", {
-					name: "Agent is working. Work summary: Drafting a Team knowledge file…",
+					name: "Working…. Work summary: Drafting a Team knowledge file…",
 				})
 				.querySelector("canvas")
 				?.getAttribute("data-space-agent-orb-state")
@@ -226,7 +225,12 @@ describe("SpaceAgentToolActivity", () => {
 				}}
 			/>
 		);
-		const viewport = screen.getByRole("list", { name: "Work steps" });
+		const viewport = screen
+			.getByRole("list", { name: "Work steps" })
+			.closest<HTMLDivElement>('[data-slot="scroll-area-viewport"]');
+		if (!viewport) {
+			throw new Error("Work steps must have a scroll viewport");
+		}
 		Object.defineProperty(viewport, "clientHeight", {
 			configurable: true,
 			value: 100,

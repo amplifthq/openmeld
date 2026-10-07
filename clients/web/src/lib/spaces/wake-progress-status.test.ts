@@ -4,7 +4,7 @@ import { resolveWakeProgressStatus } from "./wake-progress-status";
 
 describe("resolveWakeProgressStatus", () => {
 	it.each([
-		["earlier_work", "runner is queued · Waiting for earlier tasks"],
+		["earlier_work", "runner · Waiting for earlier tasks"],
 		["device_offline", "Waiting for runner’s computer to come online"],
 	] as const)("preserves the authoritative waiting reason %s", (reason, label) => {
 		expect(
@@ -21,24 +21,24 @@ describe("resolveWakeProgressStatus", () => {
 			resolveWakeProgressStatus(
 				createWakeProgressItem({ targetLabel: "@agt_legacy_name" })
 			)?.label
-		).toBe("Agent is working");
+		).toBe("Agent · Working…");
 	});
 	it.each([
-		["sending", "Starting Wake for runner…", "starting"],
-		["request_sent", "Wake sent to runner", "sent"],
-		["queued", "runner is queued · Waiting for earlier tasks", "queued"],
-		["connecting", "Preparing runner…", "connecting"],
-		["retrying", "Trying to reach runner…", "retrying"],
-		["running", "runner is working", "working"],
-		["writing", "runner is replying", "replying"],
-		["publishing", "runner · Posting reply…", "posting"],
-	] as const)("maps %s without collapsing its meaning", (phase, label, kind) => {
+		["sending", "runner · Working…", "working"],
+		["request_sent", "runner · Working…", "working"],
+		["queued", "runner · Waiting for earlier tasks", "queued"],
+		["connecting", "runner · Working…", "working"],
+		["retrying", "runner · Working…", "working"],
+		["running", "runner · Working…", "working"],
+		["writing", "runner · Working…", "working"],
+		["publishing", "runner · Working…", "working"],
+	] as const)("presents %s without exposing transport details", (phase, label, kind) => {
 		expect(
 			resolveWakeProgressStatus(createWakeProgressItem({ phase }))
 		).toEqual(expect.objectContaining({ kind, label }));
 	});
 
-	it("shows the pending owner interaction instead of claiming the Agent is working", () => {
+	it("shows the pending owner interaction instead of claiming the Agent · Working…", () => {
 		expect(
 			resolveWakeProgressStatus(
 				createWakeProgressItem({
@@ -135,7 +135,7 @@ function createWakeProgressItem(
 	return {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
-		message: "runner is working",
+		message: "runner · Working…",
 		phase: "running",
 		sourceSignalId: "signal-1",
 		targetLabel: "@runner",

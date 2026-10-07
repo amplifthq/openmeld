@@ -295,12 +295,26 @@ it("keeps a confirmed message preview through index lag but accepts convergence 
 		timestamp: Date.now(),
 		text: "Sent just now",
 	};
-	const accepted = applyAcceptedAccountSpaceMessage(sections, "chat", preview);
+	const previous = {
+		...preview,
+		signalId: "previous",
+		timestamp: preview.timestamp - 1,
+	};
+	const first = applyAcceptedAccountSpaceMessage(sections, "chat", previous);
+	const accepted = applyAcceptedAccountSpaceMessage(first, "chat", preview);
+	expect(
+		applyAcceptedAccountSpaceMessage(accepted, "chat", preview).spaceItems[0]
+			?.recentMessagePreviews
+	).toEqual([preview, previous]);
 	const lagging = preserveOptimisticAccountSpacePinUpdates(
 		accepted,
 		sections
 	) as AccountSpaceSections;
 	expect(lagging.spaceItems[0]?.messagePreview).toEqual(preview);
+	expect(lagging.spaceItems[0]?.recentMessagePreviews).toEqual([
+		preview,
+		previous,
+	]);
 	const converged = {
 		...sections,
 		spaceItems: sections.spaceItems.map((item) => ({

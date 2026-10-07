@@ -1,14 +1,17 @@
 import { DurableObject } from "cloudflare:workers";
+import { posix } from "node:path";
 import {
   type DurableObjectStorageLike,
+  getWorkspace,
   Workspace,
   type WorkspaceClient,
   type WorkspaceStub,
 } from "@cloudflare/computer";
 import {
-  CloudflareContainerBackend,
-  withWorkspaceContainer,
-} from "@cloudflare/computer/backends/container";
+  LegacyContainerBackend,
+  withLegacyWorkspaceContainer,
+} from "@cloudflare/computer/backends/container-legacy";
+import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
 import curlModules from "@cloudflare/computer/shell/curl";
 import fileModules from "@cloudflare/computer/shell/file";
@@ -19,10 +22,12 @@ import pythonModules from "@cloudflare/computer/shell/python";
 import sqliteModules from "@cloudflare/computer/shell/sqlite";
 import xanModules from "@cloudflare/computer/shell/xan";
 import yqModules from "@cloudflare/computer/shell/yq";
-import type { RemoteAgentResultSource } from "@openmeld/schemas";
 import {
   agentComputerBrowserRequestSchema,
   agentComputerPreviewRequestSchema,
+  cloudComputerOperationSchema,
+  type PluginConnectionGrant,
+  pluginConnectionGrantSchema,
   type RemoteAgentGitPackStart,
   type RemoteAgentGitPackStatus,
   type RemoteAgentGitTransferGrant,
@@ -32,30 +37,57 @@ import {
 import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
 import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-context";
-import { ComputerDataSourceStore } from "./computer-data-sources";
+import { forwardGitConnectionRequest } from "../connectors/github-connection-transport";
+import { forwardPluginConnection } from "../connectors/plugin-connection";
+import {
+  ACCOUNT_ERASED_KEY,
+  eraseAccountStorage,
+  requireRetainedAccountStorage,
+} from "./account-deletion";
+import {
+  collectComputerCommands,
+  createComputerCommandTool,
+  hasCollectableComputerCommands,
+  listPendingRemoteAgentComputerCommands,
+  stopStoredComputerCommands,
+} from "./computer-command";
+import { ComputerFiles } from "./computer-files";
+import { createComputerFileTools, describeComputer } from "./computer-native";
 import {
   inspectComputerPreview,
   type PreviewBrowserBinding,
   validateComputerPreviewPort,
 } from "./computer-preview";
+import {
+  describeComputerStorage,
+  withComputerCapacityErrors,
+} from "./computer-storage";
+import {
+  COMPUTER_GIT_PATH,
+  COMPUTER_PLUGIN_PATH,
+} from "./computer-workspace-proxy";
 import { authorizeGitTransfer } from "./git-transfer-authorization";
 import {
   gitUploadPackBytes,
   gitUploadPackRequest,
 } from "./git-upload-pack-stream";
+import { authorizePluginConnection } from "./plugin-connection-authorization";
+import { RemoteAgentSqlStorage } from "./storage";
 
 /**
- * The hosted Agent's computer: an identity-scoped durable workspace backed by
+ * The human account's Computer: a durable workspace backed by
  * the Durable Object's SQLite storage via `@cloudflare/computer`.
  *
  * Files live in the DO (durable across restarts and independent of any
- * container lifetime). There is exactly one file world with two
+ * container lifetime). There is exactly one file world with three
  * execution engines over it:
  *
- * - worker-shell (default): just-bash in a Dynamic Worker minted
+ * - worker-shell: just-bash in a Dynamic Worker minted
  *   through `env.LOADER`, reaching this workspace over Workers RPC.
- *   Instant, no container, text tooling only.
- * - container: computerd in a Cloudflare Container, FUSE-mounting this
+ *   Built-in shell commands and HTTP, without native binaries.
+ * - worker-javascript: an ECMAScript module in a fresh Dynamic Worker,
+ *   with workspace files, fetch, and structured input and results.
+ * - container (default): computerd in a Cloudflare Container, FUSE-mounting this
  *   same workspace at /computer. Full Linux userland (python, git,
  *   real binaries); syncs changes back over capnweb.
  */
@@ -73,6 +105,7 @@ export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
   `${AGENT_COMPUTER_ROOT}/spaces`,
   `${AGENT_COMPUTER_ROOT}/routines`,
   `${AGENT_COMPUTER_ROOT}/home`,
+  `${AGENT_COMPUTER_ROOT}/tasks`,
 ] as const;
 
 type AgentComputerEnv = {
@@ -86,8 +119,6 @@ type AgentComputerEnv = {
 const GIT_TRANSFER_GRANT_PREFIX = "openmeld:git-transfer-grant:";
 const GIT_PACK_JOB_PREFIX = "openmeld:git-pack-job:";
 const GIT_PACK_RETRY_AFTER_MS = 13 * 60 * 1000;
-const GIT_EGRESS_PATH =
-  /^\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})\.git\/(info\/refs|git-upload-pack)$/u;
 
 function parseGitEgressRoute(request: Request):
   | {
@@ -99,7 +130,7 @@ function parseGitEgressRoute(request: Request):
     }
   | Response {
   const target = new URL(request.url);
-  const match = GIT_EGRESS_PATH.exec(target.pathname);
+  const match = COMPUTER_GIT_PATH.exec(target.pathname);
   if (!match) {
     return new Response("Git transfer path is unavailable.", { status: 404 });
   }
@@ -165,11 +196,163 @@ function workspaceRef(ctx: DurableObjectState) {
   return { binding: AGENT_COMPUTER_BINDING, id: ctx.id.toString() };
 }
 
-export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
-  // Created before Workspace and never exposed by Workspace.stub().
-  readonly #dataSources = new ComputerDataSourceStore(this.ctx.storage);
+export class AgentComputer extends withLegacyWorkspaceContainer(
+  AgentComputerBase
+) {
+  async eraseAccountSpaceDirectory(spaceId: string): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    await this.workspace.ready();
+    await this.workspace.fs.rm(buildAgentComputerSpaceDirectory(spaceId), {
+      recursive: true,
+      force: true,
+    });
+  }
+  async eraseAccountComputer(): Promise<void> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      if (await this.ctx.storage.get(ACCOUNT_ERASED_KEY)) {
+        return;
+      }
+      await this.ctx.container?.destroy();
+      await this.workspace.close();
+      await eraseAccountStorage(this.ctx);
+    });
+  }
+  readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
+
+  private async scheduleAlarm(at: number) {
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || at < current) {
+      await this.ctx.storage.setAlarm(at);
+    }
+  }
+
+  async computerOperation(value: unknown) {
+    return await withComputerCapacityErrors(() =>
+      this.#executeComputerOperation(value)
+    );
+  }
+
+  async #executeComputerOperation(value: unknown) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    const request = cloudComputerOperationSchema.parse(value);
+    if (request.action === "describe") {
+      return describeComputer(
+        this.#nativeFiles,
+        this.env.BROWSER ? this.describeBrowser("personal") : undefined,
+        describeComputerStorage(this.ctx.storage.sql.databaseSize)
+      );
+    }
+    await this.workspace.ready();
+    if (request.action === "files") {
+      const execute = () =>
+        this.#nativeFiles.execute({
+          id: crypto.randomUUID(),
+          name: request.tool,
+          arguments: request.input,
+        });
+      return {
+        kind: "files" as const,
+        result: await (["write", "edit", "delete"].includes(request.tool)
+          ? this.#files.mutate(execute)
+          : execute()),
+      };
+    }
+    if (request.action === "browser") {
+      return {
+        kind: "browser" as const,
+        result: await this.browserTool("personal").execute(
+          { code: request.code },
+          { messages: [], toolCallId: crypto.randomUUID() }
+        ),
+      };
+    }
+    if (request.action === "preview") {
+      return {
+        kind: "preview" as const,
+        result: await this.inspectPreview({
+          port: request.port,
+          path: request.path,
+          expectedText: request.expectedText,
+        }),
+      };
+    }
+    if (request.action !== "command") {
+      return await this.#files.execute(request);
+    }
+    const workingDirectory = posix.resolve(
+      `/computer/tasks/${encodeURIComponent(request.invocationId)}`,
+      request.cwd ?? "."
+    );
+    if (
+      workingDirectory === "/computer" ||
+      workingDirectory.startsWith("/computer/")
+    ) {
+      await this.workspace.fs.mkdir(workingDirectory, { recursive: true });
+    }
+    return await createComputerCommandTool({
+      context: { submissionId: request.invocationId },
+      storage: this.#commands,
+      workingDirectory,
+      scheduleCollection: () => this.scheduleAlarm(Date.now() + 15_000),
+      assertCanStart: async () => {
+        await requireRetainedAccountStorage(this.ctx.storage);
+        if (
+          await this.#commands.get(
+            `computer-invocation-stopped:${request.invocationId}`
+          )
+        ) {
+          throw new Error("computer.invocation_stopped");
+        }
+      },
+      workspaceAccess: {
+        withWorkspace: async (operation) => {
+          using workspace = await getWorkspace(this);
+          return await operation(workspace);
+        },
+      },
+    }).execute(request.command);
+  }
+
+  async writeComputerFile(path: string, content: string | Uint8Array) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    await withComputerCapacityErrors(async () => {
+      await this.workspace.ready();
+      await this.#files.write(path, content);
+    });
+  }
+
+  async pendingComputerCommands(invocationId: string) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    return await listPendingRemoteAgentComputerCommands({
+      context: { submissionId: invocationId },
+      storage: this.#commands,
+    });
+  }
+
+  async stopComputerCommands(invocationId: string) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    // Fence delayed/in-flight starts before enumerating receipts. Each launched
+    // command also checks its Stop receipt after native dispatch completes.
+    await this.#commands.putExpiring(
+      `computer-invocation-stopped:${invocationId}`,
+      true,
+      Date.now() + 7 * 24 * 60 * 60 * 1000
+    );
+    return await stopStoredComputerCommands({
+      reportConfirmedLoss: true,
+      context: { submissionId: invocationId },
+      storage: this.#commands,
+      access: () => ({
+        withWorkspace: async (operation) => {
+          using workspace = await getWorkspace(this);
+          return await operation(workspace);
+        },
+      }),
+    });
+  }
 
   async registerGitTransferGrant(value: unknown): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const grant = remoteAgentGitTransferGrantSchema.parse(value);
     if (
       grant.expiresAtMs <= Date.now() ||
@@ -189,6 +372,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
       previous &&
       (previous.organizationId !== grant.organizationId ||
         previous.requesterUserId !== grant.requesterUserId ||
+        previous.connectionScope !== grant.connectionScope ||
         previous.owner !== grant.owner ||
         previous.repo !== grant.repo ||
         previous.scopeKey !== grant.scopeKey ||
@@ -202,9 +386,80 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     await this.ctx.storage.put(key, grant);
   }
 
+  async registerPluginConnectionGrant(value: unknown): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    const grant = pluginConnectionGrantSchema.parse(value);
+    await this.#commands.deleteExpired({
+      prefix: "plugin-connection:",
+      nowMs: Date.now(),
+      limit: 100,
+    });
+    if (grant.expiresAtMs > Date.now() + 30 * 60 * 1000) {
+      throw new Error("plugin.connection_lifetime_invalid");
+    }
+    await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    const key = `plugin-connection:${grant.id}`;
+    const previous = await this.#commands.get<PluginConnectionGrant>(key);
+    if (
+      previous &&
+      (previous.organizationId !== grant.organizationId ||
+        previous.requesterUserId !== grant.requesterUserId ||
+        previous.connectionName !== grant.connectionName ||
+        previous.connectionUpdatedAtMs !== grant.connectionUpdatedAtMs ||
+        previous.service !== grant.service ||
+        previous.connectionScope !== grant.connectionScope ||
+        previous.authority.kind !== grant.authority.kind)
+    ) {
+      throw new Error("plugin.connection_key_conflict");
+    }
+    await this.#commands.putExpiring(key, grant, grant.expiresAtMs);
+  }
+
+  private async forwardPluginEgress(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const match = COMPUTER_PLUGIN_PATH.exec(url.pathname);
+    const grant = match
+      ? await this.#commands.get<PluginConnectionGrant>(
+          `plugin-connection:${match[1]}`
+        )
+      : undefined;
+    if (!grant) {
+      return new Response(
+        "Plugin connection expired. Renew the same connection key.",
+        { status: 403 }
+      );
+    }
+    try {
+      await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    } catch {
+      return new Response(
+        "Plugin access is no longer authorized. Review the selected account in Plugins.",
+        { status: 403 }
+      );
+    }
+    const response = await forwardPluginConnection({
+      request,
+      endpoint: `${match?.[2] ?? "/"}${url.search}`,
+      service: grant.service,
+      connectionName: grant.connectionName,
+      connectorExecution: {
+        baseUrl: this.env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: this.env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
+    });
+    try {
+      await authorizePluginConnection(this.env.OPENMELD_CORE_WORKER, grant);
+    } catch {
+      await response.body?.cancel();
+      return new Response("Plugin access was revoked.", { status: 403 });
+    }
+    return response;
+  }
+
   async startGitPackTransfer(
     value: unknown
   ): Promise<RemoteAgentGitPackStatus> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const request = remoteAgentGitPackStartSchema.parse(value);
     if (
       !request.transportDirectory.startsWith("/computer/") ||
@@ -243,18 +498,51 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
         errorCode: null,
       };
       await this.ctx.storage.put(key, job);
-      await this.ctx.storage.setAlarm(Date.now());
+      await this.scheduleAlarm(Date.now());
     } else if (
       job.status === "running" &&
       job.startedAtMs !== null &&
       Date.now() - job.startedAtMs > GIT_PACK_RETRY_AFTER_MS
     ) {
-      await this.ctx.storage.setAlarm(Date.now());
+      await this.scheduleAlarm(Date.now());
     }
     return gitPackStatus(job);
   }
 
   async alarm(): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    // Rearm before external I/O so a Worker replacement cannot abandon receipts.
+    await this.scheduleAlarm(Date.now() + 15_000);
+    await collectComputerCommands({
+      storage: this.#commands,
+      workspaceAccess: {
+        withWorkspace: async (operation) => {
+          using workspace = await getWorkspace(this);
+          return await operation(workspace);
+        },
+      },
+    });
+    // Pack downloads can take minutes. Keep them out of the alarm handler so
+    // they cannot block command receipts past the native retention window.
+    this.ctx.waitUntil(this.collectGitPack());
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const jobs = await this.ctx.storage.list<GitPackJob>({
+        prefix: GIT_PACK_JOB_PREFIX,
+      });
+      if (
+        !(
+          (await hasCollectableComputerCommands(this.#commands)) ||
+          [...jobs.values()].some(
+            (job) => job.status === "pending" || job.status === "running"
+          )
+        )
+      ) {
+        await this.ctx.storage.deleteAlarm();
+      }
+    });
+  }
+
+  private async collectGitPack(): Promise<void> {
     const jobs = await this.ctx.storage.list<GitPackJob>({
       prefix: GIT_PACK_JOB_PREFIX,
     });
@@ -290,7 +578,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
       errorCode: null,
     };
     await this.ctx.storage.put(key, job);
-    await this.ctx.storage.setAlarm(Date.now() + GIT_PACK_RETRY_AFTER_MS);
+    await this.scheduleAlarm(Date.now() + GIT_PACK_RETRY_AFTER_MS);
     const path = gitPackPath(job);
     try {
       await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
@@ -357,7 +645,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
           (candidate) => candidate.status === "pending"
         )
       ) {
-        await this.ctx.storage.setAlarm(Date.now());
+        await this.scheduleAlarm(Date.now());
       }
     }
   }
@@ -381,53 +669,33 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
         status: 403,
       });
     }
+    let selected: Awaited<ReturnType<typeof authorizeGitTransfer>>;
     try {
-      await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
+      selected = await authorizeGitTransfer(
+        this.env.OPENMELD_CORE_WORKER,
+        grant
+      );
     } catch {
       return new Response("Git transfer authorization expired.", {
         status: 403,
       });
     }
-    const base = this.env.OPENMELD_CONNECTORS_BASE_URL;
-    const token = this.env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN;
-    if (!(base && token)) {
-      return new Response("Git transfer runtime is unavailable.", {
-        status: 503,
-      });
-    }
-    const connectorUrl = new URL(
-      `/v1/openmeld/git/${owner}/${repo}/${endpoint}`,
-      base
-    );
-    if (endpoint === "info/refs") {
-      connectorUrl.search = route.search;
-    }
-    const headers = new Headers({
-      authorization: `Bearer ${token}`,
-      "x-openmeld-organization-id": grant.organizationId,
-      "x-openmeld-requester-user-id": grant.requesterUserId,
-      "x-openmeld-operation-id": operationId,
-      "x-openmeld-repository": `${owner}/${repo}`,
+    const response = await forwardGitConnectionRequest({
+      request,
+      endpoint: endpoint as "info/refs" | "git-upload-pack",
+      owner,
+      repo,
+      operationId,
+      organizationId: grant.organizationId,
+      requesterUserId: grant.requesterUserId,
+      connection: selected.connection,
+      authorize: () =>
+        authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant),
+      connectorExecution: {
+        baseUrl: this.env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: this.env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
     });
-    const gitProtocol = request.headers.get("git-protocol");
-    if (gitProtocol) {
-      headers.set("git-protocol", gitProtocol);
-    }
-    if (request.method === "POST") {
-      headers.set("content-type", "application/x-git-upload-pack-request");
-    }
-    const uploadBody =
-      request.method === "POST" && request.body
-        ? observeGitStream(request.body, { operationId, direction: "upload" })
-        : undefined;
-    const response = await fetch(connectorUrl, {
-      method: request.method,
-      headers,
-      body: uploadBody,
-      redirect: "manual",
-      signal: request.signal,
-      ...(request.method === "POST" ? { duplex: "half" } : {}),
-    } as RequestInit);
     if (!(response.ok && response.body)) {
       await response.body?.cancel();
       return new Response("Git transfer failed.", {
@@ -445,15 +713,6 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
         },
       }
     );
-  }
-
-  readDataSources(): Promise<RemoteAgentResultSource[]> {
-    return Promise.resolve(this.#dataSources.read());
-  }
-
-  recordDataSource(source: RemoteAgentResultSource): Promise<void> {
-    this.#dataSources.record(source);
-    return Promise.resolve();
   }
 
   private browserTool(spaceId: string) {
@@ -483,6 +742,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   }
 
   async executeBrowser(input: unknown): Promise<unknown> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const { spaceId, code } = agentComputerBrowserRequestSchema.parse(input);
     return await this.browserTool(spaceId).execute(
       { code },
@@ -498,6 +758,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     path: string;
     port: number;
   }) {
+    await requireRetainedAccountStorage(this.ctx.storage);
     if (!this.env.BROWSER) {
       throw new Error("The Computer browser binding is unavailable.");
     }
@@ -513,7 +774,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     });
   }
 
-  readonly #containerBackend = new CloudflareContainerBackend({
+  readonly #containerBackend = new LegacyContainerBackend({
     container: () => this,
     // Preserve the native Computer's existing public-network capability.
     egress: { mode: "direct" },
@@ -528,8 +789,8 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   readonly workspace = new Workspace({
     backends: [
       new WorkerShellBackend({
-        // SDK 0.2 makes previously bundled commands opt-in. Preserve the
-        // existing tool surface; worker-shell network access remains disabled.
+        // Both isolate engines share the same files and public network access.
+        egress: { mode: "direct" },
         commands: [
           curlModules,
           fileModules,
@@ -546,16 +807,35 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
         loader: (this.env as AgentComputerEnv).LOADER as never,
         workspace: workspaceRef(this.ctx),
       }),
+      new WorkerJavaScriptBackend({
+        id: "worker-javascript",
+        loader: this.env.LOADER as never,
+        root: "/computer",
+        egress: { mode: "direct" },
+        allowGitNetwork: true,
+        defaultTimeoutMs: 300_000,
+        maxTimeoutMs: 3_600_000,
+        maxConcurrentExecutions: 4,
+      }),
       this.#containerBackend,
     ],
     sessionId: this.ctx.id.toString(),
     storage: this.ctx.storage as unknown as DurableObjectStorageLike,
   });
+  readonly #files = new ComputerFiles(this.workspace.fs);
+  readonly #nativeFiles = createComputerFileTools(this.workspace);
 
-  /** WorkspaceProxy forwards the container's outbound /ws egress here. */
+  /** WorkspaceProxy forwards the container's outbound /api egress here. */
   override async fetch(request: Request): Promise<Response> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const url = new URL(request.url);
-    if (url.pathname === "/ws") {
+    if (COMPUTER_PLUGIN_PATH.test(url.pathname)) {
+      return await this.forwardPluginEgress(request);
+    }
+    if (COMPUTER_GIT_PATH.test(url.pathname)) {
+      return await this.forwardComputerEgress(request);
+    }
+    if (url.pathname === "/api") {
       return await this.#containerBackend.handleFetch(request);
     }
     const preview = COMPUTER_PREVIEW_PATH.exec(url.pathname);
@@ -582,6 +862,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
    * egress, and the Flue adapter all land here.
    */
   async __getWorkspaceStub(): Promise<WorkspaceStub> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     await this.workspace.ready();
     return this.workspace.stub();
   }
@@ -596,10 +877,14 @@ export function buildAgentComputerRoutineDirectory(routineId: string): string {
 }
 
 export function resolveAgentComputerWorkingDirectory(input: {
+  taskId?: string;
   conversationId?: string | null;
   routineId?: string | null;
   spaceId: string | null;
 }): string {
+  if (input.taskId) {
+    return `${AGENT_COMPUTER_ROOT}/tasks/${encodePathIdentity(input.taskId)}`;
+  }
   if (input.routineId) {
     return buildAgentComputerRoutineDirectory(input.routineId);
   }
@@ -615,6 +900,7 @@ export function resolveAgentComputerWorkingDirectory(input: {
 export async function ensureAgentComputerLayout(
   workspace: Pick<WorkspaceClient, "fs">,
   input: {
+    taskId?: string;
     conversationId?: string | null;
     routineId?: string | null;
     spaceId: string | null;

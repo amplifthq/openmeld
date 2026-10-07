@@ -5,11 +5,8 @@ import {
   type FeedbackIssueRecord,
   type FeedbackIssueRepository,
 } from "../src/feedback/application/feedback-issue-service";
-import { createD1FeedbackIssueRepository } from "../src/feedback/infrastructure/d1/feedback-issue-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresFeedbackIssueRepository } from "../src/feedback/infrastructure/postgresql/feedback-issue-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const SUBMISSION_SUMMARY = "The submit button did not respond.";
 const SUBMISSION_DETAILS = "The page stayed unchanged after three attempts.";
@@ -236,13 +233,11 @@ describe("Feedback Issue service", () => {
 
 describe("Feedback Issue D1 repository", () => {
   it("round-trips submit, list, and status update behavior through the 0021 tables", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
-      applyDrizzleMigrationForTable(harness, "openMeldFeedback_inboxes");
-      applyDrizzleMigrationForTable(harness, "openMeldFeedback_issues");
-      harness.run({
-        sql: `
-          INSERT INTO openMeldFeedback_inboxes (
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openMeldFeedback_inboxes" (
             inbox_id,
             organization_id,
             label,
@@ -267,7 +262,7 @@ describe("Feedback Issue D1 repository", () => {
         generateIssueId: () => "feedback_issue_1",
         logger: { info: vi.fn(), warn: vi.fn() },
         nowMs: () => 2000,
-        repository: createD1FeedbackIssueRepository({ db: harness.db }),
+        repository: createPostgresFeedbackIssueRepository({ db: harness.db }),
       });
 
       await service.submitFeedbackIssue({
@@ -316,12 +311,12 @@ describe("Feedback Issue D1 repository", () => {
         code: "feedback.issue.invalid_transition",
       });
       expect(
-        harness.queryFirst({
-          sql: `
+        await harness.queryFirst({
+          text: `
             SELECT
               status,
-              triage_note AS triageNote
-            FROM openMeldFeedback_issues
+              triage_note AS "triageNote"
+            FROM "openmeld"."openMeldFeedback_issues"
             WHERE issue_id = 'feedback_issue_1'
           `,
         })
@@ -330,7 +325,7 @@ describe("Feedback Issue D1 repository", () => {
         triageNote: "Verified in the next build.",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

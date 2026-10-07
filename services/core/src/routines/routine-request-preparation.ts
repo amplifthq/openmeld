@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   openMeldRequestContextSchema,
 } from "@openmeld/schemas";
@@ -6,8 +10,9 @@ import type {
   CenterAgentRoutineToolSpeaker,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
+import { createCenterAgentEvidenceSourceAccess } from "../center-agent/application/evidence-source-access";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
-import { type CoreBindings, projectionsDb, routineDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { prepareRemoteAgentMemberRequest } from "../remote-agent/application/remote-agent-member-request";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -22,7 +27,6 @@ type PreparedRoutineRequest = {
   };
   service: ReturnType<typeof createRoutineService>;
 };
-
 export async function prepareHumanRoutineRequest(
   env: CoreBindings,
   contextInput: OpenMeldRequestContext | undefined
@@ -69,10 +73,9 @@ export async function prepareHumanRoutineRequest(
       profileId: context.actorContext.openMeldProfileId,
       userId: membership.userId,
     },
-    service: createRoutineService(stores),
+    service: createRoutineService({ ...stores, allExecutors: true }),
   };
 }
-
 export async function prepareCenterAgentRoutineRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext,
@@ -88,7 +91,7 @@ export async function prepareCenterAgentRoutineRequest(
       speakerMember
     );
     if (
-      !member.profileId ||
+      !(member.profileId && member.memberId && member.userId) ||
       member.userId !== context.actorContext.ownerUserId
     ) {
       throw createCoreRpcHttpError({
@@ -99,6 +102,22 @@ export async function prepareCenterAgentRoutineRequest(
     }
     return {
       actor: {
+        allowPersonal:
+          (
+            await createCenterAgentEvidenceSourceAccess({
+              env,
+              prepared: {
+                authorization,
+                representedHuman: {
+                  ...member,
+                  profileId: member.profileId,
+                  memberId: member.memberId,
+                  userId: member.userId,
+                },
+                sourceNativeDeliveryId: member.sourceNativeDeliveryId,
+              },
+            })
+          ).audience === "requester_private",
         attribution: {
           actorProfileId: authorization.actorProfileId,
           onBehalfOf: {
@@ -118,6 +137,7 @@ export async function prepareCenterAgentRoutineRequest(
       representedHuman: { profileId: member.profileId, userId: member.userId },
       service: createRoutineService({
         ...requireRoutineStores(env),
+        allExecutors: true,
         agentProfileId: authorization.actorProfileId,
       }),
     };
@@ -138,6 +158,17 @@ export async function prepareCenterAgentRoutineRequest(
   const stores = requireRoutineStores(env);
   return {
     actor: {
+      allowPersonal:
+        (
+          await createCenterAgentEvidenceSourceAccess({
+            env,
+            prepared: {
+              authorization: centerAgent,
+              representedHuman,
+              sourceNativeDeliveryId,
+            },
+          })
+        ).audience === "requester_private",
       attribution: {
         actorProfileId: centerAgent.actorProfileId,
         onBehalfOf: {
@@ -158,39 +189,78 @@ export async function prepareCenterAgentRoutineRequest(
       profileId: representedHuman.profileId,
       userId: representedHuman.userId,
     },
-    service: createRoutineService(stores),
+    service: createRoutineService({ ...stores, allExecutors: true }),
   };
 }
-
+export async function prepareRoutineEvidenceRequest(
+  env: CoreBindings,
+  context: OpenMeldRequestContext,
+  speakerMember: CenterAgentRoutineToolSpeaker
+) {
+  if (
+    context.actorContext.agentControllerRef !==
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
+    return await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      context,
+      speakerMember
+    );
+  }
+  const { authorization, member } = await prepareRemoteAgentMemberRequest(
+    env,
+    context,
+    speakerMember
+  );
+  if (
+    !(member.profileId && member.memberId && member.userId) ||
+    member.userId !== context.actorContext.ownerUserId
+  ) {
+    throw memberActorRequiredError();
+  }
+  return {
+    authorization,
+    representedHuman: {
+      ...member,
+      profileId: member.profileId,
+      memberId: member.memberId,
+      userId: member.userId,
+    },
+    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
+  };
+}
 async function requireHumanProfileAuthority(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   profileId: string;
   userId: string;
-}): Promise<{ profileName: string }> {
+}): Promise<{
+  profileName: string;
+}> {
   const profile = await input.db
-    .prepare(
-      `
+    .query<{
+      profile_name: string;
+    }>({
+      text: `
         SELECT profile_name
-        FROM openmeld_profiles
-        WHERE profile_id = ?
-          AND owner_user_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
+          AND owner_user_id = $2
           AND profile_kind = 'human'
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(input.profileId, input.userId)
-    .first<{ profile_name: string }>();
+      `,
+      values: [input.profileId, input.userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   const profileName = profile?.profile_name.trim();
   if (!profileName) {
     throw memberActorRequiredError();
   }
   return { profileName };
 }
-
 function requireRoutineStores(env: CoreBindings) {
-  const db = routineDb(env);
-  const projectionStore = projectionsDb(env);
+  const db = getPostgresDatabase(env);
+  const projectionStore = getPostgresDatabase(env);
   if (!(db && projectionStore)) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -200,7 +270,6 @@ function requireRoutineStores(env: CoreBindings) {
   }
   return { db, projectionsDb: projectionStore };
 }
-
 function memberActorRequiredError(override?: {
   code: string;
   reason: string;

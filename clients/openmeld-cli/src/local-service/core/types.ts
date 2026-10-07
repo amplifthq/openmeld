@@ -238,6 +238,7 @@ export type OpenMeldDaemonTaskErrorType =
   | "timeout";
 
 export type ParsedDispatchTask = {
+  requesterIsAgentOwner?: boolean;
   workHandoff?: import("@openmeld/schemas").SpaceWorkHandoff;
   workingCopyId?: string;
   executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
@@ -285,6 +286,7 @@ export type ParsedDispatchTask = {
 };
 
 export type DispatchPromptBootstrapInput = {
+  requesterIsAgentOwner?: ParsedDispatchTask["requesterIsAgentOwner"];
   executionContextAccess?: NonNullable<
     ParsedDispatchTask["executionContext"]
   >["access"];
@@ -361,6 +363,8 @@ export type ParsedDaemonFrame = {
     | "daemon.dispatch.progress"
     | "daemon.reasoning.preferences"
     | "daemon.error"
+    | "daemon.session_history.request"
+    | "daemon.session_history.request_result"
     | "daemon.computer_file_access.read_policy"
     | "daemon.computer_file_access.read_policy_result"
     | "daemon.computer_file_access.update_policy"
@@ -369,6 +373,8 @@ export type ParsedDaemonFrame = {
     | "daemon.execution_recovery.resume_controller_conversation_result"
     | "daemon.local_agent_control.cancel"
     | "daemon.local_agent_control.interrupt"
+    | "daemon.execution_input.request"
+    | "daemon.execution_input.result"
     | "daemon.local_agent_control.fork_session"
     | "daemon.local_agent_control.manage_installation"
     | "daemon.local_agent_control.refresh_catalog"

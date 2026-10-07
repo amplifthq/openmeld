@@ -41,6 +41,7 @@ import {
   TEST_CODE_MODE_LOADER,
   TEST_CODE_MODE_RUNTIME,
 } from "./code-mode-runtime";
+import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -50,7 +51,7 @@ const INSTANCE_ID = "space-tool-result-budget";
 const MODEL_ID = "tool-result-budget-model";
 const PROVIDER_ID = "tool-result-budget-provider";
 const STREAM_PATH = `agents/${AGENT_NAME}/${INSTANCE_ID}`;
-const TOOL_NAME = "read";
+const TOOL_NAME = "computer";
 const CANONICAL_BATCH_SAFE_BUDGET_BYTES = 512 * 1024;
 
 describe("Remote Agent canonical tool result persistence", () => {
@@ -250,8 +251,15 @@ describe("Remote Agent canonical tool result persistence", () => {
     ).not.toHaveProperty("workLoopCheckpoint");
   });
 
-  it("persists an oversized tool response as explicit partial evidence without losing the completed receipt", async () => {
+  it("persists an authorized oversized tool response with its completed receipt and retained continuation", async () => {
     const storage = await createToolExecutionStorage();
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      CALLBACK_SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing execution context");
+    }
     let executions = 0;
     const definition: RemoteAgentToolDefinition = {
       description: "Return an intentionally oversized read result.",
@@ -268,7 +276,9 @@ describe("Remote Agent canonical tool result persistence", () => {
     };
     const { tools } = await getRemoteAgentFlueTools({
       codeModeRuntime: TEST_CODE_MODE_RUNTIME,
-      coreWorker: {},
+      coreWorker: {
+        authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+      },
       env: { LOADER: TEST_CODE_MODE_LOADER },
       sandboxDefinitions: [definition],
       storage,
@@ -350,7 +360,13 @@ describe("Remote Agent canonical tool result persistence", () => {
           operationId: "completed-operation",
           status: "completed",
         },
-        presentation: { kind: "partial", continuation: null },
+        presentation: {
+          kind: "partial",
+          continuation: {
+            resultId: expect.any(String),
+            expiresAtMs: expect.any(Number),
+          },
+        },
       },
     });
     expect(JSON.stringify(toolOutcome)).toContain(

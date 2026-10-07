@@ -1,10 +1,14 @@
 import { env } from "cloudflare:test";
+import { getPostgresDatabase, type QueryResult } from "@openmeld/db/postgresql";
 import {
+  buildPersonalRemoteAgentConversationId,
   centerAgentDraftOrganizationDocumentRpcInputSchema,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import {
   prepareCenterAgentOrganizationMemberRequest,
   rpcCenterAgentAuthorizeAnonymousMemberTool,
@@ -24,41 +28,183 @@ import {
   rpcCenterAgentOrganizationDocumentsComputerSnapshot,
   rpcCenterAgentReadOrganizationDocuments,
   rpcCreateOrganizationDocument,
+  rpcGetOrganizationDocument,
+  rpcListOrganizationDocuments,
 } from "../src/organization-documents/organization-document-rpc";
 import {
   createOrganizationDocumentService,
   type OrganizationDocumentActor,
 } from "../src/organization-documents/organization-document-service";
+import {
+  createPersonalRemoteAgentBinding,
+  requirePersonalRemoteAgentBinding,
+} from "../src/remote-agent/application/personal-remote-agent-binding";
 // biome-ignore lint/performance/noNamespaceImport: Needed to pause the authorization read at the exact replay race boundary.
-import * as nativeDeliveryLedgerRepo from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import * as nativeDeliveryLedgerRepo from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   claimRemoteAgentRoutineNativeDelivery,
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
+  rpcAddSpaceMembers,
   rpcCenterAgentGetOrganizationDirectory,
   rpcCenterAgentListComputers,
   rpcCenterAgentReadMemberComputers,
+  rpcCreateSpace,
   rpcListCenterAgentAuditJournal,
 } from "../src/rpc/methods";
+import { installWorkerPostgresWriteFailure } from "./postgresql.test-support";
 
-const ORGANIZATION_DOCUMENT_UPDATE_SQL_PATTERN =
-  /UPDATE organization_documents/u;
 const ISO_CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
-
 describe("Organization documents", () => {
+  it("lets an ordinary owned Agent read approved documents without draft or management access", async () => {
+    const coreEnv = env as unknown as CoreBindings;
+    const fixture = await seedFixture();
+    const profileId = `agt_${crypto.randomUUID()}`;
+    await getPostgresDatabase(env).query({
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\"\n      (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)\n      VALUES ($1, 'Local reader', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1000, 1000)",
+      values: [
+        profileId,
+        profileId,
+        fixture.organizationId,
+        fixture.owner.userId,
+        fixture.owner.userId,
+      ],
+    });
+    const humanContext = humanRequestContext(
+      fixture.organizationId,
+      profileId,
+      fixture.owner.userId
+    );
+    const context = {
+      ...humanContext,
+      actorContext: {
+        ...humanContext.actorContext,
+        profileKind: "agent" as const,
+      },
+    };
+    const service = createOrganizationDocumentService({
+      db: getPostgresDatabase(env),
+    });
+    const approved = await service.create(fixture.owner, {
+      kind: "knowledge",
+      title: "Review policy",
+      content: "Use release B.",
+    });
+    await service.draft(
+      fixture.organizationId,
+      { documentId: approved.id, draftContent: "Unadopted release C." },
+      []
+    );
+    const draftOnly = await service.draft(
+      fixture.organizationId,
+      {
+        kind: "knowledge",
+        title: "Unadopted proposal",
+        draftContent: "Do not publish.",
+      },
+      []
+    );
+    const listed = await rpcListOrganizationDocuments(coreEnv, { context });
+    expect(listed.documents.map((document) => document.id)).toContain(
+      approved.id
+    );
+    expect(listed.documents.map((document) => document.id)).not.toContain(
+      draftOnly.document.id
+    );
+    expect(listed.canManage).toBe(false);
+    const read = await rpcGetOrganizationDocument(coreEnv, {
+      context,
+      documentId: approved.id,
+    });
+    expect(read.document).toMatchObject({
+      content: "Use release B.",
+      draftContent: null,
+      draftCreatedAt: null,
+      canManage: false,
+      canEditContent: false,
+    });
+    const remoteContext = await seedPersonalDocumentReader(fixture, profileId);
+    const remoteList = await rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+      context: remoteContext,
+      action: "list",
+    });
+    expect(remoteList).toMatchObject({
+      action: "list",
+      documents: [expect.objectContaining({ id: approved.id })],
+    });
+    const remoteRead = await rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+      context: remoteContext,
+      action: "get",
+      documentId: approved.id,
+    });
+    expect(remoteRead).toMatchObject({
+      action: "get",
+      document: { content: "Use release B." },
+    });
+    expect(JSON.stringify(remoteRead)).not.toContain("Unadopted release C.");
+    const externalContext = await seedPersonalDocumentReader(
+      fixture,
+      profileId,
+      true
+    );
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: externalContext,
+        action: "list",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "organization_document.audience_not_allowed",
+    });
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: {
+          ...remoteContext,
+          actorContext: {
+            ...remoteContext.actorContext,
+            ownerUserId: fixture.member.userId,
+          },
+        },
+        action: "get",
+        documentId: approved.id,
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      rpcCreateOrganizationDocument(coreEnv, {
+        context,
+        expectedOrganizationId: fixture.organizationId,
+        kind: "knowledge",
+        title: "Unauthorized",
+        content: "No",
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."openmeld_profiles" SET status = \'disabled\' WHERE profile_id = $1',
+      values: [profileId],
+    });
+    await expect(
+      rpcGetOrganizationDocument(coreEnv, { context, documentId: approved.id })
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: remoteContext,
+        action: "get",
+        documentId: approved.id,
+      })
+    ).rejects.toThrow("remote_agent.personal_profile_unavailable");
+  });
   it("projects a maximum-length document title within the Inbox title contract", async () => {
     const fixture = await seedFixture();
     const documentTitle = `${"A".repeat(149)}😀${"B".repeat(49)}`;
     expect(documentTitle.length).toBe(200);
     const service = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => 11_000,
     });
-
     await service.draft(
       fixture.organizationId,
       {
@@ -68,19 +214,17 @@ describe("Organization documents", () => {
       },
       documentReviewerUserIds(fixture)
     );
-
     const rows = await readDocumentReviewInboxRows(fixture.organizationId);
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.title.length <= 160)).toBe(true);
     expect(rows.every((row) => row.title.endsWith("…”"))).toBe(true);
     expect(rows.every((row) => row.title.startsWith("Review “"))).toBe(true);
   });
-
   it("creates one durable review item per current manager without exposing draft content", async () => {
     const fixture = await seedFixture();
     const draftedAtMs = 12_000;
     const service = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs,
     });
     const draft = await service.draft(
@@ -92,7 +236,6 @@ describe("Organization documents", () => {
       },
       documentReviewerUserIds(fixture)
     );
-
     const rows = await readDocumentReviewInboxRows(fixture.organizationId);
     expect(rows).toEqual([
       expect.objectContaining({
@@ -125,14 +268,15 @@ describe("Organization documents", () => {
     expect(
       rows.some((row) => row.recipient_user_id === fixture.member.userId)
     ).toBe(false);
-
-    await env.OPENMELD_DB.prepare(
-      "UPDATE inbox_items SET read_at_ms = ? WHERE organization_id = ? AND recipient_user_id = ?"
-    )
-      .bind(12_100, fixture.organizationId, fixture.owner.userId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."inbox_items" SET read_at_ms = $1 WHERE organization_id = $2 AND recipient_user_id = $3',
+        values: [],
+      },
+      values: [12_100, fixture.organizationId, fixture.owner.userId],
+    });
     await projectOrganizationDocumentDraftReview({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       draft: {
         documentId: draft.document.id,
         draftCreatedAtMs: draftedAtMs,
@@ -148,7 +292,6 @@ describe("Organization documents", () => {
     expect(
       replayedRows.find((row) => row.recipient_user_id === fixture.owner.userId)
     ).toMatchObject({ read_at_ms: 12_100, resolution_status: "open" });
-
     const pending = await service.get(fixture.owner, draft.document.id);
     await service.approveDraft(
       fixture.owner,
@@ -160,46 +303,60 @@ describe("Organization documents", () => {
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
   });
-
   it("reconciles a durable draft after the immediate Inbox projection fails", async () => {
     const fixture = await seedFixture();
     const draftedAtMs = 18_000;
     const service = createOrganizationDocumentService({
-      db: createOneShotFailingBatchDb(),
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs,
     });
-
-    await expect(
-      service.draft(
-        fixture.organizationId,
-        {
-          draftContent: "A durable proposal",
-          kind: "knowledge",
-          title: "Recovery runbook",
-        },
-        documentReviewerUserIds(fixture)
-      )
-    ).resolves.toMatchObject({
-      document: { hasDraft: true, title: "Recovery runbook" },
+    const removeFailure = await installWorkerPostgresWriteFailure({
+      env,
+      table: "inbox_items",
+      operation: "INSERT",
+      condition: `NEW.organization_id = '${fixture.organizationId}'`,
     });
-    const durableDraft = await env.OPENMELD_DB.prepare(
-      `
+    try {
+      await expect(
+        service.draft(
+          fixture.organizationId,
+          {
+            draftContent: "A durable proposal",
+            kind: "knowledge",
+            title: "Recovery runbook",
+          },
+          documentReviewerUserIds(fixture)
+        )
+      ).resolves.toMatchObject({
+        document: { hasDraft: true, title: "Recovery runbook" },
+      });
+      const durableDraft = await getPostgresDatabase(env)
+        .query<{
+          draft_created_at: number;
+          id: string;
+        }>({
+          ...{
+            text: `
         SELECT id, draft_created_at
-        FROM organization_documents
-        WHERE organization_id = ? AND title = 'Recovery runbook'
-      `
-    )
-      .bind(fixture.organizationId)
-      .first<{ draft_created_at: number; id: string }>();
-    expect(durableDraft).toMatchObject({ draft_created_at: draftedAtMs });
-    expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual(
-      []
-    );
-
+        FROM "openmeld"."organization_documents"
+        WHERE organization_id = $1 AND title = 'Recovery runbook'
+      `,
+            values: [],
+          },
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null);
+      expect(durableDraft).toMatchObject({ draft_created_at: draftedAtMs });
+      expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual(
+        []
+      );
+    } finally {
+      await removeFailure();
+    }
     await expect(
       reconcileOrganizationDocumentDraftInbox({
         authWorker: createDocumentReviewDirectoryAuthWorker(),
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: draftedAtMs + 60_000,
       })
     ).resolves.toMatchObject({ errors: 0 });
@@ -214,16 +371,14 @@ describe("Organization documents", () => {
       }),
     ]);
   });
-
   it("saves the canonical draft before resolving reviewers and recovers a failed directory projection", async () => {
     const fixture = await seedFixture();
     const draftedAtMs = 18_500;
     const service = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs,
     });
     let draftWasDurableBeforeDirectoryRead = false;
-
     await expect(
       service.draft(
         fixture.organizationId,
@@ -233,15 +388,21 @@ describe("Organization documents", () => {
           title: "Directory recovery",
         },
         async () => {
-          const row = await env.OPENMELD_DB.prepare(
-            `
+          const row = await getPostgresDatabase(env)
+            .query<{
+              draft_created_at: number | null;
+            }>({
+              ...{
+                text: `
               SELECT draft_created_at
-              FROM organization_documents
-              WHERE organization_id = ? AND title = 'Directory recovery'
-            `
-          )
-            .bind(fixture.organizationId)
-            .first<{ draft_created_at: number | null }>();
+              FROM "openmeld"."organization_documents"
+              WHERE organization_id = $1 AND title = 'Directory recovery'
+            `,
+                values: [],
+              },
+              values: [fixture.organizationId],
+            })
+            .then((result) => result.rows[0] ?? null);
           draftWasDurableBeforeDirectoryRead =
             row?.draft_created_at === draftedAtMs;
           throw new Error("directory unavailable");
@@ -254,11 +415,10 @@ describe("Organization documents", () => {
     expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual(
       []
     );
-
     await expect(
       reconcileOrganizationDocumentDraftInbox({
         authWorker: createDocumentReviewDirectoryAuthWorker(),
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: draftedAtMs + 60_000,
       })
     ).resolves.toMatchObject({ errors: 0 });
@@ -273,12 +433,11 @@ describe("Organization documents", () => {
       }),
     ]);
   });
-
   it("resolves an orphaned review item after approval commits but its fast projection fails", async () => {
     const fixture = await seedFixture();
     const draftedAtMs = 19_000;
     const draftService = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs,
     });
     const draft = await draftService.draft(
@@ -292,35 +451,45 @@ describe("Organization documents", () => {
     );
     const pending = await draftService.get(fixture.owner, draft.document.id);
     const approvingService = createOrganizationDocumentService({
-      db: createOneShotFailingBatchDb(),
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs + 1000,
     });
-
-    await expect(
-      approvingService.approveDraft(
-        fixture.owner,
-        draft.document.id,
-        draftVersion(pending)
-      )
-    ).resolves.toMatchObject({
-      content: "Approved content",
-      draftContent: null,
+    const removeFailure = await installWorkerPostgresWriteFailure({
+      env,
+      table: "inbox_items",
+      operation: "UPDATE",
+      condition: `NEW.organization_id = '${fixture.organizationId}'`,
     });
-    await expect(
-      draftService.get(fixture.owner, draft.document.id)
-    ).resolves.toMatchObject({
-      content: "Approved content",
-      draftContent: null,
-    });
-    expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual([
-      expect.objectContaining({ resolution_status: "open" }),
-      expect.objectContaining({ resolution_status: "open" }),
-    ]);
-
+    try {
+      await expect(
+        approvingService.approveDraft(
+          fixture.owner,
+          draft.document.id,
+          draftVersion(pending)
+        )
+      ).resolves.toMatchObject({
+        content: "Approved content",
+        draftContent: null,
+      });
+      await expect(
+        draftService.get(fixture.owner, draft.document.id)
+      ).resolves.toMatchObject({
+        content: "Approved content",
+        draftContent: null,
+      });
+      expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual(
+        [
+          expect.objectContaining({ resolution_status: "open" }),
+          expect.objectContaining({ resolution_status: "open" }),
+        ]
+      );
+    } finally {
+      await removeFailure();
+    }
     await expect(
       reconcileOrganizationDocumentDraftInbox({
         authWorker: createDocumentReviewDirectoryAuthWorker(),
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: draftedAtMs + 60_000,
       })
     ).resolves.toMatchObject({ errors: 0 });
@@ -329,12 +498,11 @@ describe("Organization documents", () => {
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
   });
-
   it("removes former reviewers and adds newly promoted managers", async () => {
     const fixture = await seedFixture();
     const draftedAtMs = 20_000;
     const service = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs,
     });
     await service.draft(
@@ -346,16 +514,17 @@ describe("Organization documents", () => {
       },
       documentReviewerUserIds(fixture)
     );
-    await env.OPENMELD_DB.prepare(
-      "UPDATE members SET role = 'member' WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationId, fixture.admin.userId)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."members" SET role = \'member\' WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationId, fixture.admin.userId],
+    });
     await expect(
       reconcileOrganizationDocumentDraftInbox({
         authWorker: createDocumentReviewDirectoryAuthWorker(),
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: draftedAtMs + 60_000,
       })
     ).resolves.toMatchObject({ errors: 0 });
@@ -369,16 +538,17 @@ describe("Organization documents", () => {
         resolution_status: "open",
       }),
     ]);
-
-    await env.OPENMELD_DB.prepare(
-      "UPDATE members SET role = 'admin' WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationId, fixture.member.userId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."members" SET role = \'admin\' WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationId, fixture.member.userId],
+    });
     await expect(
       reconcileOrganizationDocumentDraftInbox({
         authWorker: createDocumentReviewDirectoryAuthWorker(),
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: draftedAtMs + 120_000,
       })
     ).resolves.toMatchObject({ errors: 0 });
@@ -397,7 +567,6 @@ describe("Organization documents", () => {
       }),
     ]);
   });
-
   it("keeps Center Agent drafts separate until an owner approves them", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -405,7 +574,6 @@ describe("Organization documents", () => {
       content: "Published brief",
       kind: "brief",
     });
-
     await expect(
       service.draft(
         fixture.organizationId,
@@ -424,7 +592,6 @@ describe("Organization documents", () => {
     await expect(
       service.readPromptContext(fixture.organizationId)
     ).resolves.toMatchObject({ briefContent: "Published brief" });
-
     await expect(
       service.approveDraft(fixture.owner, brief.id, draftVersion(pending))
     ).resolves.toMatchObject({
@@ -435,7 +602,6 @@ describe("Organization documents", () => {
       service.readPromptContext(fixture.organizationId)
     ).resolves.toMatchObject({ briefContent: "Proposed replacement" });
   });
-
   it("versions only approved organization content for the Center Agent Computer", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -457,13 +623,12 @@ describe("Organization documents", () => {
       documentReviewerUserIds(fixture)
     );
     const coreEnv = {
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     } as CoreBindings;
     const context = requestContext(
       fixture.organizationId,
       fixture.centerAgentProfileId
     );
-
     const first = await rpcCenterAgentOrganizationDocumentsComputerSnapshot(
       coreEnv,
       { context }
@@ -486,7 +651,6 @@ describe("Organization documents", () => {
     });
     expect(first.documents[0]).not.toHaveProperty("draftContent");
     expect(replay.revision).toBe(first.revision);
-
     const currentDocument = await service.get(fixture.owner, document.id);
     await service.update(fixture.owner, document.id, {
       content: "Approved version two",
@@ -498,26 +662,30 @@ describe("Organization documents", () => {
     );
     expect(updated.documents[0]?.content).toBe("Approved version two");
     expect(updated.revision).not.toBe(first.revision);
-
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: `
           SELECT COUNT(*) AS count
-          FROM center_agent_audit_journal
-          WHERE organization_id = ?
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE organization_id = $1
             AND action = 'read_org_documents'
             AND resource_type = 'organization_document_computer_snapshot'
-        `
-      )
-        .bind(fixture.organizationId)
-        .first<{ count: number }>()
+        `,
+            values: [],
+          },
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({ count: 3 });
   });
-
   it("rejects a Computer working copy after the formal document changes", async () => {
     const fixture = await seedFixture();
     const initialService = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => 10_000,
     });
     const document = await initialService.create(fixture.owner, {
@@ -526,7 +694,7 @@ describe("Organization documents", () => {
       title: "Launch plan",
     });
     const humanService = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => 20_000,
     });
     await humanService.update(fixture.owner, document.id, {
@@ -534,10 +702,9 @@ describe("Organization documents", () => {
       ...humanDocumentVersion(document),
     });
     const centerAgentService = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => 30_000,
     });
-
     await expect(
       centerAgentService.draft(
         fixture.organizationId,
@@ -560,7 +727,6 @@ describe("Organization documents", () => {
       content: "Human's newer approved plan",
       draftContent: null,
     });
-
     const currentWorkingCopy = {
       documentId: document.id,
       draftContent: "Proposal based on the current version",
@@ -587,7 +753,6 @@ describe("Organization documents", () => {
       draftReplaced: false,
     });
   });
-
   it("does not advertise a draft-only document title in the system prompt", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -600,11 +765,9 @@ describe("Organization documents", () => {
       },
       documentReviewerUserIds(fixture)
     );
-
     await expect(
       service.readPromptContext(fixture.organizationId)
     ).resolves.toEqual({ briefContent: null, documentTitles: [] });
-
     const pending = await service.get(fixture.owner, draft.document.id);
     await service.approveDraft(
       fixture.owner,
@@ -618,7 +781,6 @@ describe("Organization documents", () => {
       documentTitles: ["Pending runbook"],
     });
   });
-
   it("lets a member edit only their own member profile content", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -644,7 +806,6 @@ describe("Organization documents", () => {
       kind: "member_profile",
       subjectUserId: fixture.owner.userId,
     });
-
     await expect(
       service.update(fixture.member, profile.id, {
         content: "I updated my own about text.",
@@ -663,15 +824,13 @@ describe("Organization documents", () => {
       service.delete(fixture.member, profile.id)
     ).rejects.toMatchObject({ cause: { status: 403 } });
   });
-
   it("gives same-day Profile Reports distinct human-readable titles", async () => {
     const fixture = await seedFixture();
     const reportTimestamp = Date.UTC(2026, 7, 14, 12, 30, 0);
     const service = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => reportTimestamp,
     });
-
     const first = await service.create(fixture.owner, {
       content: "First angle",
       kind: "member_profile",
@@ -682,40 +841,53 @@ describe("Organization documents", () => {
       kind: "member_profile",
       subjectUserId: fixture.member.userId,
     });
-
     expect(first.title).toBe("2026-08-14 — Work Profile");
     expect(second.title).toBe("2026-08-14 — Work Profile (2)");
   });
-
   it("gives different members with the same display name distinct managed folders", async () => {
     const fixture = await seedFixture();
     const sameNameUserId = `same_name_${crypto.randomUUID()}`;
     const timestamp = Date.UTC(2026, 7, 14, 12, 30, 0);
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-      ).bind(
-        sameNameUserId,
-        "Morgan Member",
-        `${sameNameUserId}@example.com`,
-        1,
-        timestamp,
-        timestamp
-      ),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-      ).bind(
-        `membership_${sameNameUserId}`,
-        fixture.organizationId,
-        sameNameUserId,
-        timestamp
-      ),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)',
+              values: [],
+            },
+            values: [
+              sameNameUserId,
+              "Morgan Member",
+              `${sameNameUserId}@example.com`,
+              1,
+              timestamp,
+              timestamp,
+            ],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4)',
+              values: [],
+            },
+            values: [
+              `membership_${sameNameUserId}`,
+              fixture.organizationId,
+              sameNameUserId,
+              timestamp,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const service = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => timestamp,
     });
-
     const first = await service.create(fixture.owner, {
       content: "First Morgan",
       kind: "member_profile",
@@ -731,11 +903,9 @@ describe("Organization documents", () => {
     const secondFolder = folders.find(
       (folder) => folder.id === second.folderId
     );
-
     expect(firstFolder?.name).toBe("Morgan Member");
     expect(secondFolder?.name).toBe("Morgan Member (2)");
   });
-
   it("turns a Profile Report draft into the editable working report when its subject saves", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -746,7 +916,7 @@ describe("Organization documents", () => {
     });
     const draftedAtMs = Date.parse(profile.updatedAt) + 1000;
     const draftingService = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs,
     });
     await draftingService.draft(
@@ -770,7 +940,6 @@ describe("Organization documents", () => {
         source_key: `${profile.id}:${draftedAtMs}`,
       }),
     ]);
-
     await expect(
       service.update(fixture.member, profile.id, {
         content: pending.draftContent as string,
@@ -787,12 +956,11 @@ describe("Organization documents", () => {
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
   });
-
   it("keeps a newer Profile Report draft when an older editor tries to save", async () => {
     const fixture = await seedFixture();
     let nowMs = 10_000;
     const service = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => nowMs,
     });
     const profile = await service.create(fixture.owner, {
@@ -819,7 +987,6 @@ describe("Organization documents", () => {
       },
       documentReviewerUserIds(fixture)
     );
-
     await expect(
       service.update(fixture.member, profile.id, {
         content: "Stale editor content",
@@ -839,7 +1006,6 @@ describe("Organization documents", () => {
       draftCreatedAt: new Date(30_000).toISOString(),
     });
   });
-
   it("supports manager CRUD and keeps draft review manager-only", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -848,7 +1014,6 @@ describe("Organization documents", () => {
       kind: "knowledge",
       title: "Runbook",
     });
-
     await expect(service.list(fixture.member)).resolves.toContainEqual(
       expect.objectContaining({ id: document.id, title: "Runbook" })
     );
@@ -865,7 +1030,6 @@ describe("Organization documents", () => {
       content: "Admin edit",
       title: "Operations runbook",
     });
-
     await service.draft(
       fixture.organizationId,
       {
@@ -884,46 +1048,59 @@ describe("Organization documents", () => {
       content: "Admin edit",
       draftContent: null,
     });
-
     await service.delete(fixture.owner, document.id);
     await expect(
       service.get(fixture.member, document.id)
     ).rejects.toMatchObject({ cause: { status: 404 } });
   });
-
   it("does not write unrequested columns during partial updates", async () => {
     const fixture = await seedFixture();
-    const updateStatements: string[] = [];
-    const db = {
-      prepare: (query: string) => {
-        if (ORGANIZATION_DOCUMENT_UPDATE_SQL_PATTERN.test(query)) {
-          updateStatements.push(query);
-        }
-        return env.OPENMELD_DB.prepare(query);
-      },
-    } as unknown as D1Database;
-    const service = createOrganizationDocumentService({ db });
+    const service = createService();
     const document = await service.create(fixture.owner, {
       content: "Approved runbook",
       kind: "knowledge",
       title: "Runbook",
     });
-
-    const renamedDocument = await service.update(fixture.owner, document.id, {
-      title: "Operations runbook",
+    const removeContentFailure = await installWorkerPostgresWriteFailure({
+      env,
+      table: "organization_documents",
+      operation: "UPDATE",
+      columns: ["content"],
+      condition: `NEW.id = '${document.id}'`,
     });
-    await service.update(fixture.owner, document.id, {
-      content: "Updated content",
-      ...humanDocumentVersion(renamedDocument),
+    let renamedDocument: Awaited<ReturnType<typeof service.update>>;
+    try {
+      renamedDocument = await service.update(fixture.owner, document.id, {
+        title: "Operations runbook",
+      });
+      expect(renamedDocument).toMatchObject({
+        title: "Operations runbook",
+        content: "Approved runbook",
+      });
+    } finally {
+      await removeContentFailure();
+    }
+    const removeTitleFailure = await installWorkerPostgresWriteFailure({
+      env,
+      table: "organization_documents",
+      operation: "UPDATE",
+      columns: ["title"],
+      condition: `NEW.id = '${document.id}'`,
     });
-
-    expect(updateStatements).toHaveLength(2);
-    expect(updateStatements[0]).toContain("title = ?");
-    expect(updateStatements[0]).not.toContain("content = ?");
-    expect(updateStatements[1]).toContain("content = ?");
-    expect(updateStatements[1]).not.toContain("title = ?");
+    try {
+      await expect(
+        service.update(fixture.owner, document.id, {
+          content: "Updated content",
+          ...humanDocumentVersion(renamedDocument),
+        })
+      ).resolves.toMatchObject({
+        title: "Operations runbook",
+        content: "Updated content",
+      });
+    } finally {
+      await removeTitleFailure();
+    }
   });
-
   it("keeps one Organization Brief and preserves dated Profile Report history", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -933,7 +1110,6 @@ describe("Organization documents", () => {
       kind: "member_profile",
       subjectUserId: fixture.member.userId,
     });
-
     await expect(
       service.create(fixture.owner, { content: "Second", kind: "brief" })
     ).rejects.toMatchObject({
@@ -991,7 +1167,6 @@ describe("Organization documents", () => {
     );
     expect(memberReports).toHaveLength(2);
   });
-
   it("preserves an ordinary Profile Reports folder when managed reports begin", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1011,13 +1186,11 @@ describe("Organization documents", () => {
       kind: "knowledge",
       title: "Legacy profile notes",
     });
-
     const profile = await service.create(fixture.owner, {
       content: "The first managed report.",
       kind: "member_profile",
       subjectUserId: fixture.member.userId,
     });
-
     const folders = await service.listFolders(fixture.owner);
     const currentOrdinaryDocument = await service.get(
       fixture.owner,
@@ -1054,12 +1227,11 @@ describe("Organization documents", () => {
     expect(managedRoot?.id).not.toBe(ordinaryRoot.id);
     expect(personFolder?.parentFolderId).toBe(managedRoot?.id);
   });
-
   it("replaces the pending draft and rejects review of a stale version", async () => {
     const fixture = await seedFixture();
     let timestamp = 10_000;
     const service = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => timestamp++,
     });
     const document = await service.create(fixture.owner, {
@@ -1076,7 +1248,6 @@ describe("Organization documents", () => {
       documentReviewerUserIds(fixture)
     );
     const draftA = await service.get(fixture.owner, document.id);
-
     await expect(
       service.draft(
         fixture.organizationId,
@@ -1101,12 +1272,11 @@ describe("Organization documents", () => {
       service.approveDraft(fixture.owner, document.id, draftVersion(draftB))
     ).resolves.toMatchObject({ content: "Draft B", draftContent: null });
   });
-
   it("rejects a human write when the active Organization changed", async () => {
     const fixture = await seedFixture();
     await expect(
       rpcCreateOrganizationDocument(
-        { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
+        { OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL } as CoreBindings,
         {
           content: "Must not cross Organizations",
           context: humanRequestContext(
@@ -1126,7 +1296,6 @@ describe("Organization documents", () => {
       },
     });
   });
-
   it("caps knowledge documents and each formal or draft body", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1137,7 +1306,6 @@ describe("Organization documents", () => {
         title: `Knowledge ${index}`,
       });
     }
-
     await expect(
       service.create(fixture.owner, {
         content: "One too many",
@@ -1176,7 +1344,6 @@ describe("Organization documents", () => {
       cause: { code: "organization_document.content_too_long", status: 400 },
     });
   });
-
   it("rejects direct formal content on the Center Agent draft contract", () => {
     const parsed = centerAgentDraftOrganizationDocumentRpcInputSchema.safeParse(
       {
@@ -1190,13 +1357,13 @@ describe("Organization documents", () => {
         },
       }
     );
-
     expect(parsed.success).toBe(false);
   });
-
   it("lets an authorized Center Agent manage folders and save approved knowledge idempotently", async () => {
     const fixture = await seedFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const context = requestContext(
       fixture.organizationId,
       fixture.centerAgentProfileId
@@ -1205,7 +1372,6 @@ describe("Organization documents", () => {
       memberId: fixture.ownerMemberId,
       userId: fixture.owner.userId,
     };
-
     const folder = await rpcCenterAgentManageOrganizationDocuments(coreEnv, {
       action: "create_folder",
       context,
@@ -1251,7 +1417,6 @@ describe("Organization documents", () => {
         status: 409,
       },
     });
-
     await expect(
       rpcCenterAgentManageOrganizationDocuments(coreEnv, {
         action: "save_document",
@@ -1268,7 +1433,6 @@ describe("Organization documents", () => {
         status: 403,
       },
     });
-
     const delivery = await seedAcceptedLocalAgentDocumentDelivery(fixture);
     const authorizedContext = requestContext(
       fixture.organizationId,
@@ -1296,7 +1460,7 @@ describe("Organization documents", () => {
       outcome: "created",
     });
     await markRemoteAgentNativeDeliveryCompleted({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: 2002,
       publishedSignalId: saved.document.id,
       submissionId: delivery.submissionId,
@@ -1329,18 +1493,24 @@ describe("Organization documents", () => {
       },
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query<{
+          source_native_delivery_id: string | null;
+        }>({
+          ...{
+            text: `
           SELECT source_native_delivery_id
-          FROM center_agent_audit_journal
-          WHERE organization_id = ?
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE organization_id = $1
             AND action = 'save_org_document'
-            AND resource_id = ?
+            AND resource_id = $2
           LIMIT 1
-        `
-      )
-        .bind(fixture.organizationId, saved.document.id)
-        .first<{ source_native_delivery_id: string | null }>()
+        `,
+            values: [],
+          },
+          values: [fixture.organizationId, saved.document.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({ source_native_delivery_id: delivery.deliveryId });
     const legacyAudit = await rpcListCenterAgentAuditJournal(coreEnv, {
       actionSet: "v13",
@@ -1387,13 +1557,18 @@ describe("Organization documents", () => {
       },
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          text: `
           SELECT COUNT(*) AS count
-          FROM center_agent_organization_document_operations
+          FROM "openmeld"."center_agent_organization_document_operations"
           WHERE operation_id = 'save-after-turn-ended'
-        `
-      ).first<{ count: number }>()
+        `,
+          values: [],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({ count: 0 });
     await expect(
       rpcCenterAgentReadOrganizationDocuments(coreEnv, {
@@ -1416,7 +1591,6 @@ describe("Organization documents", () => {
         }),
       ]),
     });
-
     await expect(
       rpcCenterAgentManageOrganizationDocuments(coreEnv, {
         action: "move_document",
@@ -1444,7 +1618,6 @@ describe("Organization documents", () => {
       folder: { name: "OK Eight Learning" },
     });
   });
-
   it("lets only one concurrent document operation claimant mutate", async () => {
     const fixture = await seedFixture();
     const scope = {
@@ -1459,24 +1632,22 @@ describe("Organization documents", () => {
         action: "create_folder",
         name: "Concurrent folder",
       });
-
     const [first, second] = await Promise.all([
       beginCenterAgentOrganizationDocumentOperation({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 1000,
         requestSignature,
         scope,
         targetResourceId: "org_document_concurrent_first",
       }),
       beginCenterAgentOrganizationDocumentOperation({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 1001,
         requestSignature,
         scope,
         targetResourceId: "org_document_concurrent_second",
       }),
     ]);
-
     expect([first.outcome, second.outcome].sort()).toEqual([
       "claimed",
       "pending_in_progress",
@@ -1485,7 +1656,6 @@ describe("Organization documents", () => {
     const replay = first.outcome === "claimed" ? second : first;
     expect(replay.operation).toEqual(claimed.operation);
   });
-
   it("waits one claim lease before recovering a pending operation from the previous Core", async () => {
     const fixture = await seedFixture();
     const startedAtMs = 1000;
@@ -1501,9 +1671,10 @@ describe("Organization documents", () => {
         action: "create_folder",
         name: "Legacy pending folder",
       });
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO center_agent_organization_document_operations (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."center_agent_organization_document_operations" (
           id,
           organization_id,
           actor_profile_id,
@@ -1516,10 +1687,11 @@ describe("Organization documents", () => {
           status,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?)
-      `
-    )
-      .bind(
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 'pending', $9, $10)
+      `,
+        values: [],
+      },
+      values: [
         "legacy-pending-document-operation-record",
         scope.organizationId,
         scope.actorProfileId,
@@ -1529,13 +1701,12 @@ describe("Organization documents", () => {
         requestSignature,
         "legacy-pending-folder",
         startedAtMs,
-        startedAtMs
-      )
-      .run();
-
+        startedAtMs,
+      ],
+    });
     const duringLegacyLease =
       await beginCenterAgentOrganizationDocumentOperation({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: startedAtMs + 1,
         requestSignature,
         scope,
@@ -1548,9 +1719,8 @@ describe("Organization documents", () => {
       },
       outcome: "pending_in_progress",
     });
-
     const recovered = await beginCenterAgentOrganizationDocumentOperation({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: startedAtMs + CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS,
       requestSignature,
       scope,
@@ -1564,31 +1734,35 @@ describe("Organization documents", () => {
       outcome: "claimed",
     });
     expect(recovered.operation.claimId).not.toBeNull();
-
     await expect(
-      prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
-        claimId: "stale-claim",
-        db: env.OPENMELD_DB,
-        nowMs: startedAtMs + CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS + 1,
-        operationRecordId: recovered.operation.id,
-        responseJson: JSON.stringify({ stale: true }),
-      }).run()
+      getPostgresDatabase(env).query(
+        prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
+          claimId: "stale-claim",
+          db: getPostgresDatabase(env),
+          nowMs:
+            startedAtMs + CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS + 1,
+          operationRecordId: recovered.operation.id,
+          responseJson: JSON.stringify({ stale: true }),
+        })
+      )
     ).resolves.toMatchObject({
-      meta: expect.objectContaining({ changes: 0 }),
+      rowCount: 0,
     });
     await expect(
-      prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
-        claimId: recovered.operation.claimId ?? "",
-        db: env.OPENMELD_DB,
-        nowMs: startedAtMs + CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS + 1,
-        operationRecordId: recovered.operation.id,
-        responseJson: JSON.stringify({ recovered: true }),
-      }).run()
+      getPostgresDatabase(env).query(
+        prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
+          claimId: recovered.operation.claimId ?? "",
+          db: getPostgresDatabase(env),
+          nowMs:
+            startedAtMs + CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS + 1,
+          operationRecordId: recovered.operation.id,
+          responseJson: JSON.stringify({ recovered: true }),
+        })
+      )
     ).resolves.toMatchObject({
-      meta: expect.objectContaining({ changes: 1 }),
+      rowCount: 1,
     });
   });
-
   it("does not execute a mutation for an exact pending operation replay", async () => {
     const fixture = await seedFixture();
     const operationId = "pending-folder-replay";
@@ -1600,7 +1774,7 @@ describe("Organization documents", () => {
         name: folderName,
       });
     await beginCenterAgentOrganizationDocumentOperation({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: Date.now(),
       requestSignature,
       scope: {
@@ -1612,10 +1786,9 @@ describe("Organization documents", () => {
       },
       targetResourceId: folderId,
     });
-
     await expect(
       rpcCenterAgentManageOrganizationDocuments(
-        { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
+        { OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL } as CoreBindings,
         {
           action: "create_folder",
           context: requestContext(
@@ -1637,18 +1810,23 @@ describe("Organization documents", () => {
       },
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: `
           SELECT COUNT(*) AS count
-          FROM organization_document_folders
-          WHERE id = ?
-        `
-      )
-        .bind(folderId)
-        .first<{ count: number }>()
+          FROM "openmeld"."organization_document_folders"
+          WHERE id = $1
+        `,
+            values: [],
+          },
+          values: [folderId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({ count: 0 });
   });
-
   it("recovers an abandoned pending operation after its claim lease expires", async () => {
     const fixture = await seedFixture();
     const operationId = "abandoned-folder-operation";
@@ -1661,7 +1839,7 @@ describe("Organization documents", () => {
       });
     const nowMs = Date.now();
     const abandoned = await beginCenterAgentOrganizationDocumentOperation({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: nowMs - CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS - 1,
       requestSignature,
       scope: {
@@ -1673,10 +1851,9 @@ describe("Organization documents", () => {
       },
       targetResourceId: folderId,
     });
-
     await expect(
       rpcCenterAgentManageOrganizationDocuments(
-        { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
+        { OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL } as CoreBindings,
         {
           action: "create_folder",
           context: requestContext(
@@ -1696,18 +1873,19 @@ describe("Organization documents", () => {
       folder: { id: folderId, name: folderName },
     });
     await expect(
-      prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
-        claimId: abandoned.operation.claimId ?? "",
-        db: env.OPENMELD_DB,
-        nowMs: nowMs + 1,
-        operationRecordId: abandoned.operation.id,
-        responseJson: JSON.stringify({ stale: true }),
-      }).run()
+      getPostgresDatabase(env).query(
+        prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
+          claimId: abandoned.operation.claimId ?? "",
+          db: getPostgresDatabase(env),
+          nowMs: nowMs + 1,
+          operationRecordId: abandoned.operation.id,
+          responseJson: JSON.stringify({ stale: true }),
+        })
+      )
     ).resolves.toMatchObject({
-      meta: expect.objectContaining({ changes: 0 }),
+      rowCount: 0,
     });
   });
-
   it("returns an exact completed replay when turn authorization ends during the request", async () => {
     const fixture = await seedFixture();
     const operationId = "save-completed-during-authorization";
@@ -1740,7 +1918,7 @@ describe("Organization documents", () => {
             title,
           });
         const claim = await beginCenterAgentOrganizationDocumentOperation({
-          db: env.OPENMELD_DB,
+          db: getPostgresDatabase(env),
           nowMs: 1000,
           requestSignature,
           scope: {
@@ -1752,20 +1930,21 @@ describe("Organization documents", () => {
           },
           targetResourceId: documentId,
         });
-        await prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
-          claimId: claim.operation.claimId ?? "",
-          db: env.OPENMELD_DB,
-          nowMs: 1001,
-          operationRecordId: claim.operation.id,
-          responseJson: JSON.stringify(response),
-        }).run();
+        await getPostgresDatabase(env).query(
+          prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
+            claimId: claim.operation.claimId ?? "",
+            db: getPostgresDatabase(env),
+            nowMs: 1001,
+            operationRecordId: claim.operation.id,
+            responseJson: JSON.stringify(response),
+          })
+        );
         return null;
       });
-
     try {
       await expect(
         rpcCenterAgentManageOrganizationDocuments(
-          { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
+          { OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL } as CoreBindings,
           {
             action: "save_document",
             content,
@@ -1787,15 +1966,15 @@ describe("Organization documents", () => {
       nativeDeliveryRead.mockRestore();
     }
   });
-
   it("lets only an explicitly authorized Routine finalize approved knowledge", async () => {
     const fixture = await seedFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const speakerMember = {
       memberId: fixture.ownerMemberId,
       userId: fixture.owner.userId,
     };
-
     const deniedSubmissionId = await seedAcceptedRoutineDocumentDelivery({
       authorized: false,
       fixture,
@@ -1819,7 +1998,6 @@ describe("Organization documents", () => {
         status: 403,
       },
     });
-
     const authorizedSubmissionId = await seedAcceptedRoutineDocumentDelivery({
       authorized: true,
       fixture,
@@ -1843,7 +2021,6 @@ describe("Organization documents", () => {
       outcome: "created",
     });
   });
-
   it("refuses to overwrite approved content while a draft is pending", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1860,7 +2037,6 @@ describe("Organization documents", () => {
       },
       documentReviewerUserIds(fixture)
     );
-
     await expect(
       service.updateApprovedKnowledge(fixture.owner, document.id, {
         content: "Do not overwrite the draft",
@@ -1877,7 +2053,6 @@ describe("Organization documents", () => {
       })
     ).rejects.toMatchObject({ cause: { status: 403 } });
   });
-
   it("lists the brief first and exposes draft state without draft content", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1898,7 +2073,6 @@ describe("Organization documents", () => {
       },
       documentReviewerUserIds(fixture)
     );
-
     const documents = await service.list(fixture.member);
     expect(documents[0]).toMatchObject({
       hasDraft: true,
@@ -1907,12 +2081,11 @@ describe("Organization documents", () => {
     });
     expect(documents[0]).not.toHaveProperty("draftContent");
   });
-
   it("routes both Center Agent document tools through Core and audits them", async () => {
     const fixture = await seedFixture();
     const coreEnv = {
       OPENMELD_AUTH_WORKER: createDocumentReviewDirectoryAuthWorker(),
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     } as CoreBindings;
     const context = requestContext(
       fixture.organizationId,
@@ -1922,7 +2095,6 @@ describe("Organization documents", () => {
       memberId: fixture.ownerMemberId,
       userId: fixture.owner.userId,
     };
-
     const drafted = await rpcCenterAgentDraftOrganizationDocument(coreEnv, {
       context,
       draftContent: "Proposed runbook",
@@ -1937,12 +2109,7 @@ describe("Organization documents", () => {
         speakerMember,
       })
     ).resolves.toMatchObject({
-      documents: [
-        expect.objectContaining({
-          id: drafted.document.id,
-          title: "Operations runbook",
-        }),
-      ],
+      documents: [],
     });
     await expect(
       rpcCenterAgentReadOrganizationDocuments(coreEnv, {
@@ -1958,22 +2125,23 @@ describe("Organization documents", () => {
         title: "Operations runbook",
       },
     });
-
-    const result = await env.OPENMELD_DB.prepare(
-      `
+    const result = await getPostgresDatabase(env).query<{
+      action: string;
+      resource_id: string;
+      resource_type: string;
+    }>({
+      ...{
+        text: `
         SELECT action, resource_type, resource_id
-        FROM center_agent_audit_journal
-        WHERE organization_id = ?
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE organization_id = $1
         ORDER BY action ASC, resource_type ASC
-      `
-    )
-      .bind(fixture.organizationId)
-      .all<{
-        action: string;
-        resource_id: string;
-        resource_type: string;
-      }>();
-    expect(result.results).toEqual([
+      `,
+        values: [],
+      },
+      values: [fixture.organizationId],
+    });
+    expect(result.rows).toEqual([
       {
         action: "draft_org_document",
         resource_id: drafted.document.id,
@@ -1991,13 +2159,12 @@ describe("Organization documents", () => {
       },
     ]);
   });
-
   it("lets an anonymous member read ordinary member documents through the exact native delivery", async () => {
     const fixture = await seedFixture();
     const service = createService();
     const coreEnv = {
       OPENMELD_AUTH_WORKER: createDocumentReviewDirectoryAuthWorker(),
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     } as CoreBindings;
     const document = await service.create(fixture.owner, {
       content: "The launch review is Thursday.",
@@ -2019,7 +2186,6 @@ describe("Organization documents", () => {
         providerUserId: "U123",
       },
     };
-
     await expect(
       prepareCenterAgentOrganizationMemberRequest(
         coreEnv,
@@ -2032,7 +2198,6 @@ describe("Organization documents", () => {
         sourceSpaceId: null,
       },
     });
-
     await expect(
       rpcCenterAgentAuthorizeAnonymousMemberTool(coreEnv, {
         context,
@@ -2151,7 +2316,6 @@ describe("Organization documents", () => {
         status: 403,
       },
     });
-
     await expect(
       rpcCenterAgentReadMemberComputers(coreEnv, {
         context,
@@ -2172,7 +2336,7 @@ describe("Organization documents", () => {
     });
     await expect(
       rpcCenterAgentDraftOrganizationDocument(
-        { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
+        { OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL } as CoreBindings,
         {
           context,
           draftContent: "Anonymous mutation",
@@ -2186,39 +2350,50 @@ describe("Organization documents", () => {
         status: 403,
       },
     });
-
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query<{
+          source_native_delivery_id: string | null;
+        }>({
+          ...{
+            text: `
           SELECT source_native_delivery_id
-          FROM center_agent_audit_journal
-          WHERE organization_id = ? AND action = 'read_org_documents'
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE organization_id = $1 AND action = 'read_org_documents'
           ORDER BY created_at DESC
           LIMIT 1
-        `
-      )
-        .bind(fixture.organizationId)
-        .first<{ source_native_delivery_id: string | null }>()
+        `,
+            values: [],
+          },
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       source_native_delivery_id: delivery.deliveryId,
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query<{
+          source_native_delivery_id: string | null;
+        }>({
+          ...{
+            text: `
           SELECT source_native_delivery_id
-          FROM center_agent_audit_journal
-          WHERE organization_id = ? AND action = 'read_org_directory'
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE organization_id = $1 AND action = 'read_org_directory'
           ORDER BY created_at DESC
           LIMIT 1
-        `
-      )
-        .bind(fixture.organizationId)
-        .first<{ source_native_delivery_id: string | null }>()
+        `,
+            values: [],
+          },
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       source_native_delivery_id: delivery.deliveryId,
     });
     await markRemoteAgentNativeDeliveryCompleted({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: 3000,
       publishedSignalId: null,
       submissionId: delivery.submissionId,
@@ -2239,11 +2414,9 @@ describe("Organization documents", () => {
   it("keeps folders manager-owned and preserves nested contents on delete", async () => {
     const fixture = await seedFixture();
     const service = createService();
-
     await expect(
       service.createFolder(fixture.member, { name: "Member folder" })
     ).rejects.toMatchObject({ cause: { status: 403 } });
-
     const folder = await service.createFolder(fixture.owner, {
       name: "Runbooks",
     });
@@ -2254,7 +2427,6 @@ describe("Organization documents", () => {
     await expect(
       service.createFolder(fixture.admin, { name: "runbooks" })
     ).resolves.toMatchObject({ name: "runbooks (2)" });
-
     const doc = await service.create(fixture.owner, {
       content: "Inside a folder",
       folderId: folder.id,
@@ -2268,11 +2440,9 @@ describe("Organization documents", () => {
       title: "Production checklist",
     });
     expect(doc.folderId).toBe(folder.id);
-
     await expect(
       service.update(fixture.member, doc.id, { folderId: null })
     ).rejects.toMatchObject({ cause: { status: 403 } });
-
     const folders = await service.listFolders(fixture.member);
     expect(folders).toHaveLength(3);
     expect(folders).toContainEqual(
@@ -2284,7 +2454,6 @@ describe("Organization documents", () => {
         parentFolderId: folder.id,
       })
     );
-
     await service.deleteFolder(fixture.owner, folder.id);
     const after = await service.get(fixture.owner, doc.id);
     expect(after).toMatchObject({
@@ -2306,7 +2475,6 @@ describe("Organization documents", () => {
       expect.objectContaining({ name: "runbooks (2)", parentFolderId: null }),
     ]);
   });
-
   it("scopes folder names to siblings and supports nested creation", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -2317,7 +2485,6 @@ describe("Organization documents", () => {
       name: "Runbooks",
       parentFolderId: product.id,
     });
-
     await expect(
       service.createFolder(fixture.owner, {
         name: "runbooks",
@@ -2329,7 +2496,6 @@ describe("Organization documents", () => {
     ).resolves.toMatchObject({ parentFolderId: null });
     expect(nestedRunbooks).toMatchObject({ parentFolderId: product.id });
   });
-
   it("moves folders without allowing cross-organization parents or cycles", async () => {
     const fixture = await seedFixture();
     const otherFixture = await seedFixture();
@@ -2347,7 +2513,6 @@ describe("Organization documents", () => {
     const foreign = await service.createFolder(otherFixture.owner, {
       name: "Foreign",
     });
-
     await expect(
       service.moveFolder(fixture.owner, launch.id, archive.id)
     ).resolves.toMatchObject({ parentFolderId: archive.id });
@@ -2362,12 +2527,10 @@ describe("Organization documents", () => {
       cause: { code: "organization_document.folder_not_found", status: 404 },
     });
   });
-
   it("moves documents between folders and rejects cross-organization folders", async () => {
     const fixture = await seedFixture();
     const otherFixture = await seedFixture();
     const service = createService();
-
     const folder = await service.createFolder(fixture.owner, {
       name: "Playbooks",
     });
@@ -2379,20 +2542,17 @@ describe("Organization documents", () => {
       kind: "knowledge",
       title: "Movable doc",
     });
-
     await expect(
       service.update(fixture.owner, doc.id, { folderId: foreignFolder.id })
     ).rejects.toMatchObject({
       cause: { code: "organization_document.folder_not_found", status: 404 },
     });
-
     await expect(
       service.update(fixture.owner, doc.id, { folderId: folder.id })
     ).resolves.toMatchObject({ folderId: folder.id });
     await expect(
       service.update(fixture.owner, doc.id, { folderId: null })
     ).resolves.toMatchObject({ folderId: null });
-
     const renamed = await service.renameFolder(fixture.owner, folder.id, {
       name: "Field guides",
     });
@@ -2404,18 +2564,15 @@ describe("Organization documents", () => {
     });
   });
 });
-
 function createService() {
-  return createOrganizationDocumentService({ db: env.OPENMELD_DB });
+  return createOrganizationDocumentService({ db: getPostgresDatabase(env) });
 }
-
 function draftVersion(document: { draftCreatedAt: string | null }): string {
   if (!document.draftCreatedAt) {
     throw new Error("Expected a pending draft version in this test.");
   }
   return document.draftCreatedAt;
 }
-
 function humanDocumentVersion(document: {
   draftCreatedAt: string | null;
   updatedAt: string;
@@ -2425,14 +2582,12 @@ function humanDocumentVersion(document: {
     expectedDraftCreatedAt: document.draftCreatedAt,
   };
 }
-
 function documentReviewerUserIds(fixture: {
   admin: OrganizationDocumentActor;
   owner: OrganizationDocumentActor;
 }): string[] {
   return [fixture.owner.userId, fixture.admin.userId];
 }
-
 type DocumentReviewInboxRow = {
   attention: string;
   importance: string;
@@ -2443,12 +2598,12 @@ type DocumentReviewInboxRow = {
   source_key: string;
   title: string;
 };
-
 async function readDocumentReviewInboxRows(
   organizationId: string
 ): Promise<DocumentReviewInboxRow[]> {
-  const result = await env.OPENMELD_DB.prepare(
-    `
+  const result = await getPostgresDatabase(env).query<DocumentReviewInboxRow>({
+    ...{
+      text: `
       SELECT
         attention,
         importance,
@@ -2458,32 +2613,40 @@ async function readDocumentReviewInboxRows(
         resolution_status,
         source_key,
         title
-      FROM inbox_items
-      WHERE organization_id = ?
+      FROM "openmeld"."inbox_items"
+      WHERE organization_id = $1
         AND source_kind = 'organization_document_draft'
       ORDER BY recipient_user_id, source_key
-    `
-  )
-    .bind(organizationId)
-    .all<DocumentReviewInboxRow>();
-  return result.results ?? [];
+    `,
+      values: [],
+    },
+    values: [organizationId],
+  });
+  return result.rows ?? [];
 }
-
 function createDocumentReviewDirectoryAuthWorker(): NonNullable<
   CoreBindings["OPENMELD_AUTH_WORKER"]
 > {
   return {
     resolveOrganizationAccountIdentity: async ({ account, organizationId }) => {
-      const organization = await env.OPENMELD_DB.prepare(
-        `
+      const organization = await getPostgresDatabase(env)
+        .query<{
+          id: string;
+          name: string;
+          slug: string;
+        }>({
+          ...{
+            text: `
           SELECT id, name, slug
-          FROM organizations
-          WHERE id = ?
+          FROM "openmeld"."organizations"
+          WHERE id = $1
           LIMIT 1
-        `
-      )
-        .bind(organizationId)
-        .first<{ id: string; name: string; slug: string }>();
+        `,
+            values: [],
+          },
+          values: [organizationId],
+        })
+        .then((result) => result.rows[0] ?? null);
       if (!organization) {
         return {
           code: "auth.organization_identity_unavailable" as const,
@@ -2491,45 +2654,53 @@ function createDocumentReviewDirectoryAuthWorker(): NonNullable<
           ok: false as const,
         };
       }
-
-      const memberCountRow = await env.OPENMELD_DB.prepare(
-        `
+      const memberCountRow = await getPostgresDatabase(env)
+        .query<{
+          member_count: number;
+        }>({
+          ...{
+            text: `
           SELECT COUNT(*) AS member_count
-          FROM members
-          WHERE organization_id = ?
-        `
-      )
-        .bind(organizationId)
-        .first<{ member_count: number }>();
+          FROM "openmeld"."members"
+          WHERE organization_id = $1
+        `,
+            values: [],
+          },
+          values: [organizationId],
+        })
+        .then((result) => result.rows[0] ?? null);
       const selectedUserId =
         account?.kind === "user_id" ? account.userId : null;
       const selectedAccount = selectedUserId
-        ? await env.OPENMELD_DB.prepare(
-            `
+        ? await getPostgresDatabase(env)
+            .query<{
+              email: string;
+              member_id: string | null;
+              name: string;
+              role: "admin" | "member" | "owner" | null;
+              user_id: string;
+            }>({
+              ...{
+                text: `
               SELECT
                 users.id AS user_id,
                 users.name,
                 users.email,
                 members.id AS member_id,
                 members.role
-              FROM users
-              LEFT JOIN members
-                ON members.organization_id = ?
+              FROM "openmeld"."users"
+              LEFT JOIN "openmeld"."members"
+                ON members.organization_id = $1
                 AND members.user_id = users.id
-              WHERE users.id = ?
+              WHERE users.id = $2
               LIMIT 1
-            `
-          )
-            .bind(organizationId, selectedUserId)
-            .first<{
-              email: string;
-              member_id: string | null;
-              name: string;
-              role: "admin" | "member" | "owner" | null;
-              user_id: string;
-            }>()
+            `,
+                values: [],
+              },
+              values: [organizationId, selectedUserId],
+            })
+            .then((result) => result.rows[0] ?? null)
         : null;
-
       return {
         account: selectedAccount
           ? {
@@ -2557,8 +2728,24 @@ function createDocumentReviewDirectoryAuthWorker(): NonNullable<
       };
     },
     resolveOrganizationDirectoryAgentProfiles: async ({ organizationId }) => {
-      const result = await env.OPENMELD_DB.prepare(
-        `
+      const result = await getPostgresDatabase(env).query<{
+        created_at: number;
+        created_by_user_id: string | null;
+        creator_profile_id: string | null;
+        last_used_at: number | null;
+        managed_role: "center_agent" | "openmeld_assistant" | null;
+        organization_id: string;
+        owner_name: string | null;
+        owner_user_id: string;
+        profile_handle: string;
+        profile_id: string;
+        profile_name: string;
+        source: string;
+        status: "active" | "disabled";
+        updated_at: number;
+      }>({
+        ...{
+          text: `
           SELECT
             profile.profile_id,
             profile.profile_name,
@@ -2574,34 +2761,20 @@ function createDocumentReviewDirectoryAuthWorker(): NonNullable<
             profile.last_used_at,
             profile.created_at,
             profile.updated_at
-          FROM openmeld_profiles AS profile
-          LEFT JOIN users AS owner ON owner.id = profile.owner_user_id
-          WHERE profile.organization_id = ?
+          FROM "openmeld"."openmeld_profiles" AS profile
+          LEFT JOIN "openmeld"."users" AS owner ON owner.id = profile.owner_user_id
+          WHERE profile.organization_id = $1
             AND profile.profile_kind = 'agent'
           ORDER BY profile.profile_id
-        `
-      )
-        .bind(organizationId)
-        .all<{
-          created_at: number;
-          created_by_user_id: string | null;
-          creator_profile_id: string | null;
-          last_used_at: number | null;
-          managed_role: "center_agent" | "openmeld_assistant" | null;
-          organization_id: string;
-          owner_name: string | null;
-          owner_user_id: string;
-          profile_handle: string;
-          profile_id: string;
-          profile_name: string;
-          source: string;
-          status: "active" | "disabled";
-          updated_at: number;
-        }>();
+        `,
+          values: [],
+        },
+        values: [organizationId],
+      });
       return {
         additionalAgentProfiles: [],
         ok: true as const,
-        organizationAgentProfiles: (result.results ?? []).map((profile) => ({
+        organizationAgentProfiles: (result.rows ?? []).map((profile) => ({
           createdAt: new Date(profile.created_at).toISOString(),
           createdByUserId: profile.created_by_user_id,
           creatorProfileId: profile.creator_profile_id,
@@ -2626,8 +2799,16 @@ function createDocumentReviewDirectoryAuthWorker(): NonNullable<
       };
     },
     resolveOrganizationDirectoryMembers: async ({ organizationId }) => {
-      const result = await env.OPENMELD_DB.prepare(
-        `
+      const result = await getPostgresDatabase(env).query<{
+        created_at: number;
+        email: string;
+        member_id: string;
+        name: string;
+        role: string;
+        user_id: string;
+      }>({
+        ...{
+          text: `
           SELECT
             members.id AS member_id,
             members.role,
@@ -2635,23 +2816,17 @@ function createDocumentReviewDirectoryAuthWorker(): NonNullable<
             members.created_at,
             users.email,
             users.name
-          FROM members
-          INNER JOIN users ON users.id = members.user_id
-          WHERE members.organization_id = ?
+          FROM "openmeld"."members"
+          INNER JOIN "openmeld"."users" ON users.id = members.user_id
+          WHERE members.organization_id = $1
           ORDER BY members.id
-        `
-      )
-        .bind(organizationId)
-        .all<{
-          created_at: number;
-          email: string;
-          member_id: string;
-          name: string;
-          role: string;
-          user_id: string;
-        }>();
+        `,
+          values: [],
+        },
+        values: [organizationId],
+      });
       return {
-        members: (result.results ?? []).map((member) => ({
+        members: (result.rows ?? []).map((member) => ({
           humanProfile: null,
           joinedAt: new Date(member.created_at).toISOString(),
           memberId: member.member_id,
@@ -2671,26 +2846,6 @@ function createDocumentReviewDirectoryAuthWorker(): NonNullable<
     },
   };
 }
-
-function createOneShotFailingBatchDb(): D1Database {
-  let shouldFail = true;
-  return new Proxy(env.OPENMELD_DB, {
-    get(target, property, receiver) {
-      if (property === "batch") {
-        return async (statements: D1PreparedStatement[]) => {
-          if (shouldFail) {
-            shouldFail = false;
-            throw new Error("inbox projection unavailable");
-          }
-          return await target.batch(statements);
-        };
-      }
-      const value = Reflect.get(target, property, receiver) as unknown;
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-}
-
 async function seedFixture(): Promise<{
   admin: OrganizationDocumentActor;
   centerAgentProfileId: string;
@@ -2707,41 +2862,48 @@ async function seedFixture(): Promise<{
     { id: `admin_${suffix}`, name: "Avery Admin", role: "admin" },
     { id: `member_${suffix}`, name: "Morgan Member", role: "member" },
   ] as const;
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(organizationId, "Documents Org", `documents-${suffix}`, 1000)
-    .run();
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+      values: [],
+    },
+    values: [organizationId, "Documents Org", `documents-${suffix}`, 1000],
+  });
   for (const [index, user] of users.entries()) {
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)',
+        values: [],
+      },
+      values: [
         user.id,
         user.name,
         `documents-${index}-${suffix}@example.com`,
         1,
         1000,
-        1000
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)"
-    )
-      .bind(
+        1000,
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+        values: [],
+      },
+      values: [
         `membership_${index}_${suffix}`,
         organizationId,
         user.id,
         user.role,
-        1000
-      )
-      .run();
+        1000,
+      ],
+    });
   }
   const centerAgentProfileId = `agt_${crypto.randomUUID()}`;
   const ownerHumanProfileId = crypto.randomUUID();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -2753,22 +2915,24 @@ async function seedFixture(): Promise<{
         source,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, $3, 'human', 1, 'active', $4, $5, 'auth_bootstrap', $6, $7)
+    `,
+      values: [],
+    },
+    values: [
       ownerHumanProfileId,
       users[0].name,
       `owner-${suffix}`,
       users[0].id,
       users[0].id,
       1000,
-      1000
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+      1000,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -2782,32 +2946,35 @@ async function seedFixture(): Promise<{
         managed_role,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, $3, 'agent', 0, 'active', $4, NULL, $5, 'cli_create', 'center_agent', $6, $7)
+    `,
+      values: [],
+    },
+    values: [
       centerAgentProfileId,
       "Center Agent",
       `center-agent-${suffix}`,
       organizationId,
       users[0].id,
       1000,
-      1000
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO center_agent_designations (
+      1000,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."center_agent_designations" (
         organization_id,
         agent_profile_id,
         duty,
         designated_by,
         created_at
-      ) VALUES (?, ?, NULL, ?, ?)
-    `
-  )
-    .bind(organizationId, centerAgentProfileId, users[0].id, 1000)
-    .run();
+      ) VALUES ($1, $2, NULL, $3, $4)
+    `,
+      values: [],
+    },
+    values: [organizationId, centerAgentProfileId, users[0].id, 1000],
+  });
   return {
     admin: { organizationId, role: "admin", userId: users[1].id },
     centerAgentProfileId,
@@ -2819,16 +2986,181 @@ async function seedFixture(): Promise<{
   };
 }
 
+async function seedPersonalDocumentReader(
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  profileId: string,
+  externalRequester = false
+) {
+  const coreEnv = env as unknown as CoreBindings;
+  const humanContext = humanRequestContext(
+    fixture.organizationId,
+    fixture.ownerHumanProfileId,
+    fixture.owner.userId
+  );
+  const senderId = `agt_${crypto.randomUUID()}`;
+  await getPostgresDatabase(env).query({
+    text: "INSERT INTO \"openmeld\".\"openmeld_profiles\"\n    (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)\n    VALUES ($1, 'Delegating Agent', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1000, 1000)",
+    values: [
+      senderId,
+      senderId,
+      fixture.organizationId,
+      fixture.owner.userId,
+      fixture.owner.userId,
+    ],
+  });
+  await createPersonalRemoteAgentBinding({
+    db: getPostgresDatabase(env),
+    agentProfileId: profileId,
+    organizationId: fixture.organizationId,
+    ownerUserId: fixture.owner.userId,
+    createdByProfileId: fixture.ownerHumanProfileId,
+    modelId: null,
+    reasoningLevel: null,
+  });
+  const binding = await requirePersonalRemoteAgentBinding({
+    db: getPostgresDatabase(env),
+    agentProfileId: profileId,
+    organizationId: fixture.organizationId,
+    ownerUserId: fixture.owner.userId,
+  });
+  const { spaceId } = await rpcCreateSpace(coreEnv, {
+    context: humanContext,
+    name: "Delegated document test",
+    visibility: "private",
+  });
+  await rpcAddSpaceMembers(coreEnv, {
+    context: humanContext,
+    spaceId,
+    members: [profileId, senderId].map((id) => ({
+      profileId: id,
+      profileKind: "agent" as const,
+      profileName: "Test Agent",
+      ownerUserId: fixture.owner.userId,
+      ownerName: "Olivia Owner",
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+    })),
+  });
+  const idempotencyKey = crypto.randomUUID();
+  const submissionId = crypto.randomUUID();
+  const base = createSubmitTurnRequestV2();
+  const conversationId = buildPersonalRemoteAgentConversationId({
+    organizationId: fixture.organizationId,
+    agentProfileId: profileId,
+    spaceId,
+  });
+  const workerSubmitRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse({
+    ...base,
+    v: 4,
+    agentProfileId: profileId,
+    agentProfileOwnerUserId: fixture.owner.userId,
+    organizationId: fixture.organizationId,
+    spaceId,
+    bindingId: binding.bindingId,
+    dispatchId: idempotencyKey,
+    idempotencyKey,
+    conversationId,
+    runtimeConversation: { generation: 0, id: conversationId },
+    conversationIdentity: { kind: "personal_agent", agentProfileId: profileId },
+    author: {
+      profileId: senderId,
+      profileKind: "agent",
+      displayName: "Delegating Agent",
+    },
+    spaceDispatchContext: {
+      dispatchChainId: idempotencyKey,
+      autoRelayDepth: 0,
+      visitedProfileIds: [],
+      visitedProfileIdsHash: "fixture",
+    },
+    turnEnvelope: {
+      ...base.turnEnvelope,
+      organization: {
+        ...base.turnEnvelope.organization,
+        id: fixture.organizationId,
+      },
+      sender: {
+        kind: "agent_profile",
+        id: senderId,
+        profileId: senderId,
+        displayName: "Delegating Agent",
+        ownerUserId: fixture.owner.userId,
+        verified: true,
+        ...(externalRequester
+          ? {
+              callerContext: {
+                relationship: "external",
+                spaceRole: "member",
+                audience: "external",
+              },
+            }
+          : {}),
+      },
+      space: {
+        id: spaceId,
+        name: "Delegated document test",
+        kind: "space",
+        isCenterAgentDm: false,
+      },
+      trigger: { source: "space_wake" },
+      interactionEnvironment: "organization_shared",
+    },
+  });
+  await upsertRemoteAgentNativeDeliveryRecord({
+    db: getPostgresDatabase(env),
+    attemptId: null,
+    bindingId: binding.bindingId,
+    dispatchId: idempotencyKey,
+    idempotencyKey,
+    nowMs: 2000,
+    onBehalfOfDisplayName: null,
+    onBehalfOfProfileId: null,
+    onBehalfOfUserId: null,
+    organizationId: fixture.organizationId,
+    profileId,
+    spaceId,
+    status: "submitted",
+    triggerMessageId: idempotencyKey,
+  });
+  await persistRemoteAgentWorkerSubmitRequest({
+    db: getPostgresDatabase(env),
+    idempotencyKey,
+    nowMs: 2001,
+    workerSubmitRequest,
+  });
+  await markRemoteAgentNativeDeliveryAck({
+    db: getPostgresDatabase(env),
+    idempotencyKey,
+    nowMs: 2002,
+    submissionId,
+    accepted: true,
+  });
+  return {
+    activeOrganizationId: fixture.organizationId,
+    agentControllerConversationId: submissionId,
+    actorContext: {
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      callerPrincipalId: fixture.owner.userId,
+      ownerUserId: fixture.owner.userId,
+      profileKind: "agent" as const,
+      openMeldProfileId: profileId,
+      requestId: "delegated-doc-test",
+    },
+  };
+}
+
 async function seedAcceptedLocalAgentDocumentDelivery(
   fixture: Awaited<ReturnType<typeof seedFixture>>
-): Promise<{ deliveryId: string; submissionId: string }> {
+): Promise<{
+  deliveryId: string;
+  submissionId: string;
+}> {
   const suffix = crypto.randomUUID();
   const idempotencyKey = `document_interactive_${suffix}`;
   const submissionId = `submission_${suffix}`;
   const delivery = await upsertRemoteAgentNativeDeliveryRecord({
     attemptId: null,
     bindingId: `binding_${suffix}`,
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     dispatchId: idempotencyKey,
     idempotencyKey,
     nowMs: 2000,
@@ -2843,14 +3175,15 @@ async function seedAcceptedLocalAgentDocumentDelivery(
   });
   await markRemoteAgentNativeDeliveryAck({
     accepted: true,
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     idempotencyKey,
     nowMs: 2001,
     submissionId,
   });
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO center_agent_audit_journal (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."center_agent_audit_journal" (
         id,
         organization_id,
         actor_profile_id,
@@ -2862,10 +3195,11 @@ async function seedAcceptedLocalAgentDocumentDelivery(
         resource_id,
         source_native_delivery_id,
         created_at
-      ) VALUES (?, ?, ?, 'receive_local_agent_request', ?, ?, ?, 'local_agent_client', 'codex', ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, $3, 'receive_local_agent_request', $4, $5, $6, 'local_agent_client', 'codex', $7, $8)
+    `,
+      values: [],
+    },
+    values: [
       `audit_local_agent_${suffix}`,
       fixture.organizationId,
       fixture.centerAgentProfileId,
@@ -2873,15 +3207,17 @@ async function seedAcceptedLocalAgentDocumentDelivery(
       fixture.owner.userId,
       "Olivia Owner",
       delivery.deliveryId,
-      2001
-    )
-    .run();
+      2001,
+    ],
+  });
   return { deliveryId: delivery.deliveryId, submissionId };
 }
-
 async function seedAcceptedAnonymousMemberDelivery(
   fixture: Awaited<ReturnType<typeof seedFixture>>
-): Promise<{ deliveryId: string; submissionId: string }> {
+): Promise<{
+  deliveryId: string;
+  submissionId: string;
+}> {
   const suffix = crypto.randomUUID();
   const idempotencyKey = `anonymous_member_${suffix}`;
   const submissionId = `submission_${suffix}`;
@@ -2946,7 +3282,7 @@ async function seedAcceptedAnonymousMemberDelivery(
     attemptId: null,
     bindingId,
     conversationKind: "slack",
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     dispatchId: idempotencyKey,
     idempotencyKey,
     nowMs: 2000,
@@ -2963,21 +3299,20 @@ async function seedAcceptedAnonymousMemberDelivery(
     triggerMessageId: idempotencyKey,
   });
   await persistRemoteAgentWorkerSubmitRequest({
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     idempotencyKey,
     nowMs: 2001,
     workerSubmitRequest,
   });
   await markRemoteAgentNativeDeliveryAck({
     accepted: true,
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     idempotencyKey,
     nowMs: 2002,
     submissionId,
   });
   return { deliveryId: delivery.deliveryId, submissionId };
 }
-
 async function seedAcceptedRoutineDocumentDelivery(input: {
   authorized: boolean;
   fixture: Awaited<ReturnType<typeof seedFixture>>;
@@ -2992,18 +3327,20 @@ async function seedAcceptedRoutineDocumentDelivery(input: {
   const routineName = input.authorized
     ? "Authorized knowledge journal"
     : "Unapproved knowledge journal";
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO routines (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."routines" (
         id, organization_id, name, instructions, authorized_actions_json,
         schedule_kind, cron_expression, timezone, destination_kind,
         target_space_id, status, next_due_at, created_by_user_id,
         updated_by_user_id, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, 'Write today''s learning journal.', ?, 'cron',
-        '0 9 * * *', 'UTC', 'space', ?, 'enabled', ?, ?, ?, ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, $3, 'Write today''s learning journal.', $4, 'cron',
+        '0 9 * * *', 'UTC', 'space', $5, 'enabled', $6, $7, $8, $9, $10)
+    `,
+      values: [],
+    },
+    values: [
       routineId,
       input.fixture.organizationId,
       routineName,
@@ -3017,28 +3354,30 @@ async function seedAcceptedRoutineDocumentDelivery(input: {
       input.fixture.owner.userId,
       input.fixture.owner.userId,
       nowMs,
-      nowMs
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO routine_runs (
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."routine_runs" (
         id, routine_id, organization_id, scheduled_for, status,
         routine_name_snapshot, destination_kind_snapshot,
         target_space_id_snapshot, execution_engine, started_at_ms
-      ) VALUES (?, ?, ?, ?, 'claimed', ?, 'space', ?, 'workflow', ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, $3, $4, 'claimed', $5, 'space', $6, 'workflow', $7)
+    `,
+      values: [],
+    },
+    values: [
       runId,
       routineId,
       input.fixture.organizationId,
       nowMs,
       routineName,
       spaceId,
-      nowMs
-    )
-    .run();
+      nowMs,
+    ],
+  });
   const workerSubmitRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse({
     agentProfileId: input.fixture.centerAgentProfileId,
     agentProfileOwnerUserId: input.fixture.owner.userId,
@@ -3099,7 +3438,7 @@ async function seedAcceptedRoutineDocumentDelivery(input: {
   const claim = await claimRemoteAgentRoutineNativeDelivery({
     bindingId,
     conversationKind: "space",
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     nowMs,
     onBehalfOfDisplayName: "Olivia Owner",
     onBehalfOfProfileId: input.fixture.ownerHumanProfileId,
@@ -3120,14 +3459,13 @@ async function seedAcceptedRoutineDocumentDelivery(input: {
   }
   await markRemoteAgentNativeDeliveryAck({
     accepted: true,
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     idempotencyKey: runId,
     nowMs: nowMs + 1,
     submissionId,
   });
   return submissionId;
 }
-
 function requestContext(
   organizationId: string,
   profileId: string,
@@ -3146,7 +3484,6 @@ function requestContext(
     },
   };
 }
-
 function humanRequestContext(
   organizationId: string,
   profileId: string,

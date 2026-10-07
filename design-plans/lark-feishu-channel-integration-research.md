@@ -1695,7 +1695,7 @@ responsibilities and Slack protocol details are still mixed together.
 Slack owns separate binding and encrypted-token tables
 (`packages/db/src/core/dispatch.schema.ts:440-563`) and its repository enforces
 workspace and Organization conflicts
-(`services/core/src/remote-agent/infrastructure/d1/slack-workspace-binding-repo.ts:82-218`).
+(`services/core/src/remote-agent/infrastructure/postgresql/slack-workspace-binding-repo.ts:82-218`).
 OAuth installs the binding, token, and audit entry atomically
 (`services/core/src/remote-agent/application/slack-oauth-installation.ts:12-125`).
 
@@ -1796,7 +1796,7 @@ records nevertheless remain independently revocable.
 This is the largest current Slack-only seam. The ledger conversation kind is
 currently only `"slack" | "space"`, and its record includes Slack team,
 channel, and thread columns
-(`services/core/src/remote-agent/infrastructure/d1/native-delivery-ledger-repo.ts:10-73`,
+(`services/core/src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo.ts:10-73`,
 `packages/db/src/core/dispatch.schema.ts:273-358`).
 The native-delivery service hardcodes the Slack kind and locator on submission
 (`services/core/src/remote-agent/application/native-delivery-service.ts:589-675`)

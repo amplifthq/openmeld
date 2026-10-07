@@ -1064,7 +1064,7 @@ surfaces. Paths are repository-relative.
 | `developing/product/agent-profiles.md` | Defines Agent Profile identity and Binding semantics | Identity is not capability proof | High |
 | `developing/product/space-collaboration.md` | Defines Wake, Space publication, replies, and collaboration semantics | Preserves Space ownership | High |
 | `developing/product/remote-agent-runtime.md` | Defines Center native runtime, history/compaction, tools, and delivery | Remote Agent owner contract | High |
-| `developing/product/center-agent-routines.md` | Defines Routine/Run authority, targets, delivery, and continuation | Shows all-terminal Routine continuation boundary | High |
+| `developing/product/routines.md` | Defines Routine/Run authority, targets, delivery, and continuation | Shows all-terminal Routine continuation boundary | High |
 | `developing/architecture/agent-transport-contract.md` | Defines Wake execution, RuntimeCoordinator, final outcomes, Stop, and trace | Terminal execution truth must remain intact | High |
 | `developing/architecture/data-and-observability.md` | Defines task coordination, ledgers, projections, and D1 ownership | Acceptance must not turn observability into authority | High |
 | `developing/architecture/shared-contracts.md` | Defines shared schema and ACI projection ownership | Future contract belongs in shared schemas | High |
@@ -1081,7 +1081,7 @@ surfaces. Paths are repository-relative.
 | `services/core/src/center-agent/application/center-agent-delegation-service.ts` | Registers child tasks, parent links, subscriptions, and completion policy | Reusable coordination foundation | High |
 | `services/core/src/agent-task-coordination/application/agent-task-terminal-outcome-service.ts` | Applies authoritative terminal outcomes and propagation | Terminality is not the missing reliability layer | High |
 | `services/core/src/agent-task-coordination/application/agent-task-continuation-service.ts` | Builds snapshots and resumes the observer task | Continuation has no task-intent or acceptance projection | High |
-| `services/core/src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo.ts` | Evaluates `all_terminal`, `first_success`, failure, and completion from task state | Direct evidence that barriers settle execution coordination | High |
+| `services/core/src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo.ts` | Evaluates `all_terminal`, `first_success`, failure, and completion from task state | Direct evidence that barriers settle execution coordination | High |
 | `packages/db/src/core/agent-task-coordination.schema.ts` | Persists terminal outcomes, subscriptions, delegation, and activation state | No separate goal-acceptance state in inspected tables | High |
 | `services/core/src/center-agent/application/product-operations.ts` | Projects ready/connectable local candidates and operational metadata | Insufficient task-cognition evidence for comparative routing | High |
 | `services/core/src/rpc/methods.ts` / `rpcGetCurrentOrganizationDirectory` and `rpcCenterAgentGetOrganizationDirectory` | Projects Agent Profile identity/status/readiness | Directory is not a task-capability catalog | High |

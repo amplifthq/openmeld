@@ -428,6 +428,36 @@ test("does not block one current-change scope on unrelated missing deployment hi
   );
 });
 
+for (const [scope, packageProbe] of [
+  ["website", "hasWebsitePackage"],
+  ["docs", "hasDocsPackage"],
+]) {
+  test(`admits a first ${scope} publication without inventing history, but blocks missing history after the package existed`, async () => {
+    const adapters = releaseStatusAdapters({ pushChecks: [] });
+    for (const existedAtLastWebRelease of [false, true]) {
+      adapters[packageProbe] = (sha) =>
+        sha === SOURCE_SHA || existedAtLastWebRelease;
+      let output = "";
+      const code = await runProductionReleaseStatus({
+        adapters,
+        argv: ["--json"],
+        write: (value) => {
+          output += value;
+        },
+      });
+      const website = JSON.parse(output).components.find(
+        (component) => component.scope === scope
+      );
+      assert.equal(code, existedAtLastWebRelease ? 1 : 0, output);
+      assert.equal(
+        website.state,
+        existedAtLastWebRelease ? "unknown" : "pending"
+      );
+      assert.equal(website.sha, undefined);
+    }
+  });
+}
+
 test("uses successful deploy jobs even when a parent workflow later fails", () => {
   const sources = resolveLatestSuccessfulReleaseSources({
     jobsByRunId: JOBS_BY_RUN,
@@ -832,7 +862,10 @@ function releaseStatusAdapters({ pushChecks }) {
   const headSha = "1".repeat(40);
   const baseSha = "2".repeat(40);
   const treeSha = "3".repeat(40);
-  return {
+  const adapters = {
+    hasWebsitePackage: () => false,
+    hasDocsPackage: () => false,
+    buildImpact: (input) => adapters.buildPlan(input),
     buildPlan: () => ({
       scopes: ["db", "web", "gateway", "auth", "cli", "core", "remote-agent"],
     }),
@@ -872,6 +905,7 @@ function releaseStatusAdapters({ pushChecks }) {
     resolveRepo: () => "amplifthq/openmeld",
     sourceIsAncestor: () => true,
   };
+  return adapters;
 }
 
 function releaseRun(input) {

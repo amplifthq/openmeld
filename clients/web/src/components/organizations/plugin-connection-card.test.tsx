@@ -1,3 +1,7 @@
+import {
+	findPluginDefinition,
+	type PluginDefinition,
+} from "@openmeld/product-catalog/plugins";
 import { onlineManager } from "@tanstack/react-query";
 import {
 	act,
@@ -14,7 +18,6 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
 import { PluginConnectionCard } from "./plugin-connection-card";
 
 const listConnectionsMock = vi.hoisted(() => vi.fn());
@@ -656,7 +659,7 @@ describe("PluginConnectionCard", () => {
 		});
 		popup.closed = true;
 
-		expect(await screen.findByText("Connected")).toBeTruthy();
+		expect(await screen.findByText("Account connected")).toBeTruthy();
 		expect(
 			screen.queryByText(
 				"Linear wasn’t connected. Try again when you’re ready."
@@ -1022,7 +1025,7 @@ describe("PluginConnectionCard", () => {
 			await lateConnectionLookup;
 		});
 
-		expect(await screen.findByText("Connected")).toBeTruthy();
+		expect(await screen.findByText("Account connected")).toBeTruthy();
 		expect(
 			screen.queryByText(
 				"Linear authorization timed out. Start again when you are ready."

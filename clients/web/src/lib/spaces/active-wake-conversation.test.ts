@@ -1,6 +1,9 @@
 import type { WakeProgressItem } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { buildActiveWakeConversationItems } from "./active-wake-conversation";
+import {
+	buildActiveWakeConversationItems,
+	projectAgentStreamReplyPlacements,
+} from "./active-wake-conversation";
 import type { SpaceTimelineItem } from "./timeline";
 
 describe("active Wake conversation placement", () => {
@@ -9,13 +12,14 @@ describe("active Wake conversation placement", () => {
 		null,
 	] as const)("follows the selected reply destination (%s), not the source", (replyThreadRootSignalId) => {
 		const source = message("request", 100);
-		const progress = wake(source);
+		const progress = { ...wake(source), replyThreadRootSignalId };
 		const agentStreams = [
 			{
 				dispatchId: "dispatch:request",
 				profileId: "agent",
 				triggerMessageId: source.id,
-				replyThreadRootSignalId,
+				replyThreadRootSignalId:
+					replyThreadRootSignalId === null ? "request" : null,
 				createdAtMs: 100,
 				updatedAtMs: 200,
 				observedRevision: 1,
@@ -28,6 +32,16 @@ describe("active Wake conversation placement", () => {
 				textSequence: 0,
 			},
 		];
+		const unrelatedStream = {
+			...agentStreams[0],
+			dispatchId: "another-dispatch",
+		};
+		const projected = projectAgentStreamReplyPlacements(
+			[...agentStreams, unrelatedStream],
+			[progress]
+		);
+		expect(projected[0].replyThreadRootSignalId).toBe(replyThreadRootSignalId);
+		expect(projected[1]).toBe(unrelatedStream);
 		for (const threadId of [null, "thread"]) {
 			const items = buildActiveWakeConversationItems({
 				timelineItems: [source],

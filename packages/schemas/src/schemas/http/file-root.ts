@@ -129,6 +129,22 @@ export const copyFileRootToSpaceBodySchema = z.strictObject({
   sourceLocation: z.enum(["team", "my"]),
 });
 
+/** Explicit human selection. Offsets count Unicode code points, end exclusive. */
+export const copyOwnMessageExcerptBodySchema = z.strictObject({
+  source: z.strictObject({
+    spaceId: z.string().regex(/^[a-f0-9]{64}$/u),
+    sourceSignalId: z.string().min(1).max(256),
+    version: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+    authorProfileId: z.string().min(1).max(256),
+    start: z.number().int().min(0).max(1_000_000),
+    end: z.number().int().min(1).max(1_000_000),
+  }),
+  audienceProfileIds: z.array(z.string().min(1).max(256)).min(1).max(100),
+  name: spaceFileNameSchema,
+  parentId: spaceFileEntryIdSchema.nullable(),
+  clientMutationId: spaceFileClientMutationIdSchema,
+});
+
 export const copyFileRootRevisionResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,
   source: z.strictObject({

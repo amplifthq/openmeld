@@ -38,6 +38,7 @@ export const providerRuntimeWorkspaceResumeBehaviorSchema = z.enum([
 ]);
 
 export const providerRuntimeCapabilityDeclarationSchema = z.strictObject({
+  executionContextPermissionInheritance: z.literal(true).optional(),
   executionContextVersion: z
     .union([z.literal(1), z.literal(2), z.literal(3)])
     .optional(),

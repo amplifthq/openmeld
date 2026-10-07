@@ -8,7 +8,10 @@ import type {
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
 } from "@openmeld/schemas/types";
-import { modelBrandName } from "#/components/models/model-brand";
+import {
+	modelBrandName,
+	modelProviderBrandName,
+} from "#/components/models/model-brand";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
 
@@ -110,6 +113,9 @@ export function buildAgentListItem(input: {
 	const controllerName = remote
 		? "Remote"
 		: formatLocalAgentDisplayName(controller?.id ?? "");
+	const modelBrand = remote
+		? modelProviderBrandName(model.modelId)
+		: modelBrandName(model.modelId, model.catalogModel?.displayName);
 	const item = {
 		profile: input.profile,
 		lastTaskActivityAt: input.lastTaskActivityAt ?? null,
@@ -123,11 +129,9 @@ export function buildAgentListItem(input: {
 		type: controller ? runtimeType : "Unknown type",
 		controller: controller ? controllerName : "Unknown Controller",
 		model: model.catalogModel?.displayName ?? model.modelId ?? "Unknown model",
-		modelBrand: modelBrandName(model.modelId, model.catalogModel?.displayName),
+		modelBrand,
 		modelId: model.modelId,
-		provider:
-			modelBrandName(model.modelId, model.catalogModel?.displayName) ??
-			"Unknown provider",
+		provider: modelBrand ?? "Unknown provider",
 		agentControllerRef: ref,
 	};
 	return {

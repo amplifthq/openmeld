@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   beginGitHubAppInstallationVerificationRecord,
   completeGitHubAppInstallationRecord,
@@ -6,15 +7,12 @@ import {
   readPendingGitHubAppInstallationRecord,
   replaceGitHubAppInstallationState,
 } from "./github-app-installation-state-repository";
-
 export const GITHUB_APP_INSTALLATION_STATE_TTL_MS = 10 * 60 * 1000;
-
 const STATE_BYTE_LENGTH = 32;
 const STATE_PREFIX = "githubapp_";
 const STATE_PATTERN = /^githubapp_[0-9a-f]{64}$/u;
 const INSTALLATION_ID_PATTERN = /^[1-9][0-9]*$/u;
 const CONNECTION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
-
 export type GitHubAppInstallationVerificationResult =
   | {
       actorProfileId: string;
@@ -25,8 +23,9 @@ export type GitHubAppInstallationVerificationResult =
       userId: string;
       verificationConnectionName: string;
     }
-  | { status: "expired" | "invalid" };
-
+  | {
+      status: "expired" | "invalid";
+    };
 export type PendingGitHubAppInstallation = {
   installationId: string | null;
   organizationId: string;
@@ -35,10 +34,9 @@ export type PendingGitHubAppInstallation = {
   userId: string;
   verificationConnectionName: string;
 };
-
 export async function createGitHubAppInstallationState(input: {
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   targetConnectionName: string;
@@ -64,7 +62,6 @@ export async function createGitHubAppInstallationState(input: {
   const state = createOpaqueState();
   const stateDigest = await digestState(state);
   const expiresAtMs = input.nowMs + GITHUB_APP_INSTALLATION_STATE_TTL_MS;
-
   await deleteExpiredGitHubAppInstallationStates({
     db: input.db,
     nowMs: input.nowMs,
@@ -91,9 +88,8 @@ export async function createGitHubAppInstallationState(input: {
     verificationConnectionName: createVerificationConnectionName(stateDigest),
   };
 }
-
 export async function beginGitHubAppInstallationVerification(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   installationId: string;
   nowMs: number;
   state: string;
@@ -136,9 +132,8 @@ export async function beginGitHubAppInstallationVerification(input: {
     verificationConnectionName: record.verificationConnectionName,
   };
 }
-
 export async function readPendingGitHubAppInstallation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   userId: string;
@@ -175,9 +170,8 @@ export async function readPendingGitHubAppInstallation(input: {
       createVerificationConnectionName(record.stateDigest),
   };
 }
-
 export async function beginExistingGitHubAppInstallationVerification(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   installationId: string;
   nowMs: number;
   organizationId: string;
@@ -206,9 +200,8 @@ export async function beginExistingGitHubAppInstallationVerification(input: {
   });
   return updated !== null;
 }
-
 export async function completeGitHubAppInstallation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   installationId: string;
   nowMs: number;
   organizationId: string;
@@ -235,13 +228,11 @@ export async function completeGitHubAppInstallation(input: {
     ),
   });
 }
-
 function createOpaqueState(): string {
   const bytes = new Uint8Array(STATE_BYTE_LENGTH);
   crypto.getRandomValues(bytes);
   return `${STATE_PREFIX}${toHex(bytes)}`;
 }
-
 async function digestState(state: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -249,17 +240,14 @@ async function digestState(state: string): Promise<string> {
   );
   return `sha256:${toHex(new Uint8Array(digest))}`;
 }
-
 function createVerificationConnectionName(stateDigest: string): string {
   return `github_verify_${stateDigest.slice("sha256:".length, "sha256:".length + 24)}`;
 }
-
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
     ""
   );
 }
-
 function requireNonEmptyText(value: string, fieldName: string): string {
   const normalized = value.trim();
   if (!normalized) {
@@ -267,7 +255,6 @@ function requireNonEmptyText(value: string, fieldName: string): string {
   }
   return normalized;
 }
-
 function requireConnectionName(value: string, fieldName: string): string {
   const normalized = value.trim();
   if (!CONNECTION_NAME_PATTERN.test(normalized)) {
@@ -275,7 +262,6 @@ function requireConnectionName(value: string, fieldName: string): string {
   }
   return normalized;
 }
-
 function requireInstallationId(value: string): string {
   const normalized = value.trim();
   if (!INSTALLATION_ID_PATTERN.test(normalized)) {

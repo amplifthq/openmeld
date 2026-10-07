@@ -111,6 +111,8 @@ export function registerProfileSpaceHistoryRoutes(
             ),
           }
         : {}),
+      includeDirectoryPreviews:
+        url.searchParams.get("includeDirectoryPreviews") === "true",
       ...(url.searchParams.has("limit")
         ? { limit: url.searchParams.get("limit") }
         : {}),
@@ -166,6 +168,8 @@ export function registerProfileSpaceHistoryRoutes(
           ...(parsedQuery.data.includeMemberPreviews === true
             ? { includeMemberPreviews: true }
             : {}),
+          includeDirectoryPreviews:
+            parsedQuery.data.includeDirectoryPreviews === true,
           ...(parsedQuery.data.includeMessagePreviews === true
             ? { includeMessagePreviews: true }
             : {}),

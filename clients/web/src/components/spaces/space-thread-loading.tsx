@@ -73,7 +73,7 @@ export function ThreadMessagesLoading() {
 }
 
 /** Feedback only; never renders protected messages before access is confirmed. */
-export function SpaceThreadLoadingPanel() {
+export function SpaceThreadLoadingPanel(input: { onClose?: () => void }) {
 	const panelWidth = useSpacePanelWidth({ panel: "thread" });
 	return (
 		<SpaceInlineSidePanel
@@ -87,7 +87,7 @@ export function SpaceThreadLoadingPanel() {
 			resizeHandleLabel="Resize Thread panel"
 			width={panelWidth.width}
 		>
-			<ThreadPanelHeader />
+			<ThreadPanelHeader onClose={input.onClose} />
 			<ThreadMessagesLoading />
 		</SpaceInlineSidePanel>
 	);

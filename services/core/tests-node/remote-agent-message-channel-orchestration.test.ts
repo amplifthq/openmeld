@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   type AuthRpcResolveOrganizationAccountIdentityInput,
   type AuthRpcResolveOrganizationAccountIdentityResult,
@@ -7,6 +8,7 @@ import {
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { installPostgresWriteFailure } from "../../../tooling/postgresql/test-harness";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   createMessageChannelProviderRegistry,
@@ -18,32 +20,30 @@ import {
   buildMessageChannelTurnEnvelope,
   resolveMessageChannelTurnTarget as resolveMessageChannelTurnTargetWithAuth,
 } from "../src/remote-agent/application/message-channel-turn-resolution";
-import { readRemoteAgentLarkPlatformChannelCredentials } from "../src/remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
+import { readRemoteAgentLarkPlatformChannelCredentials } from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   insertRemoteAgentLarkPlatformIdentityLinkIfAbsent,
   readRemoteAgentLarkPlatformIdentityLink,
-} from "../src/remote-agent/infrastructure/d1/lark-platform-identity-link-repo";
+} from "../src/remote-agent/infrastructure/postgresql/lark-platform-identity-link-repo";
 import {
   claimRemoteAgentLarkPlatformRegistrationAttempt,
   completeRemoteAgentLarkPlatformRegistration,
   createRemoteAgentLarkPlatformRegistrationAttempt,
   persistRemoteAgentLarkPlatformRegistrationCredentials,
   recordRemoteAgentLarkPlatformWebhookReachability,
-} from "../src/remote-agent/infrastructure/d1/lark-platform-registration-attempt-repo";
-import { insertRemoteAgentMessageChannelIdentityLinkToken } from "../src/remote-agent/infrastructure/d1/message-channel-identity-link-token-repo";
+} from "../src/remote-agent/infrastructure/postgresql/lark-platform-registration-attempt-repo";
+import { insertRemoteAgentMessageChannelIdentityLinkToken } from "../src/remote-agent/infrastructure/postgresql/message-channel-identity-link-token-repo";
 import {
   rpcConsumeMessageChannelIdentityLink,
   rpcPreviewMessageChannelIdentityLink,
 } from "../src/rpc/methods";
 import {
-  applyDrizzleMigrationsForTables,
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createBeforeMatchingBatchD1Database,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createBeforeMatchingPostgresTransaction,
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const CENTER_AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
-
 function resolveMessageChannelTurnTarget(
   input: Omit<
     Parameters<typeof resolveMessageChannelTurnTargetWithAuth>[0],
@@ -53,34 +53,36 @@ function resolveMessageChannelTurnTarget(
   return resolveMessageChannelTurnTargetWithAuth({
     ...input,
     authWorker: {
-      resolveOrganizationAccountIdentity: (request) =>
-        resolveTestOrganizationAccountIdentity(input.identityDb, request),
+      resolveOrganizationAccountIdentity: async (request) =>
+        await resolveTestOrganizationAccountIdentity(input.identityDb, request),
     },
   });
 }
-
 async function resolveTestOrganizationAccountIdentity(
-  db: D1Database,
+  db: PostgresDatabase,
   input: AuthRpcResolveOrganizationAccountIdentityInput
 ): Promise<AuthRpcResolveOrganizationAccountIdentityResult> {
   const organization = await db
-    .prepare(
-      `
-        SELECT id, name, slug, metadata,
-          (SELECT COUNT(*) FROM members WHERE organization_id = organizations.id) AS member_count
-        FROM organizations
-        WHERE id = ?
-        LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<{
+    .query<{
       id: string;
       member_count: number;
       metadata: string | null;
       name: string;
       slug: string;
-    }>();
+    }>({
+      ...{
+        text: `
+        SELECT id, name, slug, metadata,
+          (SELECT COUNT(*) FROM "openmeld"."members" WHERE organization_id = organizations.id) AS member_count
+        FROM "openmeld"."organizations"
+        WHERE id = $1
+        LIMIT 1
+      `,
+        values: [],
+      },
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!organization) {
     return {
       code: "auth.organization_identity_unavailable",
@@ -91,34 +93,55 @@ async function resolveTestOrganizationAccountIdentity(
   const user =
     input.account?.kind === "user_id"
       ? await db
-          .prepare("SELECT id, name, email FROM users WHERE id = ? LIMIT 1")
-          .bind(input.account.userId)
-          .first<{ email: string; id: string; name: string | null }>()
+          .query<{
+            email: string;
+            id: string;
+            name: string | null;
+          }>({
+            ...{
+              text: 'SELECT id, name, email FROM "openmeld"."users" WHERE id = $1 LIMIT 1',
+              values: [],
+            },
+            values: [input.account.userId],
+          })
+          .then((result) => result.rows[0] ?? null)
       : null;
   const membership = user
     ? await db
-        .prepare(
-          "SELECT id, role FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
-        )
-        .bind(input.organizationId, user.id)
-        .first<{ id: string; role: "admin" | "member" | "owner" }>()
+        .query<{
+          id: string;
+          role: "admin" | "member" | "owner";
+        }>({
+          ...{
+            text: 'SELECT id, role FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2 LIMIT 1',
+            values: [],
+          },
+          values: [input.organizationId, user.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     : null;
   const profile = user
     ? await db
-        .prepare(
-          `
+        .query<{
+          profile_id: string;
+          profile_name: string;
+        }>({
+          ...{
+            text: `
             SELECT profile_id, profile_name
-            FROM openmeld_profiles
-            WHERE owner_user_id = ?
+            FROM "openmeld"."openmeld_profiles"
+            WHERE owner_user_id = $1
               AND organization_id IS NULL
               AND profile_kind = 'human'
               AND is_default = 1
               AND status = 'active'
             LIMIT 1
-          `
-        )
-        .bind(user.id)
-        .first<{ profile_id: string; profile_name: string }>()
+          `,
+            values: [],
+          },
+          values: [user.id],
+        })
+        .then((result) => result.rows[0] ?? null)
     : null;
   const metadata = JSON.parse(organization.metadata ?? "{}") as {
     personal?: unknown;
@@ -150,13 +173,11 @@ async function resolveTestOrganizationAccountIdentity(
     },
   };
 }
-
 describe("Remote Agent Message Channel orchestration", () => {
   it("selects only the explicitly registered provider adapter", () => {
     const lark = createProviderAdapter("lark");
     const feishu = createProviderAdapter("feishu");
     const registry = createMessageChannelProviderRegistry([lark, feishu]);
-
     expect(registry.require("lark")).toBe(lark);
     expect(registry.require("feishu")).toBe(feishu);
     expect(() => createMessageChannelProviderRegistry([lark, lark])).toThrow(
@@ -166,11 +187,10 @@ describe("Remote Agent Message Channel orchestration", () => {
       createMessageChannelProviderRegistry([lark]).require("feishu")
     ).toThrow("is not registered");
   });
-
   it("resolves one current Organization member and the designated Center Agent", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelOrchestrationMigrations(harness);
-    seedOrganizationAndCenterAgent(harness);
+    const harness = await createPostgresHarness();
+
+    await seedOrganizationAndCenterAgent(harness);
     await seedLarkConnection(harness);
     try {
       await insertRemoteAgentLarkPlatformIdentityLinkIfAbsent({
@@ -183,7 +203,6 @@ describe("Remote Agent Message Channel orchestration", () => {
         resolutionSource: "explicit",
         openmeldUserId: "user_member",
       });
-
       const resolution = await resolveMessageChannelTurnTarget({
         connectionId: "connection_lark_1",
         identityDb: harness.db,
@@ -216,7 +235,6 @@ describe("Remote Agent Message Channel orchestration", () => {
       if (resolution.status !== "resolved") {
         throw new Error("Expected a resolved Message Channel target");
       }
-
       const locator = {
         provider: "lark" as const,
         connectionId: "connection_lark_1",
@@ -274,24 +292,22 @@ describe("Remote Agent Message Channel orchestration", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects an unavailable Center Agent model without retrying the channel event", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelOrchestrationMigrations(harness);
-    seedOrganizationAndCenterAgent(harness);
+    const harness = await createPostgresHarness();
+
+    await seedOrganizationAndCenterAgent(harness);
     await seedLarkConnection(harness);
-    harness.run({
-      params: ["retired/provider-model", "binding_1"],
-      sql: `
-        UPDATE openMeldDaemon_agent_profile_bindings
-        SET model_id = ?
-        WHERE binding_id = ?
+    await harness.query({
+      values: ["retired/provider-model", "binding_1"],
+      text: `
+        UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings"
+        SET model_id = $1
+        WHERE binding_id = $2
       `,
     });
-
     try {
       await expect(
         resolveMessageChannelTurnTarget({
@@ -311,24 +327,22 @@ describe("Remote Agent Message Channel orchestration", () => {
         status: "rejected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     ["logical runtime", "openmeld_service_runtime_id", "wrong-runtime"],
     ["conversation", "agent_controller_conversation_id", "wrong-thread"],
     ["hosted identity", "hosted_runtime_identity_json", "{}"],
   ])("rejects a hosted Binding with a damaged %s", async (_name, column, value) => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelOrchestrationMigrations(harness);
-    seedOrganizationAndCenterAgent(harness);
-    await seedLarkConnection(harness);
-    harness.run({
-      params: [value, "binding_1"],
-      sql: `UPDATE openMeldDaemon_agent_profile_bindings SET ${column} = ? WHERE binding_id = ?`,
-    });
+    const harness = await createPostgresHarness();
 
+    await seedOrganizationAndCenterAgent(harness);
+    await seedLarkConnection(harness);
+    await harness.query({
+      values: [value, "binding_1"],
+      text: `UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings" SET ${column} = $1 WHERE binding_id = $2`,
+    });
     try {
       await expect(
         resolveMessageChannelTurnTarget({
@@ -343,14 +357,13 @@ describe("Remote Agent Message Channel orchestration", () => {
         status: "rejected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("admits unlinked and removed Lark participants without granting member identity", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelOrchestrationMigrations(harness);
-    seedOrganizationAndCenterAgent(harness);
+    const harness = await createPostgresHarness();
+
+    await seedOrganizationAndCenterAgent(harness);
     await seedLarkConnection(harness);
     try {
       await expect(
@@ -386,7 +399,6 @@ describe("Remote Agent Message Channel orchestration", () => {
         reasonCode: "message_channel.connection_unavailable",
         status: "rejected",
       });
-
       await insertRemoteAgentLarkPlatformIdentityLinkIfAbsent({
         connectionId: "connection_lark_1",
         db: harness.db,
@@ -397,8 +409,8 @@ describe("Remote Agent Message Channel orchestration", () => {
         resolutionSource: "explicit",
         openmeldUserId: "user_member",
       });
-      harness.run({
-        sql: "DELETE FROM members WHERE id = 'member_1'",
+      await harness.query({
+        text: 'DELETE FROM "openmeld"."members" WHERE id = \'member_1\'',
       });
       await expect(
         resolveMessageChannelTurnTarget({
@@ -439,14 +451,13 @@ describe("Remote Agent Message Channel orchestration", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("links an existing Lark member idempotently and enrolls an authenticated non-member", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelOrchestrationMigrations(harness);
-    seedOrganizationAndCenterAgent(harness);
+    const harness = await createPostgresHarness();
+
+    await seedOrganizationAndCenterAgent(harness);
     await seedLarkConnection(harness);
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(4000);
     const memberToken =
@@ -471,7 +482,6 @@ describe("Remote Agent Message Channel orchestration", () => {
           tokenHash: await digestMessageChannelIdentityLinkToken(token),
         });
       }
-
       await expect(
         rpcPreviewMessageChannelIdentityLink(buildIdentityLinkEnv(harness.db), {
           context: buildHumanContext(),
@@ -537,22 +547,21 @@ describe("Remote Agent Message Channel orchestration", () => {
       });
     } finally {
       dateNow.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rolls back a Lark identity replacement when its audit write fails", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelOrchestrationMigrations(harness);
-    seedOrganizationAndCenterAgent(harness);
+    const harness = await createPostgresHarness();
+
+    await seedOrganizationAndCenterAgent(harness);
     await seedLarkConnection(harness);
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(4000);
     const token =
       "messagechannellink_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
     try {
-      harness.run({
-        sql: `
-          INSERT INTO openmeld_profiles (
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openmeld_profiles" (
             profile_id,
             profile_name,
             profile_handle,
@@ -579,11 +588,11 @@ describe("Remote Agent Message Channel orchestration", () => {
           )
         `,
       });
-      harness.run({
-        params: ["member_owner", "org_1", "user_owner", "member", 100],
-        sql: `
-          INSERT INTO members (id, organization_id, user_id, role, created_at)
-          VALUES (?, ?, ?, ?, ?)
+      await harness.query({
+        values: ["member_owner", "org_1", "user_owner", "member", 100],
+        text: `
+          INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+          VALUES ($1, $2, $3, $4, $5)
         `,
       });
       await insertRemoteAgentLarkPlatformIdentityLinkIfAbsent({
@@ -607,17 +616,13 @@ describe("Remote Agent Message Channel orchestration", () => {
         providerUserId: "ou_member_1",
         tokenHash: await digestMessageChannelIdentityLinkToken(token),
       });
-      harness.run({
-        sql: `
-          CREATE TRIGGER fail_identity_link_audit
-          BEFORE INSERT ON center_agent_audit_journal
-          WHEN NEW.action = 'replace_message_channel_identity_link'
-          BEGIN
-            SELECT RAISE(ABORT, 'injected identity-link audit failure');
-          END
-        `,
+      const removeFailure = await installPostgresWriteFailure({
+        harness,
+        table: "center_agent_audit_journal",
+        operation: "INSERT",
+        condition: "NEW.action = 'replace_message_channel_identity_link'",
+        message: "injected identity-link audit failure",
       });
-
       await expect(
         rpcConsumeMessageChannelIdentityLink(buildIdentityLinkEnv(harness.db), {
           context: buildHumanContext(),
@@ -632,7 +637,7 @@ describe("Remote Agent Message Channel orchestration", () => {
           providerUserId: "ou_member_1",
         })
       ).resolves.toMatchObject({ openmeldUserId: "user_owner" });
-      harness.run({ sql: "DROP TRIGGER fail_identity_link_audit" });
+      await removeFailure();
       await expect(
         rpcConsumeMessageChannelIdentityLink(buildIdentityLinkEnv(harness.db), {
           context: buildHumanContext(),
@@ -650,39 +655,40 @@ describe("Remote Agent Message Channel orchestration", () => {
         })
       ).resolves.toMatchObject({ linked: true });
       expect(
-        harness.queryFirst<{ audit_count: number }>({
-          sql: `
+        await harness.queryFirst<{
+          audit_count: number;
+        }>({
+          text: `
             SELECT COUNT(*) AS audit_count
-            FROM center_agent_audit_journal
+            FROM "openmeld"."center_agent_audit_journal"
             WHERE action = 'replace_message_channel_identity_link'
           `,
         })
       ).toEqual({ audit_count: 1 });
     } finally {
       dateNow.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not audit a Lark replacement when the canonical link is already corrected inside the consume batch", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelOrchestrationMigrations(harness);
-    seedOrganizationAndCenterAgent(harness);
+    const harness = await createPostgresHarness();
+
+    await seedOrganizationAndCenterAgent(harness);
     await seedLarkConnection(harness);
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(4000);
     const token =
       "messagechannellink_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
     try {
-      harness.run({
-        params: ["member_owner", "org_1", "user_owner", "member", 100],
-        sql: `
-          INSERT INTO members (id, organization_id, user_id, role, created_at)
-          VALUES (?, ?, ?, ?, ?)
+      await harness.query({
+        values: ["member_owner", "org_1", "user_owner", "member", 100],
+        text: `
+          INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+          VALUES ($1, $2, $3, $4, $5)
         `,
       });
-      harness.run({
-        sql: `
-          INSERT INTO openmeld_profiles (
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openmeld_profiles" (
             profile_id, profile_name, profile_handle, profile_kind, is_default,
             status, organization_id, owner_user_id, source, created_at, updated_at
           ) VALUES (
@@ -712,11 +718,11 @@ describe("Remote Agent Message Channel orchestration", () => {
         providerUserId: "ou_member_1",
         tokenHash: await digestMessageChannelIdentityLinkToken(token),
       });
-      const racingDb = createBeforeMatchingBatchD1Database({
-        beforeBatch: () => {
-          harness.run({
-            sql: `
-              UPDATE openMeldRemoteAgent_lark_platform_identity_links
+      const racingDb = createBeforeMatchingPostgresTransaction({
+        beforeTransaction: async () => {
+          await harness.query({
+            text: `
+              UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_identity_links"
               SET openmeld_user_id = 'user_member'
               WHERE provider = 'lark'
                 AND connection_id = 'connection_lark_1'
@@ -727,10 +733,9 @@ describe("Remote Agent Message Channel orchestration", () => {
         db: harness.db,
         matches: (sql) =>
           sql.includes(
-            "UPDATE openMeldRemoteAgent_message_channel_identity_link_tokens"
+            'UPDATE "openmeld"."openMeldRemoteAgent_message_channel_identity_link_tokens"'
           ) && sql.includes("SET consumed_at_ms"),
       });
-
       await expect(
         rpcConsumeMessageChannelIdentityLink(buildIdentityLinkEnv(racingDb), {
           context: buildHumanContext(),
@@ -742,21 +747,22 @@ describe("Remote Agent Message Channel orchestration", () => {
         openMeldUserId: "user_member",
       });
       expect(
-        harness.queryFirst<{ audit_count: number }>({
-          sql: `
+        await harness.queryFirst<{
+          audit_count: number;
+        }>({
+          text: `
             SELECT COUNT(*) AS audit_count
-            FROM center_agent_audit_journal
+            FROM "openmeld"."center_agent_audit_journal"
             WHERE action = 'replace_message_channel_identity_link'
           `,
         })
       ).toEqual({ audit_count: 0 });
     } finally {
       dateNow.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 });
-
 function createProviderAdapter(
   provider: LarkPlatformMessageChannelProvider
 ): MessageChannelProviderAdapter {
@@ -775,7 +781,6 @@ function createProviderAdapter(
     updateWorkingCard: vi.fn(),
   };
 }
-
 function buildHumanContext(
   input: { userId?: string } = {}
 ): NonNullable<
@@ -794,27 +799,27 @@ function buildHumanContext(
     },
   };
 }
-
-function buildIdentityLinkEnv(db: D1Database): CoreBindings {
+function buildIdentityLinkEnv(db: PostgresDatabase): CoreBindings {
   return {
-    OPENMELD_DB: db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(db),
     OPENMELD_AUTH_WORKER: {
       ensureMessageChannelMemberOrganizationMembership: async (request) => {
-        await db
-          .prepare(
-            `
-              INSERT OR IGNORE INTO members (
+        await db.query({
+          ...{
+            text: `
+              INSERT INTO "openmeld"."members" (
                 id, organization_id, user_id, role, created_at
-              ) VALUES (?, ?, ?, 'member', ?)
-            `
-          )
-          .bind(
+              ) VALUES ($1, $2, $3, 'member', $4)
+            `,
+            values: [],
+          },
+          values: [
             `member_enrolled_${request.userId}`,
             request.organizationId,
             request.userId,
-            Date.now()
-          )
-          .run();
+            Date.now(),
+          ],
+        });
         return {
           alreadyMember: false,
           ok: true as const,
@@ -824,44 +829,21 @@ function buildIdentityLinkEnv(db: D1Database): CoreBindings {
           role: "member" as const,
         };
       },
-      resolveOrganizationAccountIdentity: (request) =>
-        resolveTestOrganizationAccountIdentity(db, request),
+      resolveOrganizationAccountIdentity: async (request) =>
+        await resolveTestOrganizationAccountIdentity(db, request),
     },
-    OPENMELD_LOCAL_STATE_DB: db,
     OPENMELD_SPACES: {
       get: () => null,
     } as unknown as CoreBindings["OPENMELD_SPACES"],
   };
 }
 
-function applyMessageChannelOrchestrationMigrations(
-  harness: Parameters<typeof applyMigrationForTable>[0]
-): void {
-  applyDrizzleMigrationsForTables(harness, [
-    "users",
-    "organizations",
-    "members",
-    "openmeld_profiles",
-    "center_agent_designations",
-    "openMeldDaemon_agent_profile_bindings",
-  ]);
-  applyDrizzleMigrationsForTables(harness, [
-    "center_agent_audit_journal",
-    "openMeldRemoteAgent_lark_platform_channel_connections",
-    "openMeldRemoteAgent_message_channel_identity_link_tokens",
-  ]);
-  applyMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_registration_attempts"
-  );
-}
-
-function seedOrganizationAndCenterAgent(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: `
-      INSERT INTO users (
+async function seedOrganizationAndCenterAgent(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."users" (
         id, name, email, email_verified, created_at, updated_at
       )
       VALUES
@@ -869,22 +851,22 @@ function seedOrganizationAndCenterAgent(
         ('user_owner', 'Center Agent Creator', 'owner@example.test', 1, 100, 100)
     `,
   });
-  harness.run({
-    params: [JSON.stringify({ personal: false })],
-    sql: `
-      INSERT INTO organizations (id, name, slug, metadata, created_at)
-      VALUES ('org_1', 'OpenMeld Labs', 'openmeld-labs', ?, 100)
+  await harness.query({
+    values: [JSON.stringify({ personal: false })],
+    text: `
+      INSERT INTO "openmeld"."organizations" (id, name, slug, metadata, created_at)
+      VALUES ('org_1', 'OpenMeld Labs', 'openmeld-labs', $1, 100)
     `,
   });
-  harness.run({
-    sql: `
-      INSERT INTO members (id, organization_id, user_id, role, created_at)
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
       VALUES ('member_1', 'org_1', 'user_member', 'owner', 100)
     `,
   });
-  harness.run({
-    sql: `
-      INSERT INTO openmeld_profiles (
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -929,17 +911,17 @@ function seedOrganizationAndCenterAgent(
         )
     `,
   });
-  harness.run({
-    params: ["org_1", CENTER_AGENT_PROFILE_ID, "user_owner", 100],
-    sql: `
-      INSERT INTO center_agent_designations (
+  await harness.query({
+    values: ["org_1", CENTER_AGENT_PROFILE_ID, "user_owner", 100],
+    text: `
+      INSERT INTO "openmeld"."center_agent_designations" (
         organization_id, agent_profile_id, designated_by, created_at
       )
-      VALUES (?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "binding_1",
       "organization",
       "org_1",
@@ -953,8 +935,8 @@ function seedOrganizationAndCenterAgent(
       100,
       100,
     ],
-    sql: `
-      INSERT INTO openMeldDaemon_agent_profile_bindings (
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
         binding_id,
         owner_kind,
         owner_id,
@@ -968,13 +950,12 @@ function seedOrganizationAndCenterAgent(
         created_at_ms,
         updated_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     `,
   });
 }
-
 async function seedLarkConnection(
-  harness: ReturnType<typeof createSqliteD1Harness>
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
 ): Promise<void> {
   await createRemoteAgentLarkPlatformRegistrationAttempt({
     accountDomain: "https://open.larksuite.com",

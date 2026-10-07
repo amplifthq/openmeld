@@ -103,6 +103,8 @@ export function createMeteredRemoteFetch(input: {
       tokens: null,
       cost: null,
     };
+    // Core admission is required for every new provider call. Deployment order
+    // installs the receiver first; a missing RPC is never allowance evidence.
     const admission = await writeUsage(input.coreWorker, "begin", record);
     if (admission.status === "limit_reached") {
       throw new Error(

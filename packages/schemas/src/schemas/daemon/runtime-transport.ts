@@ -446,6 +446,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
+  verifiedRequesterContext: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
@@ -483,7 +484,9 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
 
 export const runtimeTransportCapabilitiesSchema =
   runtimeTransportBaseCapabilitiesSchema.extend({
+    localExecutionInput: z.literal(true).optional(),
     spaceWorkHandoff: z.literal(true).optional(),
+    sessionHistory: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),
@@ -1192,6 +1195,8 @@ export const runtimeTransportDispatchSourceSignalSchema = z.strictObject({
 });
 
 export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
+  // Core identity/delegation projection for this Wake, never a permission grant.
+  requesterIsAgentOwner: z.boolean().optional(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId,
   executionToken: runtimeCoordinatorExecutionTokenEnvelopeSchema.optional(),
@@ -2336,6 +2341,8 @@ export const runtimeTransportDispatchPreviewEndRequestSchema = z.strictObject({
 
 export const daemonStreamCodeSchema = z.enum([
   "daemon.computer_file_access.read_policy",
+  "daemon.session_history.request",
+  "daemon.session_history.request_result",
   "daemon.computer_file_access.read_policy_result",
   "daemon.computer_file_access.update_policy",
   "daemon.computer_file_access.update_policy_result",
@@ -2361,6 +2368,8 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.route_catalog.changed",
   "daemon.local_agent_control.cancel",
   "daemon.local_agent_control.interrupt",
+  "daemon.execution_input.request",
+  "daemon.execution_input.result",
   "daemon.local_agent_control.fork_session",
   "daemon.local_agent_control.manage_installation",
   "daemon.local_agent_control.refresh_catalog",

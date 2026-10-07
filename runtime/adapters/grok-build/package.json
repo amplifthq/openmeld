@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@openmeld/adapter-core": "workspace:*",
+    "@openmeld/agent-runtime": "workspace:*",
     "smol-toml": "1.7.0"
   },
   "devDependencies": {

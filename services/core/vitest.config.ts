@@ -1,40 +1,34 @@
-import path from "node:path";
-import {
-  defineWorkersConfig,
-  readD1Migrations,
-} from "@cloudflare/vitest-pool-workers/config";
+import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { initializePostgresTests } from "../../tooling/postgresql/tests.mjs";
 import { buildLazyRuntimeModules } from "./scripts/build-lazy-runtime-modules.mjs";
 
 await buildLazyRuntimeModules();
 
 export default defineWorkersConfig(async () => {
-  const migrations = await readD1Migrations(
-    path.join(import.meta.dirname, "../../packages/db/drizzle")
-  );
-
+  const database = await initializePostgresTests({
+    legacyBindingFixtures: true,
+  });
   return {
     test: {
       fileParallelism: false,
       globals: true,
       include: ["src/__tests__/**/*.test.ts", "tests/**/*.test.ts"],
-      setupFiles: ["./tests/apply-d1-migrations.ts"],
       poolOptions: {
         workers: {
-          // WebSockets + Durable Objects are not supported with per-test
-          // isolated storage (the RuntimeTransport stream tests hit SQLite WAL
-          // sidecar assertions at storage-stack boundaries). Cloudflare's
-          // documented workaround is shared storage; tests must use unique
-          // fixture ids instead of relying on per-test resets.
+          // Durable Object stream tests share storage and use unique fixture ids.
           isolatedStorage: false,
+          singleWorker: true,
           miniflare: {
             bindings: {
-              TEST_MIGRATIONS: migrations,
+              TEST_POSTGRESQL_OWNER: { connectionString: database.owner },
+              TEST_POSTGRESQL_TEMPLATE: database.templateName,
+              TEST_POSTGRESQL_PRE_GUARD_TEMPLATE: database.preGuardTemplateName,
+              TEST_POSTGRESQL_OWNER_GUARDS_AND_LATER:
+                database.ownerGuardsAndLater,
             },
+            hyperdrives: { OPENMELD_POSTGRESQL: database.runtime },
           },
-          singleWorker: true,
-          wrangler: {
-            configPath: "./wrangler.test.jsonc",
-          },
+          wrangler: { configPath: "./wrangler.test.jsonc" },
         },
       },
     },

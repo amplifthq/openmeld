@@ -69,7 +69,11 @@ function fixture(options = {}) {
             return new Map(
               [...latest].map(([scope, receipt]) => [
                 scope,
-                { sha: SOURCE, receipt },
+                {
+                  sha: SOURCE,
+                  receipt,
+                  verifiedHistoryBaseline: options.baseline,
+                },
               ])
             );
           },
@@ -164,6 +168,108 @@ test("records health failure after application without claiming the version was 
   assert.equal(result.latest.get("web").application, "applied");
   assert.equal(result.latest.get("web").identity.versionId, WORKER_VERSION);
   assert.equal(result.latest.has("gateway"), false);
+});
+
+test("retries rejected Core under the original attempt only while the prior deployment is unchanged", async () => {
+  const options = { scopes: ["core"] };
+  const result = fixture(options);
+  await result.run();
+  options.baseline = {
+    sha: SOURCE,
+    recordedAt: "2026-01-01T00:00:00.000Z",
+    receipt: result.latest.get("core"),
+  };
+  const rejected = {
+    ...result.latest.get("core"),
+    status: "failed",
+    application: "unknown",
+    identity: undefined,
+  };
+  result.latest.set("core", rejected);
+  const priorEffects = result.effects.length;
+  for (const override of [
+    { operationKey: "b".repeat(64) },
+    { startedAt: "2025-01-01T00:00:00.000Z" },
+  ]) {
+    result.latest.set("core", { ...rejected, ...override });
+    await assert.rejects(result.run, UNRESOLVED_ERROR);
+    assert.equal(result.effects.length, priorEffects);
+  }
+  result.latest.set("core", rejected);
+  options.identityFailure = true;
+  await assert.rejects(result.run, IDENTITY_ERROR);
+  assert.equal(result.effects.length, priorEffects);
+  options.identityFailure = false;
+  options.workerVerificationResponses = new Array(20).fill(
+    workerDeploymentResponse({
+      deploymentId: "changed-deployment-even-with-the-same-version",
+    })
+  );
+  await assert.rejects(result.run, IDENTITY_ERROR);
+  assert.equal(result.effects.length, priorEffects);
+  options.workerVerificationResponses = undefined;
+  const priorEvents = result.receipts.length;
+  await result.run();
+  assert.deepEqual(
+    result.receipts.slice(priorEvents).map((e) => e.receipts.core.status),
+    ["applied", "verified"]
+  );
+  assert.equal(result.latest.get("core").attemptId, rejected.attemptId);
+  assert.equal(result.latest.get("core").startedAt, rejected.startedAt);
+  assert.equal(result.latest.get("core").operationKey, rejected.operationKey);
+});
+
+test("native database recovery verifies the journal and grants without repeating mutations", async () => {
+  const options = {
+    scopes: ["db"],
+    steps: buildProductionDeployStepSpecs(["db"], {
+      databaseBackend: "postgresql",
+    }),
+    failureAt: "PostgreSQL database: migrate",
+  };
+  const result = fixture(options);
+  await assert.rejects(result.run, FAILURE);
+  const original = { ...result.latest.get("db") };
+  const recovery = describeGuardedReceiptRecoveryCandidate(
+    { sha: SOURCE, receipt: original },
+    "db"
+  );
+  assert.equal(recovery.kind, "guarded-health-resume");
+
+  options.failureAt = "PostgreSQL database: verify";
+  await assert.rejects(result.run, FAILURE);
+  assert.deepEqual(result.latest.get("db"), original);
+
+  options.failureAt = undefined;
+  await result.run();
+  assert.deepEqual(result.effects, [
+    "PostgreSQL database: migrate",
+    "PostgreSQL database: verify",
+    "PostgreSQL database: verify",
+  ]);
+  assert.deepEqual(result.latest.get("db"), {
+    ...original,
+    status: "verified",
+    application: "applied",
+    identity: { kind: "release-source" },
+  });
+  assert.equal(result.released.filter((scope) => scope === "db").length, 3);
+});
+
+test("native database recovery rejects a different operation before verification", async () => {
+  const options = {
+    scopes: ["db"],
+    steps: buildProductionDeployStepSpecs(["db"], {
+      databaseBackend: "postgresql",
+    }),
+    failureAt: "PostgreSQL database: migrate",
+  };
+  const result = fixture(options);
+  await assert.rejects(result.run, FAILURE);
+  result.latest.get("db").operationKey = "0".repeat(64);
+  options.failureAt = undefined;
+  await assert.rejects(result.run, UNRESOLVED_ERROR);
+  assert.deepEqual(result.effects, ["PostgreSQL database: migrate"]);
 });
 
 test("a failed applied receipt resumes health under the same lease without redeploying", async () => {

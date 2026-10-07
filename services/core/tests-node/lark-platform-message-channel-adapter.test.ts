@@ -8,11 +8,8 @@ import {
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "../src/remote-agent/application/lark-platform-credential-crypto";
 import { createLarkPlatformMessageChannelAdapter } from "../src/remote-agent/application/lark-platform-message-channel-adapter";
-import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../src/remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CRYPTO_KEY = btoa("0123456789abcdef0123456789abcdef");
 const CONNECTION: RemoteAgentLarkPlatformChannelConnectionRecord = {
@@ -51,14 +48,14 @@ const LOCATOR: Extract<
 
 describe("Lark-platform Message Channel adapter", () => {
   it("decrypts the connection credential and publishes through the frozen locator", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     const encryptedAppSecret = await encryptLarkPlatformCredential({
       credential: "app-secret",
       credentialName: "app secret",
       cryptoKey: CRYPTO_KEY,
     });
-    seedConnection(harness, encryptedAppSecret);
+    await seedConnection(harness, encryptedAppSecret);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -97,19 +94,19 @@ describe("Lark-platform Message Channel adapter", () => {
       });
       expect(fetchImpl).toHaveBeenCalledTimes(2);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("decrypts the exact connection credential before privately guiding an unlinked user", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     const encryptedAppSecret = await encryptLarkPlatformCredential({
       credential: "app-secret",
       credentialName: "app secret",
       cryptoKey: CRYPTO_KEY,
     });
-    seedConnection(harness, encryptedAppSecret);
+    await seedConnection(harness, encryptedAppSecret);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -156,19 +153,19 @@ describe("Lark-platform Message Channel adapter", () => {
         "Connect my account and continue"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("privately gives the exact requester a native computer setup action", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     const encryptedAppSecret = await encryptLarkPlatformCredential({
       credential: "app-secret",
       credentialName: "app secret",
       cryptoKey: CRYPTO_KEY,
     });
-    seedConnection(harness, encryptedAppSecret);
+    await seedConnection(harness, encryptedAppSecret);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -214,13 +211,13 @@ describe("Lark-platform Message Channel adapter", () => {
       expect(publicationBody).toContain("Connect this computer");
       expect(publicationBody).toContain("https://openmeld.test/o/acme/connect");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects attachments explicitly instead of publishing text without them", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     const fetchImpl = vi.fn<typeof fetch>();
     const adapter = createLarkPlatformMessageChannelAdapter({
       cryptoKey: CRYPTO_KEY,
@@ -249,14 +246,14 @@ describe("Lark-platform Message Channel adapter", () => {
       });
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("reports credential decryption failures without calling the provider", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
-    seedConnection(harness, "corrupt-encrypted-app-secret");
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
+    await seedConnection(harness, "corrupt-encrypted-app-secret");
     const fetchImpl = vi.fn<typeof fetch>();
     const consoleError = vi
       .spyOn(console, "error")
@@ -292,19 +289,19 @@ describe("Lark-platform Message Channel adapter", () => {
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
       consoleError.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("reads provider-neutral bounded context through the connection credential", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     const encryptedAppSecret = await encryptLarkPlatformCredential({
       credential: "app-secret",
       credentialName: "app secret",
       cryptoKey: CRYPTO_KEY,
     });
-    seedConnection(harness, encryptedAppSecret);
+    await seedConnection(harness, encryptedAppSecret);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -371,35 +368,29 @@ describe("Lark-platform Message Channel adapter", () => {
         sync: { status: "complete" },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function applyConnectionMigration(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-  harness.run({
-    sql: "INSERT INTO users (id) VALUES ('user_1')",
+async function applyConnectionMigration(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, \"name\", \"email\") VALUES ('user_1', 'Test User', ('user_1')::text || '@example.com')",
   });
-  harness.run({
-    sql: "INSERT INTO organizations (id) VALUES ('org_1')",
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org_1\', \'Test Organization\', (\'org_1\')::text, 1700000000000)',
   });
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_channel_connections"
-  );
 }
 
-function seedConnection(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedConnection(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   encryptedAppSecret: string
-): void {
-  harness.run({
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_connections (
+): Promise<void> {
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" (
         connection_id,
         organization_id,
         provider,
@@ -438,10 +429,10 @@ function seedConnection(
       )
     `,
   });
-  harness.run({
-    params: [encryptedAppSecret, LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION],
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_credentials (
+  await harness.query({
+    values: [encryptedAppSecret, LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION],
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_credentials" (
         connection_id,
         encrypted_app_secret,
         encrypted_verification_token,
@@ -451,10 +442,10 @@ function seedConnection(
         updated_at_ms
       ) VALUES (
         'connection_lark_test',
-        ?,
+        $1,
         NULL,
         NULL,
-        ?,
+        $2,
         1000,
         1000
       )

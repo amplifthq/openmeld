@@ -1,4 +1,7 @@
-import { connectorAppCatalogProviderSchema } from "@openmeld/schemas";
+import {
+  connectorAppCatalogProviderSchema,
+  pluginConnectionHealthSchema,
+} from "@openmeld/schemas";
 import type { ConnectorAppCatalogProvider } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
 
@@ -17,6 +20,7 @@ const openConnectorErrorSchema = z.object({
 });
 
 const openConnectorConnectionSchema = z.object({
+  health: pluginConnectionHealthSchema.optional(),
   configured: z.boolean(),
   connectionName: z.string().min(1),
   service: z.string().min(1),
@@ -109,7 +113,10 @@ export class OpenConnectorClient {
   }
 
   async listProviders(): Promise<ConnectorAppCatalogProvider[]> {
-    const payload = await this.#request("/v1/providers", { method: "GET" });
+    const payload = await this.#request(
+      "/v1/providers?includeConnectionAuth=true",
+      { method: "GET" }
+    );
     return parseOpenConnectorPayload({
       operation: "list providers",
       payload,

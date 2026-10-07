@@ -1,5 +1,7 @@
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getCommandCheckRequirements } from "../src/command-entry-checks/command-check-requirements";
+import { resolveCommandEntryNameFromTokens } from "../src/command-entry-checks/command-entry-name";
 import { registerPluginCommands } from "../src/plugins/registration";
 
 const runPluginCommand = vi.hoisted(() => vi.fn());
@@ -16,6 +18,44 @@ function program() {
 }
 beforeEach(() => runPluginCommand.mockReset());
 describe("Local Agent Plugin setup command", () => {
+  it.each([
+    "connect",
+    "connection",
+  ])("requires sign-in at the registered %s command entry", (operation) => {
+    const entry = resolveCommandEntryNameFromTokens(["plugins", operation]);
+    expect(entry).not.toBeNull();
+    if (entry) {
+      expect(getCommandCheckRequirements(entry).signIn.mode).toBe("required");
+    }
+  });
+  it("preserves the explicit account, profile, key, and Computer request", async () => {
+    await program().parseAsync(
+      [
+        "plugins",
+        "connection",
+        "cloudflare_worker",
+        "--account",
+        "personal",
+        "--profile",
+        "agent-profile",
+        "--key",
+        "diagnosis",
+        "--computer",
+      ],
+      { from: "user" }
+    );
+    expect(runPluginCommand).toHaveBeenCalledWith({
+      action: {
+        operation: "connection",
+        service: "cloudflare_worker",
+        account: "personal",
+        key: "diagnosis",
+        computer: true,
+      },
+      profile: "agent-profile",
+      view: "agent",
+    });
+  });
   it.each([
     "choose",
     "personal",
@@ -50,9 +90,9 @@ describe("Local Agent Plugin setup command", () => {
     );
     expect(runPluginCommand).toHaveBeenCalledOnce();
   });
-  it("rejects an unknown service and invalid identity before invoking the server", async () => {
+  it("rejects a malformed service and invalid identity before invoking the server", async () => {
     await expect(
-      program().parseAsync(["plugins", "connect", "not-a-service"], {
+      program().parseAsync(["plugins", "connect", "https://invalid.example"], {
         from: "user",
       })
     ).rejects.toThrow();

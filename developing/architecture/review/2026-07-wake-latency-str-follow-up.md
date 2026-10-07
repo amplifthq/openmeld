@@ -97,11 +97,11 @@ Those two fields are not a clean execution-to-delivery stopwatch:
 
 - `latestAttempt.startedAt` comes from
   `atsd_dispatch_attempts.started_at_ms`
-  (`services/core/src/space/infrastructure/d1/space-dispatch-read-repo.ts:1095`).
+  (`services/core/src/space/infrastructure/postgresql/space-dispatch-read-repo.ts:1095`).
 - For the fresh delivery path, that field is set by
   `recordDispatchAttemptExecutionOwnership` before the `/deliver-dispatch`
   RuntimeTransport call
-  (`services/core/src/dispatch/infrastructure/d1/dispatch-ledger-d1.ts:2011`).
+  (`services/core/src/dispatch/infrastructure/postgresql/dispatch-ledger-postgresql.ts:2011`).
 - `runtimeCoordinatorExecution.createdAtMs` is written by RuntimeTransport
   projection helpers such as
   `buildRuntimeCoordinatorExecutionRecordFromDelivery`

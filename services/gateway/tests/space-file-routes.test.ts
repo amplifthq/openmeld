@@ -699,6 +699,7 @@ describe("Space file routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/markdown");
     expect(response.headers.get("x-openmeld-file-revision")).toBe("1");
+    expect(response.headers.get("cache-control")).toContain("no-transform");
     await expect(response.text()).resolves.toBe("Shared launch notes\n");
     expect(coreRpc.streamSpaceFileContent).toHaveBeenCalledOnce();
     expect(bucket.get).not.toHaveBeenCalled();
@@ -732,6 +733,7 @@ describe("Space file routes", () => {
       response.headers.get("content-disposition")?.startsWith("inline;")
     ).toBe(true);
     expect(response.headers.get("cache-control")).toContain("private");
+    expect(response.headers.get("cache-control")).toContain("no-transform");
     expect(await response.text()).toBe("launch");
     expect(coreRpc.streamSpaceFileContent).toHaveBeenCalledWith(
       expect.objectContaining({

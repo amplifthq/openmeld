@@ -30,7 +30,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 		).toBe("Codex · GPT-5.4 · model default");
 	});
 
-	it("shows the controller default model when no model is explicit", () => {
+	it("does not present a catalog default as an existing conversation's actual model", () => {
 		expect(
 			resolveAgentProfileControllerModelDetail({
 				agentControllerRef: "builtin:codex",
@@ -38,7 +38,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 				modelCatalog: buildModelCatalog(),
 				modelSelection: null,
 			})
-		).toBe("Codex · GPT-5.5 · model default");
+		).toBe("Codex · Controller default");
 	});
 
 	it("does not invent reasoning effort for models without reasoning support", () => {
@@ -54,7 +54,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 		).toBe("Claude Code · Claude Haiku 4.5");
 	});
 
-	it("shows the catalog display name instead of a provider-internal model id", () => {
+	it("does not present an unselected provider default as a saved model", () => {
 		expect(
 			resolveAgentProfileControllerModelDetail({
 				agentControllerRef: "builtin:cursor",
@@ -62,7 +62,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 				modelCatalog: buildModelCatalog(),
 				modelSelection: null,
 			})
-		).toBe("Cursor · Auto");
+		).toBe("Cursor · Controller default");
 	});
 });
 

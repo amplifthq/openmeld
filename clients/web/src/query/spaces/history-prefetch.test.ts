@@ -53,6 +53,7 @@ function client() {
 	result.setQueryData(historyKey, {
 		envelopes: [message(0)],
 		nextCursor: "older-page",
+		confirmedCursor: "sig-0",
 	});
 	return result;
 }
@@ -131,6 +132,7 @@ describe("unread conversation prefetch", () => {
 		expect(queryClient.getQueryData<SpaceHistorySnapshot>(historyKey)).toEqual({
 			envelopes: Array.from({ length: 51 }, (_, i) => message(i)),
 			nextCursor: "older-page",
+			confirmedCursor: "sig-50",
 		});
 		expect(getUpdates).toHaveBeenCalledTimes(1);
 		getUpdates.mockResolvedValueOnce({ signals: [message(1)] });
@@ -196,7 +198,7 @@ describe("unread conversation prefetch", () => {
 		for (const item of targets) {
 			queryClient.setQueryData(
 				spaceQueryKeys.history(item.spaceId, item.openMeldProfileId),
-				{ envelopes: [message(0)], nextCursor: null }
+				{ envelopes: [message(0)], nextCursor: null, confirmedCursor: "sig-0" }
 			);
 		}
 		const reads: ReturnType<typeof deferred>[] = [];

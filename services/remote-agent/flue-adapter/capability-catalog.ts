@@ -221,6 +221,8 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     aliases: [
       "install an Organization Skill",
       "install a GitHub Skill",
+      "import a repository of Skills",
+      "resume an interrupted Skill import batch",
       "安装组织技能",
       "安装 GitHub 技能",
     ],
@@ -283,6 +285,11 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
       "Computer token usage",
     ],
     namespace: "organization",
+  },
+  openmeld_read_session_history: {
+    aliases: ["read Codex conversation", "读取本机会话历史"],
+    dependencies: ["openmeld_list_agent_activity_sessions"],
+    namespace: "agents_and_computers",
   },
   openmeld_list_routine_runs: {
     aliases: [

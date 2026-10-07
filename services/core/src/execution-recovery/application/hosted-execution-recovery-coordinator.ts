@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   ExecuteExecutionRecoveryBody,
   ExecuteExecutionRecoveryResponse,
@@ -7,7 +8,7 @@ import type { CoreBindings } from "../../lib/bindings";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByDispatchAndConversation,
-} from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { executeFencedExecutionRecoveryOperation } from "./execution-recovery-fenced-operation";
 import type { ExecutionRecoveryOperationStorage } from "./execution-recovery-operation-state";
 import {
@@ -16,21 +17,18 @@ import {
   resolveAuthoritativeHostedExecutionRecovery,
   submitHostedExecutionRecovery,
 } from "./hosted-execution-recovery-service";
-
 export type HostedExecutionRecoveryInspectRequest = {
   activeOrganizationId: string;
   conversationId: string;
   dispatchId: string;
 };
-
 export type HostedExecutionRecoveryExecuteRequest = {
   activeOrganizationId: string;
   body: ExecuteExecutionRecoveryBody;
   conversationId: string;
 };
-
 export async function inspectHostedExecutionRecovery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   request: HostedExecutionRecoveryInspectRequest;
 }): Promise<InspectExecutionRecoveryResponse> {
@@ -46,9 +44,8 @@ export async function inspectHostedExecutionRecovery(input: {
     }),
   };
 }
-
 export async function executeHostedExecutionRecovery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   request: HostedExecutionRecoveryExecuteRequest;
   storage: ExecutionRecoveryOperationStorage;
@@ -121,9 +118,8 @@ export async function executeHostedExecutionRecovery(input: {
     storage: input.storage,
   });
 }
-
 async function requireHostedExecutionRecoveryDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   request: HostedExecutionRecoveryInspectRequest;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
   const activeOrganizationId = input.request.activeOrganizationId.trim();

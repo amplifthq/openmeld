@@ -4,16 +4,17 @@ import {
   createRuntimeLookupInput,
   type RuntimeLookupInput,
 } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { rpcGetPrepareReadiness } from "../src/rpc/methods";
-import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
-import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const DEFAULT_CONTEXT: OpenMeldRequestContext = {
   actorContext: {
@@ -27,8 +28,8 @@ const DEFAULT_CONTEXT: OpenMeldRequestContext = {
 
 describe("prepare readiness Core RPC read", () => {
   it("returns fresh ready evidence from Runtime Registry and Runtime Agent Controller Report facts", async () => {
-    const harness = createSqliteD1Harness();
-    applyRuntimeReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+
     try {
       const nowMs = Date.now();
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
@@ -83,26 +84,16 @@ describe("prepare readiness Core RPC read", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function coreEnv(db: D1Database): CoreBindings {
+function coreEnv(db: PostgresDatabase): CoreBindings {
   return {
-    OPENMELD_DB: db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(db),
     OPENMELD_SPACES: {} as CoreBindings["OPENMELD_SPACES"],
   };
-}
-
-function applyRuntimeReadinessMigrations(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-  applyMigrationForTable(
-    harness,
-    "openMeldDaemon_runtime_agent_controller_reports"
-  );
 }
 
 function lookupInput(ownerId: string, deviceId: string): RuntimeLookupInput {

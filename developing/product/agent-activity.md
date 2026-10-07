@@ -137,7 +137,7 @@ table is a projection derived from accepted events.
 - The same event id and canonical payload hash is `reused`.
 - The same event id with another payload is permanently rejected as
   `event_id_conflict`.
-- Event acceptance and current-session projection update are one atomic D1
+- Event acceptance and current-session projection update are one atomic PostgreSQL
   operation.
 - Event reporting derives member, device, and runtime authority from the
   authenticated request and registered OpenMeld Service runtime.
@@ -369,6 +369,12 @@ Human activity instead of borrowing a timestamp from this product.
 ## Retention And Digests
 
 - Level-zero events are retained for 14 days.
+- Daily cleanup processes at most ten batches of 5,000 rows per table, after
+  aggregation. Unaggregated events remain intact. Session-count fences remain
+  while any unaggregated event references them, even after their normal expiry.
+  A backlog older than the fence window can still be aggregated: a newly
+  created fence never has an expiry earlier than its creation. Batch exhaustion
+  is reported; later scheduled invocations continue without double-counting.
 - Expired current sessions and execution links are cleaned with the same
   retention discipline.
 - Daily aggregate evidence is retained after raw events expire. It records
@@ -539,7 +545,42 @@ Binding owner continues to adjudicate historical duplicate conversations. An
 old producer continues to report only historical Activity; a new producer
 treats a missing reconciliation route as retryable and never erases the last
 complete Core projection. Rollback stops the new local producer before removing
-readers; retained D1 evidence is never rewritten to simulate rollback.
-The legacy digest rollout still uses migrations 0029, 0030, 0031, then 0032;
-the one-time active-duration backfill runs only after migration 0032 and its
-Core reader are deployed.
+readers; retained PostgreSQL evidence is never rewritten to simulate rollback.
+The original D1 digest rollout used migrations 0029–0032 and a one-time
+active-duration backfill. Those schema prerequisites are included in the native
+PostgreSQL baseline; do not replay the old migration/backfill sequence. New
+changes use the [PostgreSQL workflow](../engineering/postgresql.md).
+## On-demand session history
+
+Session history is an optional Computer capability, separate from Activity
+metadata and File access. It is disabled by default. The Computer owner selects
+connected Project folders and permitted reader Agent Profiles for each
+Organization. Removing and reconnecting a folder requires a new grant.
+
+The first version reads bounded Codex user and assistant messages through the
+source Computer's live Service. Sessions do not need an OpenMeld Agent Profile.
+It does not resume sessions, import transcripts, expose reasoning or tool output,
+or support arbitrary filesystem reads. Explicit File access restrictions also
+apply. Missing identity, project, connection, or authorization evidence denies
+the read. Unsupported or offline Services cannot acknowledge settings changes.
+
+Humans and agents use the same read operation. Core supplies the authenticated
+human requester, reader, immediate delegator, and destination audience. Only
+owner requests and verified one-hop owner delegation are eligible; Organization
+or Space membership alone does not grant access. Unverified multi-hop requests
+are denied. The answering agent must select information appropriate for its
+destination; private source messages are not automatically shared with a Space.
+
+The Computer page holds Session history access and owner-only Access history
+beside File access. Service stores settings and bounded access metadata locally.
+The history service does not persist transcript bodies, index them in cloud
+storage, or put them in telemetry or browser persistent caches. An authorized
+downstream agent conversation or model provider can retain a tool result or a
+published answer; on-demand access does not change those retention rules.
+
+Reads return at most 50 messages, with at most 8,000 characters per message.
+The native response is bounded to 8 MiB; larger sessions fail explicitly. Access
+history retains the latest 200 requests locally, including the verified human
+root, reader, immediate delegator, destination, range, and outcome. Revocation
+stops subsequent reads and in-flight reads whose authorization changes before
+release. It cannot retract results already delivered.

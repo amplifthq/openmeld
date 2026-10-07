@@ -8,6 +8,7 @@ import {
   createCenterAgentRoutineResponseSchema,
   deleteCenterAgentRoutineResponseSchema,
   listCenterAgentRoutinesResponseSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
   updateCenterAgentRoutineResponseSchema,
@@ -46,6 +47,12 @@ export async function rpcCenterAgentListRoutines(
     request.context,
     request.speakerMember
   );
+  if (request.contract === "routines-v3") {
+    return parseRoutineResponse(
+      listRoutineManagementResponseSchema,
+      await service.listUnified(actor)
+    );
+  }
   return parseRoutineResponse(
     listCenterAgentRoutinesResponseSchema,
     await service.list(actor)

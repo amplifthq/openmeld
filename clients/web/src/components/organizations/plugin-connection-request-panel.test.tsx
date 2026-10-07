@@ -39,7 +39,13 @@ const preview = {
 	selection: null,
 };
 beforeEach(() => {
-	mocks.request.mockReset().mockResolvedValue(preview);
+	mocks.request
+		.mockReset()
+		.mockImplementation(({ operation }) =>
+			Promise.resolve(
+				operation === "plugin.channel.preview" ? preview : { providers: [] }
+			)
+		);
 	mocks.foundation.mockReset().mockReturnValue({ requestJson: mocks.request });
 	mocks.panel.mockReset();
 });
@@ -65,8 +71,11 @@ describe("private channel request page reuses setup without becoming an authorit
 				currentUserId: "human",
 			})
 		);
-		expect(mocks.request).toHaveBeenCalledOnce();
-		expect(mocks.request.mock.calls[0][0].url).toContain(
+		const previewCalls = mocks.request.mock.calls.filter(
+			([request]) => request.operation === "plugin.channel.preview"
+		);
+		expect(previewCalls).toHaveLength(1);
+		expect(previewCalls[0][0].url).toContain(
 			"/preview?expectedOrganizationId=org"
 		);
 		expect(mocks.foundation).toHaveBeenCalledWith({ organizationId: "org" });

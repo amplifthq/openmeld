@@ -79,6 +79,7 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
+			defaultModuleSidebarOpen={!!input.person || !!input.selectedProfileId}
 			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
 			mainHeader={
 				!input.person && input.activeView === "agents" ? (

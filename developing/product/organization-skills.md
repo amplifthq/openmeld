@@ -17,6 +17,25 @@
   surfaces. Data and wire shapes remain implemented by their scoped
   architecture owners.
 
+## Task Discovery
+
+Task directories are display projections, not release selection or permission
+owners. Remote Agent keeps the complete admitted catalog mounted in Flue even
+when prompt metadata is shortened; `openmeld_search_task_skills` searches those
+same selected releases under current Core authority. Full instructions and
+resources remain on-demand through the existing activation and resource tools.
+Flue description display shares a 2,000-character budget without pruning mounts.
+
+Local dispatch preparation reads enabled Skill metadata as the owned Agent and
+keeps exact release IDs/digests in the existing dispatch action context. Explicit
+handoff selections take precedence and retain the existing disposable
+materializer. The `read_skills` context tool lists those selections or reads a
+named exact release through the existing Skill API; it neither installs globally
+nor changes the working directory of an ordinary repository Wake. Each read
+checks current membership, Agent ownership, and enablement. A later publication
+does not replace a task's selected release; disablement denies future reads.
+Already-read content cannot be removed from a model's context.
+
 ## Product Definition
 
 An **Organization Skill** is an optional, Organization-owned, reusable way of
@@ -147,7 +166,7 @@ attempt, including when the release committed before the operation receipt.
 Reusing the ID for a different source or commit is a conflict. The CLI accepts
 an explicit `--operation-id` so a local agent can safely retry after an
 uncertain network result. The operation receipt stores release identity rather
-than another copy of the Skill bundle in D1.
+than another copy of the Skill bundle in PostgreSQL.
 
 The Skill record holds the active release pointer and enabled state.
 
@@ -298,6 +317,17 @@ Skill and Organization. Phase 1 removes it from active Organization use and
 retains immutable release/audit evidence according to retention policy. A
 removed Skill cannot appear in runtime or CLI snapshots.
 
+Owners and admins can select multiple Skills in the Team catalog and remove
+them with one confirmation listing every selected name and the Organization.
+Select all covers the current search and status filter only. Changing either
+filter, leaving selection mode, or switching Organizations clears selection;
+selection is never persisted. Confirmation pins the reviewed Skill versions.
+Each removal uses Core's existing permission and version checks. Partial
+success removes confirmed successes from the list and retains failed selections
+with per-Skill errors for explicit review and retry. A retry requires another
+confirmation; it never silently retries a newer version. Leaving the catalog
+stops starting further removals, while already submitted requests may finish.
+
 ## Web Product
 
 Skills management belongs to **Team**, whose tabs are **People / Agents /
@@ -385,9 +415,10 @@ Name and description appear once, above Instructions, as document-style labeled
 inputs for editors and ordinary text for readers. There is no Overview landing
 page, View/Edit switch, raw Markdown preview mode, or second navigation sidebar.
 A sticky action row keeps **All Skills**, the exact save state, **Save**, and
-**More actions** reachable. Only Skills with supporting files show the local
-**Instructions / Files (n)** tabs; switching them neither saves nor leaves the
-Skill. The outer document owns one draft for every surface.
+**More actions** reachable. Editors always see the local **Instructions / Files
+(n)** tabs, including **Files (0)** so they can add the first supporting file.
+Readers see the tabs only when supporting files exist. Switching tabs neither
+saves nor leaves the Skill. The outer document owns one draft for every surface.
 
 **More actions** exposes **Copy link**, **How agents use this skill**,
 **Properties**, and **Version history**. Managers additionally see maintainers,
@@ -411,8 +442,9 @@ mount Plate. Once opened, a reference editor is retained hidden when collapsed,
 so queued input and Undo history are not lost during file switches. File paths
 own presentation identity; accepted content generations still control safe
 external reloads. Other text is read-only, binary assets are downloadable, and
-scripts remain explicitly non-executable. This UI does not add upload or removal
-of bundle files.
+scripts remain explicitly non-executable. Editors can add or remove supporting
+files in the same draft; the next Save publishes those changes as a new Skill
+version. Readers cannot add or remove files.
 
 Instructions and references reuse the shared Plate/CommonMark + GFM editor. Its
 opt-in page presentation supplies a quiet, accessible toolbar and document
@@ -485,7 +517,7 @@ configuration or page-specific navigation blocker.
 Core owns Organization Skill identity, authority, enabled state, active release,
 maintainers, provenance, import validation, and audit.
 
-D1 stores relational truth:
+PostgreSQL stores relational truth:
 
 - stable Skill identity and Organization ownership;
 - normalized current name and description for listing;
@@ -501,10 +533,10 @@ release-scoped. Core writes and reads the private bucket through a dedicated
 binding. Web, the browser, CLI, and Remote Agent do not receive bucket authority
 or construct R2 keys.
 
-The complete bundle does not live in D1 rows. R2 object metadata is not
+The complete bundle does not live in PostgreSQL rows. R2 object metadata is not
 relational authority.
 
-Core must make release creation recoverable. The D1 active pointer may advance
+Core must make release creation recoverable. The PostgreSQL active pointer may advance
 only after every immutable object needed by the release exists and matches the
 canonical manifest. An unreferenced completed R2 prefix may be cleaned by a
 bounded repair job; a referenced release must never point at missing or
@@ -522,7 +554,7 @@ For every admitted Center Agent turn, personal Remote Agent turn, or Routine Run
 2. Core returns the exact enabled Organization Skill release catalog, with
    stable Skill ids, release ids, portable metadata, instructions, resource
    paths, and digest, without materializing resource bytes;
-3. Core verifies the stored release manifest against its D1 digest before
+3. Core verifies the stored release manifest against its PostgreSQL digest before
    returning that catalog;
 4. the Flue adapter mounts the verified instructions through Flue's public API;
 5. Flue owns catalog disclosure and `activate_skill`; when the model needs a
@@ -592,7 +624,16 @@ turn and authorizes every action.
 
 Mutation retries use an immutable request signature and operation id. An exact
 replay returns the prior result; conflicting input under one operation id is
-rejected before GitHub, R2, or D1 mutation.
+rejected before GitHub, R2, or PostgreSQL mutation.
+
+Repository imports use the existing member-owned batch plan. The Center Agent
+previews a commit, begins a batch with its exact commit and selected paths, and
+installs individual items through the same import operation as Web and CLI.
+It can list the represented member's unfinished batches and read an exact batch
+before continuing pending or failed items. Completed items replay their existing
+result, including when Web installed them or the original receipt was lost.
+Current management permission and the initiating member remain required; the
+Center Agent does not gain access to another member's batches.
 
 ## CLI And Local Agents
 
@@ -624,7 +665,7 @@ installs each eligible Skill independently. It reports installed, skipped, and
 failed items; one failed package does not undo successful installs. A retry
 with the returned operation ID and pinned `retrySource` replays completed items
 instead of creating duplicate Skills. A retry using a mutable repository URL
-is rejected. Core owns the pinned batch plan and per-item results in D1; Web
+is rejected. Core owns the pinned batch plan and per-item results in PostgreSQL; Web
 and CLI run the eligible items sequentially through the same idempotent import
 operation. A client that loses its connection can query the batch by ID and
 continue pending or failed items without recreating completed releases. The Web
@@ -634,7 +675,7 @@ The saved selection remains authoritative when a batch moves between Web and
 CLI: unselected candidates are never installed or counted as failures.
 The batch freezes the member's selected Skill paths; retries cannot install paths
 that were not selected. It is scoped to its initiating member and current Team
-authority. This does
+authority. Center Agent management uses this same plan and item owner. This does
 not remove package-level limits.
 
 Without `--release`, loading selects the active enabled release. An explicit
@@ -750,5 +791,5 @@ Before release, prove through user-accessible entry points:
 - activation evidence correlates Skill, release, Center Agent submission, and
   Routine Run when present.
 
-Internal HTTP, D1, R2, or RPC inspection may support diagnosis but is not
+Internal HTTP, PostgreSQL, R2, or RPC inspection may support diagnosis but is not
 real-user smoke evidence.

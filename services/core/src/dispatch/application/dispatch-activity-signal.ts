@@ -11,7 +11,6 @@ const normalizeOptionalText = (value: unknown): string | null => {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 };
-
 export const emitDispatchActivitySignal = async (input: {
   env: CoreBindings;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -31,7 +30,6 @@ export const emitDispatchActivitySignal = async (input: {
   const runtimeDeviceDisplayName = normalizeOptionalText(
     input.runtimeDeviceDisplayName
   );
-
   await emitSpaceTextSignal({
     env: input.env,
     spaceId: input.dispatchMessage.spaceId,

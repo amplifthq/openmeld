@@ -1,6 +1,30 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes stable public entrypoints.
 
 export {
+  type AccountDeletionCleanupInput,
+  type AccountDeletionCleanupResult,
+  type AccountDeletionComputer,
+  type AccountDeletionConnection,
+  type AccountDeletionConversation,
+  type AccountDeletionFileRoot,
+  type AccountDeletionPlan,
+  type AccountDeletionPreview,
+  type AccountDeletionSpace,
+  accountDeletionAcceptedSchema,
+  accountDeletionCleanupInputSchema,
+  accountDeletionCleanupResultSchema,
+  accountDeletionComputerSchema,
+  accountDeletionConnectionCleanupSchema,
+  accountDeletionConnectionSchema,
+  accountDeletionConversationSchema,
+  accountDeletionFileRootSchema,
+  accountDeletionPendingConnectionsSchema,
+  accountDeletionPlanSchema,
+  accountDeletionPreviewSchema,
+  accountDeletionSpaceSchema,
+  requestAccountDeletionSchema,
+} from "./account-deletion";
+export {
   type AccountInvalidationFrame,
   accountInvalidationFrameSchema,
 } from "./account-invalidation";
@@ -192,6 +216,7 @@ export {
 } from "./desktop-release";
 export * from "./desktop-transport-diagnostics";
 export * from "./desktop-updater";
+export * from "./local-execution-input";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
@@ -363,6 +388,32 @@ export {
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
+  type CloudComputer,
+  type CloudComputerOperation,
+  type CloudComputerStorage,
+  cloudComputerCleanupResultSchema,
+  cloudComputerCommandSchema,
+  cloudComputerOperationResultSchema,
+  cloudComputerOperationSchema,
+  cloudComputerResponseSchema,
+  cloudComputerRpcRequestSchema,
+  cloudComputerSchema,
+  cloudComputerStorageSchema,
+  cloudComputerWorkerRequestSchema,
+} from "./schemas/runtime/cloud-computer";
+export {
+  pluginConnectionDescriptionSchema,
+  pluginConnectionHealthSchema,
+  pluginNativeHttpSchema,
+} from "./schemas/runtime/openconnector-runtime";
+export {
+  type PluginConnectionGrant,
+  pluginComputerConnectionRequestSchema,
+  pluginConnectionAuthorizationSchema,
+  pluginConnectionDescribeRequestSchema,
+  pluginConnectionGrantSchema,
+} from "./schemas/runtime/plugin-connection";
+export {
   type RemoteAgentExecutionAccessRequest,
   type RemoteAgentExecutionAccessResponse,
   type RemoteAgentExecutionScope,
@@ -454,6 +505,7 @@ export {
   SPACE_ACCESS_VERSION,
   SPACE_ACCESS_VERSION_HEADER,
 } from "./space-access-version";
+export * from "./space-execution-input";
 export {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
   type SpaceInvitation,

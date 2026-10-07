@@ -421,10 +421,28 @@ async function readMemorySearchResult(input: {
     });
   }
   return {
-    item: { ...original.value, subject: input.subject, text },
+    item: {
+      ...original.value,
+      subject: input.subject,
+      text: formatFactValidity(input.edge, text),
+    },
     sources: provenance.map(({ value }) => value),
     status: "resolved",
   };
+}
+
+function formatFactValidity(edge: Zep.EntityEdge, text: string): string {
+  const dates = [
+    ["from", edge.validAt],
+    ["until", edge.invalidAt],
+    ["superseded", edge.expiredAt],
+  ].flatMap(([label, value]) => {
+    const timestamp = value ? Date.parse(value) : Number.NaN;
+    return Number.isFinite(timestamp)
+      ? [`${label} ${new Date(timestamp).toISOString()}`]
+      : [];
+  });
+  return `[Fact validity: ${dates.length ? dates.join("; ") : "unknown"}] ${text}`;
 }
 
 function omittedProvenance(failure: ProvenanceFailure): MemorySearchReadResult {

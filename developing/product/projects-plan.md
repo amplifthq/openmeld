@@ -11,6 +11,10 @@
 Status: APPROVED — W-NAV1 through W-NAV5 are complete, but implementation remains blocked until Felix issues an explicit Projects implementation order.
 Removal condition: Delete this plan when Projects ships and every durable contract in it has been absorbed into its owner document; git history is the archive.
 
+Storage update: production shared relational persistence moved to PostgreSQL
+on 2026-10-04. This proposal uses that current backend; use the
+[PostgreSQL workflow](../engineering/postgresql.md) for new schema work.
+
 ## Provenance And Re-Baselining
 
 This document is a faithful English translation of the complete Projects v2 response emitted in the source Codex task at `2026-07-13T08:04:06.111Z`, followed by the six amendments from the final Fable 5 review. The exact extracted Chinese source was 59,474 bytes with SHA-256:
@@ -464,7 +468,7 @@ A discovery response may include absolute local paths and be forwarded through C
 
 Paths must never enter:
 
-- D1
+- PostgreSQL
 - Agent Activity events, sessions, or digests
 - cloud snapshots
 - Organization-shared Project data
@@ -964,7 +968,7 @@ Projects is not rebuilt from scratch. The Project foundation already delivered w
 
 | Existing capability | v2 treatment |
 |---|---|
-| D1 `projects` table | Keep as the single cloud Project truth |
+| PostgreSQL `projects` table | Keep as the single cloud Project truth |
 | Project IDs | Keep; do not rebuild or duplicate |
 | name/slug/creator/fingerprint/archive | Keep and evolve |
 | Core Project CRUD | Move into `services/core/src/projects/` |
@@ -1160,7 +1164,7 @@ These truths do not change:
 - Local Service remains the local execution carrier.
 - Project does not decide dispatch ownership.
 - Agent Activity does not decide readiness.
-- The D1 Activity ledger does not decide execution outcome.
+- The PostgreSQL Activity ledger does not decide execution outcome.
 
 ---
 
@@ -1993,7 +1997,7 @@ If the event wins first, the member creator's conditional archive returns `has_a
 
 ### Tests
 
-In D1/miniflare, use deterministic interleaving cases rather than pretending to run a true concurrent stress test:
+In PostgreSQL/Worker, use deterministic interleaving cases rather than pretending to run a true concurrent stress test:
 
 - archive-first ordering: the event is not stored
 - event-first ordering: the member creator cannot archive
@@ -2311,7 +2315,7 @@ The route change and its CLI candidate still ship in one controlled delivery win
 
 This feature changes:
 
-- D1 Project index
+- PostgreSQL Project index
 - Project CRUD schemas
 - Project RPC
 - Gateway route
@@ -2348,7 +2352,7 @@ M0 applies the new rule once with no dual-version matcher. Every current dogfood
 
 1. Release CLI/Service with v1/v2/v3 read support, explicit unknown-version rejection, `project_bindings.update_required`, and the existing same-machine update-required version gate enabled before any v3 producer. The old `binding store is invalid` copy is retired for a newer-version file.
 2. Expose the new capability through runtime reporting.
-3. Apply the D1 partial-index migration.
+3. Apply the PostgreSQL partial-index migration.
 4. Ship Core/Gateway/API/Web consumers, including the direct canonical HTTP route cutover.
 5. Web exposes multiple-connection mutations only when the current Service supports v3.
 6. The first mutation may now write v3.
@@ -2389,7 +2393,7 @@ Fable 5 approved every design item. This ledger preserves the sixteen explicit f
 - R3: Document why the local file requires consumer-before-producer while the HTTP route can cut directly, and call out old CLI 404 behavior in release notes.
 - R4: Cap automatic slug suffix retries at `-99`, then return 409.
 - R5: Do not promise a Workspace display name that the daemon does not own; use Project slug plus “another workspace,” with a context-cache name only when explicitly sourced and verified.
-- R6: Test the archive/event race as deterministic archive-first and event-first interleavings in D1/miniflare, not as a pretend concurrent stress test.
+- R6: Test the archive/event race as deterministic archive-first and event-first interleavings in PostgreSQL/Worker, not as a pretend concurrent stress test.
 
 ---
 

@@ -1,0 +1,40 @@
+---
+title: Use a cloud Computer
+description: Let a hosted Agent work with files and commands without using your laptop.
+---
+
+A cloud Computer is a personal execution environment that an authorized hosted Agent can use for file and command work. It is separate from a [connected local computer](/docs/start/connect-computer).
+
+## Ask for a bounded result
+
+In a Center Agent conversation, state the input, task, and output. For example:
+
+> Create a CSV with the project names and dates from these notes. Save it and give me the resulting file. Do not send it to another service.
+
+The Agent must have access to the source material and a supported execution path. A cloud Computer does not automatically contain your laptop's files, browser sessions, or external accounts.
+
+## Check the actual outcome
+
+For file work, ask for the saved file and inspect it.
+
+For code work, ask the Agent to identify the checkout, commands it ran, and results of the relevant checks. Access to a repository is not the same as a complete checkout. A checkout is not the same as installed dependencies or a working build.
+
+If the Agent cannot complete a step, it should identify that step and the remaining work.
+
+## Persistence
+
+Saved Computer files can persist across runtime recreation. Running processes, installed operating-system packages, and browser login state are not promised to survive it.
+
+Keep important deliverables in the appropriate [Files location](/docs/work/files). Review the audience when publishing an artifact from a personal execution environment into a team Space.
+
+## Separate simultaneous work
+
+When tasks edit the same repository or files, ask for separate working copies or separate output files. Concurrent work does not automatically mean isolated work.
+
+## Access and sharing
+
+The Computer belongs to a human account. Access to its files does not authorize publishing everything in it.
+
+Connected Plugins retain their own permissions. Removing a provider connection stops new provider calls; it does not automatically delete every file previously downloaded from that provider.
+
+Cloud Computer capabilities do not imply a human remote-desktop app or a persistent signed-in browser.

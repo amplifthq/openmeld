@@ -1,9 +1,9 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { CrossPageHeader } from "#/components/app/cross-page-header";
 import {
 	APP_PAGE_FRAME_CLASS_NAME,
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
-} from "#/components/app/shell-layout";
+} from "@openmeld/ui/lib/page-frame";
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { CrossPageHeader } from "#/components/app/cross-page-header";
 import { getSession } from "#/lib/auth-session";
 
 const USER_CODE_REPLACE_PATTERN = /[^a-zA-Z0-9]/g;

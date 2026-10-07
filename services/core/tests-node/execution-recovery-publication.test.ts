@@ -8,11 +8,8 @@ import {
   encryptLarkPlatformCredential,
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "../src/remote-agent/application/lark-platform-credential-crypto";
-import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CRYPTO_KEY = btoa("0123456789abcdef0123456789abcdef");
 
@@ -46,8 +43,8 @@ describe("execution recovery originating publication", () => {
         })
       );
     vi.stubGlobal("fetch", fetchMock);
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(harness, "slack_workspace_tokens");
+    const harness = await createPostgresHarness();
+
     const delivery = {
       conversationKind: "slack",
       slackChannelId: "C123",
@@ -97,7 +94,7 @@ describe("execution recovery originating publication", () => {
       );
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -118,8 +115,8 @@ describe("execution recovery originating publication", () => {
       })
     );
     vi.stubGlobal("fetch", fetchMock);
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(harness, "slack_workspace_tokens");
+    const harness = await createPostgresHarness();
+
     const delivery = {
       conversationKind: "slack",
       deliveryId: "delivery-slack-original",
@@ -155,7 +152,7 @@ describe("execution recovery originating publication", () => {
       );
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -176,8 +173,8 @@ describe("execution recovery originating publication", () => {
       })
     );
     vi.stubGlobal("fetch", fetchMock);
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(harness, "slack_workspace_tokens");
+    const harness = await createPostgresHarness();
+
     const delivery = {
       conversationKind: "slack",
       deliveryId: "delivery-slack-ambiguous",
@@ -209,19 +206,19 @@ describe("execution recovery originating publication", () => {
       );
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("replays a retained Lark result with the original frozen publication UUID and locator", async () => {
-    const harness = createSqliteD1Harness();
-    applyLarkConnectionMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyLarkConnectionMigrations(harness);
     const encryptedAppSecret = await encryptLarkPlatformCredential({
       credential: "app-secret",
       credentialName: "app secret",
       cryptoKey: CRYPTO_KEY,
     });
-    seedLarkConnection(harness, encryptedAppSecret);
+    await seedLarkConnection(harness, encryptedAppSecret);
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -290,14 +287,14 @@ describe("execution recovery originating publication", () => {
       expect(publishBody.uuid).toBe(delivery.providerPublicationIdempotencyKey);
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a different caller surface before connector I/O", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const delivery = {
       conversationKind: "slack",
       slackChannelId: "C123",
@@ -325,31 +322,29 @@ describe("execution recovery originating publication", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function applyLarkConnectionMigrations(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "INSERT INTO users (id) VALUES ('user_1')" });
-  harness.run({ sql: "INSERT INTO organizations (id) VALUES ('org_1')" });
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_channel_connections"
-  );
+async function applyLarkConnectionMigrations(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, \"name\", \"email\") VALUES ('user_1', 'Test User', ('user_1')::text || '@example.com')",
+  });
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org_1\', \'Test Organization\', (\'org_1\')::text, 1700000000000)',
+  });
 }
 
-function seedLarkConnection(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedLarkConnection(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   encryptedAppSecret: string
-): void {
-  harness.run({
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_connections (
+): Promise<void> {
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" (
         connection_id, organization_id, provider, app_id, tenant_key,
         bot_open_id, bot_name, transport, status, installed_by_user_id,
         permission_bundle_version, granted_capability_groups_json,
@@ -363,15 +358,15 @@ function seedLarkConnection(
       )
     `,
   });
-  harness.run({
-    params: [encryptedAppSecret, LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION],
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_credentials (
+  await harness.query({
+    values: [encryptedAppSecret, LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION],
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_credentials" (
         connection_id, encrypted_app_secret, encrypted_verification_token,
         encrypted_event_encrypt_key, credential_format_version,
         created_at_ms, updated_at_ms
       ) VALUES (
-        'connection_lark_test', ?, NULL, NULL, ?, 1000, 1000
+        'connection_lark_test', $1, NULL, NULL, $2, 1000, 1000
       )
     `,
   });

@@ -25,8 +25,9 @@ import type { AppShellSection } from "./shell-layout";
 vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
+const SEARCH_MENU_ITEM_PATTERN = /Search/;
 const ACME_ORGANIZATION_NAME_PATTERN = /Acme/;
-const CHAT_ATTENTION_LABEL = /Spaces, Needs action, 106/;
+const CHAT_ATTENTION_LABEL = /Spaces, Priority attention, 106/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
@@ -225,14 +226,20 @@ const FELIX_MENU_ITEM_NAME = /Felix/;
 const FELIX_ACCOUNT_MENU_ITEM_NAME = /Felix.*felix@example\.com/;
 const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
-const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = ["Inbox", "Spaces", "Team"] as const;
 
-const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
-
 describe("AppOuterRail", () => {
 	beforeEach(() => {
+		// jsdom does not load images. Model the browser's cached-image contract
+		// so assertions can inspect the real shared Avatar instead of mocking it.
+		vi.stubGlobal(
+			"Image",
+			class {
+				complete = true;
+				naturalWidth = 96;
+			}
+		);
 		vi.stubGlobal(
 			"matchMedia",
 			vi.fn((media: string) => ({
@@ -327,50 +334,28 @@ describe("AppOuterRail", () => {
 
 	afterEach(() => {
 		cleanup();
+		localStorage.removeItem("openmeld.appearance.sidebar-shortcuts");
 		rememberClientSidebarState("outer", { tier: "expanded", width: "9rem" });
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
 	});
 
-	it("places account, Settings, and theme controls in the footer", () => {
+	it("keeps account actions in the user menu instead of separate rail utilities", () => {
 		renderRail();
-		const settings = screen.getByRole("button", { name: "Settings" });
-		const footer = settings.closest("[data-sidebar=footer]") as HTMLElement;
-		expect(
-			within(footer).getByRole("button", { name: USER_MENU_PATTERN })
-		).toBeTruthy();
-		expect(
-			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN })
-		).toBeTruthy();
-		expect(
-			within(footer).queryByRole("button", {
-				name: TOGGLE_TRIGGER_NAME_PATTERN,
-			})
-		).toBeNull();
-	});
-
-	it("centers equal-sized utility targets in the collapsed rail", () => {
-		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
-		renderRail({ tier: "expanded", width: "9rem" });
-
 		const footer = screen
 			.getByTestId("app-outer-rail")
 			.querySelector('[data-sidebar="footer"]') as HTMLElement;
-		const utilityMenu = within(footer).getByRole("list", {
-			name: "App utilities",
-		});
-		expect(utilityMenu.className).toContain("mx-auto");
-		expect(utilityMenu.className).toContain("w-9");
-
-		for (const control of [
-			within(footer).getByRole("button", {
-				name: "Search or run a command",
-			}),
-			within(footer).getByRole("button", { name: "Settings" }),
-			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN }),
-			within(footer).getByRole("button", { name: USER_MENU_PATTERN }),
-		]) {
-			expect(control.className).toContain("size-9");
+		expect(within(footer).getAllByRole("button")).toHaveLength(1);
+		fireEvent.click(
+			within(footer).getByRole("button", { name: USER_MENU_PATTERN })
+		);
+		const menu = screen.getByRole("menu");
+		expect(
+			within(menu).getByRole("menuitem", { name: "Settings" })
+		).toBeTruthy();
+		for (const name of ["Light", "Dark", "System"]) {
+			fireEvent.click(within(menu).getByRole("menuitemradio", { name }));
+			expect(screen.getByRole("menu")).toBe(menu);
 		}
 	});
 
@@ -445,9 +430,6 @@ describe("AppOuterRail", () => {
 	it("keeps fixed navigation visible when the middle list is collapsed", () => {
 		rememberClientSidebarState("outer", { tier: "hidden", width: "308px" });
 		renderRail();
-		expect(screen.getByTestId("app-outer-rail").className).toContain(
-			"w-[4.75rem]"
-		);
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(
 			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
@@ -458,11 +440,10 @@ describe("AppOuterRail", () => {
 		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
 		renderRail({ tier: "expanded", width: "9rem" });
 
-		for (const label of ["Inbox", "Spaces", "Team", "Settings"]) {
-			const link = screen.getByRole(label === "Settings" ? "button" : "link", {
+		for (const label of ["Inbox", "Spaces", "Team"]) {
+			const link = screen.getByRole("link", {
 				name: label,
 			});
-			expect(link.getAttribute("data-slot")).toBe("tooltip-trigger");
 			expect(link.getAttribute("title")).toBeNull();
 		}
 
@@ -585,40 +566,17 @@ describe("AppOuterRail", () => {
 		expect(appSectionLabels).toEqual(PRIMARY_RAIL_LABELS);
 	});
 
-	it("places Inbox in primary navigation and search in the footer", () => {
+	it("opens command search from the account menu", async () => {
 		renderRail();
-		const rail = screen.getByTestId("app-outer-rail");
-		const footer = rail.querySelector('[data-sidebar="footer"]') as HTMLElement;
-		const utilityMenu = within(footer).getByRole("list", {
-			name: "App utilities",
-		});
-		expect(
-			within(
-				rail.querySelector(
-					'[data-slot="main-sidebar-navigation"]'
-				) as HTMLElement
-			)
-				.getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
-				.getAttribute("href")
-		).toBe("/o/acme/inbox");
-		expect(
-			(
-				within(footer).getByRole("button", {
-					name: "Search or run a command",
-				}) as HTMLButtonElement
-			).disabled
-		).toBe(false);
-		expect(footer.querySelectorAll('[data-sidebar="menu"]')).toHaveLength(1);
-		for (const control of [
-			within(footer).getByRole("button", {
-				name: "Search or run a command",
-			}),
-			within(footer).getByRole("button", { name: "Settings" }),
-			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN }),
-			within(footer).getByRole("button", { name: USER_MENU_PATTERN }),
-		]) {
-			expect(control.closest('[data-sidebar="menu"]')).toBe(utilityMenu);
-		}
+		const openCommandCenter = vi.fn();
+		window.addEventListener("openmeld:command-center", openCommandCenter);
+		fireEvent.click(screen.getByRole("button", { name: USER_MENU_PATTERN }));
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: SEARCH_MENU_ITEM_PATTERN })
+		);
+		expect(openCommandCenter).toHaveBeenCalledOnce();
+		await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+		window.removeEventListener("openmeld:command-center", openCommandCenter);
 	});
 
 	it("separates fixed application navigation from the contextual list", () => {
@@ -681,7 +639,7 @@ describe("AppOuterRail", () => {
 		renderRail();
 		expect(
 			await screen.findByRole("link", {
-				name: "Spaces, Needs action, 5 unread messages",
+				name: "Spaces, Priority attention, 5 unread messages",
 			})
 		).toBeTruthy();
 	});
@@ -716,7 +674,7 @@ describe("AppOuterRail", () => {
 		).toBeNull();
 	});
 
-	it("uses complete Chat counts and keeps read actions red", async () => {
+	it("uses complete Chat counts and keeps unresolved actions visible", async () => {
 		chatCounts = {
 			chatUnreadCount: 106,
 			chatUnresolvedActionCount: 1,
@@ -1079,8 +1037,17 @@ describe("AppOuterRail", () => {
 		});
 	});
 
-	it("does not restore a stale session avatar after the canonical avatar was removed", () => {
+	it.each([
+		true,
+		false,
+	])("keeps the bootstrap avatar only while its canonical read is pending (%s)", (pending) => {
 		const staleSessionAvatar = "https://lh3.googleusercontent.com/stale-photo";
+		if (pending) {
+			useAccountAvatarMock.mockReturnValue({
+				data: undefined,
+				isPending: true,
+			});
+		}
 		appOrganization = {
 			activeOrganization: null,
 			currentOrganization: {
@@ -1116,10 +1083,16 @@ describe("AppOuterRail", () => {
 		const personalAvatar = screen.getByTestId(
 			"personal-workspace-human-profile-avatar"
 		);
-		expect(personalAvatar.querySelector("img")).toBeNull();
-		expect(personalAvatar.getAttribute("style")).not.toContain(
-			staleSessionAvatar
-		);
+		if (pending) {
+			expect(personalAvatar.querySelector("img")?.getAttribute("src")).toBe(
+				staleSessionAvatar
+			);
+		} else {
+			expect(personalAvatar.querySelector("img")).toBeNull();
+			expect(personalAvatar.getAttribute("style")).not.toContain(
+				staleSessionAvatar
+			);
+		}
 	});
 
 	it("opens organization management for the current workspace", async () => {
@@ -1137,10 +1110,9 @@ describe("AppOuterRail", () => {
 		});
 	});
 
-	it("opens Settings from the footer menu and keeps its shortcut", async () => {
+	it("opens Settings from the footer menu", async () => {
 		renderRail();
 
-		const railSettingsButton = screen.getByRole("button", { name: "Settings" });
 		fireEvent.click(
 			screen.getByRole("button", { name: "Open user menu for Felix" })
 		);
@@ -1158,7 +1130,6 @@ describe("AppOuterRail", () => {
 				resetScroll: false,
 			});
 		});
-		expect(railSettingsButton).toBeTruthy();
 		const navigation = navigateMock.mock.calls.at(-1)?.[0];
 		expect(navigation.search({ view: "needs-review" })).toEqual({
 			view: "needs-review",
@@ -1706,26 +1677,13 @@ describe("AppOuterRail", () => {
 		expect(rail.getAttribute("data-state")).toBe("expanded");
 	});
 
-	it("keeps the app section active state on route matches during navigation intent", () => {
+	it("keeps the route selection when opening the account menu", () => {
 		appShellSection = "people";
-		const rendered = renderRail();
-
+		renderRail();
 		const teamLink = screen.getByRole("link", { name: "Team" });
-		const settingsButton = screen.getByRole("button", { name: "Settings" });
-
+		fireEvent.click(screen.getByRole("button", { name: USER_MENU_PATTERN }));
+		expect(screen.getByRole("menu")).toBeTruthy();
 		expect(teamLink.getAttribute("aria-current")).toBe("page");
-		expect(settingsButton.getAttribute("aria-current")).toBeNull();
-
-		fireEvent.pointerDown(settingsButton, { button: 0 });
-
-		expect(teamLink.getAttribute("aria-current")).toBe("page");
-		expect(settingsButton.getAttribute("aria-current")).toBeNull();
-
-		appShellSection = "settings";
-		rendered.rerender(buildRailElement());
-
-		expect(teamLink.getAttribute("aria-current")).toBeNull();
-		expect(settingsButton.getAttribute("aria-current")).toBe("page");
 	});
 
 	it("derives direct, back, and forward selection from route matches", () => {
@@ -1774,6 +1732,77 @@ describe("AppOuterRail", () => {
 			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
 		).toBe("page");
 	});
+	it.each([
+		["Agents", "/o/acme/agents", "agents", "Team", "Agents"],
+		["Plugins", "/o/acme/plugins", "plugins", "Team", "Plugins"],
+		["Skills", "/o/acme/skills", "skills", "Team", "Skills"],
+		["Files", "/o/acme/files", "files", "Team", "Files"],
+		["Routines", "/o/acme/routines", "people", "Team", "Routines"],
+		[
+			"Direct messages",
+			"/o/acme/spaces?view=messages",
+			"space",
+			"Spaces",
+			"DMs",
+		],
+		["Discover", "/o/acme/spaces?view=discover", "space", "Spaces", "Discover"],
+	] as const)("pins %s without navigating, restores it, and selects only the pinned destination", async (label, path, section, parent, sidebarLabel) => {
+		const view = renderRail();
+		fireEvent.keyDown(screen.getByRole("link", { name: parent }), {
+			key: "ArrowDown",
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: `Pin ${label} to sidebar` })
+		);
+		expect(navigateMock).not.toHaveBeenCalled();
+		expect(
+			within(screen.getByRole("navigation", { name: "Pinned shortcuts" }))
+				.getByRole("link", { name: sidebarLabel })
+				.getAttribute("href")
+		).toBe(path);
+		view.unmount();
+		const url = new URL(path, "http://localhost");
+		routerLocation = { pathname: url.pathname, searchStr: url.search };
+		appShellSection = section;
+		renderRail();
+		expect(
+			screen
+				.getByRole("link", { name: sidebarLabel })
+				.getAttribute("aria-current")
+		).toBe("page");
+		expect(
+			screen.getByRole("link", { name: parent }).getAttribute("aria-current")
+		).toBeNull();
+		fireEvent.keyDown(screen.getByRole("link", { name: parent }), {
+			key: "ArrowDown",
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: `Unpin ${label} from sidebar` })
+		);
+		expect(
+			screen.queryByRole("navigation", { name: "Pinned shortcuts" })
+		).toBeNull();
+		expect(
+			screen.getByRole("link", { name: parent }).getAttribute("aria-current")
+		).toBe("page");
+	});
+	it("hides Discover in personal workspaces without forgetting its saved pin", async () => {
+		window.localStorage.setItem(
+			"openmeld.appearance.sidebar-shortcuts",
+			"discover"
+		);
+		appOrganization.currentOrganization.isPersonal = true;
+		renderRail();
+		fireEvent.keyDown(screen.getByRole("link", { name: "Spaces" }), {
+			key: "ArrowDown",
+		});
+		await screen.findByRole("link", { name: "Direct messages" });
+		expect(screen.queryByRole("link", { name: "Discover" })).toBeNull();
+		expect(
+			window.localStorage.getItem("openmeld.appearance.sidebar-shortcuts")
+		).toBe("discover");
+	});
+
 	it("keeps Computers out of the main app rail", () => {
 		renderRail();
 

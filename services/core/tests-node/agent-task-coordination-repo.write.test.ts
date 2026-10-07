@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildAgentTaskKey } from "@openmeld/schemas";
 import type {
   AgentTaskContinuation,
@@ -9,7 +10,7 @@ import {
   cancelAgentDelegation,
   createAgentDelegation,
   readAgentDelegation,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import {
   claimReadyAgentTaskCompletionSubscription,
   listAgentTaskCompletionSubscriptionsNeedingEnqueue,
@@ -22,14 +23,10 @@ import {
   registerAgentTaskCompletionSubscription,
   registerManualTaskSummaryRecovery,
   settleAgentTaskCompletionSubscription,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CHILD_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000001";
-
 const childTask: AgentTaskHandle = {
   kind: "space_wake",
   sourceClientMessageId: "center-agent-wake-1",
@@ -37,14 +34,17 @@ const childTask: AgentTaskHandle = {
   targetProfileId: CHILD_PROFILE_ID,
   v: 1,
 };
-
 const parentTask: AgentTaskHandle = {
   deliveryId: "delivery-parent-1",
   kind: "native_delivery",
   v: 1,
 };
-
-const continuation: Extract<AgentTaskContinuation, { kind: "resume_agent" }> = {
+const continuation: Extract<
+  AgentTaskContinuation,
+  {
+    kind: "resume_agent";
+  }
+> = {
   delegationId: "delegation-1",
   instruction: "Summarize the completed child task for the requester.",
   kind: "resume_agent",
@@ -52,10 +52,9 @@ const continuation: Extract<AgentTaskContinuation, { kind: "resume_agent" }> = {
   spaceId: "space-1",
   threadContext: null,
 };
-
 describe("Agent task coordination repo", () => {
   it("claims a fresh manual summary once and preserves the old subscription", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await registerAgentTaskCompletionSubscription({
         completionCondition: "terminal",
@@ -204,11 +203,11 @@ describe("Agent task coordination repo", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("does not release a continuation when a guarded terminal write finds a conflicting outcome", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       const subscription = await registerAgentTaskCompletionSubscription({
         completionCondition: "terminal",
@@ -229,10 +228,10 @@ describe("Agent task coordination repo", () => {
         publishedSignalId: "signal-existing-success",
         status: "succeeded" as const,
       };
-      await harness.db
-        .prepare(
-          `
-            INSERT INTO agent_task_terminal_outcomes (
+      await harness.db.query({
+        ...{
+          text: `
+            INSERT INTO "openmeld"."agent_task_terminal_outcomes" (
               task_key,
               task_handle_json,
               status,
@@ -241,20 +240,20 @@ describe("Agent task coordination repo", () => {
               occurred_at_ms,
               observed_at_ms
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `
-        )
-        .bind(
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `,
+          values: [],
+        },
+        values: [
           buildAgentTaskKey(childTask),
           JSON.stringify(childTask),
           existingOutcome.status,
           existingOutcome.eventId,
           JSON.stringify(existingOutcome),
           existingOutcome.occurredAtMs,
-          120
-        )
-        .run();
-
+          120,
+        ],
+      });
       const result = await recordAgentTaskTerminalOutcomeIfMatching({
         db: harness.db,
         nowMs: 130,
@@ -267,7 +266,6 @@ describe("Agent task coordination repo", () => {
         },
         task: childTask,
       });
-
       expect(result).toEqual({
         matches: false,
         outcome: existingOutcome,
@@ -279,16 +277,17 @@ describe("Agent task coordination repo", () => {
         })
       ).resolves.toMatchObject({ state: "pending" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("settles only needs-attention subscriptions from a nonterminal observation", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       const taskWatchContinuation: Extract<
         AgentTaskContinuation,
-        { kind: "resume_task_watch" }
+        {
+          kind: "resume_task_watch";
+        }
       > = {
         instruction: "Help the requester resolve the task blocker.",
         kind: "resume_task_watch",
@@ -319,7 +318,6 @@ describe("Agent task coordination repo", () => {
         subscriptionId: "subscription-terminal-1",
         watchedTask: childTask,
       });
-
       await expect(
         recordAgentTaskNeedsAttentionObservation({
           db: harness.db,
@@ -357,16 +355,17 @@ describe("Agent task coordination repo", () => {
         state: "pending",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("settles a needs-attention watch registered after the durable observation exactly once", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       const taskWatchContinuation: Extract<
         AgentTaskContinuation,
-        { kind: "resume_task_watch" }
+        {
+          kind: "resume_task_watch";
+        }
       > = {
         instruction: "Help the requester resolve the task blocker.",
         kind: "resume_task_watch",
@@ -381,7 +380,6 @@ describe("Agent task coordination repo", () => {
         occurredAtMs: 1000,
         status: "needs_attention" as const,
       };
-
       await expect(
         recordAgentTaskNeedsAttentionObservation({
           db: harness.db,
@@ -392,7 +390,6 @@ describe("Agent task coordination repo", () => {
       ).resolves.toMatchObject({
         newlyReadySubscriptionIds: [],
       });
-
       const firstRegistration = await registerAgentTaskCompletionSubscription({
         completionCondition: "needs_attention",
         continuation: taskWatchContinuation,
@@ -408,7 +405,6 @@ describe("Agent task coordination repo", () => {
         outcome: observation,
         state: "ready",
       });
-
       await expect(
         recordAgentTaskNeedsAttentionObservation({
           db: harness.db,
@@ -434,12 +430,11 @@ describe("Agent task coordination repo", () => {
         })
       ).resolves.toEqual(firstRegistration);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("settles a registered subscription exactly once from a terminal event", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await expect(
         registerAgentTaskCompletionSubscription({
@@ -454,7 +449,6 @@ describe("Agent task coordination repo", () => {
           watchedTask: childTask,
         })
       ).resolves.toMatchObject({ state: "pending" });
-
       await expect(
         recordAgentTaskTerminalOutcome({
           db: harness.db,
@@ -471,7 +465,6 @@ describe("Agent task coordination repo", () => {
       ).resolves.toMatchObject({
         newlyReadySubscriptionIds: ["subscription-1"],
       });
-
       await expect(
         recordAgentTaskTerminalOutcome({
           db: harness.db,
@@ -486,7 +479,6 @@ describe("Agent task coordination repo", () => {
           task: childTask,
         })
       ).resolves.toMatchObject({ newlyReadySubscriptionIds: [] });
-
       await expect(
         readAgentTaskCompletionSubscription({
           db: harness.db,
@@ -501,12 +493,11 @@ describe("Agent task coordination repo", () => {
         state: "ready",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("settles immediately when the exact task was already terminal", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await recordAgentTaskTerminalOutcome({
         db: harness.db,
@@ -520,7 +511,6 @@ describe("Agent task coordination repo", () => {
         },
         task: childTask,
       });
-
       await expect(
         registerAgentTaskCompletionSubscription({
           completionCondition: "failed",
@@ -538,12 +528,11 @@ describe("Agent task coordination repo", () => {
         state: "ready",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("settles without continuation when the terminal outcome does not match", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await registerAgentTaskCompletionSubscription({
         completionCondition: "succeeded",
@@ -556,7 +545,6 @@ describe("Agent task coordination repo", () => {
         subscriptionId: "subscription-condition-not-met",
         watchedTask: childTask,
       });
-
       await expect(
         recordAgentTaskTerminalOutcome({
           db: harness.db,
@@ -571,7 +559,6 @@ describe("Agent task coordination repo", () => {
           task: childTask,
         })
       ).resolves.toMatchObject({ newlyReadySubscriptionIds: [] });
-
       await expect(
         readAgentTaskCompletionSubscription({
           db: harness.db,
@@ -582,12 +569,11 @@ describe("Agent task coordination repo", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("claims and settles one continuation without duplicate execution", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await registerAgentTaskCompletionSubscription({
         completionCondition: "terminal",
@@ -612,7 +598,6 @@ describe("Agent task coordination repo", () => {
         },
         task: childTask,
       });
-
       await expect(
         claimReadyAgentTaskCompletionSubscription({
           claimId: "claim-1",
@@ -665,7 +650,6 @@ describe("Agent task coordination repo", () => {
           subscriptionId: "subscription-3",
         })
       ).resolves.toBeNull();
-
       await expect(
         claimReadyAgentTaskCompletionSubscription({
           claimId: "claim-3",
@@ -678,7 +662,6 @@ describe("Agent task coordination repo", () => {
         claimId: "claim-3",
         continuationIdempotencyKey: "agent-task-continuation:subscription-3",
       });
-
       await expect(
         settleAgentTaskCompletionSubscription({
           claimId: "claim-3",
@@ -698,12 +681,11 @@ describe("Agent task coordination repo", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lists ready and expired claims for durable continuation redrive", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       for (const subscriptionId of [
         "subscription-ready",
@@ -749,7 +731,6 @@ describe("Agent task coordination repo", () => {
         nowMs: 1200,
         subscriptionId: "subscription-claimed",
       });
-
       await expect(
         listAgentTaskCompletionSubscriptionsNeedingEnqueue({
           db: harness.db,
@@ -765,12 +746,11 @@ describe("Agent task coordination repo", () => {
         })
       ).resolves.toEqual(["subscription-ready", "subscription-claimed"]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("settles direct-report subscriptions without creating continuation work", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await registerAgentTaskCompletionSubscription({
         completionCondition: "terminal",
@@ -795,7 +775,6 @@ describe("Agent task coordination repo", () => {
         },
         task: childTask,
       });
-
       await expect(
         readAgentTaskCompletionSubscription({
           db: harness.db,
@@ -806,12 +785,11 @@ describe("Agent task coordination repo", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("accepts provider event ids reused by different exact tasks", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const otherChildTask: AgentTaskHandle = {
       ...childTask,
       sourceClientMessageId: "center-agent-wake-2",
@@ -846,12 +824,11 @@ describe("Agent task coordination repo", () => {
         ])
       ).resolves.toHaveLength(2);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not reject terminal evidence because a provider clock is ahead", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await expect(
         recordAgentTaskTerminalOutcome({
@@ -870,12 +847,11 @@ describe("Agent task coordination repo", () => {
         outcome: { eventId: "terminal-event-clock-skew" },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("projects one exact child terminal outcome into its delegation", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await expect(
         createAgentDelegation({
@@ -911,7 +887,6 @@ describe("Agent task coordination repo", () => {
       ).resolves.toMatchObject({
         children: [{ state: "active" }],
       });
-
       await recordAgentTaskTerminalOutcome({
         db: harness.db,
         nowMs: 1100,
@@ -924,7 +899,6 @@ describe("Agent task coordination repo", () => {
         },
         task: childTask,
       });
-
       await expect(
         readAgentDelegation({
           db: harness.db,
@@ -940,12 +914,11 @@ describe("Agent task coordination repo", () => {
         state: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("cancels an undispatched delegation and its active child", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     try {
       await createAgentDelegation({
         children: [
@@ -964,7 +937,6 @@ describe("Agent task coordination repo", () => {
         parentTask,
         spaceId: "space-1",
       });
-
       await expect(
         cancelAgentDelegation({
           db: harness.db,
@@ -976,12 +948,11 @@ describe("Agent task coordination repo", () => {
         state: "cancelled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("readies exactly one continuation after every child is terminal", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const arranged = buildBarrierChildren("all-terminal");
     try {
       await arrangeBarrierDelegation({
@@ -990,7 +961,6 @@ describe("Agent task coordination repo", () => {
         db: harness.db,
         delegationId: "delegation-all-terminal",
       });
-
       await expect(
         recordAgentTaskTerminalOutcome({
           db: harness.db,
@@ -1005,7 +975,6 @@ describe("Agent task coordination repo", () => {
           subscriptionId: arranged[0].subscriptionId,
         })
       ).resolves.toMatchObject({ state: "pending" });
-
       await expect(
         recordAgentTaskTerminalOutcome({
           db: harness.db,
@@ -1035,12 +1004,11 @@ describe("Agent task coordination repo", () => {
         state: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reconstructs an all-terminal barrier when outcomes arrived before subscriptions", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const arranged = buildBarrierChildren("late-all-terminal");
     const delegationId = "delegation-late-all-terminal";
     try {
@@ -1072,7 +1040,6 @@ describe("Agent task coordination repo", () => {
           task: child.task,
         });
       }
-
       for (const child of arranged) {
         await registerAgentTaskCompletionSubscription({
           completionCondition: "terminal",
@@ -1086,7 +1053,6 @@ describe("Agent task coordination repo", () => {
           watchedTask: child.task,
         });
       }
-
       await expect(
         listAgentTaskCompletionSubscriptionsNeedingEnqueue({
           db: harness.db,
@@ -1101,12 +1067,11 @@ describe("Agent task coordination repo", () => {
         })
       ).resolves.toMatchObject({ state: "settled" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("uses the first successful child as the one-shot barrier winner", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const arranged = buildBarrierChildren("first-success");
     try {
       await arrangeBarrierDelegation({
@@ -1134,12 +1099,11 @@ describe("Agent task coordination repo", () => {
         newlyReadySubscriptionIds: [arranged[1].subscriptionId],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("uses the first authoritative failure as the one-shot barrier winner", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const arranged = buildBarrierChildren("on-failure");
     try {
       await arrangeBarrierDelegation({
@@ -1167,12 +1131,11 @@ describe("Agent task coordination repo", () => {
         newlyReadySubscriptionIds: [arranged[1].subscriptionId],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("creates one independent continuation for each terminal child", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const arranged = buildBarrierChildren("on-each");
     try {
       await arrangeBarrierDelegation({
@@ -1201,12 +1164,11 @@ describe("Agent task coordination repo", () => {
         })
       ).resolves.toEqual(arranged.map((child) => child.subscriptionId).sort());
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("settles a fallback result registered after the primary already succeeded", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const delegationId = "delegation-late-fallback-result";
     const primaryTask = {
       ...childTask,
@@ -1290,7 +1252,6 @@ describe("Agent task coordination repo", () => {
         subscriptionId: "subscription-late-fallback-result",
         watchedTask: fallbackTask,
       });
-
       await expect(
         readAgentDelegation({ db: harness.db, delegationId })
       ).resolves.toMatchObject({
@@ -1306,16 +1267,17 @@ describe("Agent task coordination repo", () => {
         })
       ).resolves.toMatchObject({ state: "settled" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("readies a general watch when its observer also owns the child delegation", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const delegationId = "delegation-with-general-watch";
     const taskWatchContinuation: Extract<
       AgentTaskContinuation,
-      { kind: "resume_task_watch" }
+      {
+        kind: "resume_task_watch";
+      }
     > = {
       instruction: "Continue after the delegated child finishes.",
       kind: "resume_task_watch",
@@ -1369,7 +1331,6 @@ describe("Agent task coordination repo", () => {
         subscriptionId: "subscription-general-watch-for-delegated-child",
         watchedTask: childTask,
       });
-
       await expect(
         recordAgentTaskTerminalOutcome({
           db: harness.db,
@@ -1393,16 +1354,17 @@ describe("Agent task coordination repo", () => {
         state: "ready",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("readies a late general watch for an already-terminal delegated child", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const delegationId = "delegation-with-late-general-watch";
     const taskWatchContinuation: Extract<
       AgentTaskContinuation,
-      { kind: "resume_task_watch" }
+      {
+        kind: "resume_task_watch";
+      }
     > = {
       instruction: "Continue after confirming the delegated child finished.",
       kind: "resume_task_watch",
@@ -1451,7 +1413,6 @@ describe("Agent task coordination repo", () => {
         outcome: buildOutcome("delegated-child-already-complete", "succeeded"),
         task: childTask,
       });
-
       await expect(
         registerAgentTaskCompletionSubscription({
           completionCondition: "terminal",
@@ -1469,15 +1430,16 @@ describe("Agent task coordination repo", () => {
         state: "ready",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("cancels a claimed general watch continuation when its observer is stopped", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const taskWatchContinuation: Extract<
       AgentTaskContinuation,
-      { kind: "resume_task_watch" }
+      {
+        kind: "resume_task_watch";
+      }
     > = {
       instruction: "Continue after the parallel task.",
       kind: "resume_task_watch",
@@ -1511,7 +1473,6 @@ describe("Agent task coordination repo", () => {
         nowMs: 1101,
         subscriptionId: "subscription-watch-parallel-1",
       });
-
       const stopped = await recordAgentTaskTerminalOutcome({
         db: harness.db,
         nowMs: 1200,
@@ -1524,7 +1485,6 @@ describe("Agent task coordination repo", () => {
         },
         task: parentTask,
       });
-
       expect(stopped.cancelledChildTasks).toEqual([]);
       expect(stopped.cancelledContinuationIdempotencyKeys).toEqual([
         "agent-task-continuation:subscription-watch-parallel-1",
@@ -1539,15 +1499,16 @@ describe("Agent task coordination repo", () => {
         state: "cancelled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("refuses a new general watch after its observer was already stopped", async () => {
-    const harness = createCoordinationHarness();
+    const harness = await createCoordinationHarness();
     const taskWatchContinuation: Extract<
       AgentTaskContinuation,
-      { kind: "resume_task_watch" }
+      {
+        kind: "resume_task_watch";
+      }
     > = {
       instruction: "Continue after the parallel task.",
       kind: "resume_task_watch",
@@ -1569,7 +1530,6 @@ describe("Agent task coordination repo", () => {
         },
         task: parentTask,
       });
-
       await expect(
         registerAgentTaskCompletionSubscription({
           completionCondition: "terminal",
@@ -1586,24 +1546,14 @@ describe("Agent task coordination repo", () => {
         state: "cancelled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-function createCoordinationHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationForTable(harness, "agent_task_terminal_outcomes");
-  applyDrizzleMigrationForTable(
-    harness,
-    "agent_task_needs_attention_observations"
-  );
-  applyDrizzleMigrationForTable(harness, "agent_task_completion_subscriptions");
-  applyDrizzleMigrationForTable(harness, "agent_delegations");
-  applyDrizzleMigrationForTable(harness, "agent_delegation_children");
+async function createCoordinationHarness() {
+  const harness = await createPostgresHarness();
   return harness;
 }
-
 function buildBarrierChildren(label: string) {
   const buildChild = (index: number) => ({
     agentProfileId: `agt_00000000-0000-4000-8000-00000000000${index + 2}`,
@@ -1618,11 +1568,10 @@ function buildBarrierChildren(label: string) {
   });
   return [buildChild(0), buildChild(1)] as const;
 }
-
 async function arrangeBarrierDelegation(input: {
   barrier: "all_terminal" | "first_success" | "on_each_terminal" | "on_failure";
   children: ReturnType<typeof buildBarrierChildren>;
-  db: D1Database;
+  db: PostgresDatabase;
   delegationId: string;
 }): Promise<void> {
   await createAgentDelegation({
@@ -1662,7 +1611,6 @@ async function arrangeBarrierDelegation(input: {
     });
   }
 }
-
 function buildOutcome(eventId: string, status: "failed" | "succeeded") {
   return {
     errorCode: status === "failed" ? "task.failed" : null,

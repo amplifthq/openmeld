@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   centerAgentAiUsageRpcInputSchema,
   organizationAiUsageRpcInputSchema,
   remoteAiUsageWriteSchema,
@@ -10,13 +14,12 @@ import type {
   RemoteAiUsageWriteResponse,
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/application/anonymous-member-request";
-import { type CoreBindings, wakeEvidenceDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { enrichAiUsageExecutions } from "./ai-usage-execution-context";
 import { aiUsageDay, readAiUsageAllowance } from "./ai-usage-policy";
 import { queryAiUsage, recordAiUsage } from "./ai-usage-repository";
-
 // Only exposed on the trusted Remote Agent service-binding entrypoint.
 export async function rpcRecordRemoteAiUsage(
   env: CoreBindings,
@@ -54,7 +57,6 @@ export async function rpcRecordRemoteAiUsage(
   await recordAiUsage(db, record);
   return { status: "accepted" };
 }
-
 export async function rpcReadOrganizationAiUsage(
   env: CoreBindings,
   input: OrganizationAiUsageRpcInput
@@ -84,7 +86,6 @@ export async function rpcReadOrganizationAiUsage(
     usage: await queryAiUsage(usageInput),
   });
 }
-
 export async function rpcCenterAgentReadAiUsage(
   env: CoreBindings,
   input: CenterAgentAiUsageRpcInput
@@ -108,9 +109,8 @@ export async function rpcCenterAgentReadAiUsage(
     usage: await queryAiUsage(usageInput),
   });
 }
-
-function requireUsageDb(env: CoreBindings): D1Database {
-  const db = wakeEvidenceDb(env);
+function requireUsageDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "usage.store_unavailable",
@@ -120,7 +120,6 @@ function requireUsageDb(env: CoreBindings): D1Database {
   }
   return db;
 }
-
 function invalidUsageQuery() {
   return createCoreRpcHttpError({
     code: "invalid_payload",

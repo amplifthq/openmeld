@@ -1,14 +1,11 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { daemonServiceLaneSchema } from "@openmeld/schemas";
 import type {
   RuntimeCoordinatorExecutionRecord,
   SpaceDispatchTraceResponse,
 } from "@openmeld/schemas/types";
-import {
-  type CoreBindings,
-  localStateDb,
-  wakeEvidenceDb,
-} from "../lib/bindings";
-import { readRuntimeRegistryRecordByRuntimeId } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import type { CoreBindings } from "../lib/bindings";
+import { readRuntimeRegistryRecordByRuntimeId } from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import { readServiceConnectionIncidents } from "./service-connection-evidence-repo";
 
 // Time overlap is diagnostic correlation, never a cause or execution decision.
@@ -19,8 +16,8 @@ export async function readOwnerServiceConnectionTrace(input: {
   execution: RuntimeCoordinatorExecutionRecord | null;
 }): Promise<SpaceDispatchTraceResponse["serviceConnectionDiagnostics"]> {
   const execution = input.execution;
-  const registryDb = localStateDb(input.env);
-  const evidenceDb = wakeEvidenceDb(input.env);
+  const registryDb = getPostgresDatabase(input.env);
+  const evidenceDb = getPostgresDatabase(input.env);
   if (!(input.ownerUserId && execution && registryDb && evidenceDb)) {
     return undefined;
   }

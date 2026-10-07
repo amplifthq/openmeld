@@ -66,6 +66,36 @@ const largeValue = () => ({
   log: `${"first 🐈\n".repeat(11_000)}UNIQUE_MIDDLE_FAILURE${"last 🚀\n".repeat(11_000)}`,
 });
 
+it("recovers a forgotten result ID from authorized metadata without repeating the source call", async () => {
+  const f = await fixture();
+  await prepareRemoteAgentToolResult({
+    ...f,
+    toolName: "example",
+    value: largeValue(),
+  });
+  const recreated = createRemoteAgentReadToolResultDefinition(f);
+  const list = remoteAgentReadToolResultResponseSchema.parse(
+    await recreated.execute({})
+  );
+  expect(list.kind).toBe("list");
+  if (list.kind !== "list") {
+    throw new Error("Expected recoverable references");
+  }
+  expect(list.results).toHaveLength(1);
+  const reference = list.results[0];
+  if (!reference) {
+    throw new Error("Missing recovered reference");
+  }
+  expect(reference.toolName).toBe("example");
+  const result = await recreated.execute({
+    resultId: reference.resultId,
+    query: "UNIQUE_MIDDLE_FAILURE",
+  });
+  expect(JSON.stringify(result)).toContain("UNIQUE_MIDDLE_FAILURE");
+  f.authorize.mockRejectedValue(new Error("revoked"));
+  await expect(recreated.execute({})).rejects.toThrow("revoked");
+});
+
 describe("retained tool results", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -85,9 +115,16 @@ describe("retained tool results", () => {
     ).toBe(0);
   });
 
-  it("finds the middle error and reconstructs the exact Unicode JSON without repeating the original action", async () => {
+  it.each([
+    largeValue,
+    () => ({
+      status: "completed",
+      operationId: "write-once",
+      log: `${"first ".repeat(3000)}UNIQUE_MIDDLE_FAILURE${"last ".repeat(3500)}`,
+    }),
+  ])("finds omitted evidence and reconstructs exact JSON without repeating the action", async (makeValue) => {
     const f = await fixture();
-    const execute = vi.fn(async () => largeValue());
+    const execute = vi.fn(async () => makeValue());
     const raw = await execute();
     const displayed = await prepareRemoteAgentToolResult({
       ...f,
@@ -126,6 +163,18 @@ describe("retained tool results", () => {
     }
     expect(full).toBe(JSON.stringify(raw));
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-retain a bounded Unicode continuation page", async () => {
+    const f = await fixture();
+    const page = { text: "猫".repeat(12_000), nextOffset: null };
+    expect(
+      await prepareRemoteAgentToolResult({
+        ...f,
+        toolName: "openmeld_read_tool_result",
+        value: page,
+      })
+    ).toEqual(page);
   });
 
   it("does not disclose a guessed reference from a different execution even in the same audience", async () => {

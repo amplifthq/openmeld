@@ -16,6 +16,16 @@ export function executionAccessFixture(context: RemoteAgentCallbackContext) {
       remoteAgentExecutionAccessResponseSchema.parse({
         submissionId: context.submissionId,
         scope: resolveRemoteAgentExecutionScope(context),
+        ...(request.includeComputer
+          ? {
+              computer: {
+                id: "fixture-personal-computer",
+                ownerUserId: "fixture-human",
+                provider: "cloudflare",
+                createdAtMs: 1,
+              },
+            }
+          : {}),
       })
     );
   };

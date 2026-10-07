@@ -342,6 +342,7 @@ import { isSpaceCommandOutputHandledError } from "./space/command-output-handled
 import { runSpaceContract } from "./space/contract-command";
 import { runSpaceContractSet } from "./space/contract-set-command";
 import { normalizePublicationModeCliValue } from "./space/contract-set-options";
+import { runDirectMessage } from "./space/direct-message";
 import { registerSpaceFilesCommands } from "./space/files-registration";
 import {
   runSpaceGuideClear,
@@ -1329,6 +1330,8 @@ registerRoutinesCommands(program, {
       run: async (output) => {
         await runRoutinesCreate({
           ...output,
+          agentProfileId: opts.agent,
+          scope: opts.scope,
           cronExpression: opts.cron,
           dailyTime: opts.daily,
           instructions: opts.instructions,
@@ -1540,6 +1543,7 @@ registerProjectCommands(program, {
 });
 
 registerAgentActivityCommands(program, {
+  history: runAgentActivityHistory,
   context: runActivityContext,
   health: runActivityHealth,
   hook: runActivityHook,
@@ -1590,6 +1594,27 @@ program
 const computerCmd = program
   .command("computer")
   .description("Inspect and name computers in OpenMeld.");
+
+computerCmd
+  .command("cloud")
+  .description(
+    "Read your personal cloud Computer or run a file or command operation."
+  )
+  .option(
+    "--operation <json>",
+    "Computer operation: read, write, edit, list, or command. Commands require a stable invocationId and key."
+  )
+  .action(async (opts: { operation?: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["computer", "cloud"],
+      view,
+      run: async () => {
+        const { runCloudComputer } = await import("./commands/cloud-computer");
+        await runCloudComputer({ operation: opts.operation, view });
+      },
+    });
+  });
 
 computerCmd
   .command("disconnect")
@@ -3346,7 +3371,7 @@ withSpaceProfileOption(
     .description(
       "Read live Wake progress for this Space; use result or service trace after execution."
     )
-    .argument("<space>", "Space ID (64-character hex)")
+    .argument("<space>", "Space URL or 64-character Space ID")
     .option(
       "--client-message <client-message-id>",
       "Read progress for one client message instead of the active Space summary"
@@ -3362,17 +3387,23 @@ withSpaceProfileOption(
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "wake-progress"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceWakeProgress({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: String(space),
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         clientMessageId:
           normalizeOptionalString(opts.clientMessage) ?? undefined,
         sourceProfileId:
@@ -3393,7 +3424,7 @@ withSpaceProfileOption(
     .description(
       "Request Stop for one live Wake and report only the server-confirmed state."
     )
-    .argument("<space>", "Space ID (64-character hex)")
+    .argument("<space>", "Space URL or 64-character Space ID")
     .option(
       "--client-message <client-message-id>",
       "Select the Wake by client message ID"
@@ -3410,17 +3441,23 @@ withSpaceProfileOption(
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "wake-stop"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceWakeStop({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: String(space),
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         clientMessageId:
           normalizeOptionalString(opts.clientMessage) ?? undefined,
         sourceSignalId: normalizeOptionalString(opts.sourceSignal) ?? undefined,
@@ -3860,6 +3897,46 @@ withSpaceProfileOption(
 
 withSpaceProfileOption(
   spaceCmd
+    .command("dm")
+    .description(
+      "Open a Direct Message with a person or Agent, optionally sending a message."
+    )
+    .argument("<target-profile-id>", "Exact recipient Profile ID")
+    .argument("[text...]", "Message text")
+    .option("--stdin", "Read message text from stdin")
+    .option("--text-file <path>", "Read message text from a UTF-8 file")
+    .option("--wake", "Ask the recipient Agent to start work")
+    .option(
+      "--space <space-id>",
+      "Send to the exact Direct Message from an earlier receipt"
+    )
+    .option(
+      "--message-id <uuid>",
+      "Stable message ID; reuse it when retrying a send"
+    )
+    .option(
+      "--new-chat <uuid>",
+      "Create a separate Human–Center Agent chat; reuse the ID on retries"
+    )
+).action(async (targetProfileId, textParts, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  await runDirectMessage({
+    targetProfileId,
+    text: Array.isArray(textParts) ? textParts.join(" ") : "",
+    stdin: opts.stdin === true,
+    textFile: opts.textFile,
+    profile: cliOptions.profile,
+    baseUrl: cliOptions.gatewayUrl,
+    clientMessageId: opts.messageId,
+    spaceId: opts.space,
+    creationId: opts.newChat,
+    wake: opts.wake === true,
+    view: getGlobalViewOption(),
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
     .command("send")
     .description("Send one message to a Space.")
     .option(
@@ -3919,6 +3996,10 @@ withSpaceProfileOption(
       "--reply-to <signal-id>",
       "Reply into the thread of a message (creates the thread if it does not exist yet)"
     )
+    .option(
+      "--client-message <id>",
+      "Stable request ID for retrying or stopping this send before it starts"
+    )
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, textParts, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
@@ -3941,6 +4022,10 @@ withSpaceProfileOption(
     gatewayUrl: cliOptions.gatewayUrl,
     run: async () => {
       await runSpaceSend({
+        clientMessageId:
+          typeof opts.clientMessage === "string"
+            ? opts.clientMessage
+            : undefined,
         profile: cliOptions.profile,
         baseUrl: cliOptions.gatewayUrl,
         space: spaceValue,
@@ -4500,7 +4585,7 @@ withSpaceProfileOption(
   spaceCmd
     .command("result")
     .description("Read one formal dispatch result scoped to this space.")
-    .argument("[space]", "Space ID (64-character hex)")
+    .argument("[space]", "Space URL or 64-character Space ID")
     .option("--dispatch <dispatch-id>", "Lookup by dispatch ID")
     .option("--result-ref <result-ref>", "Lookup by dispatch result ref")
     .option("--json", "Print canonical JSON", false)
@@ -4520,17 +4605,23 @@ withSpaceProfileOption(
     throw createSpaceResultGuideError();
   }
 
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "result"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceResult({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: spaceValue,
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         ...(dispatchId ? { dispatchId } : {}),
         ...(resultRef ? { resultRef } : {}),
         password: cliOptions.password,
@@ -6102,5 +6193,6 @@ main().catch((error: unknown) => {
   process.exitCode = 1;
 });
 
+import { runAgentActivityHistory } from "./agent-activity/command";
 import { registerPluginCommands } from "./plugins/registration";
 import { resolveSpaceTaskSelection } from "./space/send-input";

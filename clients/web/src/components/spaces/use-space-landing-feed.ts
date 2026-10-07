@@ -61,10 +61,6 @@ const LIVE_RECONNECT_STATUS =
 const LIVE_RECONCILE_STALE_STATUS =
 	"Live updates couldn't check for missed messages. Retrying automatically...";
 const LIVE_RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000, 30_000] as const;
-// Grace window before a dropped stream is surfaced as "degraded". A blip that
-// reconnects within this window never flips the UI, killing the flash-on-every-
-// blip noise; only a sustained disconnect escalates to the visible status.
-const LIVE_DEGRADE_GRACE_MS = 2500;
 // Sub-idle cadence for the live-stream keepalive PING (the Space DO answers
 // PONG via setWebSocketAutoResponse) so the proxy-held connection chain never
 // goes idle and gets evicted — idle eviction surfaced as periodic Reconnecting.
@@ -86,7 +82,10 @@ type MutableRef<T> = {
 	current: T;
 };
 
-type ReconcileSignals = (incoming: readonly SignalEnvelope[]) => boolean;
+type ReconcileSignals = (
+	incoming: readonly SignalEnvelope[],
+	confirmedCursor: string | null
+) => boolean;
 
 type ReconcileFlight = {
 	feedIdentity: string;
@@ -119,10 +118,9 @@ async function reconcileFromRecentWindow(
 			spaceId: input.spaceId,
 			openMeldProfileId: input.openMeldProfileId,
 		});
-		if (input.applyReconciledSignals(snapshot.envelopes)) {
-			input.confirmedCatchUpCursorRef.current = getLatestSignalEnvelopeId(
-				snapshot.envelopes
-			);
+		const confirmedCursor = snapshot.envelopes.at(-1)?.id ?? null;
+		if (input.applyReconciledSignals(snapshot.envelopes, confirmedCursor)) {
+			input.confirmedCatchUpCursorRef.current = confirmedCursor;
 			input.markReconcileHealthy();
 		}
 	} catch (error) {
@@ -163,10 +161,10 @@ async function drainSpaceUpdatesFromAnchor(
 			input.markReconcileHealthy();
 			return;
 		}
-		if (!input.applyReconciledSignals(updates.signals)) {
+		const nextCursor = updates.signals.at(-1)?.id ?? null;
+		if (!input.applyReconciledSignals(updates.signals, nextCursor ?? cursor)) {
 			return;
 		}
-		const nextCursor = updates.signals.at(-1)?.id ?? null;
 		if (!nextCursor || nextCursor === cursor) {
 			console.warn("[openmeld.web.space.live_tail_catchup_stalled]", {
 				afterSignalId: cursor,
@@ -196,6 +194,7 @@ export function useSpaceLandingFeed(input: {
 	spaceId: string;
 	openMeldProfileId: string;
 	participationEnabled: boolean;
+	accessRejected?: boolean;
 	statusReady: boolean;
 	statusRefetch: () => Promise<unknown>;
 	membersRefetch: () => Promise<unknown>;
@@ -218,6 +217,7 @@ export function useSpaceLandingFeed(input: {
 		isError: boolean;
 		data?: {
 			envelopes: readonly SignalEnvelope[];
+			confirmedCursor?: string | null;
 		};
 	};
 }) {
@@ -238,17 +238,19 @@ export function useSpaceLandingFeed(input: {
 		feedIdentity,
 		signalId:
 			!input.history.isPending && input.history.isSuccess
-				? getLatestSignalEnvelopeId(input.history.data?.envelopes ?? [])
+				? (input.history.data?.confirmedCursor ?? null)
 				: null,
 	});
-	const { agentStreamProjections, handleAgentStreamFrame } =
-		useSpaceConversation({
-			initialAgentStreamPresences: input.initialAgentStreamPresences ?? [],
-			initialAgentStreams: input.initialAgentStreams,
-			liveConnectionEpoch: reconnectKey,
-			spaceId: input.spaceId,
-			openMeldProfileId: input.openMeldProfileId,
-		});
+	const {
+		agentStreamProjections,
+		handleAgentStreamFrame,
+		clearTransientStreams,
+	} = useSpaceConversation({
+		initialAgentStreamPresences: input.initialAgentStreamPresences ?? [],
+		initialAgentStreams: input.initialAgentStreams,
+		spaceId: input.spaceId,
+		openMeldProfileId: input.openMeldProfileId,
+	});
 
 	const statusRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
 		null
@@ -277,7 +279,6 @@ export function useSpaceLandingFeed(input: {
 	const reconnectKeyRef = useRef(0);
 	const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reconnectAttemptCountRef = useRef(0);
-	const degradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const liveStateRef = useRef<SpaceLiveState>("connecting");
 	const mountedRef = useRef(false);
 	// Wall-clock timestamp of the last inbound transport frame on the live
@@ -285,6 +286,7 @@ export function useSpaceLandingFeed(input: {
 	// proof the chain is still delivering). Seeded on open and read by the
 	// pong-watchdog; null means nothing has arrived on the current socket yet.
 	const lastInboundFrameTsRef = useRef<number | null>(null);
+	const probeLiveConnectionRef = useRef<(() => void) | null>(null);
 	// Whether the initial history seed has landed. The socket now connects on
 	// mount (in parallel with bootstrap), so onOpen must know if the timeline
 	// anchor exists yet without re-running the connection effect when it does.
@@ -322,7 +324,7 @@ export function useSpaceLandingFeed(input: {
 			feedIdentity,
 			signalId:
 				!input.history.isPending && input.history.isSuccess
-					? getLatestSignalEnvelopeId(input.history.data?.envelopes ?? [])
+					? (input.history.data?.confirmedCursor ?? null)
 					: null,
 		};
 		mountReconcileStartedIdentityRef.current = null;
@@ -366,7 +368,6 @@ export function useSpaceLandingFeed(input: {
 			return;
 		}
 		clearReconnectTimer(reconnectTimerRef);
-		clearReconnectTimer(degradeTimerRef);
 		reconnectAttemptCountRef.current = 0;
 		advanceReconnectKey();
 	}, [advanceReconnectKey, input.participationEnabled]);
@@ -389,6 +390,7 @@ export function useSpaceLandingFeed(input: {
 		async (afterSubscription = false): Promise<void> => {
 			const startIdentity = feedIdentityRef.current;
 			const startReconnectKey = reconnectKeyRef.current;
+			const subscribedAtStart = readySocketAttemptKeyRef.current;
 			const isCurrentReconcile = (): boolean =>
 				mountedRef.current &&
 				feedIdentityRef.current === startIdentity &&
@@ -397,7 +399,14 @@ export function useSpaceLandingFeed(input: {
 				if (!isCurrentReconcile()) {
 					return;
 				}
-				if (liveStateRef.current === "stale") {
+				if (
+					subscribedAtStart !== null &&
+					subscribedAtStart === readySocketAttemptKeyRef.current &&
+					readySocketAttemptKeyRef.current ===
+						currentSocketAttemptKeyRef.current &&
+					liveStateRef.current === "stale"
+				) {
+					liveStateRef.current = "connected";
 					setLiveState("connected");
 					setLiveErrorMessage(null);
 				}
@@ -406,11 +415,13 @@ export function useSpaceLandingFeed(input: {
 				if (!isCurrentReconcile()) {
 					return;
 				}
+				liveStateRef.current = "stale";
 				setLiveState("stale");
 				setLiveErrorMessage(LIVE_RECONCILE_STALE_STATUS);
 			};
 			const applyReconciledSignals = (
-				incoming: readonly SignalEnvelope[]
+				incoming: readonly SignalEnvelope[],
+				confirmedCursor: string | null
 			): boolean => {
 				if (!isCurrentReconcile()) {
 					// The feed switched Spaces/profiles while this reconcile was in
@@ -426,6 +437,7 @@ export function useSpaceLandingFeed(input: {
 				});
 				writeSpaceHistoryEnvelopesToCache({
 					envelopes: incoming,
+					confirmedCursor,
 					queryClient,
 					spaceId: input.spaceId,
 					openMeldProfileId: input.openMeldProfileId,
@@ -565,9 +577,9 @@ export function useSpaceLandingFeed(input: {
 			// The UI can believe it is live while the socket has silently gone
 			// half-open, so reconcile unconditionally on refocus to close any gap —
 			// independent of the visible liveState. Reconnect only as a follow-up
-			// when the socket itself looks unhealthy (degraded, or no inbound frame
-			// within the watchdog deadline), so a healthy tab is not needlessly torn
-			// down. reconcile never rejects (it catches internally); the catch here
+			// when the socket is degraded. An old inbound timestamp after suspension
+			// triggers a fresh probe, not immediate teardown. reconcile catches internally;
+			// the catch here
 			// is a defensive backstop only.
 			reconcileConversation().catch(() => undefined);
 
@@ -575,8 +587,10 @@ export function useSpaceLandingFeed(input: {
 			const isInboundStale =
 				lastInboundFrameTs === null ||
 				Date.now() - lastInboundFrameTs > WATCHDOG_DEADLINE_MS;
-			if (liveStateRef.current === "degraded" || isInboundStale) {
+			if (liveStateRef.current === "degraded") {
 				reconnectNow();
+			} else if (isInboundStale) {
+				probeLiveConnectionRef.current?.();
 			}
 		};
 		document.addEventListener("visibilitychange", onVisibilityChange);
@@ -667,13 +681,11 @@ export function useSpaceLandingFeed(input: {
 		lastInboundFrameTsRef.current = null;
 		clearWakeFinalOutcomeRefreshTimer(wakeFinalOutcomeRefreshTimerRef);
 		clearReconnectTimer(reconnectTimerRef);
-		clearReconnectTimer(degradeTimerRef);
 	}, [input.spaceId]);
 
 	useEffect(() => {
 		return () => {
 			clearReconnectTimer(reconnectTimerRef);
-			clearReconnectTimer(degradeTimerRef);
 			if (statusRefetchTimerRef.current) {
 				clearTimeout(statusRefetchTimerRef.current);
 			}
@@ -690,7 +702,8 @@ export function useSpaceLandingFeed(input: {
 		}
 
 		const incoming = input.history.data?.envelopes ?? [];
-		confirmedCatchUpCursorRef.current ??= getLatestSignalEnvelopeId(incoming);
+		confirmedCatchUpCursorRef.current ??=
+			input.history.data?.confirmedCursor ?? null;
 		const newSignals =
 			timelineEnvelopesRef.current.length > 0
 				? listNewSignals({
@@ -784,15 +797,16 @@ export function useSpaceLandingFeed(input: {
 
 	useEffect(() => {
 		if (!input.participationEnabled) {
+			if (input.accessRejected) {
+				clearTransientStreams();
+			}
 			currentSocketAttemptKeyRef.current = null;
 			readySocketAttemptKeyRef.current = null;
 			clearReconnectTimer(reconnectTimerRef);
-			clearReconnectTimer(degradeTimerRef);
 			setLiveState("connected");
 			setLiveErrorMessage(null);
 			return () => {
 				clearReconnectTimer(reconnectTimerRef);
-				clearReconnectTimer(degradeTimerRef);
 			};
 		}
 
@@ -809,6 +823,7 @@ export function useSpaceLandingFeed(input: {
 		let clearKeepaliveTimer: () => void = () => undefined;
 		const stopKeepalive = () => {
 			clearKeepaliveTimer();
+			probeLiveConnectionRef.current = null;
 			clearKeepaliveTimer = () => undefined;
 		};
 		const markSocketClosed = () => {
@@ -817,19 +832,6 @@ export function useSpaceLandingFeed(input: {
 			}
 		};
 
-		// Surface "degraded" only if the stream stays down past the grace window.
-		// The timer lives at hook scope (not this attempt's closure) so it spans
-		// reconnect attempts and is cleared by markConnected / lifecycle resets.
-		const armDegradeTimer = () => {
-			if (degradeTimerRef.current || liveStateRef.current === "degraded") {
-				return;
-			}
-			degradeTimerRef.current = setTimeout(() => {
-				degradeTimerRef.current = null;
-				setLiveState("degraded");
-				setLiveErrorMessage(LIVE_RECONNECT_STATUS);
-			}, LIVE_DEGRADE_GRACE_MS);
-		};
 		const scheduleReconnect = () => {
 			if (isDisposed || reconnectKeyRef.current !== reconnectAttempt) {
 				return;
@@ -838,7 +840,9 @@ export function useSpaceLandingFeed(input: {
 				return;
 			}
 
-			armDegradeTimer();
+			liveStateRef.current = "degraded";
+			setLiveState("degraded");
+			setLiveErrorMessage(LIVE_RECONNECT_STATUS);
 
 			const delayMs = resolveLiveReconnectDelayMs(
 				reconnectAttemptCountRef.current
@@ -852,16 +856,19 @@ export function useSpaceLandingFeed(input: {
 				advanceReconnectKey();
 			}, delayMs);
 		};
-		const markConnected = () => {
-			clearReconnectTimer(degradeTimerRef);
+		const markSubscribed = () => {
 			reconnectAttemptCountRef.current = 0;
-			setLiveState("connected");
-			setLiveErrorMessage(null);
+			// A recovered transport still needs to catch up on missed messages.
+			const recovering =
+				liveStateRef.current === "degraded" || liveStateRef.current === "stale";
+			liveStateRef.current = recovering ? "stale" : "connected";
+			setLiveState(liveStateRef.current);
+			if (!recovering) {
+				setLiveErrorMessage(null);
+			}
 		};
 
-		setLiveState("connecting");
-		setLiveErrorMessage(null);
-
+		// Keep recovery feedback stable across attempts and the trailing catch-up.
 		const socket = createSpaceLiveTransport({
 			origin: window.location.origin,
 			spaceId: input.spaceId,
@@ -883,14 +890,23 @@ export function useSpaceLandingFeed(input: {
 			// same cadence, run the pong-watchdog: if a PING has gone out but no
 			// inbound frame has arrived within WATCHDOG_DEADLINE_MS, the socket is
 			// half-open — tear it down and let the existing reconnect path rebuild.
-			clearKeepaliveTimer = startSpaceLiveKeepaliveTimer({
+			const keepalive = startSpaceLiveKeepaliveTimer({
 				onStalled: () => {
+					console.warn("[openmeld.web.space.live_watchdog_reconnect]", {
+						spaceId: input.spaceId,
+						lastInboundAgeMs:
+							lastInboundFrameTsRef.current === null
+								? null
+								: Date.now() - lastInboundFrameTsRef.current,
+					});
 					socket.close();
 					scheduleReconnect();
 				},
 				readLastInboundFrameTs: () => lastInboundFrameTsRef.current,
 				socket,
 			});
+			clearKeepaliveTimer = keepalive.stop;
+			probeLiveConnectionRef.current = keepalive.probe;
 		};
 
 		const handleLiveSessionControlMessage = (
@@ -921,6 +937,7 @@ export function useSpaceLandingFeed(input: {
 					.invalidateQueries({
 						predicate: (query) =>
 							(query.queryKey[0] === "space-message-pins" ||
+								query.queryKey[0] === "space-input-queue" ||
 								query.queryKey[0] === "space-file-pins") &&
 							query.queryKey[1] === input.spaceId,
 					})
@@ -929,7 +946,7 @@ export function useSpaceLandingFeed(input: {
 					);
 			}
 			readySocketAttemptKeyRef.current = socketAttemptKey;
-			markConnected();
+			markSubscribed();
 			if (historyReadyRef.current) {
 				skippedReadyReconcilePendingRef.current = false;
 				reconcileConversation({ afterActiveFlight: true }).catch(
@@ -1012,8 +1029,14 @@ export function useSpaceLandingFeed(input: {
 			if (isDisposed) {
 				return;
 			}
+			console.info("[openmeld.web.space.live_closed]", {
+				spaceId: input.spaceId,
+				code: event.code,
+				wasClean: event.wasClean,
+			});
 
 			if (event.code === 1008) {
+				clearTransientStreams();
 				input.statusRefetch().catch((error) => {
 					console.error(
 						"Failed to refresh Space access after session closure",
@@ -1057,6 +1080,7 @@ export function useSpaceLandingFeed(input: {
 		input.openMeldProfileId,
 		input.membersRefetch,
 		input.participationEnabled,
+		input.accessRejected,
 		readinessOrganizationId,
 		readinessStorageScope,
 		input.spaceId,
@@ -1064,6 +1088,7 @@ export function useSpaceLandingFeed(input: {
 		reconnectKey,
 		advanceReconnectKey,
 		handleAgentStreamFrame,
+		clearTransientStreams,
 		queryClient,
 		// Stable across renders (depends only on spaceId/openMeldProfileId, both already
 		// here), so this adds no extra reconnect churn — it just satisfies the
@@ -1075,7 +1100,13 @@ export function useSpaceLandingFeed(input: {
 		agentStreamProjections,
 		liveErrorMessage,
 		liveState,
-		reconnectNow,
+		retryLiveUpdates: () => {
+			if (liveStateRef.current === "stale") {
+				reconcileConversation().catch(() => undefined);
+			} else {
+				reconnectNow();
+			}
+		},
 		mergePersistedIncoming: (incoming: readonly SignalEnvelope[]) => {
 			if (
 				queryClient.getQueryData(
@@ -1120,8 +1151,9 @@ function startSpaceLiveKeepaliveTimer(input: {
 	onStalled: () => void;
 	readLastInboundFrameTs: () => number | null;
 	socket: SpaceLiveTransport;
-}): () => void {
-	let hasSentKeepalivePing = false;
+}): { stop: () => void; probe: () => void } {
+	let unansweredSince: number | null = null;
+	let lastTickAt = Date.now();
 	let stopped = false;
 	let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 	const stop = () => {
@@ -1134,25 +1166,49 @@ function startSpaceLiveKeepaliveTimer(input: {
 			keepaliveTimer = null;
 		}
 	};
-	keepaliveTimer = setInterval(() => {
+	const sendPing = () => {
 		try {
 			input.socket.send(SPACE_STREAM_KEEPALIVE_PING);
-			hasSentKeepalivePing = true;
+			unansweredSince ??= Date.now();
 		} catch {
 			// Socket already closing; its close handler stops this timer.
 		}
-
+	};
+	const probe = () => {
+		if (stopped) {
+			return;
+		}
+		// A resumed page must allow a new ping to return before judging the socket.
+		lastTickAt = Date.now();
+		unansweredSince = null;
+		sendPing();
+	};
+	keepaliveTimer = setInterval(() => {
+		const now = Date.now();
+		if (now - lastTickAt > WATCHDOG_DEADLINE_MS) {
+			probe();
+			return;
+		}
+		lastTickAt = now;
 		const lastInboundFrameTs = input.readLastInboundFrameTs();
 		if (
-			hasSentKeepalivePing &&
 			lastInboundFrameTs !== null &&
-			Date.now() - lastInboundFrameTs > WATCHDOG_DEADLINE_MS
+			unansweredSince !== null &&
+			lastInboundFrameTs >= unansweredSince
+		) {
+			unansweredSince = null;
+		}
+		if (
+			unansweredSince !== null &&
+			now - unansweredSince > WATCHDOG_DEADLINE_MS
 		) {
 			stop();
 			input.onStalled();
+			return;
 		}
+		sendPing();
 	}, SPACE_STREAM_KEEPALIVE_INTERVAL_MS);
-	return stop;
+	return { stop, probe };
 }
 
 function clearReconnectTimer(timerRef: {
@@ -1247,6 +1303,11 @@ function handleLiveInvalidationMessage(
 			);
 	}
 	if (frame.type === "space.meta.changed") {
+		input.queryClient
+			.invalidateQueries({ queryKey: ["space-input-queue", input.spaceId] })
+			.catch((error) =>
+				console.warn("Failed to refresh queued messages.", error)
+			);
 		input.queryClient
 			.invalidateQueries({
 				predicate: (query) =>
@@ -1562,12 +1623,6 @@ function shouldProcessLiveInvalidationFrame(input: {
 	}
 	input.versionsByTypeRef.current.set(input.frame.type, input.frame.version);
 	return true;
-}
-
-function getLatestSignalEnvelopeId(
-	envelopes: readonly SignalEnvelope[]
-): string | null {
-	return envelopes.at(-1)?.id ?? null;
 }
 
 function shouldRecordLiveSignalAsCatchUpAnchor(

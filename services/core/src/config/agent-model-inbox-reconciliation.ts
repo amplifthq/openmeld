@@ -2,22 +2,21 @@ import {
   getAgentControllerModelCatalogId,
   parseAgentControllerRef,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
   readPrimaryAgentProfileBindingRecord,
-} from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
-import { readAgentProfileOrganizationContext } from "../center-agent/center-agent-organization-scope";
+} from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
+import {
+  readAgentProfileOrganizationContext,
+  readAgentProfileOrganizationContexts,
+} from "../center-agent/center-agent-organization-scope";
 import {
   type AgentModelInboxSnapshot,
   reconcileAgentModelInboxProjection,
 } from "../inbox/application/agent-model-inbox";
-import {
-  type CoreBindings,
-  identityDb,
-  inboxDb,
-  localStateDb,
-} from "../lib/bindings";
-import { readCurrentRuntimeAgentControllerReport } from "../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+import type { CoreBindings } from "../lib/bindings";
+import { readCurrentRuntimeAgentControllerReport } from "../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import {
   readCurrentAgentModelAuthType,
   resolveCurrentAgentModelAvailability,
@@ -31,7 +30,7 @@ export async function reconcileRuntimeAgentModelInboxes(input: {
   openMeldServiceRuntimeId: { value: string };
   nowMs: number;
 }): Promise<void> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -44,11 +43,46 @@ export async function reconcileRuntimeAgentModelInboxes(input: {
         openMeldServiceRuntimeId: input.openMeldServiceRuntimeId.value,
       }
     );
-  for (const binding of bindings) {
-    await reconcileAgentModelInbox({
-      ...input,
-      agentProfileId: binding.agentProfileId,
-    });
+  if (bindings.length === 0) {
+    return;
+  }
+  const [profiles, currentReport] = await Promise.all([
+    readAgentProfileOrganizationContexts({
+      db,
+      agentProfileIds: bindings.map((binding) => binding.agentProfileId),
+    }),
+    readCurrentRuntimeAgentControllerReport({
+      db,
+      agentControllerRef: input.agentControllerRef,
+      openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
+    }),
+  ]);
+  // Independent profiles share the batch's initial owner reads. Any proposed
+  // write still performs the projection owner's fresh read before publication.
+  for (let offset = 0; offset < bindings.length; offset += 4) {
+    await Promise.all(
+      bindings.slice(offset, offset + 4).map(async (binding) => {
+        let initial = true;
+        await reconcileAgentModelInboxProjection({
+          db,
+          nowMs: input.nowMs,
+          readCurrent: () => {
+            const facts = initial
+              ? {
+                  profile: profiles.get(binding.agentProfileId) ?? null,
+                  binding,
+                  currentReport,
+                }
+              : undefined;
+            initial = false;
+            return readCurrentSnapshot(
+              { ...input, agentProfileId: binding.agentProfileId },
+              facts
+            );
+          },
+        });
+      })
+    );
   }
 }
 
@@ -59,7 +93,7 @@ export async function reconcileAgentModelInbox(input: {
   agentProfileId: string;
   nowMs: number;
 }): Promise<void> {
-  const db = inboxDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -70,21 +104,32 @@ export async function reconcileAgentModelInbox(input: {
   });
 }
 
-async function readCurrentSnapshot(input: {
-  env: CoreBindings;
-  ownerUserId: string;
-  agentProfileId: string;
-  nowMs: number;
-}): Promise<AgentModelInboxSnapshot | null> {
-  const db = localStateDb(input.env);
-  const profilesDb = identityDb(input.env);
+async function readCurrentSnapshot(
+  input: {
+    env: CoreBindings;
+    ownerUserId: string;
+    agentProfileId: string;
+    nowMs: number;
+  },
+  initial?: {
+    profile: Awaited<ReturnType<typeof readAgentProfileOrganizationContext>>;
+    binding: Awaited<ReturnType<typeof readPrimaryAgentProfileBindingRecord>>;
+    currentReport: Awaited<
+      ReturnType<typeof readCurrentRuntimeAgentControllerReport>
+    >;
+  }
+): Promise<AgentModelInboxSnapshot | null> {
+  const db = getPostgresDatabase(input.env);
+  const profilesDb = getPostgresDatabase(input.env);
   if (!(db && profilesDb)) {
     return null;
   }
-  const profile = await readAgentProfileOrganizationContext({
-    db: profilesDb,
-    agentProfileId: input.agentProfileId,
-  });
+  const profile = initial
+    ? initial.profile
+    : await readAgentProfileOrganizationContext({
+        db: profilesDb,
+        agentProfileId: input.agentProfileId,
+      });
   // Never manufacture an Organization for an unscoped legacy Profile.
   if (
     !profile?.organizationId ||
@@ -93,11 +138,13 @@ async function readCurrentSnapshot(input: {
   ) {
     return null;
   }
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    db,
-    agentProfileId: input.agentProfileId,
-    owner: { id: input.ownerUserId, kind: "owner_account" },
-  });
+  const binding = initial
+    ? initial.binding
+    : await readPrimaryAgentProfileBindingRecord({
+        db,
+        agentProfileId: input.agentProfileId,
+        owner: { id: input.ownerUserId, kind: "owner_account" },
+      });
   if (!binding) {
     // A successful authoritative read proves there is no selected model left.
     // Missing ownership or a failed Binding read must never claim recovery.
@@ -117,11 +164,13 @@ async function readCurrentSnapshot(input: {
       message: "",
     };
   }
-  const currentReport = await readCurrentRuntimeAgentControllerReport({
-    db,
-    agentControllerRef: binding.agentControllerRef,
-    openMeldServiceRuntimeId: { value: binding.openMeldServiceRuntimeId },
-  });
+  const currentReport = initial
+    ? initial.currentReport
+    : await readCurrentRuntimeAgentControllerReport({
+        db,
+        agentControllerRef: binding.agentControllerRef,
+        openMeldServiceRuntimeId: { value: binding.openMeldServiceRuntimeId },
+      });
   const catalog = readAuthoredModelCatalog();
   const context = {
     agentControllerRef: binding.agentControllerRef,

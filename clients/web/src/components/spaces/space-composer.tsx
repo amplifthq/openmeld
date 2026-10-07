@@ -98,6 +98,7 @@ export type SpaceComposerProps = {
 	context: {
 		conversationKind: SpaceComposerConversationKind;
 		placement: SpaceComposerPlacement;
+		readOnly?: boolean;
 		readOnlyPlaceholder?: string;
 		targetName?: string | null;
 	};
@@ -108,6 +109,7 @@ export type SpaceComposerProps = {
 	};
 	slots?: {
 		pendingActionSurface?: ReactNode;
+		queuedMessages?: ReactNode;
 		beforeInput?: ReactNode;
 		beforePrimaryAction?: ReactNode;
 		error?: ReactNode;
@@ -327,6 +329,20 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		override: input.slots?.primaryAction,
 		policy,
 	});
+	if (input.context.readOnly) {
+		return (
+			<div
+				className={input.presentation?.className}
+				data-slot={input.presentation?.dataSlot}
+			>
+				<div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
+					<p className="text-muted-foreground text-sm">{policy.placeholder}</p>
+					{input.slots?.primaryAction}
+				</div>
+				{input.slots?.error}
+			</div>
+		);
+	}
 
 	return (
 		<div
@@ -334,6 +350,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			data-slot={input.presentation?.dataSlot}
 		>
 			{input.slots?.pendingActionSurface}
+			{input.slots?.queuedMessages}
 			<div className="relative">
 				<SpaceComposerFileDropOverlay visible={isDraggingFiles} />
 				<PromptInput
@@ -407,7 +424,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 							input.capabilities?.mentions !== false ? (
 								<Button
 									aria-label="Mention a member"
-									className="size-8 text-base"
+									className="text-base"
 									onClick={input.actions.onMentionButtonClick}
 									size="icon-sm"
 									type="button"
@@ -486,25 +503,19 @@ function ComposerFeedback(input: {
 	membersPending: boolean;
 	error: ReactNode;
 }) {
-	if (!input.membersPending) {
+	if (!input.membersPending || input.members?.state !== "error") {
 		return input.error;
 	}
 	return (
 		<output className="text-muted-foreground text-sm">
-			{input.members?.state === "error" ? (
-				<>
-					Couldn't load members.{" "}
-					<button
-						className="underline underline-offset-2"
-						onClick={input.members.onRetry}
-						type="button"
-					>
-						Retry
-					</button>
-				</>
-			) : (
-				"Loading members… You can keep typing."
-			)}
+			Couldn't load members.{" "}
+			<button
+				className="underline underline-offset-2"
+				onClick={input.members.onRetry}
+				type="button"
+			>
+				Retry
+			</button>
 		</output>
 	);
 }
