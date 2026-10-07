@@ -13,3 +13,6 @@ find and request session history under the existing owner access settings.
 
 Queued local Wakes use refreshed working-folder information after a Service
 connection refresh, while retaining the existing authorization checks.
+
+Hosted Wakes keep retrying the same request when submission cannot be confirmed,
+instead of entering a waiting state that blocks admission recovery.
