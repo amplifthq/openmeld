@@ -230,36 +230,34 @@ export function formatPublicInterruptedTaskFailureFacts(
   const body = chinese
     ? [
         `${agentLabel} 的本次处理中断。${cause ? ` ${cause[1]}` : ""}`,
-        "之前的操作可能已经生效；剩余工作和汇总是否完成，尚未得到确认。不要重发原请求或用新编号重复写入。",
-        results.length
-          ? "以下已发布的子成果仍可读取："
-          : "本通知没有确认可读取的子成果。请先核对已有成果和之前的操作。",
+        "部分操作可能已经生效。请先检查已有结果，避免重复执行。",
+        results.length ? "你仍可查看以下已发布的结果：" : "",
         ...results.map(
-          (result, index) => `[查看子成果 ${index + 1}](${result.url})`
+          (result, index) => `[查看结果 ${index + 1}](${result.url})`
         ),
         ...(canSummarize
           ? [
               "你可以请 Center Agent 继续汇总已有成果。这只生成汇总，不会继续剩余工作。",
             ]
           : []),
-        "可打开 Diagnostics 查看中断详情。",
-      ].join("\n")
+      ]
+        .filter(Boolean)
+        .join("\n")
     : [
         `${agentLabel} couldn't finish processing this request.${cause ? ` ${cause[0]}` : ""}`,
-        "Earlier actions may have taken effect. The remaining work and final summary are not confirmed. Do not resend the original request or repeat writes with a new operation ID.",
-        results.length
-          ? "These published child results are still available:"
-          : "This notice has no verified, readable child results. Check existing results and earlier actions first.",
+        "Some actions may have taken effect. Check existing results before repeating any action.",
+        results.length ? "These published results are still available:" : "",
         ...results.map(
-          (result, index) => `[View child result ${index + 1}](${result.url})`
+          (result, index) => `[View result ${index + 1}](${result.url})`
         ),
         ...(canSummarize
           ? [
               "You can ask Center Agent to summarize the existing results. This only produces a summary; it does not continue the remaining work.",
             ]
           : []),
-        "Open Diagnostics for interruption details.",
-      ].join("\n");
+      ]
+        .filter(Boolean)
+        .join("\n");
   return {
     severity: "warning",
     title: chinese ? "处理中断" : "Processing interrupted",
@@ -1158,6 +1156,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       kind: "account_access",
       mappedReasonBody: (targetName) =>
         `${targetName} reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.`,
+      availabilityBadgeLabel: "Usage Limit reached",
+      availabilitySummary:
+        "This agent reached a Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+      availabilityTooltip: "Usage Limit reached. Review Usage Limits.",
       patterns: ["=usage_exhausted"],
       primaryActionId: "review_agent_settings",
       preferMappedReasonOverDetail: true,
@@ -1893,7 +1895,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
-      body: "OpenMeld could not verify this task's file-access boundary with Custom (config.toml), so the task did not start. Choose a supported permission mode in this Agent's settings, then try again.",
+      body: "OpenMeld could not verify file-access limits with this Agent's previous permission settings, so the task did not start. Choose Ask for approval, Approve for me, or Full access in this Agent's settings, then try again.",
       kind: "local_agent_prepare",
       patterns: ["=execution_context.custom_config_file_access_unverified"],
       primaryActionId: "manage_local_agent",

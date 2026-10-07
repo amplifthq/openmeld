@@ -22,6 +22,7 @@ export type RuntimeTransportSocketAttachment = {
   localExecutionInput?: boolean;
   connectionDiagnosticId?: string;
   reasoningStream?: boolean;
+  sessionHistory?: boolean;
   computerFileAccessCapability:
     | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
     | null;
@@ -45,6 +46,7 @@ export const readRuntimeTransportSocketAttachment = (
     connectionDiagnosticId?: unknown;
     reasoningStream?: unknown;
     verifiedOwnerUserId?: unknown;
+    sessionHistory?: unknown;
     computerFileAccessCapability?: unknown;
     localFolderPickerCapability?: unknown;
     daemonSessionId?: unknown;
@@ -60,6 +62,7 @@ export const readRuntimeTransportSocketAttachment = (
       connectionDiagnosticId?: unknown;
       reasoningStream?: unknown;
       verifiedOwnerUserId?: unknown;
+      sessionHistory?: unknown;
       computerFileAccessCapability?: unknown;
       localFolderPickerCapability?: unknown;
       daemonSessionId?: unknown;
@@ -79,6 +82,7 @@ export const readRuntimeTransportSocketAttachment = (
   }
 
   return {
+    sessionHistory: attachment.sessionHistory === true,
     executionAdmissionConfirmation:
       attachment.executionAdmissionConfirmation === true,
     admissionEvidence: attachment.admissionEvidence === true,
@@ -118,6 +122,7 @@ export const writeRuntimeTransportSocketAttachment = (
     spaceWorkHandoff?: boolean;
     localExecutionInput?: boolean;
     verifiedOwnerUserId: string;
+    sessionHistory?: boolean;
     computerFileAccessCapability?:
       | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
       | null;
@@ -151,6 +156,7 @@ export const writeRuntimeTransportSocketAttachment = (
       localExecutionInput:
         input.localExecutionInput ?? current.localExecutionInput ?? false,
       verifiedOwnerUserId: input.verifiedOwnerUserId,
+      sessionHistory: input.sessionHistory ?? current.sessionHistory,
       computerFileAccessCapability:
         input.computerFileAccessCapability === undefined
           ? current.computerFileAccessCapability
@@ -193,13 +199,17 @@ export function applyRuntimeTransportNegotiatedCapabilities(input: {
       hasComputerFileAccess ||
       hasLocalFolderPicker ||
       input.attachment.spaceWorkHandoff ||
-      input.attachment.localExecutionInput
+      input.attachment.localExecutionInput ||
+      input.attachment.sessionHistory
     )
   ) {
     return input.capabilities;
   }
   return {
     ...(input.capabilities ?? {}),
+    ...(input.attachment.sessionHistory
+      ? { sessionHistory: true as const }
+      : {}),
     ...(input.attachment.localExecutionInput
       ? { localExecutionInput: true as const }
       : {}),

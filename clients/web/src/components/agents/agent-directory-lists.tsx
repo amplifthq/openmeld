@@ -40,6 +40,8 @@ export function AgentDirectoryLists({
 	input: AgentProfilesWorkspaceProps;
 }) {
 	const { currentOrganization } = useAppOrganization();
+	const viewPreferenceKey = (personId: string) =>
+		`openmeld.agents.presentation:${input.currentUserId}:${currentOrganization.id}:${personId}`;
 	const previewReady = useAgentSidebarPreviewReady();
 	const [search, setSearch] = useState("");
 	const [view, setView] = useState<AgentListView>(DIRECTORY_AGENT_VIEW);
@@ -189,6 +191,7 @@ export function AgentDirectoryLists({
 					}
 					renderCard={renderCard}
 					search={search}
+					viewPreferenceKey={viewPreferenceKey(input.person.id)}
 				/>
 			</div>
 		);
@@ -310,6 +313,10 @@ export function AgentDirectoryLists({
 					}
 					renderCard={renderCard}
 					search={search}
+					viewPreferenceKey={viewPreferenceKey(
+						group.member.humanProfile?.profileId ??
+							`member:${group.member.memberId}`
+					)}
 				/>
 			))}
 			{visibleGroups.length === 0 && !showCenter && (

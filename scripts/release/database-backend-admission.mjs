@@ -19,8 +19,8 @@ function readBackendManifest(root) {
   );
 }
 
-// Hosted Workers cannot perform the private maintenance-window cutover. The
-// CLI publisher separately proves that PostgreSQL is already deployed.
+// Database, Auth and Core releases use the guarded local PostgreSQL lane.
+// The CLI publisher separately proves that PostgreSQL is already deployed.
 export function assertHostedProductDatabaseReleaseSupported(root, scopes) {
   if (
     scopes.some((scope) => ["db", "auth", "core"].includes(scope)) &&
@@ -28,7 +28,7 @@ export function assertHostedProductDatabaseReleaseSupported(root, scopes) {
     readBackendManifest(root).backend === "postgresql"
   ) {
     throw new Error(
-      "PostgreSQL product cutover is unavailable through hosted release commands. Use the guarded local release lane and its maintenance admission."
+      "PostgreSQL Database, Auth and Core releases require the guarded local release lane. Run pnpm release:plan for the selected scope, then follow developing/engineering/production-release.md. Frozen import and maintenance admission apply only to the initial cutover."
     );
   }
 }
@@ -45,7 +45,7 @@ export function assertProductDatabaseReleaseSupported(root = process.cwd()) {
   const manifest = readBackendManifest(root);
   if (manifest.backend === "postgresql") {
     throw new Error(
-      "PostgreSQL product cutover is unavailable through legacy D1 or shared-staging commands. Use the guarded production release and its frozen import evidence."
+      "Legacy D1 and shared-staging commands do not release the PostgreSQL product database. Use pnpm release:plan -- --scope db and the guarded local production release. Routine releases do not require a frozen D1 import."
     );
   }
   throw new Error(

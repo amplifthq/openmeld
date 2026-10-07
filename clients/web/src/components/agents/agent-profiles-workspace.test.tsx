@@ -639,10 +639,22 @@ describe("AgentProfilesWorkspace", () => {
 	});
 	it("offers creation when a personal Agent list is empty", () => {
 		const onCreateAgent = vi.fn();
-		renderWorkspace({ profiles: [], onCreateAgent });
+		const { rerenderWorkspace } = renderWorkspace({
+			profiles: [],
+			onCreateAgent,
+		});
 		expect(screen.getByText("No Agents yet.")).toBeTruthy();
+		expect(
+			screen.getByText("Create your first Agent to start working together.")
+		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		expect(onCreateAgent).toHaveBeenCalledOnce();
+		rerenderWorkspace({ canCreateAgent: false });
+		expect(
+			screen.queryByText("Create your first Agent to start working together.")
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(screen.getByText("No Agents yet.")).toBeTruthy();
 	});
 	it("keeps navigation and a detail-shaped placeholder while the selected Agent is unresolved", () => {
 		const { rerenderWorkspace } = renderWorkspace({

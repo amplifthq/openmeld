@@ -11,7 +11,7 @@ export function CenterAgentChatAvatar({
 	profileId?: string;
 	avatarStyle?: import("@openmeld/schemas/types").AuthProfileView["avatarStyle"];
 	working?: boolean;
-	size?: 24 | 28;
+	size?: 24 | 28 | 56;
 }) {
 	return profileName ? (
 		<RemoteAgentAvatar

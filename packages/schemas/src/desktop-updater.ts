@@ -45,3 +45,18 @@ export const desktopUpdaterRestartRequestSchema = z.strictObject({
 export type DesktopUpdaterRestartRequest = z.infer<
   typeof desktopUpdaterRestartRequestSchema
 >;
+
+/** Local evidence only. This record never controls update or restart state. */
+export const desktopUpdaterFailureDiagnosticSchema = z.strictObject({
+  format: z.literal(1),
+  recordedAt: z.iso.datetime(),
+  stage: desktopUpdaterStateSchema.shape.errorStage.unwrap(),
+  currentVersion: z.string().max(80),
+  targetVersion: z.string().max(80).nullable(),
+  code: z.string().max(80).nullable(),
+  httpStatus: z.number().int().min(400).max(599).nullable(),
+  message: z.string().max(256),
+});
+export type DesktopUpdaterFailureDiagnostic = z.infer<
+  typeof desktopUpdaterFailureDiagnosticSchema
+>;

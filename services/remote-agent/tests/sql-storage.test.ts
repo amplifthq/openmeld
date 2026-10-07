@@ -1,10 +1,20 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  createRemoteAgentCallbackContext,
+  putRemoteAgentCallbackContext,
+} from "../agent-core/callback-context";
+import {
   cleanupExpiredRemoteAgentSubmissionReceipts,
   REMOTE_AGENT_SUBMISSION_RECEIPT_CLEANUP_BATCH_SIZE,
 } from "../agent-core/submission";
+import {
+  createRemoteAgentReadToolResultDefinition,
+  prepareRemoteAgentToolResult,
+} from "../flue-adapter/retained-tool-results";
 import { createRemoteAgentSqlStorage } from "../flue-adapter/storage";
+import { executionAccessFixture } from "./execution-access-fixture";
+import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 
 const TABLE_NAME = "openmeld_remote_agent_adapter_kv";
 const RECEIPT_PREFIX = "openmeld:remote-agent:submission-receipt:";
@@ -17,6 +27,49 @@ describe("Remote Agent SQLite adapter storage", () => {
     for (const database of databases.splice(0)) {
       database.close();
     }
+  });
+
+  it("retains and searches the first large result in real SQLite storage", async () => {
+    const database = new DatabaseSync(":memory:");
+    databases.push(database);
+    const storage = createRemoteAgentSqlStorage(
+      createCloudflareSqlHarness(database)
+    );
+    const request = createSubmitTurnRequest();
+    const submissionId = "sqlite-retention";
+    const context = createRemoteAgentCallbackContext({
+      request,
+      nowMs: TEST_NOW_MS,
+      ack: {
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: request.idempotencyKey,
+        requestId: submissionId,
+        status: "pending",
+        submissionId,
+      },
+    });
+    await putRemoteAgentCallbackContext(storage, context);
+    const input = {
+      storage,
+      submissionId,
+      coreWorker: {
+        authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+      },
+    };
+    const result = await prepareRemoteAgentToolResult({
+      ...input,
+      toolName: "computer_command",
+      value: { stdout: `${"x".repeat(40_000)}SQLITE_RETAINED_MARKER` },
+    });
+    const reference = (
+      result as { presentation: { continuation: { resultId: string } | null } }
+    ).presentation.continuation;
+    expect(reference).not.toBeNull();
+    const read = await createRemoteAgentReadToolResultDefinition(input).execute(
+      { resultId: reference?.resultId, query: "SQLITE_RETAINED_MARKER" }
+    );
+    expect(JSON.stringify(read)).toContain("SQLITE_RETAINED_MARKER");
   });
 
   it("migrates the legacy table and deletes expired receipts through the partial index in bounded batches", async () => {

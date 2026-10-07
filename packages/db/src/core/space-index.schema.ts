@@ -28,6 +28,7 @@ export const spaceIndexSpaces = applicationTable(
     status: text("status").notNull(),
     spaceName: text("space_name"),
     messagePreviewJson: text("message_preview_json"),
+    recentMessagePreviewsJson: text("recent_message_previews_json"),
     messagePreviewRevision: bigint("message_preview_revision", {
       mode: "number",
     }),

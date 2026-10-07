@@ -164,7 +164,7 @@ For a new worktree, use Node from `.nvmrc`, pnpm from `packageManager`, and
 `pnpm install --frozen-lockfile`. Run `pnpm dev:doctor`, then
 `pnpm dev:postgresql` to start the complete Web/Worker stack. Use the
 printed lane-specific URL. Docker is needed only for
-`pnpm dev:worktree:sandbox -- --postgresql`. `pnpm check` checks installed dependencies; it no
+`pnpm dev:worktree:sandbox`. `pnpm check` checks installed dependencies; it no
 longer installs them implicitly. Install again after a lockfile change.
 
 The isolated launchers reserve local capacity before starting processes.
@@ -359,8 +359,10 @@ R2 emulation and other Miniflare state retain the worktree's isolated Wrangler
 persistence root. They are separate owners, not copies of relational tables.
 Do not start package-local Workers against guessed state or connection paths.
 
-The legacy `pnpm dev` D1 guard and D1-based fixture scripts describe the
-pre-cutover stack. They do not prepare a current PostgreSQL product database.
+`pnpm dev`, `pnpm dev:worktree`, and the explicit `pnpm dev:postgresql` alias
+start the same PostgreSQL supervisor. Low-level isolated launchers also use
+PostgreSQL. The historical D1 fixture scripts do not prepare a current product
+database.
 Do not repair current PostgreSQL startup by seeding a historical Miniflare D1
 file or resetting another worktree's state. Use the current supervisor and the
 native migration/acceptance owner; preserve the affected lane when diagnosing
@@ -378,12 +380,12 @@ commands when multiple worktrees need live localhost stacks at the same time:
 | `pnpm dev:web:worktree` | Separate Web launcher when needed; `dev:postgresql` already starts Web. |
 | `pnpm dev:seed` | Historical D1 fixture helper; does not support the PostgreSQL product lane. See [fixture scope](../../scripts/dev/sidebar-fixtures.md). |
 | `pnpm dev:account` | Historical D1 account helper; use normal local product sign-up for PostgreSQL smoke. |
-| `pnpm dev:worktree:sandbox -- --postgresql` | Start the PostgreSQL Web/Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
-| `pnpm dev` | Legacy fixed-port D1 guard, not current PostgreSQL product preparation. |
+| `pnpm dev:worktree:sandbox` | Start the PostgreSQL Web/Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
+| `pnpm dev` / `pnpm dev:worktree` | Start the current PostgreSQL product through the same isolated supervisor. |
 | `pnpm dev:web` | Legacy fixed-port Web launcher; keep its Worker and database lane aligned. |
-| `pnpm dev:isolated` | Legacy low-level isolated stack for checkouts that still use local environment files. |
-| `pnpm dev:isolated:no-sandbox` | Legacy Docker-free isolated stack for checkouts that still use local environment files. |
-| `pnpm dev:isolated --test-scheduled` | Legacy isolated stack that also prints its loopback-only Routine scheduler trigger. |
+| `pnpm dev:isolated` | Low-level PostgreSQL isolated stack for checkouts that still use local environment files. |
+| `pnpm dev:isolated:no-sandbox` | Low-level Docker-free PostgreSQL isolated stack for checkouts that still use local environment files. |
+| `pnpm dev:isolated --test-scheduled` | PostgreSQL isolated stack that also prints its loopback-only Routine scheduler trigger. |
 | `pnpm dev:web:isolated` | Legacy low-level Web attachment for checkouts that still use local environment files. |
 
 For isolated Plugin acceptance, set `OPENMELD_DEV_PLUGIN_FIXTURE_URL` in the
@@ -574,7 +576,7 @@ the lightweight and complete commands.
 
 This lane is not valid Sandbox evidence. If a change touches Sandbox tools,
 container bindings, shell execution, Sandbox files, or the interaction between
-Code Mode and Sandbox, use `pnpm dev:worktree:sandbox -- --postgresql` with Docker and prove at
+Code Mode and Sandbox, use `pnpm dev:worktree:sandbox` with Docker and prove at
 least one real shell or file operation before declaring the change done. Use
 that complete lane as the final combined-capability regression when a release
 changes both Sandbox and another Remote Agent tool family.
@@ -1250,23 +1252,33 @@ Live permission-mode reconciliation changes the CLI-carried local Service and
 the process-internal `RuntimeAdapter` contract. It reuses the existing
 `daemon.route_catalog.changed` signal, expected-routes projection, Binding
 schema, Wake dispatch frame, Agent Interaction response path, and diagnostics
-transport; it adds no cloud-to-Service frame or shared schema field.
+transport. Approval sequencing additionally extends permission requests with
+optional `supportsPermissionModeUpdate` and responses with an optional reference
+to a saved Binding (`permissionModeUpdate`). The reference contains no execution
+authority; Service reads the canonical route before attempting a native update.
 
-- Old cloud can talk to the new local component because Core already sends the
-  catalog invalidation and canonical expected routes. New cloud can talk to an
-  old local component because the old Service keeps the established
-  future-work-only behavior. Mixed versions remain safe and explicit.
+- Deploy Web, Gateway, and Core readers for the optional fields before publishing
+  the new CLI/Service producer. Old strict cloud schemas reject new permission
+  requests, so publishing the local producer first is not supported. New Web
+  only sends the response reference when the pending request advertises support.
+  New cloud continues to accept old Service requests and ordinary approval
+  responses. Older local components retain their existing live-update subset or
+  future-work-only behavior; setup, Wake dispatch, status, Space Actions,
+  diagnostics, and self-rescue commands keep their current contracts.
 - The new local component applies a mode to an active task only after a
   controller adapter acknowledges native support. Unsupported providers and
   modes keep the starting mode and do not block catalog convergence, existing
   Wake work, setup, status, Space Actions, trace, or diagnostics.
 - No Runtime Transport epoch, OpenMeld Service contract, CLI command contract,
   or shared schema constant changes. At publication time, stamp the touched
-  CLI/Service artifact as advisory `available`; no cloud deploy order or forced
-  local update is required.
+  CLI/Service artifact as advisory `available`; existing local components remain
+  safe without a forced update. The receiver-first order above is required.
 - Rollback removes the local live-update capability and returns to the previous
   future-work-only behavior. It must not rewrite Binding state, active Wake
-  state, or pending Agent Interactions.
+  state, or pending Agent Interactions. Once a new Service is published, retain
+  cloud readers for the optional fields during rollback. Web and local native
+  update behavior can roll back independently; do not restore strict cloud
+  schemas that reject requests from the already published Service.
 
 ### Local Installation Recovery Contract Impact Audit
 

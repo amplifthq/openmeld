@@ -19,6 +19,27 @@ import {
 } from "./sidebar-width-cookie";
 
 describe("sidebar-width-cookie", () => {
+	it("retains automatic visibility when only group or width preferences are saved", () => {
+		const state = {
+			...OUTER_SIDEBAR_DEFAULT_STATE,
+			collapsedGroupIds: ["pinned"],
+			pageWidths: { people: "320px" },
+		};
+		expect(
+			parseSidebarStateCookieValue(
+				serializeSidebarStateCookieValue(state, "outer"),
+				"outer"
+			)
+		).toEqual(state);
+		expect(parseSidebarStateCookieValue(null, "outer").useRouteDefault).toBe(
+			true
+		);
+		for (const token of ["0", "1", "3"]) {
+			expect(
+				parseSidebarStateCookieValue(`308px|${token}`, "outer").useRouteDefault
+			).toBeUndefined();
+		}
+	});
 	it("restores independent page widths from the SSR-readable outer cookie", () => {
 		const state = {
 			...OUTER_SIDEBAR_DEFAULT_STATE,
@@ -121,8 +142,8 @@ describe("sidebar-width-cookie", () => {
 		expect(parseSidebarStateCookieValue(null, "outer")).toEqual(
 			OUTER_SIDEBAR_DEFAULT_STATE
 		);
-		// New users get the most informative outer rail until they choose otherwise.
-		expect(parseSidebarStateCookieValue(null, "outer").tier).toBe("expanded");
+		// Contextual lists stay collapsed until the user chooses to open them.
+		expect(parseSidebarStateCookieValue(null, "outer").tier).toBe("hidden");
 		expect(parseSidebarStateCookieValue("garbage")).toEqual({
 			tier: "expanded",
 			width: SIDEBAR_DEFAULT_WIDTH,

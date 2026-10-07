@@ -4,6 +4,10 @@ import type {
 	UpsertProfileSpaceHistoryResponse,
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	resetBrowserQueryClientForTests,
+	resolveAppQueryClient,
+} from "#/integrations/tanstack-query/query-client";
 
 const runtime = vi.hoisted(() => ({
 	server: false,
@@ -129,6 +133,8 @@ describe("account Space HTTP consumers", () => {
 		);
 	});
 	afterEach(() => {
+		resolveAppQueryClient().clear();
+		resetBrowserQueryClientForTests();
 		vi.unstubAllGlobals();
 		vi.unstubAllEnvs();
 	});
@@ -168,6 +174,7 @@ describe("account Space HTTP consumers", () => {
 			includePurposes: "true",
 			includeMemberPreviews: "true",
 			includeMessagePreviews: "true",
+			includeDirectoryPreviews: "true",
 		});
 		for (const request of requests.filter(({ url }) =>
 			url.pathname.startsWith("/v1/account/spaces")
@@ -190,7 +197,7 @@ describe("account Space HTTP consumers", () => {
 		).toBe(false);
 		expect(
 			requests.filter(({ url }) => url.pathname === "/v1/client-environment")
-		).toHaveLength(server ? 0 : 2);
+		).toHaveLength(server ? 0 : 1);
 	});
 
 	it.each([

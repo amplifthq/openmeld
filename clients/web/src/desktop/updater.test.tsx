@@ -3,6 +3,8 @@ import type {
 	DesktopUpdaterRestartRequest,
 	DesktopUpdaterState,
 } from "@openmeld/schemas";
+import { DropdownMenu } from "@openmeld/ui/components/dropdown-menu";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -15,7 +17,8 @@ import {
 import { type ComponentProps, StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
-import { AppSettingsButton } from "#/components/app/app-settings-button";
+import { AppSettingsMenuItem } from "#/components/app/app-settings-menu-item";
+
 import { SettingsInnerSidebar } from "#/components/settings/settings-page";
 import {
 	clearCenterAgentPendingMessage,
@@ -24,6 +27,16 @@ import {
 	writeCenterAgentPendingMessage,
 } from "#/lib/organizations/center-agent-pending-message";
 import { DesktopUpdater, DesktopUpdatesSection } from "./updater";
+
+function TestSettingsEntry({ onClick }: { onClick: () => void }) {
+	return (
+		<DropdownMenu open>
+			<FluidDropdownMenuContent>
+				<AppSettingsMenuItem closeOnClick={false} index={0} onClick={onClick} />
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+}
 
 const editingPaused = /Editing is paused/;
 
@@ -374,14 +387,10 @@ it.each([
 	const openSettings = vi.fn();
 	const navigate = vi.fn();
 	const navigationRole = presentation === "dialog" ? "button" : "link";
-	const { container, rerender } = render(
+	const { rerender } = render(
 		<QueryClientProvider client={new QueryClient()}>
 			<DesktopUpdater />
-			<AppSettingsButton
-				className="size-7"
-				isActive={false}
-				onClick={openSettings}
-			/>
+			<TestSettingsEntry onClick={openSettings} />
 			<SettingsInnerSidebar
 				activeSectionId="account"
 				isPersonalWorkspace={false}
@@ -396,7 +405,7 @@ it.each([
 			/>
 		</QueryClientProvider>
 	);
-	await screen.findByRole("button", {
+	await screen.findByRole("menuitem", {
 		name: "Settings, Desktop update pending",
 	});
 	const updatesEntry = screen.getByRole(navigationRole, {
@@ -409,12 +418,12 @@ it.each([
 		expect(updatesEntry.getAttribute("href")).toBe("/o/team/settings/updates");
 	}
 	fireEvent.click(
-		screen.getByRole("button", { name: "Settings, Desktop update pending" })
+		screen.getByRole("menuitem", { name: "Settings, Desktop update pending" })
 	);
 	expect(openSettings).toHaveBeenCalledOnce();
 	fireEvent.click(screen.getByRole("button", { name: "Later" }));
 	expect(
-		container.querySelectorAll('[data-slot="desktop-update-indicator"]')
+		document.querySelectorAll('[data-slot="desktop-update-indicator"]')
 	).toHaveLength(2);
 	for (const status of ["downloading", "checking", "error"] as const) {
 		act(() =>
@@ -427,7 +436,7 @@ it.each([
 			})
 		);
 		expect(
-			container.querySelectorAll('[data-slot="desktop-update-indicator"]')
+			document.querySelectorAll('[data-slot="desktop-update-indicator"]')
 		).toHaveLength(2);
 	}
 	act(() =>
@@ -440,9 +449,9 @@ it.each([
 		})
 	);
 	expect(
-		container.querySelectorAll('[data-slot="desktop-update-indicator"]')
+		document.querySelectorAll('[data-slot="desktop-update-indicator"]')
 	).toHaveLength(0);
-	expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+	expect(screen.getByRole("menuitem", { name: "Settings" })).toBeTruthy();
 	expect(screen.getByRole(navigationRole, { name: "Updates" })).toBeTruthy();
 	// A retained Desktop snapshot must not leak attention into a plain Web host.
 	act(() =>
@@ -455,16 +464,10 @@ it.each([
 		})
 	);
 	native.enabled = false;
-	rerender(
-		<AppSettingsButton
-			className="size-7"
-			isActive={false}
-			onClick={openSettings}
-		/>
-	);
-	expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+	rerender(<TestSettingsEntry onClick={openSettings} />);
+	expect(screen.getByRole("menuitem", { name: "Settings" })).toBeTruthy();
 	expect(
-		container.querySelectorAll('[data-slot="desktop-update-indicator"]')
+		document.querySelectorAll('[data-slot="desktop-update-indicator"]')
 	).toHaveLength(0);
 });
 

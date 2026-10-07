@@ -1,0 +1,154 @@
+{
+  "capture": {
+    "commands": [
+      "opencode models opencode --verbose --pure",
+      "opencode models opencode-go --verbose --pure"
+    ],
+    "harnessVersion": "1.18.35",
+    "observedAt": "2026-10-07T05:38:41.987Z",
+    "providerRoutes": [
+      "Exo Free inventory without a paid Zen credential",
+      "Mistral Large 4 inventory with an explicit noncredential placeholder; no authenticated Zen access or inference claimed",
+      "OpenCode Go inventory with the existing credential; subscription access unverified"
+    ]
+  },
+  "nativeExecution": [
+    {
+      "modelId": "opencode/exo-free",
+      "variant": "high",
+      "harnessVersion": "1.18.35",
+      "command": "opencode run --pure --agent build --model opencode/exo-free --variant high --format json",
+      "permissionConfiguration": "native defaults",
+      "response": "PR1557_NATIVE_READ_70d4893a",
+      "tools": ["read"]
+    }
+  ],
+  "models": [
+    {
+      "id": "exo-free",
+      "providerID": "opencode",
+      "name": "Exo Free",
+      "api": {
+        "id": "exo-free",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-10-06",
+      "variants": {
+        "high": {
+          "reasoningEffort": "high"
+        }
+      }
+    },
+    {
+      "id": "mistral-large-4",
+      "providerID": "opencode",
+      "name": "Mistral Large 4",
+      "api": {
+        "id": "mistral-large-4",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-10-06",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        }
+      }
+    },
+    {
+      "id": "qwen3.7-plus",
+      "providerID": "opencode-go",
+      "name": "Qwen3.7 Plus",
+      "api": {
+        "id": "qwen3.7-plus",
+        "url": "https://opencode.ai/zen/go/v1",
+        "npm": "@ai-sdk/anthropic"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": true,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-06-02",
+      "variants": {
+        "high": {
+          "thinking": {
+            "type": "enabled",
+            "budgetTokens": 16000
+          }
+        },
+        "max": {
+          "thinking": {
+            "type": "enabled",
+            "budgetTokens": 31999
+          }
+        }
+      }
+    }
+  ]
+}

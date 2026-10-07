@@ -50,13 +50,14 @@ export function rendererBuildEnvironment(
   };
 }
 
-export async function buildProductionRenderer(
-  root,
-  env = process.env,
-  options = {}
-) {
+export async function buildRenderer(root, env = process.env, options = {}) {
   const memory = (options.readMemory ?? readMachineMemory)();
-  const buildEnv = rendererBuildEnvironment(env, memory.totalBytes);
+  const buildEnv = rendererBuildEnvironment(
+    env,
+    memory.totalBytes,
+    process.platform,
+    options.defaultHeapMiB
+  );
   const policy = resourcePolicy(buildEnv, memory.totalBytes);
   console.log(
     `[renderer-build] ${JSON.stringify({
@@ -81,7 +82,12 @@ export async function buildProductionRenderer(
   try {
     const code = await (options.runCommand ?? runOwnedCommand)(
       "pnpm",
-      ["--dir", options.clientDirectory ?? "clients/web", "run", "build:prod"],
+      [
+        "--dir",
+        options.clientDirectory ?? "clients/web",
+        "run",
+        options.buildScript ?? "build:prod",
+      ],
       {
         cwd: root,
         env: {
@@ -91,7 +97,7 @@ export async function buildProductionRenderer(
       }
     );
     if (code !== 0) {
-      throw new Error(`Production client renderer build failed (${code}).`);
+      throw new Error(`Client renderer build failed (${code}).`);
     }
   } finally {
     await resources?.release();
