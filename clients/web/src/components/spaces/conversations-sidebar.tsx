@@ -72,6 +72,7 @@ import {
 } from "./conversation-sidebar-model";
 import { ConversationSidebarRow } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
+import { SpaceCreationSidebar } from "./space-creation-sidebar";
 import { resolveSpaceMemberAppearances } from "./space-member-avatars";
 import { useConversationDisclosure } from "./use-conversation-disclosure";
 import { useConversationView } from "./use-conversation-view";
@@ -679,6 +680,15 @@ export function ConversationsSidebar(
 					</Button>
 				</div>
 			)}
+			<SpaceCreationSidebar
+				onNavigate={onNavigate}
+				organizationId={dm.org.id}
+				orgSlug={dm.org.slug}
+				profileId={dm.profileId}
+				spaceIds={model.conversations.map(
+					(conversation) => conversation.spaceId
+				)}
+			/>
 			{dm.sessions.isFetchingNextPage && (
 				<p aria-live="polite" className="px-2 text-muted-foreground text-xs">
 					Loading older direct messages…

@@ -15,9 +15,10 @@ import {
 	TrayIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
+import { useTheme } from "next-themes";
 import { type CSSProperties, useState, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
-import { ThemeSelector } from "#/components/appearance/theme-selector";
+import { THEME_CHOICES } from "#/components/appearance/theme-choices";
 import {
 	BOT_MATERIAL_CHOICES,
 	useBotAvatarPreference,
@@ -124,6 +125,7 @@ export function AppearanceSection() {
 	const toolbar = useToolbarPreference();
 	const historySlider = useHistorySliderPreference();
 	const botAvatar = useBotAvatarPreference();
+	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
 		? "vertical"
@@ -142,6 +144,9 @@ export function AppearanceSection() {
 			readSpaceSelfMessageAlignmentPreference()
 		);
 
+	const selectedThemeIndex = mounted
+		? THEME_CHOICES.findIndex((choice) => choice.value === theme)
+		: -1;
 	const selectedConversationLayoutIndex = mounted
 		? CONVERSATION_LAYOUT_CHOICES.findIndex(
 				(choice) => choice.value === conversationLayout
@@ -170,9 +175,32 @@ export function AppearanceSection() {
 				id="appearance"
 			>
 				<SettingsRow
-					control={<ThemeSelector />}
+					control={
+						<RadioGroup
+							aria-label="Theme"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={selectedThemeIndex}
+						>
+							{THEME_CHOICES.map((choice, index) => (
+								<RadioItem
+									adornment={
+										<choice.icon aria-hidden="true" className="size-4" />
+									}
+									className="min-w-0 flex-1 px-3 py-2.5"
+									description={choice.description}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => setTheme(choice.value)}
+									selected={mounted && theme === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
 					description="This preference is saved in this browser."
 					label="Theme"
+					layout="stacked"
 					showDivider
 				/>
 				<SettingsRow

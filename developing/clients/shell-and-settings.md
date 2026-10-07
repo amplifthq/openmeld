@@ -51,7 +51,8 @@ The Web application rail places the Organization selector above compact history,
 search, and Inbox controls. The work-area header toggles the middle column. Its
 footer uses the Fluid user dropdown with account switching, Search, Settings,
 theme selection, and Log out. Search has a separate divided section; theme
-selection follows Download Desktop App and reuses Appearance's compact selector. Authentication, history, and theme
+selection follows Download Desktop App. Appearance uses full-size theme cards
+with the same choices and theme provider. Authentication, history, and theme
 ownership remain in the existing Web hooks and router.
 
 One shell and one Settings framework let Web and the Electron GUI reuse shared
@@ -197,8 +198,8 @@ or "Machines" entity.
 
 Web's normal Settings utility now opens a global sidebar dialog over the current
 page, as specified in `web.md`. The standalone Settings routes below remain
-supported without normal navigation entry points. Both use the same registry,
-grouped navigation, and section renderers; the presentation does not own another
+supported for direct links and the dialog's expand control. Both use the same
+registry, grouped navigation, and section renderers; the presentation does not own another
 copy of settings data or mutation logic.
 
 Contextual navigation accepts an explicit accessible label when an accessory

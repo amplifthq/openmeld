@@ -17,7 +17,10 @@ import {
 	useState,
 } from "react";
 import { SpaceAddMembersCandidates } from "./people-agent-picker-candidates";
-import type { SpaceAddMembersCandidateGroups } from "./people-agent-picker-model";
+import type {
+	SpaceAddMembersCandidateGroups,
+	SpaceAddMembersCandidateSummary,
+} from "./people-agent-picker-model";
 
 const PeopleAgentPickerCreateAgent = lazy(() =>
 	import("../profiles/people-agent-picker-create-agent").then((module) => ({
@@ -48,7 +51,7 @@ export function PeopleAgentPickerDialog(input: {
 	onRetry?: () => void;
 	emptyMessage: string;
 	includeAgentOwners?: boolean;
-	onAgentCreated?: (profileId: string) => Promise<void>;
+	onAgentCreated?: (agent: SpaceAddMembersCandidateSummary) => void;
 	actions?: ReactNode;
 	notice?: ReactNode;
 	id?: string;

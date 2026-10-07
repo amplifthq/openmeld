@@ -112,6 +112,41 @@ Independent authenticated browser/installed Desktop acceptance remains in
 `design-plans/1254-composable-plugin-workflow.md`; component tests are not that
 acceptance.
 
+## Space creation feedback
+
+Create opens the conversation immediately with the submitted name, shared Space
+header and tabs, and the normal editable composer. A small `Preparing…` notice
+is centered in the empty message area using shared `TextShimmer`, with static
+text for reduced motion; there is no separate waiting page. The sidebar reads
+the same Organization/Profile-scoped mutation receipt.
+
+The temporary `creating-` route identifies a browser-local creation request,
+never a server Space or membership. It must not issue Space reads, uploads,
+searches, presence, or read receipts. The verified create response replaces it
+with the canonical Space route without adding a history entry. Directory
+refresh runs independently and cannot delay entry.
+
+Text and attachments use the existing composer draft owners. Sending during
+preparation stages one message with a stable client message ID. The regular
+Space composer publishes it only after bootstrap confirms access; creation
+never publishes a message itself. Draft and attachment scopes migrate to the
+canonical Space when ready. Creation failure stays in the conversation with
+the draft intact and guidance to check Spaces before another attempt. It never
+retries creation automatically. Leaving the page prevents completion from
+navigating away from the person's chosen destination.
+
+Multi-selection in New Message uses the same creation owner. Bootstrap starts
+as soon as the create response arrives, in parallel with member admission.
+Full member readiness reads start after admission instead of waiting for the
+conversation to mount. A staged message waits for confirmed admission; failed
+admission can be retried in the same Space without repeating creation.
+
+Agent creation receipts return confirmed identities to the shared picker without
+waiting for directory refresh. They expire when the directory includes the Agent
+and never imply membership or availability. Existing-Space additions close the
+picker immediately and show presentation-only `Adding…` rows. Only the server
+response changes membership; failure removes pending rows and offers retry.
+
 ## Selected Space work
 
 Team → Files contains Team files, member-private My files, and Knowledge. Knowledge
@@ -121,19 +156,10 @@ preserving their target and selection. This navigation step
 does not make an ordinary Markdown file approved knowledge or add a second
 content writer.
 
-The writable Space Files browser offers **Hand off** for files in the current
-folder. The dialog freezes their displayed revisions, selects one authorized
-Wake target, and collects a goal, completed work, next steps, and optional exact
-Skill releases/requirements. It uses the shared API handoff operation and the
-existing Message/Wake flow. It does not invent a separate handoff history,
-execution status, or file copy in the cloud. An unchanged in-dialog retry keeps
-its message identity; editing the selection creates a new attempt.
-
-The confirmation means the message was posted. Messages and its existing details
-surface show the actual queued/running/failure outcome and exact file attachments.
-The Web entry creates a new Space message; CLI callers can continue inside an
-existing Thread. Desktop rendering reuses this Web surface; a native Desktop
-working-copy manager and private Computer browsing are outside this first slice.
+Space Files shows chat attachments and manually uploaded files together. Its
+toolbar contains file operations, not the structured work-handoff form. The
+shared API and CLI handoff contract remain available for explicit work handoffs;
+this presentation change does not change their permissions or execution flow.
 
 ## Boundary
 
@@ -228,12 +254,17 @@ shape-aware trigger. Account, theme, and Settings remain reachable
 from the account menu. Its 32px avatar trigger retains its left and bottom inset.
 Separate Fluid hover groups own account identity, Search, actions, and sign-out.
 A compact Light/Dark/System selector follows Download Desktop App without a divider and keeps the menu
-open when changed. Settings > Appearance reuses the same selector and icon set;
+open when changed. Settings > Appearance uses three full-size theme cards with
+labels and descriptions. Both controls share the theme choices and icon set;
 the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
 Discover, in that order (Discover is absent in personal workspaces).
 
-Your Spaces and Direct messages default to Cards and offer Table in the directory toolbar.
+Your Spaces, Direct messages, and Discover default to Cards and offer Table in the directory toolbar.
+The tab body and navigation read the same immediate URL state, so switching
+panels does not wait for route loaders to commit the search parameter.
+All three tabs retain the same Space shell and sidebar. Switching the directory
+panel does not remount sidebar avatars, subscriptions, or resize controls.
 The sidebar's View and filters menu includes Show message previews. It defaults
 to off and persists per Human Profile and Organization in the browser preference
 store. One setting controls the sidebar and both directory card views; it does
@@ -258,11 +289,13 @@ unused avatar slots remain part of the Space navigation target. The member
 popover also has a primary Open Space link in its header; keyboard activation
 of the member trigger remains available.
 The existing browser preference store remembers this choice per Human Profile
-and Organization, shared across Your Spaces and Direct messages. Direct message
+and Organization, shared across all three tabs. Direct message
 cards keep peer and Center Agent session identity, unread destinations, groups,
 pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
 grid height; the title follows directly, with one latest-message preview row
-only when messages exist. Discover retains its existing layout.
+only when messages exist. Discover cards and rows expose the same Preview and
+Join actions, pending state, and access checks. Responsive member grids mount
+each avatar once; CSS changes visible slots without duplicating avatar drawing.
 The Agents directory uses the same store to remember grouped versus expanded
 presentation per viewer, Organization, and person. Search and temporary filters
 do not become saved layout preferences.
@@ -1507,7 +1540,11 @@ section; opening preserves the background path and search, section switches
 replace that parameter, and closing removes only that parameter. The existing
 standalone `/o/{orgSlug}/settings/*` routes remain available for direct links,
 but normal utility, account-menu, command-menu, and review-history entries use
-the dialog. Notification-settings Inbox sources open it over Inbox.
+the dialog. Notification-settings Inbox sources open it over Inbox. An expand
+control immediately before Close opens the active section's standalone route
+from the same capability-filtered registry. It removes `appSettings`, keeps the
+AI usage scope when expanding that section, and replaces the current history
+entry.
 
 Both presentations use `SettingsPage`, the same section registry, grouped
 navigation, capability checks, and section components. The dialog reuses the

@@ -342,6 +342,11 @@ describe("app spaces index route", () => {
 				screen.getByRole("tab", { name })
 			)
 		);
+		expect(
+			screen.getByRole("link", { name: PLANNING_ROW }).getAttribute("href")
+		).toBe("/o/acme/spaces/space-planning?profileId=selected-human");
+		expect(screen.getByRole("button", { name: "Pin Planning" })).toBeTruthy();
+		const shell = screen.getByTestId("app-space-shell");
 		fireEvent.click(screen.getByRole("tab", { name: "Direct messages" }));
 		await waitFor(() =>
 			expect(
@@ -351,10 +356,8 @@ describe("app spaces index route", () => {
 			).toBe("true")
 		);
 		expect(screen.queryByRole("searchbox")).toBeNull();
-		expect(
-			screen.getByRole("link", { name: PLANNING_ROW }).getAttribute("href")
-		).toBe("/o/acme/spaces/space-planning?profileId=selected-human");
-		expect(screen.getByRole("button", { name: "Pin Planning" })).toBeTruthy();
+		expect(screen.queryByRole("link", { name: PLANNING_ROW })).toBeNull();
+		expect(screen.getByTestId("app-space-shell")).toBe(shell);
 		expect(screen.queryByText("Support")).toBeNull();
 		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
 		expect(
@@ -873,7 +876,15 @@ describe("app spaces index route", () => {
 		renderSpacesIndex();
 
 		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
+		expect(await screen.findByText("Member count unavailable")).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Cards" }).getAttribute("aria-pressed")
+		).toBe("true");
+		expect(screen.getByRole("list", { name: "Discover Spaces" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Join Support" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Table" }));
 		expect(await screen.findByText("—")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Join Support" })).toBeTruthy();
 		expect(screen.queryByText("0 members")).toBeNull();
 	});
 
@@ -908,7 +919,10 @@ describe("app spaces index route", () => {
 		expect(navigateComponentMock).not.toHaveBeenCalled();
 	});
 
-	it("joins a public organization Space and opens it as the selected profile", async () => {
+	it.each([
+		"Cards",
+		"Table",
+	])("joins a public organization Space from %s and opens it as the selected profile", async (layout) => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
 				openMeldProfileId: "selected-human",
@@ -943,6 +957,7 @@ describe("app spaces index route", () => {
 			);
 
 		renderSpacesIndex({ initialView: "discover" });
+		fireEvent.click(await screen.findByRole("button", { name: layout }));
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Join Support" })

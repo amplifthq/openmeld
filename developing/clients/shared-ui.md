@@ -94,8 +94,10 @@ without changing existing image previews.
 `SettingsDialogContent` is the shared presentational shell for Space settings
 and App settings: Fluid dialog behavior, a navigation slot, and independently
 scrolling content. The default keeps the Space dialog dimensions; the spacious
-variant scales width and height together for App settings. Navigation models,
-section selection, permissions, and URL state remain in the consuming client.
+variant scales width and height together for App settings. Its optional
+`headerActions` slot places client-owned controls before the shared Close button.
+Navigation models, section selection, permissions, and URL state remain in the
+consuming client.
 
 Prefer existing Fluid components whenever the required primitive is available,
 including dropdowns, selects, and action menus. Do not reconstruct menus from

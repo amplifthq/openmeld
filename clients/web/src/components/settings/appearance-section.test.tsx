@@ -107,7 +107,7 @@ describe("AppearanceSection", () => {
 		).toBe("on");
 	});
 
-	it("shows the saved theme and changes it from the compact selector", () => {
+	it("shows the saved theme and changes it from the theme cards", () => {
 		const view = renderAppearance();
 
 		expect(
@@ -115,20 +115,20 @@ describe("AppearanceSection", () => {
 		).toBeTruthy();
 		expect(screen.getByText("Personal")).toBeTruthy();
 		expect(
-			screen
-				.getByRole("button", { name: "System" })
-				.getAttribute("aria-pressed")
+			screen.getByRole("radio", { name: "System" }).getAttribute("aria-checked")
 		).toBe("true");
 
-		fireEvent.click(screen.getByRole("button", { name: "Light" }));
-		fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Light" }));
+		fireEvent.keyDown(screen.getByRole("radio", { name: "Light" }), {
+			key: "ArrowRight",
+		});
 		themeState.theme = "dark";
 		view.rerender(
 			<ShapeProvider>
 				<AppearanceSection />
 			</ShapeProvider>
 		);
-		fireEvent.click(screen.getByRole("button", { name: "System" }));
+		fireEvent.click(screen.getByRole("radio", { name: "System" }));
 
 		expect(themeState.setTheme.mock.calls).toEqual([
 			["light"],

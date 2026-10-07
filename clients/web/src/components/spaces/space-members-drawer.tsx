@@ -69,6 +69,7 @@ import {
 	organizationQueryKeys,
 	organizationSpaceProfileCandidatesQueryOptions,
 } from "#/query/organizations/organization-directory";
+import { useSpaceMemberAddition } from "#/query/spaces/member-additions";
 import {
 	type SpaceMemberDirectoryDisplay,
 	spaceMemberDirectoryDisplayQueryOptions,
@@ -94,6 +95,7 @@ import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recover
 import { buildSpaceMemberDirectoryEntryByProfileId } from "./space-collaboration-profile";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { SpaceInvitationsSection } from "./space-invitations-section";
+import { SpaceMemberAdditions } from "./space-member-additions";
 import { isSameOwnerUserId } from "./space-member-ownership";
 import { SpaceMemberRow } from "./space-member-row";
 import {
@@ -109,6 +111,7 @@ import {
 	resolveSpaceWakeStatusTransientState,
 	type SpaceWakeStatusTransientState,
 } from "./space-wake-status-refresh";
+import { useCreatedPickerAgents } from "./use-created-picker-agents";
 import {
 	applyWakeAvailabilityDisplayOverride,
 	type WakeDisplayOverrideByProfileId,
@@ -759,6 +762,10 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							query={input.query}
 						/>
 
+						<SpaceMemberAdditions
+							profileId={input.currentProfileId}
+							spaceId={input.spaceId ?? ""}
+						/>
 						<SpaceMembersList
 							activeWakeDisplayTargetProfileIds={
 								input.activeWakeDisplayTargetProfileIds
@@ -979,7 +986,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			}),
 		[directoryQuery.data, input.snapshot, organization?.name]
 	);
-	const candidateGroups = useMemo(
+	const baseCandidateGroups = useMemo(
 		() =>
 			usesOrganizationDirectory
 				? organizationDirectoryCandidates
@@ -997,6 +1004,13 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			usesOrganizationDirectory,
 		]
 	);
+	const createdAgents = useCreatedPickerAgents({
+		groups: baseCandidateGroups,
+		organizationId: organization?.id ?? "",
+		directory: directoryQuery.data,
+		snapshot: input.snapshot,
+	});
+	const candidateGroups = createdAgents.groups;
 	const allCandidates = useMemo(
 		() => [
 			...candidateGroups.personGroups.flatMap((group) => [
@@ -1076,15 +1090,30 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		selectedProfileIds: activeSelectedProfileIds,
 	});
 	const selectedCount = effectiveSelectedProfileIds.size;
+	const addition = useSpaceMemberAddition({
+		organizationId: organization?.id ?? "",
+		profileId: input.currentProfileId,
+		showToast: true,
+		add: (request) =>
+			executeSpaceAddProfilesMutation({
+				allCandidates,
+				onAddOrganizationDirectoryProfiles:
+					input.onAddOrganizationDirectoryProfiles,
+				onAddProfiles: input.onAddProfiles,
+				profileIds: request.directoryProfileIds,
+				selectedProfileIds: new Set(request.directoryProfileIds),
+				usesOrganizationDirectory,
+			}),
+	});
 	const canRunAddMutation = usesOrganizationDirectory
 		? Boolean(input.onAddOrganizationDirectoryProfiles)
 		: Boolean(input.onAddProfiles);
 	const canSubmit =
 		canRunAddMutation &&
 		input.snapshot !== null &&
-		!(usesOrganizationDirectory && directoryQuery.isError) &&
 		selectedCount > 0 &&
-		!isSubmitting;
+		!isSubmitting &&
+		!addition.isPending;
 	const handleOpenChange = (open: boolean) => {
 		if (!open) {
 			setSelectedProfileIds(new Set());
@@ -1125,29 +1154,15 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			});
 			return Promise.resolve();
 		}
-		setIsSubmitting(true);
-		setErrorMessage(null);
-		setSuccessMessage(null);
-		return executeSpaceAddProfilesMutation({
-			allCandidates,
-			onAddOrganizationDirectoryProfiles:
-				input.onAddOrganizationDirectoryProfiles,
-			onAddProfiles: input.onAddProfiles,
-			profileIds,
-			selectedProfileIds: activeSelectedProfileIds,
-			usesOrganizationDirectory,
-		})
-			.then((result) => {
-				setSuccessMessage(formatAddProfilesSuccess(result));
-				setSelectedProfileIds(new Set());
-				handleOpenChange(false);
-			})
-			.catch((error: unknown) => {
-				setErrorMessage(formatAddProfilesError(error));
-			})
-			.finally(() => {
-				setIsSubmitting(false);
-			});
+		addition.mutate({
+			spaceId: activeSpaceId ?? "",
+			directoryProfileIds: profileIds,
+			members: allCandidates.filter((candidate) =>
+				effectiveSelectedProfileIds.has(candidate.profileId)
+			),
+		});
+		handleOpenChange(false);
+		return Promise.resolve();
 	};
 	const handleConfirmConversion = async (name: string) => {
 		if (!(conversionRequest && input.onConvertDirectMessageToSpace)) {
@@ -1212,6 +1227,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	};
 
 	return {
+		onAgentCreated: createdAgents.onCreated,
 		activeSelectedProfileIds,
 		effectiveSelectedProfileIds,
 		addQuery,
@@ -1274,19 +1290,12 @@ function SpaceAddProfilesSectionView({
 					model.setSelectedProfileIds(new Set());
 					model.clearMessages();
 				}}
-				onCreated={async (profileId) => {
-					try {
-						await model.directoryQuery.refetch({ throwOnError: true });
-						await input.onRefresh({ agentProfileIds: [profileId] });
-						model.setAddQuery("");
-						model.setSelectedProfileIds(
-							(current) => new Set([...current, profileId])
-						);
-					} catch (error) {
-						model.setErrorMessage(
-							`Agent created, but the member list could not refresh. Reopen this picker to select it. ${formatAddProfilesError(error)}`
-						);
-					}
+				onCreated={(agent) => {
+					model.onAgentCreated(agent);
+					model.setAddQuery("");
+					model.setSelectedProfileIds(
+						(current) => new Set([...current, agent.profileId])
+					);
 				}}
 				onOpenChange={model.handleOpenChange}
 				onRetryDirectory={() => {
@@ -1364,7 +1373,7 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
-	onCreated: (profileId: string) => Promise<void>;
+	onCreated: (agent: SpaceAddMembersCandidateSummary) => void;
 	addQuery: string;
 	canSubmit: boolean;
 	candidateGroups: SpaceAddMembersCandidateGroups;
