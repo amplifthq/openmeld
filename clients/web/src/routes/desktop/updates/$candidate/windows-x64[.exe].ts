@@ -12,14 +12,16 @@ export const Route = createFileRoute(
 					env.OPENMELD_DESKTOP_DOWNLOADS,
 					"windows-x64",
 					params.candidate,
-					true
+					true,
+					env.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN
 				),
 			HEAD: ({ params }) =>
 				desktopUpdateArtifactResponse(
 					env.OPENMELD_DESKTOP_DOWNLOADS,
 					"windows-x64",
 					params.candidate,
-					false
+					false,
+					env.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN
 				),
 		},
 	},

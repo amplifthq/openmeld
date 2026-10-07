@@ -401,7 +401,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		<SpaceComposerEditorContext.Provider value={contextValue}>
 			<Plate
 				editor={editor}
-				onChange={({ editor: changedEditor }) => {
+				onValueChange={({ editor: changedEditor }) => {
 					const serialized = serializeSpaceComposerEditorValue(
 						changedEditor.children
 					);

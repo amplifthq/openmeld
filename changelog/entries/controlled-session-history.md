@@ -1,5 +1,8 @@
 ---
 id: controlled-session-history
+publishedAt: 2026-10-07
+release: v0.3.247
+evidence: ["pr:1563", "pr:1568", "workflow:37607115073"]
 title: Read selected Codex session history
 kind: new
 areas: ["computers", "agents"]

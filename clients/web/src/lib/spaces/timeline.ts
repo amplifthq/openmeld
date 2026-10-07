@@ -110,6 +110,7 @@ export type SpaceTimelineItem = {
 		streamId: string;
 		reasonCode: string | null;
 		toolParts?: readonly AgentStreamToolPart[];
+		recovery?: import("@openmeld/schemas/types").AgentStreamRecoveryPart;
 		thinking?: string;
 		thinkingActive?: boolean;
 		progress?: string;
@@ -301,6 +302,7 @@ export function buildSpaceTimelineItems(input: {
 					status: stream.status,
 					streamId: stream.streamId,
 					toolParts: stream.toolParts ?? [],
+					recovery: stream.recovery,
 					...(stream.status === "streaming" && stream.thinking
 						? {
 								thinking: stream.thinking,

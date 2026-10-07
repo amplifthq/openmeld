@@ -17,7 +17,12 @@ const CONTINUATION_CLIENT_MESSAGE_ID =
   "agent-profile-work-continuation-5da1ee755432c68f046b7b774852d3f589118fa5c83839da03807fdde2423430";
 
 describe("Usage-exhausted Space continuation", () => {
-  it("replays the frozen Wake, files, and Agent References through one deterministic exactly-once writer identity", async () => {
+  it.each([
+    "explicit",
+    "implicit",
+    "wrong-target",
+    "wrong-source",
+  ])("replays the frozen %s Wake through one deterministic exactly-once writer identity", async (sourceKind) => {
     const posts: Record<string, unknown>[] = [];
     const persistedClientMessageIds = new Set<string>();
     let createdSignalCount = 0;
@@ -64,17 +69,24 @@ describe("Usage-exhausted Space continuation", () => {
       },
     };
     space.applySpaceRef = vi.fn();
+    if (sourceKind !== "explicit") {
+      Reflect.deleteProperty(sourceSignal.data, "messageEnvelope");
+    }
     space.readSourceTextSignalById = vi.fn(() => sourceSignal);
     space.rpcGetDispatchTrace = vi.fn(async () => ({
       trace: {
         dispatch: {
           dispatchId: "dispatch-interrupted",
-          sourceEventId: SOURCE_SIGNAL_ID,
-          targetProfileId: TARGET_PROFILE_ID,
+          sourceEventId:
+            sourceKind === "wrong-source" ? "another-source" : SOURCE_SIGNAL_ID,
+          targetProfileId:
+            sourceKind === "wrong-target"
+              ? REFERENCE_PROFILE_ID
+              : TARGET_PROFILE_ID,
         },
       },
     }));
-    space.rpcPostSignalOnceByClientMessageId = vi.fn(
+    space.postSignalOnceByClientMessageId = vi.fn(
       (post: Record<string, unknown>) => {
         posts.push(post);
         const clientMessageId = String(post.clientMessageId);
@@ -86,6 +98,14 @@ describe("Usage-exhausted Space continuation", () => {
       }
     );
     const input = continuationInput();
+
+    if (sourceKind === "wrong-target" || sourceKind === "wrong-source") {
+      await expect(
+        space.rpcStartUsageExhaustedContinuation(input)
+      ).rejects.toThrow("continuation_source_mismatch");
+      expect(posts).toHaveLength(0);
+      return;
+    }
 
     await expect(
       space.rpcStartUsageExhaustedContinuation(input)
@@ -108,7 +128,8 @@ describe("Usage-exhausted Space continuation", () => {
       files: sourceSignal.data.files,
       messageEnvelope: {
         activationTargets: [TARGET_PROFILE_ID],
-        referenceTargets: [REFERENCE_PROFILE_ID],
+        referenceTargets:
+          sourceKind === "explicit" ? [REFERENCE_PROFILE_ID] : [],
         text: "Finish the original task",
       },
       meta: { clientMessageId: CONTINUATION_CLIENT_MESSAGE_ID },
@@ -293,7 +314,7 @@ function createUsageContinuationSpaceHarness(input: {
       },
     },
   }));
-  space.rpcPostSignalOnceByClientMessageId = input.postSignal;
+  space.postSignalOnceByClientMessageId = input.postSignal;
   return space;
 }
 
@@ -349,7 +370,7 @@ type UsageContinuationSpaceHarness = {
   };
   readSourceTextSignalById: ReturnType<typeof vi.fn>;
   rpcGetDispatchTrace: ReturnType<typeof vi.fn>;
-  rpcPostSignalOnceByClientMessageId: ReturnType<typeof vi.fn>;
+  postSignalOnceByClientMessageId: ReturnType<typeof vi.fn>;
   rpcStartUsageExhaustedContinuation: (
     input: StartUsageExhaustedContinuationInput
   ) => Promise<StartUsageExhaustedContinuationResponse>;

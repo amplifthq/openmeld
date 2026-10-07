@@ -25,6 +25,7 @@ import {
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
 import { ConversationsSidebar } from "#/components/spaces/conversations-sidebar";
+import { SpaceCreationRoute } from "#/components/spaces/space-creation-conversation";
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
@@ -106,6 +107,9 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 	// SSR-read persisted rail/sidebar geometry so the shell renders at the
 	// remembered sizes with no first-paint flash.
 	loader: async ({ context, deps, location, params, preload }) => {
+		if (params.spaceId.startsWith("creating-")) {
+			return { sidebarStates: APP_SIDEBAR_DEFAULT_STATES };
+		}
 		const sidebarStates = getAppSidebarStatesForRoute("spaces");
 		const prefetchKey = JSON.stringify([
 			params.orgSlug,
@@ -160,20 +164,22 @@ function AppSpaceConversationPendingRoute() {
 	const { spaceId } = Route.useParams();
 	const membersPanel = useSpacePanelWidth({ panel: "members", spaceId });
 	return (
-		<SpaceWindowShell
-			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
-			initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
-			sidebar={<ConversationsSidebar />}
-			sidebarPreferenceKey="spaces"
-		>
-			<AppMainContent bodyClassName="flex" showHeader={false}>
-				<SpaceLandingLoadingShell
-					membersPanelWidth={membersPanel.width}
-					spaceId={spaceId}
-					threadOpen={Boolean(search.focusThreadRootSignalId)}
-				/>
-			</AppMainContent>
-		</SpaceWindowShell>
+		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
+			<SpaceWindowShell
+				initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
+				initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
+				sidebar={<ConversationsSidebar />}
+				sidebarPreferenceKey="spaces"
+			>
+				<AppMainContent bodyClassName="flex" showHeader={false}>
+					<SpaceLandingLoadingShell
+						membersPanelWidth={membersPanel.width}
+						spaceId={spaceId}
+						threadOpen={Boolean(search.focusThreadRootSignalId)}
+					/>
+				</AppMainContent>
+			</SpaceWindowShell>
+		</SpaceCreationRoute>
 	);
 }
 
@@ -186,16 +192,18 @@ function AppSpaceEntryRoute() {
 	});
 
 	return (
-		<AppSpaceEntryContent
-			focusInteractionId={search.focusInteractionId}
-			focusRequestId={focusRequestId}
-			focusSignalId={search.focusSignalId}
-			focusThreadRootSignalId={search.focusThreadRootSignalId}
-			initialSidebarStates={sidebarStates}
-			orgSlug={orgSlug}
-			profileId={search.profileId}
-			spaceId={spaceId}
-		/>
+		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
+			<AppSpaceEntryContent
+				focusInteractionId={search.focusInteractionId}
+				focusRequestId={focusRequestId}
+				focusSignalId={search.focusSignalId}
+				focusThreadRootSignalId={search.focusThreadRootSignalId}
+				initialSidebarStates={sidebarStates}
+				orgSlug={orgSlug}
+				profileId={search.profileId}
+				spaceId={spaceId}
+			/>
+		</SpaceCreationRoute>
 	);
 }
 

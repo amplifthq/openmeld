@@ -116,10 +116,7 @@ export function resolveWakeProgressStatus(
 		return {
 			description: "Another app is using this conversation.",
 			kind: "waiting_for_controller",
-			label: formatLabel(
-				"Waiting for an earlier task",
-				`Waiting for ${targetName}`
-			),
+			label: formatLabel("Waiting for another app"),
 			status: "active",
 		};
 	}

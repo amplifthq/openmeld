@@ -888,6 +888,22 @@ Queued preparation failures are counted atomically on the existing runtime
 submission row; a stale failure cannot terminate a ready, claimed, cancelled,
 or already-settled submission. No additional execution ledger is introduced.
 
+Flue 2.2.2 preserves these identities and the nine retained recovery/tool
+contracts. Transient model overload, rate limits, and connection failures use
+Flue's native retry loop with five retries after the initial request. Backoff
+caps are 3, 6, 12, 24, and 30 seconds, with 75–100% jitter. Canonical error
+history keeps the retry budget across resumed execution. Successful model work
+ends that consecutive-failure budget. Permanent errors and user stops do not
+consume automatic retries; Stop interrupts a pending delay. This model budget
+is distinct from the five-attempt platform durability budget above.
+
+The same submission and stream expose bounded recovery progress to the Space:
+Reconnecting, the retry number, and the next retry time. Existing completed tool
+work remains visible. A model response clears Reconnecting; exhaustion follows
+the existing terminal failure path. The UI never schedules execution or hides a
+terminal failure. Result publication continues to use its separate durable
+completion and callback recovery contract.
+
 Recovery reads canonical completion before checking cancellation, the retry
 budget, and positive deadlines. This classification must not require preparing
 Computer, model, or tool resources. A completed result survives an exhausted
@@ -1350,9 +1366,18 @@ the connected provider API.
    input to the next execution. The Flue steering source writes each input
    into its canonical conversation before acknowledging it to the intake
    projection. In a private Center Agent chat, Web binds a text-only message
-   sent during one active response to that response's dispatch. Core validates
-   the current writer against the original verified sender, then atomically
-   saves the visible message and its input outbox record. Retries retain that
+   sent during one active response to that response's dispatch and places it in
+   the same composer Queue used by Local Agents. Send now explicitly requests
+   steering; leaving it queued starts the next response after the current one.
+   Queue intake may precede creation of the native delivery record. Core
+   validates the original Human source and canonical Center Agent DM against
+   the Space outbox. Its stored target does not invent a delivery or submission
+   ID. Send now resolves the exact anchored dispatch and binds the
+   admitted submission before claiming the input; receipt reads retain that
+   saved target and cannot redirect the input to another execution.
+   Core validates the current writer against the original verified sender,
+   then atomically saves the visible message and its input outbox record when
+   delivery begins. Retries retain that
    exact execution; a late new input fails instead of starting different work.
    Files and independent chat submissions retain the ordinary admission path.
    An unconfirmed terminal input produces a visible update failure scoped to
@@ -2127,6 +2152,21 @@ schemas, dependencies, and authorization hints; they do not grant authority or
 bypass execution-time policy. Multilingual aliases and deterministic ranking
 apply only after the model explicitly searches; they never classify the raw
 user request or become a second semantic owner.
+Known capability names can be described directly without searching. Recovery
+retains at most eight recently selected names across describe calls, scoped to
+the submission; descriptions and schemas always come from the current catalog.
+This bounded selection replaces no permission or operation owner. Provided
+evidence and recovered receipts should satisfy the next action when sufficient;
+available tools are not a mandatory preflight checklist. Detailed setup inputs
+belong in the selected tool contract instead of repeated always-on recipes.
+
+Observation progress compares the full result by default. A read owner may
+project its progress value to exclude response-envelope metadata, without
+changing the evidence returned to the model. The Organization directory excludes
+its page/readiness generation timestamps and Core's projection timestamp for
+withheld, not-requested route evidence. Member activity, actual readiness
+observations, pagination and all other facts still count. Never recursively strip timestamps
+or suppress changes to business evidence across the catalog.
 The generated Code Mode catalog still contains every active direct tool,
 and every direct or inner call re-enters the same
 cancellation, authorization, confirmation, audit, usage, and result-bounding

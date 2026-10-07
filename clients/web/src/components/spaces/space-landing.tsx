@@ -45,6 +45,8 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
+import { useWalkthroughSpaceProgress } from "#/components/onboarding/walkthrough/use-walkthrough-space-progress";
+import { useWalkthrough } from "#/components/onboarding/walkthrough/walkthrough-context";
 import { CenterAgentChatHistory } from "#/components/organizations/center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
@@ -124,6 +126,7 @@ import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participatio
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
+import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
@@ -485,6 +488,7 @@ type SpaceLandingInput = {
 				>
 		  ) => ReactNode);
 	onInitialPendingMessageConsumed?: () => void;
+	onComposerReady?: (composer: SpaceComposerEditorHandle) => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug?: string;
 	presentation?: "compact" | "full";
@@ -584,6 +588,13 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		ownerAccountId: recovery.storageScope,
 		organizationId,
 	});
+	const composerHandleRef =
+		controller.mode === "ready" ? controller.textareaRef : null;
+	useEffect(() => {
+		if (composerHandleRef?.current) {
+			input.onComposerReady?.(composerHandleRef.current);
+		}
+	}, [composerHandleRef, input.onComposerReady]);
 	usePublishInboxVisibleConversation(
 		input.readingEnabled !== false &&
 			controller.mode === "ready" &&
@@ -1424,12 +1435,17 @@ export function SpaceLanding(input: SpaceLandingInput) {
 		focusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 	});
 	return (
-		<SpaceLandingContent
-			{...input}
-			initialFocusThreadRootSignalId={
-				input.initialFocusThreadRootSignalId ?? target?.rootSignalId
-			}
-		/>
+		<div
+			className="flex h-full min-h-0 w-full flex-col"
+			data-walkthrough="conversation"
+		>
+			<SpaceLandingContent
+				{...input}
+				initialFocusThreadRootSignalId={
+					input.initialFocusThreadRootSignalId ?? target?.rootSignalId
+				}
+			/>
+		</div>
 	);
 }
 
@@ -1440,6 +1456,7 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 	});
 	const state = useSpaceLandingState(input);
 	const { controller } = state;
+	useWalkthroughSpaceProgress(input.spaceId, controller);
 	useSpaceOpenPaint(input.spaceId, spaceOpenFailureMilestone(controller.mode));
 	if (controller.mode === "loading" && input.loadingFallback) {
 		return typeof input.loadingFallback === "function"
@@ -2122,6 +2139,13 @@ function SpaceLandingConversation({
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
+	const tutorial = useWalkthrough();
+	const tutorialActive = Boolean(
+		tutorial?.record &&
+			tutorial.record.spaceId === input.spaceId &&
+			!tutorial.record.paused &&
+			tutorial.record.step !== "complete"
+	);
 	const welcomeRecipients = useMemo(
 		() =>
 			welcomeStep
@@ -2316,6 +2340,9 @@ function SpaceLandingConversation({
 			profileControl={composerProfileControl}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) => {
+				if (tutorialActive && presentation === "banner") {
+					return null;
+				}
 				if (!(controller.isCurrentAccessConfirmed && input.orgSlug)) {
 					return null;
 				}

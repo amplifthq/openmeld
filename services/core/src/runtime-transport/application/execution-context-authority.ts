@@ -178,6 +178,34 @@ function sameScope(
   return scopeKey(a) === scopeKey(b);
 }
 
+/** Retain history, but stop offering the replaced context for automatic routing. */
+export async function retireRecoveredContextSourceAssociation(input: {
+  storage: Pick<DurableObjectTransaction, "get" | "delete">;
+  sourceContextId: string;
+  replacementContextId: string;
+}): Promise<void> {
+  const source = requireContext(
+    await input.storage.get(CONTEXT_PREFIX + input.sourceContextId)
+  );
+  const replacement = requireContext(
+    await input.storage.get(CONTEXT_PREFIX + input.replacementContextId)
+  );
+  if (
+    replacement.assignment.forkSource?.contextId !== source.assignment.id ||
+    !sameScope(source.assignment.scope, replacement.assignment.scope) ||
+    source.bindingId !== replacement.bindingId ||
+    source.agentControllerRef !== replacement.agentControllerRef ||
+    source.openMeldServiceRuntimeId !== replacement.openMeldServiceRuntimeId
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.source_scope_mismatch"
+    );
+  }
+  await input.storage.delete(
+    `${ASSOCIATION_PREFIX}${scopeKey(source.assignment.scope)}:${source.assignment.id}`
+  );
+}
+
 // Resolves from accepted Wake associations in this Coordinator's transaction.
 // It returns writes so rejected admission never creates a context or native work.
 type AssignmentPlan = {

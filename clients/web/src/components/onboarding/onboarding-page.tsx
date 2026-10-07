@@ -10,6 +10,7 @@ import { useCompleteOnboardingState } from "#/components/onboarding/complete-onb
 import { CompleteOnboardingStep } from "#/components/onboarding/complete-onboarding-step";
 import { InviteOnboardingDemo } from "#/components/onboarding/invite-onboarding-demo";
 import { InviteOnboardingStep } from "#/components/onboarding/invite-onboarding-step";
+import { LegacyOrganizationOnboardingStep as OrganizationOnboardingStep } from "#/components/onboarding/legacy-organization-onboarding-step";
 import { LocalAgentsOnboardingDemo } from "#/components/onboarding/local-agents-onboarding-demo";
 import { LocalAgentsOnboardingStep } from "#/components/onboarding/local-agents-onboarding-step";
 import { OnboardingShell } from "#/components/onboarding/onboarding-shell";
@@ -18,7 +19,6 @@ import {
 	type OrganizationOnboardingPerson,
 	type OrganizationOnboardingPreview,
 } from "#/components/onboarding/organization-onboarding-demo";
-import { OrganizationOnboardingStep } from "#/components/onboarding/organization-onboarding-step";
 import { PluginsOnboardingDemo } from "#/components/onboarding/plugins-onboarding-demo";
 import { PluginsOnboardingStep } from "#/components/onboarding/plugins-onboarding-step";
 import { SetupOnboardingDemo } from "#/components/onboarding/setup-onboarding-demo";

@@ -42,7 +42,7 @@ export function SpaceMessageProgressRow(input: {
 				<div
 					className={cn(
 						"flex min-h-6 shrink-0 items-center",
-						input.compact ? null : "w-20",
+						input.compact ? null : "min-w-20",
 						isEndAligned ? "justify-end" : "justify-start"
 					)}
 					data-slot="space-message-progress-control"

@@ -16,12 +16,9 @@ import {
 	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
 import {
-	captureInboxCacheSnapshots,
-	type InboxCacheSnapshots,
-	restoreInboxCacheSnapshots,
-	updateCachedInboxItem,
-	updateCachedInboxUnreadCount,
-} from "./inbox-page-cache";
+	hasPendingInboxReads,
+	optimisticallyReadInbox,
+} from "#/query/organizations/inbox-optimistic-read";
 
 export function useInboxItemReadMutation(input: {
 	onAnnouncement?: (message: string) => void;
@@ -32,7 +29,7 @@ export function useInboxItemReadMutation(input: {
 		MarkInboxItemReadResponse,
 		InboxFailure,
 		{ item: InboxItem; read: boolean },
-		InboxCacheSnapshots
+		ReturnType<typeof optimisticallyReadInbox>
 	>({
 		mutationFn: async (variables) =>
 			await markCurrentInboxItemRead({
@@ -41,7 +38,7 @@ export function useInboxItemReadMutation(input: {
 				read: variables.read,
 			}),
 		onError: (_error, variables, context) => {
-			restoreInboxCacheSnapshots(queryClient, context);
+			context?.settle(false);
 			input.onAnnouncement?.(
 				`Could not mark ${variables.item.title} as ${
 					variables.read ? "read" : "unread"
@@ -55,37 +52,23 @@ export function useInboxItemReadMutation(input: {
 			await queryClient.cancelQueries({
 				queryKey: inboxQueryKeys.organization(input.organizationId),
 			});
-			const context = captureInboxCacheSnapshots(
+			return optimisticallyReadInbox(
 				queryClient,
-				input.organizationId
+				input.organizationId,
+				variables
 			);
-			const readAt = variables.read ? new Date().toISOString() : null;
-			updateCachedInboxItem({
-				itemId: variables.item.id,
-				organizationId: input.organizationId,
-				queryClient,
-				update: (item) => ({ ...item, readAt }),
-			});
-			updateCachedInboxUnreadCount({
-				delta: variables.read ? -1 : 1,
-				organizationId: input.organizationId,
-				queryClient,
-			});
-			return context;
 		},
 		onSettled: async () => {
+			if (hasPendingInboxReads(queryClient, input.organizationId)) {
+				return;
+			}
 			await invalidateInboxFacts({
 				organizationId: input.organizationId,
 				queryClient,
 			});
 		},
-		onSuccess: (response, variables) => {
-			updateCachedInboxItem({
-				itemId: variables.item.id,
-				organizationId: input.organizationId,
-				queryClient,
-				update: () => response.item,
-			});
+		onSuccess: (_response, variables, context) => {
+			context?.settle(true);
 			input.onAnnouncement?.(
 				`${variables.item.title} marked as ${
 					variables.read ? "read" : "unread"

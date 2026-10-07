@@ -5,7 +5,7 @@ import { SpaceMessageProgressRow } from "./space-message-progress-row";
 afterEach(cleanup);
 
 describe("SpaceMessageProgressRow", () => {
-	it("keeps Stop beside the status in one fixed control slot", () => {
+	it("keeps Stop beside the status in one stable control slot", () => {
 		const view = render(
 			<SpaceMessageProgressRow slot="test-progress">
 				<span>Sending to Agent…</span>
@@ -17,7 +17,6 @@ describe("SpaceMessageProgressRow", () => {
 		);
 		const progressContent = controlSlot.previousElementSibling;
 
-		expect(controlSlot.className).toContain("w-20");
 		expect(controlSlot.className).toContain("justify-start");
 		expect(controlSlot.className).not.toContain("ml-auto");
 		expect(controlSlot.childElementCount).toBe(0);

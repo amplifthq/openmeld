@@ -1279,6 +1279,9 @@ function buildInventoryFilters(input: {
   if (input.query.memberUserId) {
     add("inventory.owner_user_id", input.query.memberUserId);
   }
+  if (input.query.computerId) {
+    add("inventory.connected_computer_id", input.query.computerId);
+  }
   if (input.query.projectId) {
     add("inventory.project_id", input.query.projectId);
   }
@@ -1328,6 +1331,10 @@ async function readCoverage(input: {
     "projects.archived_at_ms IS NULL",
   ];
   const bindings: unknown[] = [input.organizationId];
+  if (input.query.computerId) {
+    clauses.push(`source.connected_computer_id = $${bindings.length + 2}`);
+    bindings.push(input.query.computerId);
+  }
   if (input.query.projectId) {
     clauses.push(`source.project_id = $${bindings.length + 2}`);
     bindings.push(input.query.projectId);
@@ -1507,6 +1514,7 @@ async function buildQuerySignature(input: {
     input.query.query ?? "",
     input.query.status ?? "",
     String(input.query.limit),
+    ...(input.query.computerId ? ["computerId", input.query.computerId] : []),
   ]);
 }
 async function sha256Key(parts: readonly string[]): Promise<string> {

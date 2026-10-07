@@ -52,7 +52,7 @@ export const profileDetailsRecoveryActionSchema = z.strictObject({
     .max(512)
     .optional(),
   kind: profileDetailsRecoveryActionKindSchema,
-  visibility: z.literal("owner_self"),
+  visibility: z.enum(["owner_self", "requester_self"]),
 });
 
 export const profileDetailsCopyActionSchema = z.strictObject({

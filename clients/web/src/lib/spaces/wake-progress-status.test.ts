@@ -95,7 +95,7 @@ describe("resolveWakeProgressStatus", () => {
 		).toEqual(
 			expect.objectContaining({
 				kind: "waiting_for_controller",
-				label: "Waiting for runner",
+				label: "runner · Waiting for another app",
 				description: "Another app is using this conversation.",
 			})
 		);

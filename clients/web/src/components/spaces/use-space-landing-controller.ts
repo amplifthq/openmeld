@@ -59,6 +59,7 @@ import {
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { projectAgentStreamReplyPlacements } from "#/lib/spaces/active-wake-conversation";
+import { sendWebSpaceAgentInteractionResponse } from "#/lib/spaces/agent-interaction-response";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
@@ -427,13 +428,21 @@ function buildComposerFileSubmission(input: {
 }
 
 function resolveQueuedExecutionInput(input: {
+	profileId: string;
+	timelineItems: readonly SpaceTimelineItem[];
 	centerAgentProfileId?: string | null;
 	members: SpaceMembersSnapshot | null;
 	activationTargets: readonly string[];
 	hasFiles: boolean;
+	replyToSignalId?: string;
 	items: readonly Pick<
 		WakeProgressItem,
-		"terminal" | "dispatchId" | "targetProfileId"
+		| "terminal"
+		| "dispatchId"
+		| "clientMessageId"
+		| "targetProfileId"
+		| "sourceContext"
+		| "sourceSignalId"
 	>[];
 }) {
 	const localProfileIds =
@@ -448,7 +457,11 @@ function resolveQueuedExecutionInput(input: {
 		targetProfileId = input.activationTargets[0];
 	} else if (input.activationTargets.length === 0) {
 		targetProfileId = input.centerAgentProfileId;
-		if (!targetProfileId && localProfileIds.length === 1) {
+		if (
+			!targetProfileId &&
+			localProfileIds.length === 1 &&
+			(input.members?.humans.length === 1 || input.replyToSignalId)
+		) {
 			targetProfileId = localProfileIds[0];
 		}
 	}
@@ -462,16 +475,32 @@ function resolveQueuedExecutionInput(input: {
 	const responses = input.items.filter(
 		(item) =>
 			!item.terminal &&
-			item.dispatchId &&
-			item.targetProfileId === targetProfileId
+			(item.dispatchId || item.clientMessageId) &&
+			item.targetProfileId === targetProfileId &&
+			(!input.replyToSignalId ||
+				item.sourceSignalId === input.replyToSignalId) &&
+			!item.sourceContext?.threadId &&
+			(item.sourceContext?.profileId ??
+				input.timelineItems.find((source) => source.id === item.sourceSignalId)
+					?.actorProfileId) === input.profileId
 	);
-	const response = responses.length === 1 ? responses[0] : undefined;
-	return response?.dispatchId
-		? {
-				dispatchId: response.dispatchId,
-				targetProfileId: response.targetProfileId,
-			}
-		: undefined;
+	if (responses.length > 1) {
+		return "ambiguous" as const;
+	}
+	const response = responses[0];
+	if (response?.dispatchId) {
+		return {
+			dispatchId: response.dispatchId,
+			targetProfileId: response.targetProfileId,
+		};
+	}
+	if (response?.clientMessageId) {
+		return {
+			clientMessageId: response.clientMessageId,
+			targetProfileId: response.targetProfileId,
+		};
+	}
+	return undefined;
 }
 
 function buildNormalMessagePostInput(input: {
@@ -1914,10 +1943,16 @@ export function useSpaceLandingController(input: {
 			organizationSlug: input.orgSlug,
 			profileId: input.profileId,
 			spaceId: input.spaceId,
-			restoreFromScopes: input.composerDraftMigrationScopes?.flatMap((scope) =>
-				scope.kind === "center_agent_pending"
-					? [centerAgentPendingAttachmentScope(scope)]
-					: []
+			restoreFromScopes: input.composerDraftMigrationScopes?.flatMap(
+				(scope) => {
+					if (scope.kind === "center_agent_pending") {
+						return [centerAgentPendingAttachmentScope(scope)];
+					}
+					if (scope.kind === "space") {
+						return [`${input.orgSlug}:${scope.profileId}:${scope.spaceId}`];
+					}
+					return [];
+				}
 			),
 		},
 	});
@@ -2532,35 +2567,31 @@ export function useSpaceLandingController(input: {
 					})
 				: () => undefined;
 			try {
-				const response = await createUnscopedWebSpaceApi({
-					openMeldProfileId: input.profileId,
-				}).respondToAgentInteraction({
+				await sendWebSpaceAgentInteractionResponse({
 					body,
+					openMeldProfileId: input.profileId,
 					spaceId: input.spaceId,
-					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
 				});
-				if (!response.ok) {
-					throw new Error(response.message);
-				}
 			} catch (error) {
 				rollback();
-				const failure = toStructuredApiClientFailure(error);
-				throw new Error(failure.message);
+				throw error;
 			} finally {
 				if (input.organizationId) {
 					queryClient.invalidateQueries({
 						queryKey: inboxQueryKeys.organization(input.organizationId),
 					});
 				}
-			}
-
-			activeWakeProgressSummaryQuery.refetch().catch((error) => {
-				console.warn("[openmeld.web.space.agent_interaction_refresh_failed]", {
-					error: error instanceof Error ? error.message : String(error),
-					interactionId: body.interactionId,
-					spaceId: input.spaceId,
+				activeWakeProgressSummaryQuery.refetch().catch((error) => {
+					console.warn(
+						"[openmeld.web.space.agent_interaction_refresh_failed]",
+						{
+							error: error instanceof Error ? error.message : String(error),
+							interactionId: body.interactionId,
+							spaceId: input.spaceId,
+						}
+					);
 				});
-			});
+			}
 		},
 		[
 			activeWakeProgressSummaryQuery.refetch,
@@ -2994,7 +3025,10 @@ export function useSpaceLandingController(input: {
 				};
 			pendingSubmission = preparedSubmission;
 			const queueTarget = resolveQueuedExecutionInput({
+				profileId: input.profileId,
+				timelineItems,
 				centerAgentProfileId: input.centerAgentProfileId,
+				replyToSignalId: preparedSubmission.messageEnvelope?.replyToSignalId,
 				members: membersSnapshot,
 				activationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
@@ -3005,11 +3039,18 @@ export function useSpaceLandingController(input: {
 			});
 			if (
 				queueTarget &&
-				!preparedSubmission.messageEnvelope?.replyToSignalId &&
 				!preparedSubmission.contextSelection &&
 				!preparedSubmission.deviceWait
 			) {
 				try {
+					if (queueTarget === "ambiguous") {
+						throw new Error(
+							"More than one task is active. Reply to your original request to choose which task to update."
+						);
+					}
+					// The previous send owns source publication. Resolve its dispatch
+					// only after that request settles, not from a delayed progress frame.
+					await request.ready;
 					await ensureEntryConfirmed();
 					await inputQueue.enqueue({
 						action: "enqueue",
@@ -3023,11 +3064,19 @@ export function useSpaceLandingController(input: {
 					options?.onMessageStaged?.(messageSeed.clientMessageId);
 					setComposerErrorMessage(null);
 				} catch (error) {
-					setComposerErrorMessage(
+					const failure = toStructuredApiClientFailure(error);
+					let message =
 						error instanceof Error
 							? error.message
-							: "Couldn't queue this message. Your draft is still here."
-					);
+							: "Couldn't queue this message. Your draft is still here.";
+					if (
+						failure.code === "network.request_failed" ||
+						failure.code === "network.timeout"
+					) {
+						message =
+							"Couldn't queue this message. Check your connection and try again.";
+					}
+					setComposerErrorMessage(message);
 				}
 				return;
 			}

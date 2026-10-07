@@ -15,9 +15,10 @@ import {
 	TrayIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
+import { useTheme } from "next-themes";
 import { type CSSProperties, useState, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
-import { ThemeSelector } from "#/components/appearance/theme-selector";
+import { THEME_CHOICES } from "#/components/appearance/theme-choices";
 import {
 	BOT_MATERIAL_CHOICES,
 	useBotAvatarPreference,
@@ -102,6 +103,19 @@ const SELF_MESSAGE_ALIGNMENT_CHOICES: readonly SelfMessageAlignmentChoice[] = [
 	},
 ] as const;
 
+const HISTORY_SLIDER_CHOICES = [
+	{
+		description: "Show a compact slider for older messages.",
+		enabled: true,
+		label: "Show",
+	},
+	{
+		description: "Hide the slider and give messages more room.",
+		enabled: false,
+		label: "Hide",
+	},
+] as const;
+
 const subscribeToHydration = () => () => undefined;
 const getClientHydrationSnapshot = () => true;
 const getServerHydrationSnapshot = () => false;
@@ -111,6 +125,7 @@ export function AppearanceSection() {
 	const toolbar = useToolbarPreference();
 	const historySlider = useHistorySliderPreference();
 	const botAvatar = useBotAvatarPreference();
+	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
 		? "vertical"
@@ -129,6 +144,9 @@ export function AppearanceSection() {
 			readSpaceSelfMessageAlignmentPreference()
 		);
 
+	const selectedThemeIndex = mounted
+		? THEME_CHOICES.findIndex((choice) => choice.value === theme)
+		: -1;
 	const selectedConversationLayoutIndex = mounted
 		? CONVERSATION_LAYOUT_CHOICES.findIndex(
 				(choice) => choice.value === conversationLayout
@@ -157,9 +175,32 @@ export function AppearanceSection() {
 				id="appearance"
 			>
 				<SettingsRow
-					control={<ThemeSelector />}
+					control={
+						<RadioGroup
+							aria-label="Theme"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={selectedThemeIndex}
+						>
+							{THEME_CHOICES.map((choice, index) => (
+								<RadioItem
+									adornment={
+										<choice.icon aria-hidden="true" className="size-4" />
+									}
+									className="min-w-0 flex-1 px-3 py-2.5"
+									description={choice.description}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => setTheme(choice.value)}
+									selected={mounted && theme === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
 					description="This preference is saved in this browser."
 					label="Theme"
+					layout="stacked"
 					showDivider
 				/>
 				<SettingsRow
@@ -300,15 +341,39 @@ export function AppearanceSection() {
 				/>
 				<SettingsRow
 					control={
-						<Switch
-							aria-label="Show history slider"
-							checked={historySlider.enabled}
-							id="history-slider"
-							onCheckedChange={historySlider.setEnabled}
-						/>
+						<RadioGroup
+							aria-label="History slider"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? HISTORY_SLIDER_CHOICES.findIndex(
+											(choice) => choice.enabled === historySlider.enabled
+										)
+									: -1
+							}
+						>
+							{HISTORY_SLIDER_CHOICES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex min-w-0 flex-col gap-2">
+											<span>{choice.description}</span>
+											<HistorySliderPreview enabled={choice.enabled} />
+										</span>
+									}
+									index={index}
+									key={choice.label}
+									label={choice.label}
+									onSelect={() => historySlider.setEnabled(choice.enabled)}
+									selected={mounted && historySlider.enabled === choice.enabled}
+								/>
+							))}
+						</RadioGroup>
 					}
-					description="Browse older messages in a Space. Saved in this browser."
+					description="Browse older messages in a Space. Shown only when older history is available. Saved in this browser."
 					label="History slider"
+					layout="stacked"
 					showDivider
 				/>
 				<SettingsRow
@@ -527,6 +592,34 @@ function ConversationLayoutPreview(input: { layout: SpaceConversationLayout }) {
 				</span>
 			</span>
 			<span className="w-4 shrink-0 border-border border-l bg-muted/40" />
+		</span>
+	);
+}
+
+function HistorySliderPreview(input: { enabled: boolean }) {
+	return (
+		<span
+			aria-hidden="true"
+			className="flex h-20 w-full overflow-hidden border border-border bg-background"
+			data-history-slider-preview={input.enabled ? "show" : "hide"}
+		>
+			<span className="w-3 shrink-0 border-border border-r bg-muted/70" />
+			{input.enabled && (
+				<span className="flex w-4 shrink-0 flex-col justify-center gap-0.5 pl-1">
+					{[0, 1, 2, 3, 4, 5, 6, 7, 8].map((tick) => (
+						<span
+							className={`h-0.5 ${tick === 4 ? "w-2.5 bg-foreground/70" : "w-1 bg-muted-foreground/40"}`}
+							key={tick}
+						/>
+					))}
+				</span>
+			)}
+			<span className="flex min-w-0 flex-1 flex-col gap-1.5 p-2">
+				<span className="h-1.5 w-3/5 bg-muted-foreground/30" />
+				<span className="h-1.5 w-4/5 self-end bg-muted-foreground/20" />
+				<span className="h-1.5 w-2/3 bg-muted-foreground/30" />
+				<span className="mt-auto h-3 w-full border border-border bg-muted/60" />
+			</span>
 		</span>
 	);
 }

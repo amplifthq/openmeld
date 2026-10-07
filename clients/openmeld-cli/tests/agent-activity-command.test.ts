@@ -155,6 +155,8 @@ describe("Agent Activity CLI presentation", () => {
       "openmeld",
       "activity",
       "sessions",
+      "--computer",
+      "computer-1",
       "--provider",
       "grok-build",
       "--status",
@@ -171,6 +173,7 @@ describe("Agent Activity CLI presentation", () => {
 
     expect(handlers.sessions).toHaveBeenCalledWith(
       expect.objectContaining({
+        computer: "computer-1",
         limit: "25",
         nativeSession: "native-1",
         origin: "openmeld",
