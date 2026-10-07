@@ -39,6 +39,8 @@ const PERSONAL_PRODUCT_TOOLS = new Set([
   "browser_screenshot",
   "openmeld_read_org_documents",
   "openmeld_list_projects",
+  "openmeld_list_agent_activity_sessions",
+  "openmeld_read_session_history",
   "openmeld_list_space_files",
   "openmeld_list_team_files",
   "openmeld_read_team_file",

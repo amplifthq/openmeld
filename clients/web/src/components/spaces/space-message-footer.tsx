@@ -23,6 +23,7 @@ import {
 	CopyIcon,
 	DotsThreeIcon,
 	InfoIcon,
+	LinkIcon,
 	PencilSimpleIcon,
 	PushPinIcon,
 	SmileyIcon,
@@ -803,7 +804,7 @@ function MessageFooterMoreMenuItems(
 					index={actionIds.indexOf("copy-link")}
 					onClick={input.onCopyLink}
 				>
-					<CopyIcon aria-hidden="true" />
+					<LinkIcon aria-hidden="true" />
 					Copy link
 				</FluidDropdownMenuItem>
 			)}

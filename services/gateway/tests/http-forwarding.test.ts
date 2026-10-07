@@ -2509,6 +2509,58 @@ describe("gateway http forwarding", () => {
     expect(bootstrapTimingPoint?.doubles?.[1]).toBe(42);
   });
 
+  it.each([
+    false,
+    true,
+  ])("only exposes model recovery to an opted-in bootstrap reader: %s", async (supported) => {
+    const { env, rpc } = makeEnv();
+    const original = await rpc.getSpaceBootstrapWithTiming();
+    const recovery = {
+      type: "recovery",
+      state: "waiting",
+      attempt: 2,
+      maxAttempts: 5,
+      nextRetryAtMs: 7000,
+    } as const;
+    rpc.getSpaceBootstrapWithTiming.mockResolvedValue({
+      ...original,
+      payload: {
+        ...original.payload,
+        activeAgentStreamPresences: [
+          {
+            v: 1,
+            spaceId: "demo",
+            streamId: "stream:sub_1",
+            sequence: 2,
+            profileId: "agt_11111111-1111-4111-8111-111111111111",
+            triggerMessageId: "signal_1",
+            dispatchId: "dispatch_1",
+            state: "streaming",
+            gapDetected: false,
+            createdAtMs: 1000,
+            updatedAtMs: 2000,
+            expiresAtMs: 60_000,
+            recovery,
+          },
+        ],
+      },
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/demo/bootstrap?includeAgentStreamPresence=true${supported ? "&includeAgentStreamRecovery=true" : ""}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      activeAgentStreamPresences: { recovery?: unknown }[];
+    };
+    expect(body.activeAgentStreamPresences[0]?.recovery).toEqual(
+      supported ? recovery : undefined
+    );
+  });
+
   it("forwards GET /v1/spaces/:spaceId/dispatches/:dispatchId/trace to core RPC", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(

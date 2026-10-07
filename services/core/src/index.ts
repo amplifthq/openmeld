@@ -944,6 +944,7 @@ import {
   rpcEnsureAgentProfilePrimaryBinding,
   rpcExecuteAgentProfileWorkRecovery,
   rpcExecuteExecutionRecovery,
+  rpcFirstWork,
   rpcForgetComputer,
   rpcForgetCurrentComputer,
   rpcGetActiveSpaceWakeProgress,
@@ -1385,6 +1386,11 @@ function normalizeOptionalRpcText(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
+  firstWork(input: Parameters<typeof rpcFirstWork>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcFirstWork(this.env, input)
+    );
+  }
   // Keep fetch for WebSocket upgrade proxying and internal service calls.
   // In production, openmeld-core is not directly exposed; it should only be called
   // through Gateway service binding. dev localhost access is used for local tests.
@@ -4356,6 +4362,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 // Gateway-specific RPC entrypoint. Kept as a dedicated subclass to preserve an
 // extension point for future gateway-aware overrides.
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  firstWork(input: Parameters<typeof rpcFirstWork>[1]) {
+    return super.firstWork(input);
+  }
   handleSlackWelcomeInteraction(
     input: SlackWelcomeInteractionRpcInput
   ): Promise<SlackWelcomeInteractionRpcResponse> {

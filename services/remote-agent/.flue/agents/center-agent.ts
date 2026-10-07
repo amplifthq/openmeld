@@ -71,7 +71,10 @@ import {
   reconcileAndRedeliverRemoteAgentCallbacks,
   scheduleRemoteAgentCallbackRetry,
 } from "../../flue-adapter/center-agent-admission";
-import { CENTER_AGENT_DURABILITY } from "../../flue-adapter/center-agent-durability";
+import {
+  CENTER_AGENT_DURABILITY,
+  CENTER_AGENT_MODEL_RETRY,
+} from "../../flue-adapter/center-agent-durability";
 import {
   materializeCenterAgentRuntime,
   resolveCenterAgentRuntimeContextPlan,
@@ -456,6 +459,7 @@ export function CenterAgentV2() {
 CenterAgentV2.agentName = "center-agent-v2";
 CenterAgentV2.projectResourceSignal = projectRemoteAgentResourceSignal;
 CenterAgentV2.durability = CENTER_AGENT_DURABILITY;
+CenterAgentV2.modelRetry = CENTER_AGENT_MODEL_RETRY;
 // Every admitted OpenMeld turn currently carries a separate authority and
 // terminal callback. Never silently absorb another turn into that authority.
 // Exact-execution steering is a separate ingress contract.

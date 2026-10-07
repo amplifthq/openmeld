@@ -10,7 +10,8 @@ export async function desktopUpdateDownload(
 		env.OPENMELD_DESKTOP_DOWNLOADS,
 		"macos-arm64",
 		candidate,
-		includeBody
+		includeBody,
+		env.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN
 	);
 }
 export const Route = createFileRoute("/desktop/updates/$candidate/desktop.zip")(

@@ -24,14 +24,20 @@ export function useSpaceInputQueue(input: {
 		queryKey,
 		enabled: input.enabled,
 		queryFn: ({ signal }) =>
-			readOrUpdateSpaceInputQueue(client(), { spaceId: input.spaceId, signal }),
+			readOrUpdateSpaceInputQueue(client(), {
+				spaceId: input.spaceId,
+				signal,
+				includeRecovery: true,
+			}),
 		staleTime: 0,
+		refetchInterval: 30_000,
 	});
 	async function mutate(mutation: SpaceInputQueueMutation) {
 		await queryClient.cancelQueries({ queryKey });
 		try {
 			const data = await readOrUpdateSpaceInputQueue(client(), {
 				spaceId: input.spaceId,
+				includeRecovery: true,
 				mutation,
 			});
 			queryClient.setQueryData(queryKey, data);
@@ -41,6 +47,7 @@ export function useSpaceInputQueue(input: {
 	}
 	return {
 		items: query.data?.items ?? [],
+		recoveries: query.data?.recoveries ?? [],
 		error: query.error,
 		mutate,
 		async enqueue(
@@ -51,8 +58,7 @@ export function useSpaceInputQueue(input: {
 				pendingScope.current === scope ? pendingEnqueue.current : null;
 			const request =
 				pending?.text === mutation.text &&
-				pending.target.dispatchId === mutation.target.dispatchId &&
-				pending.target.targetProfileId === mutation.target.targetProfileId
+				JSON.stringify(pending.target) === JSON.stringify(mutation.target)
 					? pending
 					: mutation;
 			pendingEnqueue.current = request;

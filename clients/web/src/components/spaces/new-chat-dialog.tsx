@@ -5,22 +5,21 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationDirectMessagePath,
-	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
-import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
-import { createSpaceInOrganization } from "#/lib/spaces/create-space-in-organization";
 import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
 } from "#/lib/spaces/direct-message";
 import { organizationSpaceProfileCandidatesQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import { useCreateSpace } from "#/query/spaces/space-creation";
 import { PeopleAgentPickerDialog } from "./people-agent-picker-dialog";
 import {
 	buildOrganizationDirectoryAddCandidates,
 	filterAddMemberGroups,
 } from "./people-agent-picker-model";
+import { useCreatedPickerAgents } from "./use-created-picker-agents";
 
 export function NewChatDialog(input: {
 	groupId?: string;
@@ -36,13 +35,11 @@ export function NewChatDialog(input: {
 	const [submitting, setSubmitting] = useState(false);
 	const submittingRef = useRef(false);
 	const [error, setError] = useState<string | null>(null);
-	// Retain a successful create while membership is retried, rather than creating another Space.
-	const [pendingSpace, setPendingSpace] = useState<{
-		spaceId: string;
-		directoryProfileIds: string[];
-		expectedCenterAgentProfileId?: string;
-	} | null>(null);
-	const createdSpaceId = pendingSpace?.spaceId ?? null;
+	const createSpace = useCreateSpace({
+		organizationId: org.id,
+		orgSlug: org.slug,
+		actingProfile: defaultHumanProfile,
+	});
 	const directory = useQuery(
 		organizationSpaceProfileCandidatesQueryOptions({
 			organizationId: org.id,
@@ -51,11 +48,16 @@ export function NewChatDialog(input: {
 	);
 	const navigate = useNavigate();
 	const client = useQueryClient();
-	const candidates = buildOrganizationDirectoryAddCandidates({
-		directory: directory.data ?? null,
-		organizationName: org.name,
-		snapshot: null,
+	const createdAgents = useCreatedPickerAgents({
+		organizationId: org.id,
+		directory: directory.data,
+		groups: buildOrganizationDirectoryAddCandidates({
+			directory: directory.data ?? null,
+			organizationName: org.name,
+			snapshot: null,
+		}),
 	});
+	const candidates = createdAgents.groups;
 	const groups = {
 		...candidates,
 		personGroups: candidates.personGroups.map((group) =>
@@ -73,56 +75,12 @@ export function NewChatDialog(input: {
 		selected.has(candidate.profileId)
 	);
 	const multiple = selection.length > 1;
-	const hasSelection = pendingSpace !== null || selection.length > 0;
+	const hasSelection = selection.length > 0;
 	const close = () => {
 		input.onOpenChange(false);
 		setSelected(new Set());
 		setQuery("");
 		setError(null);
-		setPendingSpace(null);
-	};
-	const openGroupSpace = async () => {
-		if (!defaultHumanProfile) {
-			return;
-		}
-		let pending = pendingSpace;
-		if (!pending) {
-			const response = await createSpaceInOrganization({
-				actingProfile: defaultHumanProfile,
-				organizationId: org.id,
-				space: {
-					name: selection
-						.map((candidate) => candidate.profileName)
-						.join(", ")
-						.slice(0, 80),
-					accessMode: "members_only",
-					visibility: "private",
-				},
-			});
-			const center = selection.find((candidate) => candidate.isCenterAgent);
-			pending = {
-				spaceId: response.spaceId,
-				directoryProfileIds: selection.map((candidate) => candidate.profileId),
-				...(center ? { expectedCenterAgentProfileId: center.profileId } : {}),
-			};
-			setPendingSpace(pending);
-		}
-		const { spaceId } = pending;
-		await createOrganizationScopedWebSpaceApi({
-			organizationId: org.id,
-			openMeldProfileId: defaultHumanProfile.openMeldProfileId,
-		}).addOrganizationDirectoryProfilesToSpace(pending);
-		await client.invalidateQueries({
-			queryKey: accountSpaceQueryKeys.all,
-			refetchType: "none",
-		});
-		await navigate({
-			to: buildOrganizationSpacePath({
-				orgSlug: org.slug,
-				spaceId,
-				search: { profileId: defaultHumanProfile.openMeldProfileId },
-			}),
-		});
 	};
 	const submit = async () => {
 		if (submittingRef.current || !defaultHumanProfile || !hasSelection) {
@@ -132,8 +90,22 @@ export function NewChatDialog(input: {
 		setSubmitting(true);
 		setError(null);
 		try {
-			if (multiple || pendingSpace) {
-				await openGroupSpace();
+			if (multiple) {
+				createSpace.mutate({
+					name: selection
+						.map((candidate) => candidate.profileName)
+						.join(", ")
+						.slice(0, 80),
+					accessMode: "members_only",
+					visibility: "private",
+					members: selection.map(({ profileId, profileName }) => ({
+						profileId,
+						profileName,
+					})),
+					expectedCenterAgentProfileId: selection.find(
+						(candidate) => candidate.isCenterAgent
+					)?.profileId,
+				});
 			} else {
 				const target = selection[0];
 				if (target.isCenterAgent) {
@@ -164,7 +136,7 @@ export function NewChatDialog(input: {
 			}
 			close();
 		} catch (cause) {
-			if (multiple || pendingSpace) {
+			if (multiple) {
 				setError(
 					cause instanceof Error
 						? cause.message
@@ -179,9 +151,6 @@ export function NewChatDialog(input: {
 		}
 	};
 	let submitLabel = multiple ? "Create Space" : "Start chat";
-	if (createdSpaceId) {
-		submitLabel = "Retry adding members";
-	}
 	if (submitting) {
 		submitLabel = "Opening…";
 	}
@@ -193,9 +162,8 @@ export function NewChatDialog(input: {
 			)}
 			canSubmit={
 				Boolean(defaultHumanProfile) &&
-				(pendingSpace !== null || selection.length > 0) &&
-				!directory.isPending &&
-				!directory.isError
+				selection.length > 0 &&
+				!createSpace.isPending
 			}
 			description="Choose people or agents. Select more than one to start a Space."
 			emptyMessage={
@@ -209,35 +177,31 @@ export function NewChatDialog(input: {
 			isLoading={directory.isPending}
 			isSubmitting={submitting}
 			notice={
-				<>
-					{createdSpaceId && (
-						<p className="text-muted-foreground text-xs">
-							Your Space was created. Retry to finish adding the selected
-							members.
-						</p>
-					)}
-					{!createdSpaceId &&
-						multiple &&
-						selection.some(
-							(candidate) =>
-								candidate.profileKind === "agent" && !candidate.isCenterAgent
-						) && (
-							<p className="text-muted-foreground text-xs">
-								Agent owners will also join the Space.
-							</p>
-						)}
-				</>
+				multiple &&
+				selection.some(
+					(candidate) =>
+						candidate.profileKind === "agent" && !candidate.isCenterAgent
+				) && (
+					<p className="text-muted-foreground text-xs">
+						Agent owners will also join the Space.
+					</p>
+				)
 			}
+			onAgentCreated={(agent) => {
+				createdAgents.onCreated(agent);
+				setQuery("");
+				setSelected((current) => new Set([...current, agent.profileId]));
+				setError(null);
+			}}
 			onClear={() => {
-				if (!createdSpaceId) {
-					setSelected(new Set());
-				}
+				setSelected(new Set());
 			}}
 			onOpenChange={input.onOpenChange}
 			onQueryChange={setQuery}
 			onRetry={
 				directory.isError
 					? () => {
+							setError(null);
 							directory.refetch();
 						}
 					: undefined
@@ -246,9 +210,6 @@ export function NewChatDialog(input: {
 				submit();
 			}}
 			onToggle={(id) => {
-				if (createdSpaceId) {
-					return;
-				}
 				setSelected((current) => {
 					const next = new Set(current);
 					if (next.has(id)) {
@@ -262,7 +223,6 @@ export function NewChatDialog(input: {
 			open={input.open}
 			query={query}
 			selectedProfileIds={selected}
-			selectionDisabled={createdSpaceId !== null}
 			submitLabel={submitLabel}
 			title="New message"
 		/>

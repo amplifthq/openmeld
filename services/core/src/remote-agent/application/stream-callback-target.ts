@@ -61,7 +61,7 @@ type RemoteAgentStreamCallbackResponseResult = Extract<
 export async function resolveRemoteAgentStreamCallbackTarget(input: {
   body: RemoteAgentStreamCallbackBody;
   env: CoreBindings;
-  partKind: "text" | "tool";
+  partKind: "text" | "tool" | "recovery";
 }): Promise<ResolveRemoteAgentStreamCallbackTargetResult> {
   const db = getPostgresDatabase(input.env);
   if (!db) {
@@ -131,7 +131,7 @@ export async function resolveRemoteAgentStreamCallbackTarget(input: {
     };
   }
   if (delivery.conversationKind === "message_channel") {
-    if (input.partKind === "tool") {
+    if (input.partKind !== "text") {
       return {
         kind: "response",
         response: remoteAgentStreamDeltaCallbackResponseSchema.parse({
@@ -157,7 +157,7 @@ async function resolveDeliveryWithExecutionProgress(input: {
   body: RemoteAgentStreamCallbackBody;
   db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
-  partKind: "text" | "tool";
+  partKind: "text" | "tool" | "recovery";
 }): Promise<
   | {
       delivery: RemoteAgentNativeDeliveryRecord;
@@ -208,13 +208,13 @@ async function resolveDeliveryWithExecutionProgress(input: {
 function retryExecutionEvidence(
   input: {
     body: RemoteAgentStreamCallbackBody;
-    partKind: "text" | "tool";
+    partKind: "text" | "tool" | "recovery";
   },
   dispatchId: string
 ): RemoteAgentStreamCallbackResponseResult {
   console.info("[core.remote_agent.stream_callback.retryable]", {
     event:
-      input.partKind === "tool"
+      input.partKind !== "text"
         ? CORE_LOG_EVENTS.remoteAgentStreamPartRejected
         : CORE_LOG_EVENTS.remoteAgentStreamDeltaRejected,
     dispatchId,
@@ -236,12 +236,12 @@ function retryExecutionEvidence(
 export function buildRemoteAgentStreamRejectedResponse(input: {
   body?: Partial<RemoteAgentStreamCallbackBody>;
   context?: Record<string, unknown>;
-  partKind: "text" | "tool";
+  partKind: "text" | "tool" | "recovery";
   reasonCode: string;
 }): RemoteAgentStreamDeltaCallbackResponse {
   console.info("[core.remote_agent.stream_callback.rejected]", {
     event:
-      input.partKind === "tool"
+      input.partKind !== "text"
         ? CORE_LOG_EVENTS.remoteAgentStreamPartRejected
         : CORE_LOG_EVENTS.remoteAgentStreamDeltaRejected,
     partKind: input.partKind,
@@ -272,7 +272,7 @@ function reject(
   reasonCode: string,
   input: {
     body: RemoteAgentStreamCallbackBody;
-    partKind: "text" | "tool";
+    partKind: "text" | "tool" | "recovery";
   },
   context?: Record<string, unknown>
 ): RemoteAgentStreamCallbackResponseResult {

@@ -200,7 +200,10 @@ describe("Remote Agent stream delta service", () => {
     }
   });
 
-  it("counts a validated tool lifecycle part as worker forward progress", async () => {
+  it.each([
+    "tool",
+    "recovery",
+  ] as const)("counts a validated %s part as worker forward progress", async (kind) => {
     const harness = await createPostgresHarness();
 
     const rpcApplyAgentStreamPart = vi.fn(async () => ({
@@ -215,10 +218,27 @@ describe("Remote Agent stream delta service", () => {
       await expect(
         submitRemoteAgentStreamPart(
           buildEnv(harness.db, vi.fn(), rpcApplyAgentStreamPart),
-          createToolPart()
+          kind === "tool"
+            ? createToolPart()
+            : {
+                ...createToolPart(),
+                source: "flue.model_recovery",
+                part: {
+                  type: "recovery",
+                  state: "waiting",
+                  attempt: 2,
+                  maxAttempts: 5,
+                  nextRetryAtMs: 11_000,
+                },
+              }
         )
       ).resolves.toEqual({ status: "accepted", lastSequence: 1 });
       expect(rpcApplyAgentStreamPart).toHaveBeenCalledOnce();
+      expect(rpcApplyAgentStreamPart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          part: expect.objectContaining({ type: kind }),
+        })
+      );
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
           db: harness.db,

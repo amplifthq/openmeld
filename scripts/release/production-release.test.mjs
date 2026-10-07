@@ -2025,6 +2025,20 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
         false
       );
     }
+    const afterRemoteReceiver = buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "previous-release",
+      changedPaths: [
+        ...changedPaths,
+        "services/remote-agent/.flue/cloudflare.ts",
+      ],
+      scope: "core,gateway",
+      sourceSha: REMOTE_SOURCE_SHA,
+    });
+    assert.equal(
+      afterRemoteReceiver.deploySteps[0].args[0],
+      "scripts/release/deploy-core-current-cli-projection.mjs"
+    );
   }
 });
 

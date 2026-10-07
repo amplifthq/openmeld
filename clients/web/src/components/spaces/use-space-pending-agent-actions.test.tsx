@@ -2,7 +2,10 @@ import {
 	createSpaceMemberAgentSnapshot,
 	createSpaceMembersSnapshot,
 } from "@openmeld/schemas/testing";
-import type { AuthProfileView } from "@openmeld/schemas/types";
+import type {
+	AuthProfileView,
+	GetAgentProfilePrimaryBindingResponse,
+} from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -34,7 +37,29 @@ describe("useSpacePendingAgentActions", () => {
 
 	it("reports that the future mode was saved without claiming the running Wake changed", async () => {
 		const onSaved = vi.fn().mockResolvedValue(undefined);
-		updatePermissionModeMock.mockResolvedValue(undefined);
+		updatePermissionModeMock.mockResolvedValue({
+			agentProfileId: AGENT_PROFILE_ID,
+			authoritySource: "binding_truth",
+			bindingId: "binding-1",
+			bindingState: "enabled_primary",
+			dispatchEligibility: {
+				reasonCodes: [],
+				routable: true,
+				status: "routable",
+			},
+			grantsClaimSuccess: false,
+			agentControllerPermissionMode: "claude-code:auto",
+			reasonCodes: [],
+			resolutionSource: "binding_truth",
+			routable: true,
+			executionTarget: {
+				agentControllerRef: "builtin:claude-code",
+				openMeldServiceRuntimeId: {
+					source: "runtime_registry_authority",
+					value: "runtime-1",
+				},
+			},
+		} satisfies GetAgentProfilePrimaryBindingResponse["binding"]);
 		const { result } = renderPendingAgentActionsHook({ onSaved });
 
 		const callbackResult = result.current.surfaceProps.onPermissionModeUpdate?.(
@@ -44,7 +69,10 @@ describe("useSpacePendingAgentActions", () => {
 			}
 		);
 
-		expect(callbackResult).toBeUndefined();
+		await expect(callbackResult).resolves.toEqual({
+			bindingId: "binding-1",
+			mode: "claude-code:auto",
+		});
 		await waitFor(() => {
 			expect(toastSuccessMock).toHaveBeenCalledWith(
 				"Auto mode saved for Piper.",
@@ -58,7 +86,7 @@ describe("useSpacePendingAgentActions", () => {
 		expect(toastErrorMock).not.toHaveBeenCalled();
 	});
 
-	it("keeps the approved Wake moving and offers direct profile editing when the background save fails", async () => {
+	it("keeps approval pending and offers direct profile editing when saving fails", async () => {
 		const error = new Error("Permission mode write failed");
 		const consoleError = vi
 			.spyOn(console, "error")
@@ -73,11 +101,11 @@ describe("useSpacePendingAgentActions", () => {
 			}
 		);
 
-		expect(callbackResult).toBeUndefined();
+		await expect(callbackResult).rejects.toBe(error);
 		await waitFor(() => expect(toastErrorMock).toHaveBeenCalledOnce());
 		const [message, options] = toastErrorMock.mock.calls[0] ?? [];
 		expect(message).toBe(
-			"The request was approved, but Auto mode wasn't saved for Piper."
+			"Couldn't confirm Auto mode for Piper. The request is still waiting for approval."
 		);
 		expect(options?.action?.label).toBe("Edit Agent Profile");
 

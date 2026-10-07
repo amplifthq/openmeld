@@ -94,6 +94,8 @@ function describeUpdate(state: DesktopUpdaterState | null): UpdateDescription {
       };
     case "downloading":
       return {
+        action: state.canCancelDownload ? "cancel" : undefined,
+        label: state.canCancelDownload ? "Cancel download" : undefined,
         headline: "Downloading update…",
         description: state.version
           ? `Downloading version ${state.version}.`

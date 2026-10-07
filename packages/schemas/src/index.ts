@@ -326,6 +326,15 @@ export {
   sidebarSortSchema,
 } from "./schemas/account-sidebar";
 export {
+  type FirstWorkAction,
+  type FirstWorkRecord,
+  type FirstWorkResponse,
+  firstWorkActionSchema,
+  firstWorkRecordSchema,
+  firstWorkResponseSchema,
+  type WalkthroughStep,
+} from "./schemas/http/first-work";
+export {
   type PluginChannelContinueResponse,
   type PluginChannelDeliveryMetadata,
   type PluginChannelRequestPreview,

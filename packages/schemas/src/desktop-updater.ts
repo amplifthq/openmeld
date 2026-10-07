@@ -4,6 +4,7 @@ import { daemonServiceLaneSchema } from "./schemas/daemon/service-contract";
 export const desktopUpdaterActionSchema = z.enum([
   "check",
   "download",
+  "cancel",
   "restart",
 ]);
 export type DesktopUpdaterAction = z.infer<typeof desktopUpdaterActionSchema>;
@@ -12,6 +13,7 @@ export type DesktopUpdaterAction = z.infer<typeof desktopUpdaterActionSchema>;
 export const desktopUpdaterStateSchema = z.strictObject({
   installationId: z.string().uuid().optional(),
   lane: daemonServiceLaneSchema.optional(),
+  canCancelDownload: z.boolean().optional(),
   status: z.enum([
     "unavailable",
     "idle",

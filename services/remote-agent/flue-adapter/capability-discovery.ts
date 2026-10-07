@@ -100,13 +100,13 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
     },
     {
       description:
-        "Load descriptions and JSON input schemas for up to eight known capability names. After compaction, omit names to recover the most recently selected capabilities without searching again. Recovery uses the current catalog; it does not preserve old permission. Runtime validation and execution-time authorization remain authoritative.",
+        "Load descriptions and JSON input schemas for up to eight known capability names; known names do not need a search first. After compaction, omit names to recover up to eight recently selected capabilities across earlier calls. Reuse schemas already in context. Recovery uses the current catalog; it does not preserve old permission. Runtime validation and execution-time authorization remain authoritative.",
       execute: async (input) => {
         const recoveryKey = recovery
           ? `capability-selection:${recovery.submissionId}`
           : undefined;
         const remembered =
-          recovery && recoveryKey && input.names === undefined
+          recovery && recoveryKey
             ? await recovery.storage.get<string[]>(recoveryKey)
             : [];
         const requested = input.names ?? remembered ?? [];
@@ -144,7 +144,12 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
           // current catalog. No copied transcript or cached permission.
           await recovery.storage.putExpiring(
             recoveryKey,
-            capabilities.map((capability) => capability.name),
+            [
+              ...new Set([
+                ...capabilities.map((capability) => capability.name),
+                ...(remembered ?? []),
+              ]),
+            ].slice(0, CAPABILITY_DESCRIBE_MAX_COUNT),
             Date.now() + 7 * 24 * 60 * 60 * 1000
           );
         }

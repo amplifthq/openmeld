@@ -51,7 +51,8 @@ The Web application rail places the Organization selector above compact history,
 search, and Inbox controls. The work-area header toggles the middle column. Its
 footer uses the Fluid user dropdown with account switching, Search, Settings,
 theme selection, and Log out. Search has a separate divided section; theme
-selection follows Download Desktop App and reuses Appearance's compact selector. Authentication, history, and theme
+selection follows Download Desktop App. Appearance uses full-size theme cards
+with the same choices and theme provider. Authentication, history, and theme
 ownership remain in the existing Web hooks and router.
 
 One shell and one Settings framework let Web and the Electron GUI reuse shared
@@ -197,8 +198,8 @@ or "Machines" entity.
 
 Web's normal Settings utility now opens a global sidebar dialog over the current
 page, as specified in `web.md`. The standalone Settings routes below remain
-supported without normal navigation entry points. Both use the same registry,
-grouped navigation, and section renderers; the presentation does not own another
+supported for direct links and the dialog's expand control. Both use the same
+registry, grouped navigation, and section renderers; the presentation does not own another
 copy of settings data or mutation logic.
 
 Contextual navigation accepts an explicit accessible label when an accessory
@@ -418,6 +419,30 @@ Settings and contains Search and theme selection. The workspace switcher contain
   content region's upper-left edge instead of restoring a cross-page header.
 - **`aside`** — optional right drawer inside the inset app surface (Space
   members panel).
+
+### Conversation layout preference
+
+Full width uses one shared 8px inline-padding token for the main conversation
+and Thread messages and composers. Thread rows add no second inline inset in
+this mode. Centered keeps its existing main-column maximum, 16px content
+padding, and independent Thread panel width and row padding. The history slider
+owns only the additional lane beside the main conversation; a Thread never
+inherits that lane. Desk windows keep their independent content frame and
+existing Thread spacing, regardless of this page preference.
+
+### History slider preference
+
+Appearance's **History slider** uses the existing Fluid radio cards with **Show**
+and **Hide** previews. Both choices keep the browser-local
+`openmeld.space.history-slider` preference. A Space reserves the slider lane only
+when the slider is visible: Messages is selected, the viewport supports it, and
+its authorized history directory has older messages. Short conversations and
+unavailable directories reserve no lane. The slider retains its 8px leading inset
+and compacts the space on its message side. The desktop pointer lane is 36px;
+fine pointer content uses 4px of leading padding beside the slider, while its
+trailing padding uses the conversation layout's shared token: 8px in Full width
+and 16px in Centered. Coarse pointer devices retain a 44px touch target
+in a 52px lane and keep the standard content padding.
 
 ### Bot appearance preferences
 

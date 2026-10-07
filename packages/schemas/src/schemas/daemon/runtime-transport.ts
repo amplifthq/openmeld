@@ -152,6 +152,14 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
       action: runtimeTransportAgentProfileWorkRecoveryActionSchema,
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
       forkInterruptedConversation: z.boolean().optional(),
+      automaticForkEligible: z.boolean().optional(),
+      requesterRecoveryScope: z
+        .strictObject({
+          profileId: z.string().min(1),
+          spaceId: z.string().min(1),
+          canFork: z.boolean(),
+        })
+        .optional(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
       // Older owner shards omit these exact-source fields during a rolling Core
@@ -284,6 +292,8 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
     forkInterruptedConversation: z.boolean().optional(),
+    requireAutomaticForkEligibility: z.literal(true).optional(),
+    requesterProfileId: z.string().min(1).optional(),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
 
@@ -340,6 +350,7 @@ export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
 export const runtimeTransportAgentProfileWorkSkipRequestSchema =
   runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    requesterProfileId: z.string().min(1).optional(),
   });
 
 export const runtimeTransportAgentProfileWorkSkipResponseSchema =

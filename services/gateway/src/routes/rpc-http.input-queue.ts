@@ -30,6 +30,7 @@ export function registerSpaceInputQueueRoutes(app: Hono<HonoBindings>): void {
         c.var.coreRpc.spaceInputQueue({
           spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
           spaceId,
+          includeRecovery: c.req.query("recovery") === "1",
           password: readSpacePasswordHeader(c.req.raw.headers),
           context: buildCoreRpcContext(c),
           ...(mutation?.success ? { mutation: mutation.data } : {}),
