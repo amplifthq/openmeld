@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import { SpaceVisibilityPicker } from "#/components/spaces/space-visibility-picker";
+import type { SpaceCreationInput } from "#/query/spaces/space-creation";
 import { WelcomeLayout } from "./welcome-layout";
 
 const SPACE_NAME_INPUT_ID = "welcome-space-name-input";
@@ -38,6 +39,7 @@ export type WelcomeJoinableSpace = {
 export type WelcomeJoinableStatus = "loading" | "error" | "ready";
 
 export type WelcomeSpaceScreenProps = {
+	initialDraft?: SpaceCreationInput;
 	onDiscover?: () => void;
 	contextKind?: "organization" | "personal";
 	computerSetupActions?: {
@@ -93,7 +95,9 @@ function joinDescriptionFor(
 }
 
 export function WelcomeSpaceScreen(props: WelcomeSpaceScreenProps) {
-	const [mode, setMode] = useState<SpaceMode>("choices");
+	const [mode, setMode] = useState<SpaceMode>(
+		props.initialDraft ? "create" : "choices"
+	);
 	const [query, setQuery] = useState("");
 	const hasJoinableSpaces = props.joinableSpaces.length > 0;
 	// Loading and settled-empty are dead ends (disabled); an error is actionable
@@ -165,6 +169,7 @@ function WelcomeSpaceModeContent(input: {
 			<CreateSpaceForm
 				contextKind={input.props.contextKind ?? "organization"}
 				errorMessage={input.props.errorMessage}
+				initialDraft={input.props.initialDraft}
 				isPending={input.props.isPending}
 				onCreate={input.props.onCreate}
 			/>
@@ -244,15 +249,17 @@ function WelcomeJoinSpaceList(input: {
 }
 
 function CreateSpaceForm(props: {
+	initialDraft?: SpaceCreationInput;
 	contextKind: "organization" | "personal";
 	errorMessage?: string | null;
 	isPending: boolean;
 	onCreate: WelcomeSpaceScreenProps["onCreate"];
 }) {
 	const createStartedRef = useRef(false);
-	const [name, setName] = useState("");
-	const [visibility, setVisibility] =
-		useState<SpaceOrganizationVisibility>("private");
+	const [name, setName] = useState(props.initialDraft?.name ?? "");
+	const [visibility, setVisibility] = useState<SpaceOrganizationVisibility>(
+		props.initialDraft?.visibility ?? "private"
+	);
 	const trimmedName = name.trim();
 	const canCreate = trimmedName.length > 0 && !props.isPending;
 	useLayoutEffect(
@@ -314,8 +321,14 @@ function CreateSpaceForm(props: {
 					/>
 				</div>
 			) : null}
-			<Button className="w-full" disabled={!canCreate} size="lg" type="submit">
-				Create
+			<Button
+				aria-busy={props.isPending}
+				className="w-full"
+				disabled={!canCreate}
+				size="lg"
+				type="submit"
+			>
+				{props.isPending ? "Creating…" : "Create"}
 			</Button>
 			{props.errorMessage ? (
 				<p aria-live="polite" className="text-destructive text-xs">

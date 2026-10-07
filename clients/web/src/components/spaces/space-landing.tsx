@@ -124,6 +124,7 @@ import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participatio
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
+import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
@@ -485,6 +486,7 @@ type SpaceLandingInput = {
 				>
 		  ) => ReactNode);
 	onInitialPendingMessageConsumed?: () => void;
+	onComposerReady?: (composer: SpaceComposerEditorHandle) => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug?: string;
 	presentation?: "compact" | "full";
@@ -584,6 +586,13 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		ownerAccountId: recovery.storageScope,
 		organizationId,
 	});
+	const composerHandleRef =
+		controller.mode === "ready" ? controller.textareaRef : null;
+	useEffect(() => {
+		if (composerHandleRef?.current) {
+			input.onComposerReady?.(composerHandleRef.current);
+		}
+	}, [composerHandleRef, input.onComposerReady]);
 	usePublishInboxVisibleConversation(
 		input.readingEnabled !== false &&
 			controller.mode === "ready" &&

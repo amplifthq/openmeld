@@ -46,7 +46,9 @@ export function AppShell(input: {
 			const params = matches.findLast(
 				(match) => "spaceId" in match.params
 			)?.params;
-			return params && "spaceId" in params ? params.spaceId : undefined;
+			const spaceId =
+				params && "spaceId" in params ? params.spaceId : undefined;
+			return spaceId?.startsWith("creating-") ? undefined : spaceId;
 		},
 	});
 

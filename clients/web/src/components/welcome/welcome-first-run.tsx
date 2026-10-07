@@ -1,10 +1,6 @@
-import type {
-	AuthProfileView,
-	SpaceAccessMode,
-	SpaceOrganizationVisibility,
-} from "@openmeld/schemas/types";
+import type { AuthProfileView } from "@openmeld/schemas/types";
 import { buildOnboardingPlan } from "@openmeld/start";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
@@ -24,12 +20,14 @@ import {
 import { listActiveProfilesByKind } from "#/lib/profiles/human-profiles";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
 import {
-	createSpaceInOrganization,
 	ORGANIZATION_SPACE_SCOPE_ERROR_MESSAGE,
 	OrganizationSpaceScopeError,
 } from "#/lib/spaces/create-space-in-organization";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
+import {
+	type SpaceCreationInput,
+	useCreateSpace,
+} from "#/query/spaces/space-creation";
 import {
 	selectWelcomeScreen,
 	type WelcomeScreen,
@@ -60,7 +58,7 @@ function resolveCreateSpaceErrorMessage(error: Error | null): string | null {
 	}
 	return error instanceof OrganizationSpaceScopeError
 		? ORGANIZATION_SPACE_SCOPE_ERROR_MESSAGE
-		: "Couldn't create the space. Try again.";
+		: "Couldn't confirm that the Space was created. Check Spaces before trying again.";
 }
 
 function resolveWelcomeScreen(input: {
@@ -98,22 +96,12 @@ function resolveWelcomeBackHandler(
 }
 
 function renderWelcomeSpaceStep(input: {
+	initialDraft?: SpaceCreationInput;
 	onDiscover?: () => void;
 	accountSpacesIsError: boolean;
 	accountSpacesIsSuccess: boolean;
 	contextKind: "organization" | "personal";
-	createSpace: ReturnType<
-		typeof useMutation<
-			unknown,
-			Error,
-			{
-				accessMode: SpaceAccessMode;
-				name: string;
-				password?: string;
-				visibility: SpaceOrganizationVisibility;
-			}
-		>
-	>;
+	createSpace: ReturnType<typeof useCreateSpace>;
 	centerAgentPath: string;
 	handleConnectComputer: () => void;
 	handleBack: () => void;
@@ -135,6 +123,7 @@ function renderWelcomeSpaceStep(input: {
 			}
 			contextKind={input.contextKind}
 			errorMessage={resolveCreateSpaceErrorMessage(input.createSpace.error)}
+			initialDraft={input.initialDraft}
 			isPending={input.createSpace.isPending}
 			joinableSpaces={input.joinableSpaces}
 			joinableStatus={resolveJoinableStatus(
@@ -160,7 +149,6 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
-	const queryClient = useQueryClient();
 	const { storageScope } = useStartFlowState();
 	const sessionQuery = useAuthSession();
 	const { selectedHumanProfile, profilesQuery } = useSelectedHumanProfile({
@@ -243,49 +231,10 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 		}).catch(() => undefined);
 	};
 
-	// Create Space as a tracked mutation: one in-flight create at a time (the
-	// button disables while pending) and a surfaced error instead of a silent
-	// failure that would let the user retry into duplicate Spaces.
-	const createSpace = useMutation({
-		mutationFn: (input: {
-			accessMode: SpaceAccessMode;
-			name: string;
-			password?: string;
-			visibility: SpaceOrganizationVisibility;
-		}) => {
-			if (actingProfile === null) {
-				return Promise.reject(
-					new Error("No usable profile to create a space.")
-				);
-			}
-			return createSpaceInOrganization({
-				actingProfile,
-				organizationId: currentOrganization.id,
-				space: input,
-			});
-		},
-		onSuccess: async (response) => {
-			try {
-				await Promise.all([
-					queryClient.invalidateQueries({
-						queryKey: accountSpacesOptions.queryKey,
-					}),
-					queryClient.invalidateQueries({
-						queryKey: organizationQueryKeys.spaces(currentOrganization.id),
-					}),
-				]);
-			} catch (error) {
-				console.warn(
-					"OpenMeld created a Space but could not refresh Space lists.",
-					{
-						error,
-						organizationId: currentOrganization.id,
-						spaceId: response.spaceId,
-					}
-				);
-			}
-			openSpace(response.spaceId);
-		},
+	const createSpace = useCreateSpace({
+		actingProfile,
+		organizationId: currentOrganization.id,
+		orgSlug,
 	});
 
 	if (sessionQuery.isPending || profilesQuery.isPending) {
@@ -314,6 +263,7 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 
 	if (screen === "space") {
 		return renderWelcomeSpaceStep({
+			initialDraft: createSpace.initialDraft,
 			onDiscover:
 				currentOrganization.isPersonal === true
 					? undefined

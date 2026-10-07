@@ -112,6 +112,41 @@ Independent authenticated browser/installed Desktop acceptance remains in
 `design-plans/1254-composable-plugin-workflow.md`; component tests are not that
 acceptance.
 
+## Space creation feedback
+
+Create opens the conversation immediately with the submitted name, shared Space
+header and tabs, and the normal editable composer. A small `Preparing…` notice
+is centered in the empty message area using shared `TextShimmer`, with static
+text for reduced motion; there is no separate waiting page. The sidebar reads
+the same Organization/Profile-scoped mutation receipt.
+
+The temporary `creating-` route identifies a browser-local creation request,
+never a server Space or membership. It must not issue Space reads, uploads,
+searches, presence, or read receipts. The verified create response replaces it
+with the canonical Space route without adding a history entry. Directory
+refresh runs independently and cannot delay entry.
+
+Text and attachments use the existing composer draft owners. Sending during
+preparation stages one message with a stable client message ID. The regular
+Space composer publishes it only after bootstrap confirms access; creation
+never publishes a message itself. Draft and attachment scopes migrate to the
+canonical Space when ready. Creation failure stays in the conversation with
+the draft intact and guidance to check Spaces before another attempt. It never
+retries creation automatically. Leaving the page prevents completion from
+navigating away from the person's chosen destination.
+
+Multi-selection in New Message uses the same creation owner. Bootstrap starts
+as soon as the create response arrives, in parallel with member admission.
+Full member readiness reads start after admission instead of waiting for the
+conversation to mount. A staged message waits for confirmed admission; failed
+admission can be retried in the same Space without repeating creation.
+
+Agent creation receipts return confirmed identities to the shared picker without
+waiting for directory refresh. They expire when the directory includes the Agent
+and never imply membership or availability. Existing-Space additions close the
+picker immediately and show presentation-only `Adding…` rows. Only the server
+response changes membership; failure removes pending rows and offers retry.
+
 ## Selected Space work
 
 Team → Files contains Team files, member-private My files, and Knowledge. Knowledge

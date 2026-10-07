@@ -1914,10 +1914,16 @@ export function useSpaceLandingController(input: {
 			organizationSlug: input.orgSlug,
 			profileId: input.profileId,
 			spaceId: input.spaceId,
-			restoreFromScopes: input.composerDraftMigrationScopes?.flatMap((scope) =>
-				scope.kind === "center_agent_pending"
-					? [centerAgentPendingAttachmentScope(scope)]
-					: []
+			restoreFromScopes: input.composerDraftMigrationScopes?.flatMap(
+				(scope) => {
+					if (scope.kind === "center_agent_pending") {
+						return [centerAgentPendingAttachmentScope(scope)];
+					}
+					if (scope.kind === "space") {
+						return [`${input.orgSlug}:${scope.profileId}:${scope.spaceId}`];
+					}
+					return [];
+				}
 			),
 		},
 	});

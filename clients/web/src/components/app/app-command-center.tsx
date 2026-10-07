@@ -96,7 +96,9 @@ export function AppCommandCenter() {
 					"spaceId" in match.params &&
 					typeof match.params.spaceId === "string"
 				) {
-					return match.params.spaceId;
+					return match.params.spaceId.startsWith("creating-")
+						? ""
+						: match.params.spaceId;
 				}
 			}
 			return "";

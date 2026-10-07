@@ -20,14 +20,19 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { SpaceCreationSidebar } from "#/components/spaces/space-creation-sidebar";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { WelcomeFirstRun } from "./welcome-first-run";
 
-const { listAccountSpaceItemsMock, navigateMock } = vi.hoisted(() => ({
-	navigateMock: vi.fn().mockResolvedValue(undefined),
-	listAccountSpaceItemsMock: vi.fn(),
-}));
+const { listAccountSpaceItemsMock, navigateMock, createSpaceMock, routerMock } =
+	vi.hoisted(() => ({
+		createSpaceMock: vi.fn(),
+		routerMock: { state: { location: { pathname: "/o/acme/new-space" } } },
+		navigateMock: vi.fn().mockResolvedValue(undefined),
+		listAccountSpaceItemsMock: vi.fn(),
+	}));
 const JOIN_CHOICE = /Join a Space/;
+const CREATE_CHOICE = /Create a Space/;
 
 vi.mock("@openmeld/start", () => ({
 	buildOnboardingPlan: () => ({}),
@@ -35,7 +40,35 @@ vi.mock("@openmeld/start", () => ({
 
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigateMock,
+	useRouter: () => routerMock,
+	useLocation: ({
+		select,
+	}: {
+		select: (location: { pathname: string }) => unknown;
+	}) => select(routerMock.state.location),
+	Link: ({
+		to,
+		children,
+		...props
+	}: {
+		to: string;
+		children: import("react").ReactNode;
+	}) => (
+		<a href={to} {...props}>
+			{children}
+		</a>
+	),
 }));
+
+vi.mock(
+	"#/lib/spaces/create-space-in-organization",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("#/lib/spaces/create-space-in-organization")
+		>()),
+		createSpaceInOrganization: (...args: unknown[]) => createSpaceMock(...args),
+	})
+);
 
 vi.mock("#/components/agents/use-local-runtime-queries", () => ({
 	useLocalRuntimeQueries: () => ({
@@ -68,6 +101,7 @@ vi.mock("#/lib/onboarding/space-onboarding-plan", () => ({
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => null,
 	useAppOrganization: () => ({
 		currentOrganization: {
 			id: "org-acme",
@@ -142,6 +176,109 @@ describe("WelcomeFirstRun", () => {
 	beforeEach(() => {
 		focusManager.setFocused(false);
 		listAccountSpaceItemsMock.mockReset();
+		createSpaceMock.mockReset();
+		navigateMock.mockClear();
+		routerMock.state.location.pathname = "/o/acme/new-space";
+	});
+
+	it.each([
+		"success",
+		"failure",
+		"left-page",
+	])("keeps one creation visible and handles %s without waiting for list refresh", async (outcome) => {
+		const response = Promise.withResolvers<{ spaceId: string }>();
+		createSpaceMock.mockReturnValue(response.promise);
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [],
+		});
+		const client = new QueryClient({
+			defaultOptions: {
+				queries: { retry: false },
+				mutations: { retry: false },
+			},
+		});
+		const renderCreation = (spaceIds: string[] = []) => (
+			<QueryClientProvider client={client}>
+				<SpaceCreationSidebar
+					onNavigate={() => undefined}
+					organizationId="org-acme"
+					orgSlug="acme"
+					profileId="human-1"
+					spaceIds={spaceIds}
+				/>
+				<WelcomeFirstRun />
+			</QueryClientProvider>
+		);
+		const view = render(renderCreation());
+		fireEvent.click(await screen.findByRole("button", { name: CREATE_CHOICE }));
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Design review" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Create", exact: true })
+		);
+		expect(
+			await screen.findByRole("button", { name: "Creating…" })
+		).toBeTruthy();
+		const creationPath =
+			screen
+				.getByRole("link", { name: "Design review, Creating…" })
+				.getAttribute("href") ?? "";
+		expect(creationPath.startsWith("/o/acme/spaces/creating-")).toBe(true);
+		expect(navigateMock).toHaveBeenCalledWith({ to: creationPath });
+		routerMock.state.location.pathname = creationPath.split("?")[0] ?? "";
+		navigateMock.mockClear();
+		fireEvent.click(screen.getByRole("button", { name: "Creating…" }));
+		expect(createSpaceMock).toHaveBeenCalledTimes(1);
+		if (outcome === "failure") {
+			// Returning while pending must retain the draft and block another create.
+			view.unmount();
+			render(renderCreation());
+			await screen.findByRole("button", { name: "Creating…" });
+			await act(async () => response.reject(new Error("Connection lost")));
+			expect(
+				await screen.findByText(
+					"Couldn't confirm that the Space was created. Check Spaces before trying again."
+				)
+			).toBeTruthy();
+			expect(
+				(screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement)
+					.value
+			).toBe("Design review");
+			expect(
+				screen.queryByRole("link", { name: "Design review, Creating…" })
+			).toBeNull();
+			expect(navigateMock).not.toHaveBeenCalled();
+		} else {
+			listAccountSpaceItemsMock.mockReturnValue(new Promise(() => undefined));
+			if (outcome === "left-page") {
+				routerMock.state.location.pathname = "/o/acme/spaces/other";
+			}
+			await act(async () => response.resolve({ spaceId: "space-created" }));
+			expect(
+				await screen.findByRole("link", { name: "Design review", exact: true })
+			).toBeTruthy();
+			if (outcome === "success") {
+				expect(navigateMock).toHaveBeenCalledWith({
+					to: "/o/acme/spaces/space-created?profileId=human-1",
+					replace: true,
+				});
+			} else {
+				expect(navigateMock).not.toHaveBeenCalled();
+			}
+			// Retire the receipt once the real list catches up. It must not return
+			// later if the Space disappears from that list.
+			view.rerender(renderCreation(["space-created"]));
+			await waitFor(() => {
+				expect(client.getMutationCache().getAll()).toHaveLength(0);
+			});
+			view.rerender(renderCreation());
+			expect(
+				screen.queryByRole("link", { name: "Design review", exact: true })
+			).toBeNull();
+		}
+		client.clear();
 	});
 
 	afterEach(() => {
