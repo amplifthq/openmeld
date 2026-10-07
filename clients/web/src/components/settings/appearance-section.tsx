@@ -12,20 +12,12 @@ import {
 } from "@openmeld/ui/lib/shape-context";
 import {
 	ChatCircleTextIcon,
-	DesktopIcon,
-	MoonIcon,
-	SunDimIcon,
 	TrayIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
-import { useTheme } from "next-themes";
-import {
-	type CSSProperties,
-	type ReactNode,
-	useState,
-	useSyncExternalStore,
-} from "react";
+import { type CSSProperties, useState, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { ThemeSelector } from "#/components/appearance/theme-selector";
 import {
 	BOT_MATERIAL_CHOICES,
 	useBotAvatarPreference,
@@ -51,35 +43,7 @@ import {
 	writeSpaceSelfMessageAlignmentPreference,
 } from "#/lib/spaces/self-message-alignment-preference";
 
-type ThemeChoice = {
-	description: string;
-	icon: ReactNode;
-	label: string;
-	value: "dark" | "light" | "system";
-};
-
 const PHONE_APPEARANCE_CHOICES_QUERY = "(max-width: 639px)";
-
-const THEME_CHOICES: readonly ThemeChoice[] = [
-	{
-		description: "Follow your operating system appearance.",
-		icon: <DesktopIcon aria-hidden="true" className="size-4" />,
-		label: "System",
-		value: "system",
-	},
-	{
-		description: "Use the light appearance.",
-		icon: <SunDimIcon aria-hidden="true" className="size-4" />,
-		label: "Light",
-		value: "light",
-	},
-	{
-		description: "Use the dark appearance.",
-		icon: <MoonIcon aria-hidden="true" className="size-4" />,
-		label: "Dark",
-		value: "dark",
-	},
-] as const;
 
 type ShapeChoice = {
 	description: string;
@@ -147,7 +111,6 @@ export function AppearanceSection() {
 	const toolbar = useToolbarPreference();
 	const historySlider = useHistorySliderPreference();
 	const botAvatar = useBotAvatarPreference();
-	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
 		? "vertical"
@@ -166,9 +129,6 @@ export function AppearanceSection() {
 			readSpaceSelfMessageAlignmentPreference()
 		);
 
-	const selectedIndex = mounted
-		? THEME_CHOICES.findIndex((choice) => choice.value === theme)
-		: -1;
 	const selectedConversationLayoutIndex = mounted
 		? CONVERSATION_LAYOUT_CHOICES.findIndex(
 				(choice) => choice.value === conversationLayout
@@ -197,32 +157,9 @@ export function AppearanceSection() {
 				id="appearance"
 			>
 				<SettingsRow
-					control={
-						<RadioGroup
-							aria-label="Theme"
-							className="w-full"
-							orientation={choiceOrientation}
-							selectedIndex={selectedIndex}
-						>
-							{THEME_CHOICES.map((choice, index) => (
-								<RadioItem
-									adornment={choice.icon}
-									className="min-w-0 flex-1 px-3 py-2.5"
-									description={choice.description}
-									index={index}
-									key={choice.value}
-									label={choice.label}
-									onSelect={() => {
-										setTheme(choice.value);
-									}}
-									selected={mounted && theme === choice.value}
-								/>
-							))}
-						</RadioGroup>
-					}
+					control={<ThemeSelector />}
 					description="This preference is saved in this browser."
 					label="Theme"
-					layout="stacked"
 					showDivider
 				/>
 				<SettingsRow

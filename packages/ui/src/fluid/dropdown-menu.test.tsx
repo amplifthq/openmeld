@@ -13,6 +13,8 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuTrigger,
 } from "#components/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "#components/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "#components/tooltip";
 import { FluidContextMenu } from "./context-menu";
 import {
   FluidDropdownMenuContent,
@@ -31,6 +33,67 @@ if (typeof Element.prototype.getAnimations === "undefined") {
 }
 
 describe("FluidDropdownMenu", () => {
+  it("keeps one sidebar highlight moving across a divider while a hover preview is open", async () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      offsetHeight: { configurable: true, get: () => 40 },
+      offsetWidth: { configurable: true, get: () => 200 },
+      offsetTop: {
+        configurable: true,
+        get() {
+          return this.tagName === "BUTTON" &&
+            this.textContent?.includes("Files")
+            ? 80
+            : 0;
+        },
+      },
+    });
+    const { container } = render(
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <Popover defaultOpen>
+            <PopoverTrigger
+              data-sidebar-hover-preview
+              render={<SidebarMenuButton>Team</SidebarMenuButton>}
+            />
+            <PopoverContent initialFocus={false}>Resources</PopoverContent>
+          </Popover>
+        </SidebarMenuItem>
+        <li aria-hidden="true">
+          <hr />
+        </li>
+        <SidebarMenuItem>
+          <SidebarMenuButton>Files</SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    );
+    const team = screen.getByRole("button", { name: "Team" });
+    const files = screen.getByRole("button", { name: "Files" });
+    vi.spyOn(screen.getByRole("list"), "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 200, 40)
+    );
+    fireEvent.mouseMove(team, { clientX: 20, clientY: 20 });
+    await waitFor(() =>
+      expect(team.hasAttribute("data-fluid-hover-active")).toBe(true)
+    );
+    const highlight = container.querySelector(
+      '[data-slot="fluid-hover-highlight"]'
+    );
+    expect(highlight).not.toBeNull();
+    fireEvent.mouseMove(screen.getByRole("list"), { clientX: 20, clientY: 70 });
+    await waitFor(() =>
+      expect(files.hasAttribute("data-fluid-hover-active")).toBe(true)
+    );
+    expect(container.querySelector('[data-slot="fluid-hover-highlight"]')).toBe(
+      highlight
+    );
+    fireEvent.mouseMove(team, { clientX: 20, clientY: 20 });
+    await waitFor(() =>
+      expect(team.hasAttribute("data-fluid-hover-active")).toBe(true)
+    );
+    expect(container.querySelector('[data-slot="fluid-hover-highlight"]')).toBe(
+      highlight
+    );
+  });
   beforeEach(() => {
     vi.stubGlobal(
       "ResizeObserver",
@@ -183,30 +246,47 @@ describe("FluidDropdownMenu", () => {
     });
     const { container } = render(
       <SidebarMenu>
-        <FluidContextMenu
-          target={
-            <SidebarMenuItem>
-              <SidebarMenuButton>Release planning</SidebarMenuButton>
-            </SidebarMenuItem>
-          }
-        >
-          <FluidDropdownMenuItem index={0}>Open</FluidDropdownMenuItem>
-          <FluidDropdownMenuItem index={1}>Copy link</FluidDropdownMenuItem>
-        </FluidContextMenu>
+        <SidebarMenuItem>
+          <Tooltip defaultOpen>
+            <FluidContextMenu
+              target={
+                <TooltipTrigger
+                  render={
+                    <SidebarMenuButton>Release planning</SidebarMenuButton>
+                  }
+                />
+              }
+            >
+              <FluidDropdownMenuItem index={0}>Open</FluidDropdownMenuItem>
+              <FluidDropdownMenuItem index={1}>Copy link</FluidDropdownMenuItem>
+            </FluidContextMenu>
+            <TooltipContent>Release planning tooltip</TooltipContent>
+          </Tooltip>
+        </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton>Product design</SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
     );
     const trigger = screen.getByRole("button", { name: "Release planning" });
+    await screen.findByRole("tooltip");
+    fireEvent.mouseMove(trigger, { clientX: 10, clientY: 10 });
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-slot="fluid-hover-highlight"]')
+      ).not.toBeNull()
+    );
     fireEvent.contextMenu(trigger, { clientX: 10, clientY: 10 });
+    fireEvent.mouseLeave(screen.getByRole("list", { hidden: true }));
     const menu = await screen.findByRole("menu");
     const copy = screen.getByRole("menuitem", { name: "Copy link" });
     fireEvent.mouseMove(copy, { clientX: 20, clientY: 50 });
     await waitFor(() => expect(copy.getAttribute("data-hovered")).toBe("true"));
-    expect(
-      container.querySelector('[data-slot="sidebar-menu-hover-indicator"]')
-    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-slot="fluid-hover-highlight"]')
+      ).toBeNull()
+    );
     fireEvent.keyDown(menu, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     fireEvent.mouseMove(
@@ -215,7 +295,7 @@ describe("FluidDropdownMenu", () => {
     );
     await waitFor(() =>
       expect(
-        container.querySelector('[data-slot="sidebar-menu-hover-indicator"]')
+        container.querySelector('[data-slot="fluid-hover-highlight"]')
       ).not.toBeNull()
     );
   });

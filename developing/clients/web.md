@@ -201,20 +201,31 @@ Pinning that same ID into the URL must not remount the conversation and discard
 an attachment-open request. Opening a final-message attachment therefore retains
 its selected file revision while switching from Messages to Files.
 
-Web uses three navigation levels: a 76px application rail (52px in Icons only), a contextual
+Web uses three navigation levels: a 64px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
-Team are the rail's destinations, in that order. Desk is temporarily hidden
+Team are the rail's primary destinations, in that order. Hovering Spaces offers
+Direct messages and Discover, using the existing Spaces view parameter. Both
+can be pinned; Direct messages appears as DMs in the rail. Personal workspaces
+hide Discover in the popover and pinned list. Hovering Team (or pressing
+Arrow Down/Space on it) offers Agents, Plugins, Skills, Files, and Routines
+with separate pin toggles. Clicking Team still opens People. Pinned shortcuts appear below a short divider and
+persist in the browser; links always target the current Organization. A pinned
+current page selects its shortcut instead of also selecting Team. Icon tooltips
+open immediately. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
 switching remains at the top; the global Create entry is temporarily hidden.
-Creation remains available in the Spaces and Team contextual headers. Global search sits
-above Settings in the footer, using the same compact utility styling. Inbox
+Creation remains available in the Spaces and Team contextual headers. Global search
+and Settings are available in the footer account menu. Search has its own section
+and the shared Command K keycaps. Inbox
 retains the shared attention badge and active-route treatment. In the compact
 rail, hover and active backgrounds surround the icon and its attention marker;
 labels stay outside that background. The Organization avatar fills its 36px
 shape-aware trigger. Account, theme, and Settings remain reachable
-from the rail. Search, Settings, theme, and account controls share one footer
-hover scope, so the same background moves across all four without nested or
-competing highlights. Spaces and its contextual sidebar heading always open
+from the account menu. Its 32px avatar trigger retains its left and bottom inset.
+Separate Fluid hover groups own account identity, Search, actions, and sign-out.
+A compact Light/Dark/System selector follows Download Desktop App without a divider and keeps the menu
+open when changed. Settings > Appearance reuses the same selector and icon set;
+the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
 Discover, in that order (Discover is absent in personal workspaces).
 
@@ -728,6 +739,15 @@ server function. Core remains the validated GitHub reader; Web never imports a
 build-time copy, stores a second archive, or manufactures publication state. A
 source failure renders an explicit unavailable state with one retry action and
 no stale or model-authored fallback.
+
+The account Help submenu reads the latest three updates from the production
+anonymous Changelog endpoint in every environment, including local development.
+Its Web server function uses the shared API client and schema without forwarding
+account cookies or credentials, then returns only entry IDs, titles, and dates.
+The browser loads on demand, shares a five-minute query cache, and retains it for
+30 minutes after the menu unmounts. The upstream read has an eight-second deadline
+and the query does not retry automatically. Existing cached entries remain visible
+during refresh; a failed first load shows an error and the official Changelog link.
 
 ### Workspace switcher
 
@@ -1466,9 +1486,9 @@ revocation keep their separate existing Web contracts. See the
 The Auth read preserves vendor-owned browser session renewal and deletion cookies
 through the HTTP proxy, separate from the credential-free JSON projection.
 
-The application rail keeps Settings and theme controls visible above the account
-trigger. Their hit areas and keyboard order are stable; footer hover does not
-reveal, hide, or move them.
+The application rail keeps only the account trigger in its footer. Search,
+Settings, and theme controls are available in its menu. Desktop update attention
+appears on the account trigger and the Settings menu entry.
 
 Normal Settings entry points open the global **App settings** dialog over the
 current organization page. The `appSettings` search parameter owns the selected
@@ -5424,6 +5444,8 @@ before Members restores the preview. Dismissal is saved per Organization,
 Human Profile, and Space in this browser, without changing shared pin state.
 
 Appearance includes Toolbar shortcuts for Computer, Center Agent, and Inbox.
+All three default to off when no browser preference is saved. Existing saved
+choices are preserved, and users can enable each shortcut in Appearance.
 Each bottom shortcut also exposes a compact hide control on hover or keyboard
 focus, with Undo. Touch users customize shortcuts in Appearance. Browser-wide
 preferences apply on first paint; hiding all shortcuts removes the reserved

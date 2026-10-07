@@ -207,8 +207,8 @@ function RoutinesContent(input: {
 					value={scope}
 				>
 					<TabsList aria-label="Routine visibility" className="w-fit">
-						<TabItem label="Personal" value="personal" />
 						<TabItem label="Team" value="team" />
+						<TabItem label="Personal" value="personal" />
 					</TabsList>
 				</Tabs>
 				<div className="flex items-center gap-1">
