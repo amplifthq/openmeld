@@ -219,11 +219,11 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
 
   async computerOperation(value: unknown) {
     return await withComputerCapacityErrors(() =>
-      this.executeComputerOperation(value)
+      this.#executeComputerOperation(value)
     );
   }
 
-  private async executeComputerOperation(value: unknown) {
+  async #executeComputerOperation(value: unknown) {
     await requireRetainedAccountStorage(this.ctx.storage);
     const request = cloudComputerOperationSchema.parse(value);
     if (request.action === "describe") {

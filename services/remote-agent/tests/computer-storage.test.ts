@@ -117,6 +117,12 @@ it("keeps official file reads and inspection usable after real SQLite saturation
   });
   await reopened.ready();
   tools = createComputerFileTools(reopened);
+  const failedTool = await call("write", {
+    path: "/computer/home/too-large.txt",
+    content: "x".repeat(1_000_000),
+  });
+  expect(failedTool.result.isError).toBe(true);
+  expect(JSON.stringify(failedTool)).toContain("computer.storage_full");
   const read = await call("read", { path: "/computer/home/keep.txt" });
   expect(read.result.isError).toBe(false);
   expect(JSON.stringify(read)).toContain("valuable work");
