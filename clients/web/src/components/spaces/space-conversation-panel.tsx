@@ -743,6 +743,7 @@ function SpaceConversationPanelContent(
 	const showHistoryRail =
 		historySlider.enabled &&
 		supportsHistoryRail &&
+		input.activeSpaceView === "messages" &&
 		(input.historyNavigation?.directory?.total ?? 0) >
 			SPACE_INITIAL_HISTORY_MAX_MESSAGES;
 	const setupGuidance = resolveSpaceSetupGuidanceSlots({
@@ -775,7 +776,7 @@ function SpaceConversationPanelContent(
 				"flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
 				input.className
 			)}
-			data-space-history-rail="true"
+			data-space-history-rail={showHistoryRail}
 		>
 			{input.historyActionErrorMessage || input.historyErrorMessage ? (
 				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">

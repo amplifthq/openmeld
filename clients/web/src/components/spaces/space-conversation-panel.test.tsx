@@ -153,6 +153,83 @@ describe("SpaceConversationPanel", () => {
 		useQueryMock.mockReset();
 	});
 
+	it.each<{
+		total: number | undefined;
+		enabled: boolean;
+		visible: boolean;
+		view?: SpaceView;
+	}>([
+		{ total: undefined, enabled: true, visible: false },
+		{ total: 30, enabled: true, visible: false },
+		{ total: 31, enabled: true, visible: true },
+		{ total: 31, enabled: false, visible: false },
+		{ total: 31, enabled: true, visible: false, view: "graph" },
+	])("reserves history space only for a visible slider (total=$total, enabled=$enabled)", ({
+		total,
+		enabled,
+		visible,
+		view,
+	}) => {
+		const matchMedia = createMatchMediaMock();
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			...matchMedia(query),
+			matches: query === "(min-width: 640px)",
+		}));
+		localStorage.setItem(
+			"openmeld.space.history-slider",
+			enabled ? "on" : "off"
+		);
+		renderSpaceConversationPanel({
+			activeSpaceView: view ?? "messages",
+			historyNavigation: {
+				activeWindow: null,
+				directory:
+					total === undefined
+						? undefined
+						: {
+								total,
+								entries: [
+									{
+										signalId: "first-message",
+										endSignalId: "last-message",
+										startAt: 0,
+										endAt: 1,
+										count: total,
+										author: "Alex",
+										preview: "Earlier discussion",
+									},
+								],
+							},
+				directoryError: false,
+				directoryPending: false,
+				error: null,
+				notice: null,
+				errorDirection: undefined,
+				hasHiddenLiveHistory: false,
+				latest: vi.fn(),
+				loadAfter: vi.fn(async () => false),
+				loadBefore: vi.fn(async () => false),
+				open: vi.fn(async () => true),
+				hrefForSignalId: undefined,
+				earlierHref: undefined,
+				latestHref: undefined,
+				newerHref: undefined,
+				pending: false,
+				pendingDirection: undefined,
+				retryDirectory: vi.fn(),
+				revealCachedBefore: vi.fn(),
+				visibleLiveEnvelopes: [],
+			},
+		});
+		const conversation = screen.getByLabelText("Space conversation");
+		expect(conversation.getAttribute("data-space-history-rail")).toBe(
+			String(visible)
+		);
+		expect(
+			screen.queryByRole("toolbar", { name: "Browse Space history" }) !== null
+		).toBe(visible);
+	});
+
 	it("keeps the conversation interactive when a saved anchor is not cached", () => {
 		writeSpaceConversationPosition(
 			"human-profile-1:space-conversation:space-view-test",

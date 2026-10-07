@@ -208,13 +208,17 @@ Direct messages and Discover, using the existing Spaces view parameter. Both
 can be pinned; Direct messages appears as DMs in the rail. Personal workspaces
 hide Discover in the popover and pinned list. Hovering Team (or pressing
 Arrow Down/Space on it) offers Agents, Plugins, Skills, Files, and Routines
-with separate pin toggles. Clicking Team still opens People. Pinned shortcuts appear below a short divider and
+with separate pin toggles. A divider separates the creation shortcuts: Spaces
+offers New message and New Space; Team offers New Agent. These actions cannot be
+pinned. New message shares the rail-owned dialog with command search; New Space
+and New Agent use the existing Organization creation routes.
+Clicking Team still opens People. Pinned shortcuts appear below a short divider and
 persist in the browser; links always target the current Organization. A pinned
 current page selects its shortcut instead of also selecting Team. Icon tooltips
 open immediately. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
 switching remains at the top; the global Create entry is temporarily hidden.
-Creation remains available in the Spaces and Team contextual headers. Global search
+Creation is also available in the Spaces and Team contextual headers. Global search
 and Settings are available in the footer account menu. Search has its own section
 and the shared Command K keycaps. Inbox
 retains the shared attention badge and active-route treatment. In the compact

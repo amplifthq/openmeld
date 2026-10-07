@@ -23,6 +23,19 @@ import { AppSurfaceLayout } from "./app-surface-layout";
 import type { AppShellSection } from "./shell-layout";
 
 vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
+vi.mock("#/components/spaces/new-chat-dialog", () => ({
+	NewChatDialog: (input: {
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+	}) =>
+		input.open ? (
+			<div aria-label="New message" role="dialog">
+				<button onClick={() => input.onOpenChange(false)} type="button">
+					Close New message
+				</button>
+			</div>
+		) : null,
+}));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
 const SEARCH_MENU_ITEM_PATTERN = /Search/;
@@ -1786,6 +1799,50 @@ describe("AppOuterRail", () => {
 			screen.getByRole("link", { name: parent }).getAttribute("aria-current")
 		).toBe("page");
 	});
+	it.each([
+		["Team", "New Agent", "/o/acme/new-agent"],
+		["Spaces", "New Space", "/o/acme/new-space"],
+	])("opens %s creation links in the current Organization without pin controls", async (parent, label, path) => {
+		renderRail();
+		fireEvent.keyDown(screen.getByRole("link", { name: parent }), {
+			key: "ArrowDown",
+		});
+		const link = await screen.findByRole("link", { name: label });
+		expect(link.getAttribute("href")).toBe(path);
+		expect(
+			screen.queryByRole("button", { name: `Pin ${label} to sidebar` })
+		).toBeNull();
+		fireEvent.click(link);
+		await waitFor(() => {
+			expect(screen.queryByRole("link", { name: label })).toBeNull();
+		});
+	});
+	it("opens New message from Spaces and can reopen it after closing", async () => {
+		renderRail();
+		for (let attempt = 0; attempt < 2; attempt++) {
+			fireEvent.keyDown(screen.getByRole("link", { name: "Spaces" }), {
+				key: "ArrowDown",
+			});
+			fireEvent.click(
+				await screen.findByRole("button", { name: "New message" })
+			);
+			expect(
+				await screen.findByRole("dialog", { name: "New message" })
+			).toBeTruthy();
+			await waitFor(() => {
+				expect(
+					screen.queryByRole("link", { name: "Direct messages" })
+				).toBeNull();
+			});
+			expect(
+				screen.queryByRole("button", { name: "Pin New message to sidebar" })
+			).toBeNull();
+			fireEvent.click(
+				screen.getByRole("button", { name: "Close New message" })
+			);
+			expect(screen.queryByRole("dialog", { name: "New message" })).toBeNull();
+		}
+	});
 	it("hides Discover in personal workspaces without forgetting its saved pin", async () => {
 		window.localStorage.setItem(
 			"openmeld.appearance.sidebar-shortcuts",
@@ -1798,6 +1855,10 @@ describe("AppOuterRail", () => {
 		});
 		await screen.findByRole("link", { name: "Direct messages" });
 		expect(screen.queryByRole("link", { name: "Discover" })).toBeNull();
+		expect(screen.getByRole("button", { name: "New message" })).toBeTruthy();
+		expect(
+			screen.getByRole("link", { name: "New Space" }).getAttribute("href")
+		).toBe("/o/acme/new-space");
 		expect(
 			window.localStorage.getItem("openmeld.appearance.sidebar-shortcuts")
 		).toBe("discover");

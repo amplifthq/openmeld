@@ -133,11 +133,11 @@ environment callback, or no coordination best fits the actual work.
   next action. Ordinary evidence and status facts can be sent without Wake.
   The Center Agent can summarize or connect organization context when that adds
   value; it is not a merge authority or a required relay.
-- Report eligible problems from released, supported OpenMeld product use through
-  [Agent Experience Occurrence Feedback](agent-native-delivery.md#agent-experience-occurrence-feedback)
-  under its production-use and occurrence rules. An Agent doing development
-  can encounter a released product defect; findings confined to unreleased
-  work or internal development tooling stay in the owning task, PR, or issue.
+- Use [Agent Experience Feedback](agent-native-delivery.md#agent-experience-feedback)
+  for confirmed current-origin product problems that need another owner.
+  Follow its evidence and ownership checks before posting. Keep problems you
+  plan to fix, existing repairs, uncertain symptoms, and internal development
+  or validation findings in the owning task, PR, or issue.
   For ordinary development coordination, an authorized native fallback may
   keep delivery moving. When Wake itself is the product behavior under smoke,
   only the visible product path proves success.

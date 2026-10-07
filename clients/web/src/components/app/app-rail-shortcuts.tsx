@@ -4,6 +4,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@openmeld/ui/components/popover";
+import { Separator } from "@openmeld/ui/components/separator";
 import {
 	FluidActionList,
 	FluidActionListItem,
@@ -12,8 +13,10 @@ import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import {
 	BooksIcon,
 	ChatCircleDotsIcon,
+	ChatCircleTextIcon,
 	CompassIcon,
 	FolderIcon,
+	PlusIcon,
 	PushPinIcon,
 	PuzzlePieceIcon,
 	RobotIcon,
@@ -26,8 +29,10 @@ import {
 	type SidebarShortcutId,
 } from "#/lib/appearance/sidebar-shortcuts";
 import {
+	buildOrganizationAgentCreationPath,
 	buildOrganizationAgentsPath,
 	buildOrganizationFilesPath,
+	buildOrganizationNewSpacePath,
 	buildOrganizationPeoplePath,
 	buildOrganizationPluginsPath,
 	buildOrganizationRoutinesPath,
@@ -130,6 +135,7 @@ export function buildPinnedRailDestinations(
 export function AppRailShortcutsPopover(input: {
 	group: RailShortcutGroup;
 	isPersonal: boolean;
+	onNewMessage: () => void;
 	orgSlug: string;
 	pinned: SidebarShortcutId[];
 	toggle: (id: SidebarShortcutId) => void;
@@ -138,6 +144,16 @@ export function AppRailShortcutsPopover(input: {
 	const [open, setOpen] = useState(false);
 	const { dismiss } = useAppNavigationPresentation();
 	const group = SHORTCUT_GROUPS[input.group];
+	const creation =
+		input.group === "spaces"
+			? {
+					label: "New Space",
+					path: buildOrganizationNewSpacePath(input.orgSlug),
+				}
+			: {
+					label: "New Agent",
+					path: buildOrganizationAgentCreationPath(input.orgSlug),
+				};
 	return (
 		<Popover onOpenChange={setOpen} open={open}>
 			<FluidContextMenu
@@ -168,7 +184,7 @@ export function AppRailShortcutsPopover(input: {
 			<PopoverContent
 				align="start"
 				aria-label={`${group.label} resources`}
-				className="w-52 animate-none! gap-0 rounded-lg p-1 opacity-100 transition-opacity duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:duration-100"
+				className="w-48 animate-none! gap-0 rounded-lg p-1 opacity-100 transition-opacity duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:duration-100"
 				side="right"
 				sideOffset={8}
 			>
@@ -218,6 +234,38 @@ export function AppRailShortcutsPopover(input: {
 							);
 						}
 					)}
+				</FluidActionList>
+				<Separator className="my-1" />
+				<FluidActionList gapClick={false}>
+					{input.group === "spaces" && (
+						<FluidActionListItem
+							className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							index={0}
+							onClick={() => {
+								setOpen(false);
+								input.onNewMessage();
+							}}
+						>
+							<ChatCircleTextIcon aria-hidden="true" className="size-4" />
+							New message
+						</FluidActionListItem>
+					)}
+					<FluidActionListItem
+						className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						index={input.group === "spaces" ? 1 : 0}
+						render={
+							<Link
+								onClick={() => {
+									setOpen(false);
+									dismiss();
+								}}
+								to={creation.path}
+							/>
+						}
+					>
+						<PlusIcon aria-hidden="true" className="size-4" />
+						{creation.label}
+					</FluidActionListItem>
 				</FluidActionList>
 			</PopoverContent>
 		</Popover>
