@@ -150,14 +150,6 @@ function ProductDemo({
 				src={`/product-demo/index.html?scene=${scene}`}
 				title={title}
 			/>
-			<a
-				className="meld-demo-expand"
-				href={`/product-demo/index.html?scene=${scene}`}
-				rel="noreferrer"
-				target="_blank"
-			>
-				Open demo <ArrowUpRightIcon aria-hidden size={14} />
-			</a>
 		</div>
 	);
 }
@@ -217,10 +209,6 @@ export function LandingPage() {
 								title="Interactive OpenMeld Space demo"
 							/>
 						</div>
-						<p className="meld-demo-note">
-							Demo workspace. Open the release notes, explore a Space, or try
-							the editor.
-						</p>
 					</section>
 					<section
 						aria-labelledby="together-title"
