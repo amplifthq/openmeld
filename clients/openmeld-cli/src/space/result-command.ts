@@ -5,6 +5,7 @@ import type {
 import type { SpaceSignalIndex } from "@openmeld/space";
 import { buildCommandAuthenticationPromptMessage } from "../auth/command-auth";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
+import { resolveUserFacingCliEntryCommand } from "../runtime/cli-entry-command";
 import { outJsonLine } from "../ui/io";
 import { createCliSpaceApi, type SpaceApi } from "./cli-space-api";
 import {
@@ -158,7 +159,10 @@ export async function runSpaceResult(input: {
   } catch (error) {
     throw decorateSpaceResultReadError({
       error,
-      humanView: runtime.resolvedView === "human" && !input.json,
+      space: input.space,
+      dispatchId,
+      profile: openMeldProfile.openMeldProfileId,
+      baseUrl,
     });
   }
   if (resultRead.status === "cancelled") {
@@ -194,23 +198,27 @@ export async function runSpaceResult(input: {
 
 function decorateSpaceResultReadError(input: {
   error: unknown;
-  humanView: boolean;
+  space: string;
+  dispatchId: string;
+  profile: string;
+  baseUrl: string;
 }): unknown {
   const failure = toStructuredGatewayFailure(input.error);
   if (
-    !(
-      input.humanView &&
-      isMissingDispatchResultFailure({
-        code: failure.code,
-        message: failure.message,
-      })
-    )
+    !isMissingDispatchResultFailure({
+      code: failure.code,
+      message: failure.message,
+    })
   ) {
     return input.error;
   }
 
+  const selector = input.dispatchId
+    ? ` --dispatch ${quoteCommandArgument(input.dispatchId)}`
+    : " --dispatch <dispatch-id>";
+  const command = `${resolveUserFacingCliEntryCommand()} service trace --space ${quoteCommandArgument(input.space)}${selector} --profile ${quoteCommandArgument(input.profile)} --gateway-url ${quoteCommandArgument(input.baseUrl)} --view agent`;
   const error = new Error(
-    "No archived dispatch result was found. `space result` reads archived dispatch results only. Use `openmeld service trace` to inspect Wake execution and the final visible Space outcome."
+    `No archived dispatch result was found. This does not mean the Wake failed. Hosted replies can exist without a workstation result archive. Run ${command} to read the execution and visible reply evidence. Use the returned Signal ID with space history --around-signal to read the reply.`
   ) as SpaceResultReadError;
   error.code = failure.code ?? undefined;
   error.requestId = failure.requestId;
@@ -230,4 +238,8 @@ function isMissingDispatchResultFailure(input: {
     input.code === "upstream_error" &&
     input.message.trim().toLowerCase() === "dispatch result not found"
   );
+}
+
+function quoteCommandArgument(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }

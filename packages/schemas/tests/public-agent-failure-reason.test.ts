@@ -505,6 +505,13 @@ describe("public agent failure reason mapping", () => {
   });
 
   it("maps exact Usage exhaustion without exposing provider wording", () => {
+    expect(resolvePublicAgentAvailabilityCopy("usage_exhausted")).toMatchObject(
+      {
+        availabilityBadgeLabel: "Usage Limit reached",
+        availabilitySummary:
+          "This agent reached a Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+      }
+    );
     expect(resolveMappedPublicAgentFailureReason("usage_exhausted")).toBe(
       "This agent reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again."
     );

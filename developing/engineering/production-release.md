@@ -27,7 +27,9 @@ Release only what changed.
 
 Production uses PostgreSQL. Use the guarded local lane for Database, Auth and
 Core, and the GitHub CLI workflow for npm Trusted Publishing. Other hosted
-scopes remain available. The database receipt proves the applied schema, journal,
+scopes remain available. The parent workflow rejects unsupported PostgreSQL
+scopes before artifact builds or database jobs. This is a lane restriction, not
+a request to repeat the initial D1 cutover. The database receipt proves the applied schema, journal,
 target and grants. Auth and Core receipts prove their active deployments and
 PostgreSQL bindings. A database migration alone does not require redeploying
 both services. CLI admission checks these facts before publication and Core

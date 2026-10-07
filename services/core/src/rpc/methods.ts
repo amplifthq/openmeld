@@ -702,6 +702,7 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceResponseContractVersion,
+  SpaceEntryAccessResponse,
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFilePinMutation,
@@ -1953,6 +1954,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   ): Promise<StartUsageExhaustedContinuationResponse>;
   rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void>;
   rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta>;
+  rpcGetEntryAccess(
+    input: GetSpaceMetaInput
+  ): Promise<SpaceEntryAccessResponse>;
   rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse>;
   rpcMessagePins(
     input: SpaceMessagePinsInput
@@ -19547,7 +19551,6 @@ export async function rpcGetSpaceEntryResolution(
       organizationId: indexed.organizationId,
     });
   const access = await resolveSpaceEntryAccess({
-    context,
     env,
     spaceAccess,
     spaceId: target.spaceId,
@@ -19652,17 +19655,15 @@ async function resolveSpaceEntryOrganizationAudience(input: {
   return { organizationMember: true, organizationSlug };
 }
 async function resolveSpaceEntryAccess(input: {
-  context?: CoreRpcContextInput;
   env: CoreBindings;
   spaceAccess: SpaceAccessContext;
   spaceId: string;
 }): Promise<SpaceEntryAccessResult> {
-  let meta: SpaceMeta;
+  let entry: SpaceEntryAccessResponse;
   try {
     const { stub } = resolveRpcSpaceStubOrThrow(input.env, input.spaceId);
-    // The metadata read uses the same Space access policy as status, without
-    // reading member presentation, runtime routes, or Service health.
-    meta = await stub.rpcGetMeta({
+    // The owning Space authorizes once and reads current participation locally.
+    entry = await stub.rpcGetEntryAccess({
       spaceId: input.spaceId,
       spaceAccess: input.spaceAccess,
     });
@@ -19677,6 +19678,7 @@ async function resolveSpaceEntryAccess(input: {
     }
     throw error;
   }
+  const { meta, activeMember } = entry;
   if (!meta.accessMode) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -19684,15 +19686,6 @@ async function resolveSpaceEntryAccess(input: {
       reason: "The Space access mode could not be resolved.",
     });
   }
-  const activeMember = input.context
-    ? (
-        await rpcGetSpaceViewerMembership(input.env, {
-          context: input.context,
-          spaceId: input.spaceId,
-          spaceAccess: input.spaceAccess,
-        })
-      ).activeMemberProfiles.length > 0
-    : false;
   return {
     activeMember,
     kind: "allowed",

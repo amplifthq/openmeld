@@ -486,7 +486,8 @@ describe("reply readiness runtime preparation integration", () => {
 
     expect(readiness).toMatchObject({
       reasonCodes: [],
-      reasonText: "This profile can reply from Space when mentioned",
+      reasonText:
+        "Local reply setup is ready. OpenMeld checks current access and Usage Limits when you wake this profile.",
       replyReadiness: "ready",
     });
     expect(prepareProviderRuntimeMock).not.toHaveBeenCalled();

@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { RESOURCE_TOKEN } from "../dev/local-resources.mjs";
-import {
-  buildProductionRenderer,
-  rendererBuildEnvironment,
-} from "./renderer-build.mjs";
+import { buildRenderer, rendererBuildEnvironment } from "./renderer-build.mjs";
 
 const BUDGET = /budget/u;
 
@@ -85,12 +82,12 @@ test("hosted renderer builds run without waiting for the local worktree resource
     acquireResources: () => {
       throw new Error("Hosted build entered the local resource queue.");
     },
-    runCommand: (_command, _args, input) => {
-      invocations.push(input.env);
+    runCommand: (_command, args, input) => {
+      invocations.push({ ...input.env, args });
       return 0;
     },
   };
-  await buildProductionRenderer(
+  await buildRenderer(
     "/tmp/release-source",
     {
       GITHUB_ACTIONS: "true",
@@ -104,11 +101,13 @@ test("hosted renderer builds run without waiting for the local worktree resource
   assert.equal(invocations[0][RESOURCE_TOKEN], undefined);
 
   let released = false;
-  await buildProductionRenderer(
+  await buildRenderer(
     "/tmp/release-source",
     {},
     {
       ...options,
+      buildScript: "build",
+      defaultHeapMiB: 5120,
       acquireResources: () => ({
         token: "local-reservation",
         release: () => {
@@ -119,4 +118,11 @@ test("hosted renderer builds run without waiting for the local worktree resource
   );
   assert.equal(invocations[1][RESOURCE_TOKEN], "local-reservation");
   assert.equal(released, true);
+  assert.equal(invocations[1].NODE_OPTIONS, "--max-old-space-size=5120");
+  assert.deepEqual(invocations[1].args, [
+    "--dir",
+    "clients/web",
+    "run",
+    "build",
+  ]);
 });

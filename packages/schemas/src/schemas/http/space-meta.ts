@@ -88,6 +88,12 @@ export const patchSpaceMetaResponseSchema = spaceMetaSchema;
 
 export const getSpaceMetaResponseSchema = spaceMetaSchema;
 
+/** Authorized entry facts read together by the owning Space. */
+export const spaceEntryAccessResponseSchema = z.strictObject({
+  meta: spaceMetaSchema,
+  activeMember: z.boolean(),
+});
+
 export const patchSpaceMetaBodySchema = z
   .strictObject({
     visibility: spaceOrganizationVisibilitySchema.optional(),

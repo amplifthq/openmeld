@@ -1691,7 +1691,7 @@ the message unsent and preserve a structured error; the command must never
 downgrade to a file-free success. `space action reply --file <path>` provides
 the same output path to a Local Agent handling a Wake.
 
-`space wake-progress <space-id>` is the live, polling-oriented Wake read. With
+`space wake-progress <space-id-or-url>` is the live, polling-oriented Wake read. With
 no selector it returns the active Wake summary for the Space. With
 `--client-message <id>` it returns the progress associated with that authored
 message, optionally narrowed by `--target-profile <id>`. The active summary can
@@ -1711,9 +1711,14 @@ wait reason with `includeWaitReason=true`; older CLI versions omit that query
 and must continue receiving the previous strict response shape. This command
 does not replace `space result`,
 which reads archived results, or `service trace`, which diagnoses the execution
-chain.
+chain. Missing archived results are not failed Wakes. All output views explain
+that hosted replies can exist without a workstation archive and provide the
+exact dispatch trace command. Read its visible Signal ID through Space history.
+Wake progress, Stop, and result accept trusted Space URLs through the shared
+target resolver before authentication. Explicit Profile and Gateway options
+retain precedence.
 
-`space wake-stop <space-id>` requires one Space-visible selector and an exact
+`space wake-stop <space-id-or-url>` requires one Space-visible selector and an exact
 target profile: either `--source-signal <id> --target-profile <id>` or
 `--client-message <id> --target-profile <id>`. It must never expose
 `dispatchId` as a public Stop selector. POST the exact selector directly: a
@@ -1844,7 +1849,8 @@ computer. It does not prove that a specific Agent Profile can reply in a
 specific Space.
 
 Service status and setup diagnostics may include `localServiceDiagnostics`. This
-is local OpenMeld Service evidence only. It must not be labeled as final
+is local OpenMeld Service evidence only. Local readiness labels say "Local setup
+ready", not "Can reply". Access and current Usage admission remain Core-owned. It must not be labeled as final
 Wakeability, final Wake truth, or final Space delivery truth.
 
 Reply-recovery copy may use shared Agent Profile recovery semantics. The CLI
@@ -1899,6 +1905,13 @@ projection when the selected dispatch used the hosted Center Agent. The caller
 still supplies only the normal Space and dispatch selectors. Core resolves the
 frozen runtime conversation generation; the CLI must not accept or reconstruct
 that generation identity.
+
+Detailed trace explains the retained runtime counters. `modelCallCount` is the
+legacy field for completed agent prompt operations, each of which can contain
+many tool-loop requests. `providerRequestCount` counts individual model-provider
+requests. Conversation compaction is separate retained-history evidence. None
+of these counters proves Space delivery. A pending final projection does not
+establish that a Computer is offline, for either runtime family.
 
 Center Agent self-diagnostics use the same exact runtime-conversation boundary
 for Message Channel turns. The projection distinguishes retained runtime
