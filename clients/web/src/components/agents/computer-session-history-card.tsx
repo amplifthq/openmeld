@@ -4,432 +4,725 @@ import {
 	createAgentActivityApi,
 	createSessionHistoryApi,
 } from "@openmeld/api-client";
+import { sessionHistoryProviderSchema } from "@openmeld/schemas";
 import type {
+	AgentActivityInventoryCoverage,
 	AgentActivityInventorySession,
 	PeopleComputerTarget,
 	SessionHistoryOperation,
 	SessionHistoryResult,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { Card, CardContent, CardTitle } from "@openmeld/ui/components/card";
 import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@openmeld/ui/components/card";
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetHeader,
+	SheetTitle,
+	SheetTrigger,
+} from "@openmeld/ui/components/sheet";
 import { Switch } from "@openmeld/ui/components/switch";
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
-import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
 
 type Settings = Extract<SessionHistoryResult, { kind: "settings" }>;
 type Session = Extract<SessionHistoryResult, { kind: "session" }>;
+type Audit = Extract<SessionHistoryResult, { kind: "audit" }>;
 
-export function ComputerSessionHistoryCard(
-	input: PeopleComputerTarget & {
-		organizationId: string;
-		computerId: string;
-		profiles: readonly { openMeldProfileId: string; profileName: string }[];
-	}
-) {
-	// Private response bodies live only in this mounted component. Do not move
-	// these into the persisted query cache or a route loader.
+type Props = PeopleComputerTarget & {
+	organizationId: string;
+	computerId: string;
+	profiles: readonly { openMeldProfileId: string; profileName: string }[];
+};
+function useConversationAccess(input: Props, open: boolean) {
+	// Private responses stay in mounted component memory, never the persisted
+	// query cache. Opening the page loads metadata only, not conversation bodies.
 	const [settings, setSettings] = useState<Settings | null>(null);
-	const [audit, setAudit] = useState<Extract<
-		SessionHistoryResult,
-		{ kind: "audit" }
-	> | null>(null);
+	const [audit, setAudit] = useState<Audit | null>(null);
 	const [sessions, setSessions] = useState<AgentActivityInventorySession[]>([]);
-	const [sessionsLoaded, setSessionsLoaded] = useState(false);
+	const [coverage, setCoverage] = useState<AgentActivityInventoryCoverage[]>(
+		[]
+	);
 	const [cursor, setCursor] = useState<string | null>(null);
-	const [history, setHistory] = useState<Session | null>(null);
+	const [sessionsLoading, setSessionsLoading] = useState(true);
+	const [settingsError, setSettingsError] = useState<string | null>(null);
+	const [sessionsError, setSessionsError] = useState<string | null>(null);
+	const [auditError, setAuditError] = useState<string | null>(null);
+	const [saving, setSaving] = useState(false);
 	const [selected, setSelected] =
 		useState<AgentActivityInventorySession | null>(null);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const centerAgent = useQuery(
-		centerAgentDesignationQueryOptions({
-			enabled: settings !== null,
-			organizationId: input.organizationId,
-		})
-	).data?.designation;
-	const profiles =
-		centerAgent &&
-		!input.profiles.some(
-			(profile) => profile.openMeldProfileId === centerAgent.agentProfileId
-		)
-			? [
-					...input.profiles,
-					{
-						openMeldProfileId: centerAgent.agentProfileId,
-						profileName: "Center Agent",
-					},
-				]
-			: input.profiles;
-	const foundation = () =>
-		createOrganizationScopedWebOpenMeldApiFoundation({
-			organizationId: input.organizationId,
-		});
-	async function run(operation: () => Promise<void>) {
-		setBusy(true);
-		setError(null);
+	const [history, setHistory] = useState<Session | null>(null);
+	const [reading, setReading] = useState(false);
+	const [readError, setReadError] = useState<string | null>(null);
+	const readGeneration = useRef(0);
+	const saveLock = useRef(false);
+	const foundation = useMemo(
+		() =>
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: input.organizationId,
+			}),
+		[input.organizationId]
+	);
+	const request = useCallback(
+		async (operation: SessionHistoryOperation) => {
+			const result = await createSessionHistoryApi(foundation).request({
+				deviceId: input.deviceId,
+				runtimeLane: input.runtimeLane,
+				organizationId: input.organizationId,
+				request: operation,
+			});
+			if (result.kind === "error") {
+				throw new Error(result.message);
+			}
+			return result;
+		},
+		[foundation, input.deviceId, input.runtimeLane, input.organizationId]
+	);
+	const loadSettings = useCallback(async () => {
+		setSettingsError(null);
 		try {
-			await operation();
-		} catch {
-			setError(
-				"This request failed. Check the Computer connection and try again."
-			);
-		} finally {
-			setBusy(false);
+			const result = await request({ operation: "read_settings" });
+			if (result.kind === "settings") {
+				setSettings(result);
+			}
+		} catch (error) {
+			setSettingsError(errorText(error));
 		}
+	}, [request]);
+	const loadAudit = useCallback(async () => {
+		setAuditError(null);
+		try {
+			const result = await request({ operation: "read_audit" });
+			if (result.kind === "audit") {
+				setAudit(result);
+			}
+		} catch (error) {
+			setAuditError(errorText(error));
+		}
+	}, [request]);
+	const loadSessions = useCallback(
+		async (next?: string) => {
+			setSessionsLoading(true);
+			setSessionsError(null);
+			try {
+				const result = await createAgentActivityApi(foundation).readSessions({
+					computerId: input.computerId,
+					limit: 50,
+					...(next ? { cursor: next } : {}),
+				});
+				setSessions((previous) =>
+					next ? [...previous, ...result.sessions] : result.sessions
+				);
+				setCoverage(result.coverage);
+				setCursor(result.nextCursor);
+			} catch (error) {
+				setSessionsError(errorText(error));
+			} finally {
+				setSessionsLoading(false);
+			}
+		},
+		[foundation, input.computerId]
+	);
+	useEffect(() => {
+		loadSettings();
+		return () => {
+			readGeneration.current += 1;
+		};
+	}, [loadSettings]);
+	useEffect(() => {
+		if (open) {
+			loadSessions();
+			loadAudit();
+		}
+	}, [open, loadSessions, loadAudit]);
+	function closeHistory() {
+		readGeneration.current += 1;
+		setSelected(null);
+		setHistory(null);
+		setReadError(null);
+		setReading(false);
 	}
-	async function request(request: SessionHistoryOperation) {
-		const response = await createSessionHistoryApi(foundation()).request({
-			deviceId: input.deviceId,
-			runtimeLane: input.runtimeLane,
-			organizationId: input.organizationId,
-			request,
-		});
-		if (response.kind === "error") {
-			setError(response.message);
+	async function save(policy: Settings["policy"]) {
+		if (!settings || saveLock.current) {
 			return;
 		}
-		if (response.kind === "settings") {
-			setSettings(response);
-		}
-		if (response.kind === "audit") {
-			setAudit(response);
-		}
-		if (response.kind === "session") {
-			setHistory(response);
+		saveLock.current = true;
+		setSaving(true);
+		setSettingsError(null);
+		closeHistory();
+		try {
+			const result = await request({
+				operation: "update_settings",
+				expectedRevision: settings.policy.revision,
+				policy: { enabled: policy.enabled, connections: policy.connections },
+			});
+			if (result.kind === "settings") {
+				setSettings(result);
+			}
+		} catch (error) {
+			setSettingsError(errorText(error));
+		} finally {
+			saveLock.current = false;
+			setSaving(false);
 		}
 	}
-	async function listSessions(next?: string) {
-		const response = await createAgentActivityApi(foundation()).readSessions({
-			provider: "codex",
-			limit: 100,
-			...(next ? { cursor: next } : {}),
-		});
-		const rows = response.sessions.filter(
-			(session) => session.computer.id === input.computerId
-		);
-		setSessions((previous) => (next ? [...previous, ...rows] : rows));
-		setCursor(response.nextCursor);
-		setSessionsLoaded(true);
-	}
-	function read(session: AgentActivityInventorySession, offset = 0) {
-		setHistory(null);
+	async function read(session: AgentActivityInventorySession, offset = 0) {
+		const generation = ++readGeneration.current;
 		setSelected(session);
-		return run(() =>
-			request({
+		if (offset === 0) {
+			setHistory(null);
+		}
+		setReading(true);
+		setReadError(null);
+		try {
+			const result = await request({
 				operation: "read_session",
 				projectId: session.project.id,
 				sessionId: session.nativeSessionId,
+				provider: sessionHistoryProviderSchema.parse(
+					session.localAgent.provider
+				),
 				offset,
 				limit: 20,
-			})
-		);
+			});
+			if (generation === readGeneration.current && result.kind === "session") {
+				setHistory((previous) =>
+					offset > 0 && previous
+						? {
+								...result,
+								messages: [...previous.messages, ...result.messages],
+							}
+						: result
+				);
+			}
+		} catch (error) {
+			if (generation === readGeneration.current) {
+				setReadError(errorText(error));
+			}
+		} finally {
+			if (generation === readGeneration.current) {
+				setReading(false);
+			}
+			loadAudit();
+		}
 	}
+
+	return {
+		settings,
+		audit,
+		sessions,
+		coverage,
+		cursor,
+		sessionsLoading,
+		settingsError,
+		sessionsError,
+		auditError,
+		saving,
+		selected,
+		history,
+		reading,
+		readError,
+		loadSettings,
+		loadAudit,
+		loadSessions,
+		save,
+		read,
+		closeHistory,
+	};
+}
+type State = ReturnType<typeof useConversationAccess>;
+export function ComputerSessionHistoryCard(input: Props) {
+	const [open, setOpen] = useState(false);
+	const state = useConversationAccess(input, open);
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Session history access</CardTitle>
-				<CardDescription>
-					Read Codex conversations from this computer, including sessions
-					outside OpenMeld. Access is off until you enable it for selected
-					projects.
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-4">
-				<p className="text-muted-foreground text-sm">
-					History is read on demand, not synced to OpenMeld. Agent conversations
-					and model providers may retain results. File access restrictions still
-					apply.
-				</p>
-				{error ? (
-					<p className="text-destructive text-sm" role="alert">
-						{error}
-					</p>
-				) : null}
-				{settings ? (
+		<Sheet
+			onOpenChange={(value) => {
+				setOpen(value);
+				if (!value) {
+					state.closeHistory();
+				}
+			}}
+			open={open}
+		>
+			<Card>
+				<CardContent className="space-y-4 pt-4">
+					<AccessSettings state={state} />
+					<SheetTrigger render={<Button size="sm" variant="secondary" />}>
+						View conversations &amp; history
+					</SheetTrigger>
+				</CardContent>
+			</Card>
+			<SheetContent className="data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
+				{state.selected ? (
 					<>
-						<div className="flex items-center justify-between gap-3 text-sm">
-							Allow session history reads
-							<Switch
-								aria-label="Allow session history reads"
-								checked={settings.policy.enabled}
-								disabled={busy}
-								onCheckedChange={(enabled) =>
-									setSettings({
-										...settings,
-										policy: { ...settings.policy, enabled },
-									})
-								}
-							/>
-						</div>
-						<fieldset className="space-y-2" disabled={busy}>
-							<legend className="mb-2 font-medium text-sm">
-								Connected projects
-							</legend>
-							{settings.connections.length === 0 ? (
-								<p className="text-muted-foreground text-sm">
-									Connect a project on this computer first.
-								</p>
-							) : (
-								settings.connections.map((connection) => {
-									const checked = settings.policy.connections.some(
-										(grant) =>
-											grant.bindingGeneration === connection.bindingGeneration
-									);
-									return (
-										<div
-											className="flex items-center justify-between gap-3 text-sm"
-											key={connection.bindingGeneration}
-										>
-											{connection.projectSlug}
-											<Switch
-												aria-label={`Allow history for ${connection.projectSlug}`}
-												checked={checked}
-												onCheckedChange={(enabled) =>
-													setSettings({
-														...settings,
-														policy: {
-															...settings.policy,
-															connections: enabled
-																? [
-																		...settings.policy.connections,
-																		{
-																			projectId: connection.projectId,
-																			bindingGeneration:
-																				connection.bindingGeneration,
-																		},
-																	]
-																: settings.policy.connections.filter(
-																		(grant) =>
-																			grant.bindingGeneration !==
-																			connection.bindingGeneration
-																	),
-														},
-													})
-												}
-											/>
-										</div>
-									);
-								})
-							)}
-						</fieldset>
-						<fieldset className="space-y-2" disabled={busy}>
-							<legend className="mb-2 font-medium text-sm">
-								Agents allowed to read for you
-							</legend>
-							<p className="text-muted-foreground text-sm">
-								Agents must also have a verified request from you. Other members
-								do not get access.
-							</p>
-							{profiles.map((profile) => (
-								<div
-									className="flex items-center justify-between gap-3 text-sm"
-									key={profile.openMeldProfileId}
-								>
-									{profile.profileName}
-									<Switch
-										aria-label={`Allow ${profile.profileName} to read history`}
-										checked={settings.policy.readerProfileIds.includes(
-											profile.openMeldProfileId
-										)}
-										onCheckedChange={(enabled) =>
-											setSettings({
-												...settings,
-												policy: {
-													...settings.policy,
-													readerProfileIds: enabled
-														? [
-																...settings.policy.readerProfileIds,
-																profile.openMeldProfileId,
-															]
-														: settings.policy.readerProfileIds.filter(
-																(id) => id !== profile.openMeldProfileId
-															),
-												},
-											})
-										}
-									/>
-								</div>
-							))}
-						</fieldset>
-						<div className="flex flex-wrap gap-2">
+						<div className="px-4 pt-4 pr-12">
 							<Button
-								disabled={busy}
-								onClick={() => {
-									setHistory(null);
-									return run(() =>
-										request({
-											operation: "update_settings",
-											expectedRevision: settings.policy.revision,
-											policy: {
-												enabled: settings.policy.enabled,
-												connections: settings.policy.connections,
-												readerProfileIds: settings.policy.readerProfileIds,
-											},
-										})
-									);
-								}}
+								onClick={state.closeHistory}
+								size="sm"
+								variant="secondary"
 							>
-								Save access
-							</Button>
-							<Button
-								disabled={busy}
-								onClick={() =>
-									run(() => request({ operation: "read_settings" }))
-								}
-								variant="outline"
-							>
-								Reload settings
-							</Button>
-							<Button
-								disabled={busy}
-								onClick={() => run(() => listSessions())}
-								variant="outline"
-							>
-								Browse Codex sessions
-							</Button>
-							<Button
-								disabled={busy}
-								onClick={() => run(() => request({ operation: "read_audit" }))}
-								variant="outline"
-							>
-								Access history
+								Back to conversations
 							</Button>
 						</div>
+						<ConversationReader state={state} />
 					</>
 				) : (
-					<Button
-						disabled={busy}
-						onClick={() => run(() => request({ operation: "read_settings" }))}
-						variant="outline"
-					>
-						Manage history access
-					</Button>
+					<>
+						<SheetHeader className="pr-12">
+							<SheetTitle>Conversations &amp; access history</SheetTitle>
+							<SheetDescription>
+								Codex, Claude Code, OpenCode, and Grok Build. Cursor and
+								Antigravity history is not available yet.
+							</SheetDescription>
+						</SheetHeader>
+						<ScrollArea
+							className="min-h-0 flex-1"
+							contentClassName="space-y-4 p-4"
+							viewportProps={{
+								"aria-label": "Conversations and access history",
+							}}
+						>
+							<ConversationList state={state} />
+							<AccessLog profiles={input.profiles} state={state} />
+						</ScrollArea>
+					</>
 				)}
-				{sessionsLoaded && sessions.length === 0 ? (
+			</SheetContent>
+		</Sheet>
+	);
+}
+function AccessSettings({ state }: { state: State }) {
+	const { settings, saving, settingsError, save, loadSettings } = state;
+	const enabled = settings?.policy.enabled === true;
+	const grants = settings?.policy.connections ?? [];
+	return (
+		<section aria-label="Conversation access settings" className="space-y-4">
+			<div className="flex items-center justify-between gap-4">
+				<CardTitle id="conversation-access-label">
+					Conversation access
+				</CardTitle>
+				<Switch
+					aria-describedby="conversation-access-help"
+					aria-labelledby="conversation-access-label"
+					checked={enabled}
+					disabled={!settings || saving || (!enabled && grants.length === 0)}
+					onCheckedChange={(value) =>
+						settings && save({ ...settings.policy, enabled: value })
+					}
+				/>
+			</div>
+			<p
+				className="text-muted-foreground text-sm"
+				id="conversation-access-help"
+			>
+				Read local conversations yourself or through agents acting for you.
+			</p>
+			{saving || !(settings || settingsError) ? (
+				<output className="block text-muted-foreground text-xs">
+					{saving ? "Saving…" : "Connecting…"}
+				</output>
+			) : null}
+			<ProjectAccess state={state} />
+			{settingsError ? (
+				<LoadError message={settingsError} retry={loadSettings} />
+			) : null}
+			<p className="max-w-3xl text-muted-foreground text-xs leading-relaxed">
+				Read on demand. Agents may share or retain what they read.
+			</p>
+		</section>
+	);
+}
+function ProjectAccess({ state }: { state: State }) {
+	const { settings, saving, save } = state;
+	if (!settings) {
+		return null;
+	}
+	const grants = settings.policy.connections;
+	return (
+		<fieldset className="space-y-2" disabled={saving}>
+			<legend className="font-medium text-sm">Allowed projects</legend>
+			{settings.connections.length === 0 ? (
+				<p className="text-muted-foreground text-sm">
+					Connect a project to this computer to enable access.
+				</p>
+			) : null}
+			<ScrollArea
+				className="-mr-3 max-h-40"
+				viewportProps={{
+					"aria-label": "Projects available for conversation access",
+				}}
+			>
+				<div className="space-y-1 pr-3">
+					{settings.connections.map((connection) => {
+						const checked = grants.some(
+							(grant) =>
+								grant.projectId === connection.projectId &&
+								grant.bindingGeneration === connection.bindingGeneration
+						);
+						return (
+							<label
+								className="flex items-center justify-between gap-4 py-2 text-sm"
+								htmlFor={`history-project-${connection.bindingGeneration}`}
+								key={connection.bindingGeneration}
+							>
+								<span className="min-w-0 break-words">
+									{connection.projectSlug}
+								</span>
+								<Switch
+									aria-label={`Allow conversations in ${connection.projectSlug}`}
+									checked={checked}
+									disabled={saving}
+									id={`history-project-${connection.bindingGeneration}`}
+									onCheckedChange={(value) => {
+										const connections = value
+											? [
+													...grants,
+													{
+														projectId: connection.projectId,
+														bindingGeneration: connection.bindingGeneration,
+													},
+												]
+											: grants.filter(
+													(grant) =>
+														grant.bindingGeneration !==
+														connection.bindingGeneration
+												);
+										return save({
+											...settings.policy,
+											connections,
+											enabled:
+												settings.policy.enabled && connections.length > 0,
+										});
+									}}
+								/>
+							</label>
+						);
+					})}
+				</div>
+			</ScrollArea>
+			{grants.length === 0 && settings.connections.length > 0 ? (
+				<p className="text-muted-foreground text-xs">
+					Select a project to enable access.
+				</p>
+			) : null}
+		</fieldset>
+	);
+}
+function ConversationList({ state }: { state: State }) {
+	const {
+		sessions,
+		sessionsLoading,
+		sessionsError,
+		coverage,
+		cursor,
+		loadSessions,
+	} = state;
+	const notice = inventoryNotice(coverage);
+	return (
+		<section aria-label="Conversations" className="space-y-2 border-t pt-4">
+			<div className="flex items-center justify-between gap-3">
+				<h3 className="font-medium text-sm">Conversations</h3>
+				<Button
+					disabled={sessionsLoading}
+					onClick={() => loadSessions()}
+					size="sm"
+					variant="secondary"
+				>
+					Refresh
+				</Button>
+			</div>
+			{sessionsError ? (
+				<LoadError message={sessionsError} retry={() => loadSessions()} />
+			) : null}
+			{!sessionsError && notice && !sessionsLoading ? (
+				<output className="block text-muted-foreground text-sm">
+					{notice}
+				</output>
+			) : null}
+			{sessionsLoading && sessions.length === 0 ? (
+				<p className="text-muted-foreground text-sm">Loading conversations…</p>
+			) : null}
+			{!sessionsLoading &&
+			sessions.length === 0 &&
+			!sessionsError &&
+			!notice ? (
+				<p className="text-muted-foreground text-sm">
+					No conversations found in connected projects.
+				</p>
+			) : null}
+			<ul className="divide-y">
+				{sessions.map((session) => (
+					<ConversationRow
+						key={`${session.localAgent.provider}/${session.project.id}/${session.nativeSessionId}`}
+						session={session}
+						state={state}
+					/>
+				))}
+			</ul>
+			{cursor ? (
+				<Button
+					disabled={sessionsLoading}
+					onClick={() => loadSessions(cursor)}
+					size="sm"
+					variant="secondary"
+				>
+					{sessionsLoading ? "Loading…" : "Load more conversations"}
+				</Button>
+			) : null}
+		</section>
+	);
+}
+function ConversationRow({
+	state,
+	session,
+}: {
+	state: State;
+	session: AgentActivityInventorySession;
+}) {
+	const { settings, saving, read } = state;
+	const supported = sessionHistoryProviderSchema.safeParse(
+		session.localAgent.provider
+	).success;
+	const allowed =
+		settings?.policy.enabled &&
+		settings.policy.connections.some(
+			(grant) =>
+				grant.projectId === session.project.id &&
+				settings.connections.some(
+					(connection) =>
+						connection.projectId === grant.projectId &&
+						connection.bindingGeneration === grant.bindingGeneration
+				)
+		);
+	return (
+		<li className="flex items-center justify-between gap-4 py-3">
+			<div className="min-w-0 space-y-1">
+				<p
+					className="truncate text-sm"
+					title={session.nativeSessionTitle ?? undefined}
+				>
+					{session.nativeSessionTitle ?? "Untitled conversation"}
+				</p>
+				<p className="text-muted-foreground text-xs">
+					{session.localAgent.name} · {session.project.name}
+					{supported ? "" : " · History unavailable"}
+					{session.dataState === "stale" ? " · Last known conversation" : ""}
+					{settings?.policy.enabled && !allowed ? " · Project access off" : ""}
+				</p>
+			</div>
+			<Button
+				aria-label={`Read ${session.nativeSessionTitle ?? "conversation"}`}
+				disabled={!(allowed && supported) || saving}
+				onClick={() => read(session)}
+				size="sm"
+				variant="secondary"
+			>
+				Read
+			</Button>
+		</li>
+	);
+}
+function AccessLog({
+	state,
+	profiles,
+}: {
+	state: State;
+	profiles: Props["profiles"];
+}) {
+	const { audit, auditError, loadAudit, sessions } = state;
+	return (
+		<section aria-label="Recent access" className="space-y-2 border-t pt-4">
+			<div className="flex items-center justify-between gap-3">
+				<h3 className="font-medium text-sm">Recent access</h3>
+				<Button onClick={loadAudit} size="sm" variant="secondary">
+					Refresh
+				</Button>
+			</div>
+			<p className="text-muted-foreground text-xs">
+				Stored locally. No message content.
+			</p>
+			{auditError ? <LoadError message={auditError} retry={loadAudit} /> : null}
+			{auditError || audit ? null : (
+				<p className="text-muted-foreground text-sm">Loading recent access…</p>
+			)}
+			{audit?.entries.length === 0 ? (
+				<p className="text-muted-foreground text-sm">
+					No reads yet. Requests from you and your agents will appear here.
+				</p>
+			) : null}
+			<ul className="divide-y">
+				{audit?.entries.map((entry) => (
+					<AccessLogRow
+						entry={entry}
+						key={entry.requestId}
+						profiles={profiles}
+						sessions={sessions}
+					/>
+				))}
+			</ul>
+		</section>
+	);
+}
+function AccessLogRow({
+	entry,
+	sessions,
+	profiles,
+}: {
+	entry: Audit["entries"][number];
+	sessions: State["sessions"];
+	profiles: Props["profiles"];
+}) {
+	const session = sessions.find(
+		(item) =>
+			item.nativeSessionId === entry.sessionId &&
+			item.localAgent.provider === (entry.provider ?? "codex") &&
+			item.project.id === entry.projectId
+	);
+	const humanReader =
+		entry.requester.requesterUserId === entry.requester.ownerUserId
+			? "You"
+			: "Another member";
+	const reader = entry.requester.readerProfileId
+		? (profiles.find(
+				(profile) =>
+					profile.openMeldProfileId === entry.requester.readerProfileId
+			)?.profileName ?? "Agent")
+		: humanReader;
+	const outcomes = {
+		allowed: "Read allowed",
+		denied: "Access denied",
+		failed: "Read failed",
+	};
+	const audiences = {
+		owner_private: "Private request",
+		space: "Requested in a Space",
+		externally_shared: "External request",
+	};
+	return (
+		<li className="space-y-1 py-3 text-sm">
+			<div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+				<span className="font-medium">
+					{reader}{" "}
+					<span className="font-normal text-muted-foreground">
+						· {outcomes[entry.outcome]}
+					</span>
+				</span>
+				<time
+					className="text-muted-foreground text-xs"
+					dateTime={new Date(entry.atMs).toISOString()}
+				>
+					{new Date(entry.atMs).toLocaleString()}
+				</time>
+			</div>
+			<p className="truncate">
+				{session?.nativeSessionTitle ?? "Local conversation"}
+			</p>
+			<p className="text-muted-foreground text-xs">
+				{entry.count} {entry.count === 1 ? "message" : "messages"} ·{" "}
+				{audiences[entry.requester.audience]}
+			</p>
+		</li>
+	);
+}
+function ConversationReader({ state }: { state: State }) {
+	const { selected, history, reading, readError, read } = state;
+	return (
+		<>
+			<SheetHeader className="pr-12">
+				<SheetTitle>
+					{selected?.nativeSessionTitle ?? "Conversation"}
+				</SheetTitle>
+				<SheetDescription>
+					{selected?.localAgent.name} · {selected?.project.name} · Read only
+				</SheetDescription>
+			</SheetHeader>
+			<ScrollArea
+				className="min-h-0 flex-1"
+				contentClassName="space-y-5 p-4"
+				viewportProps={{ "aria-label": "Conversation messages" }}
+			>
+				<p className="text-muted-foreground text-xs">
+					Only user and assistant messages are shown. Tool output, internal
+					reasoning, and attachments are omitted.
+				</p>
+				{history?.messages.map((message, index) => (
+					<div
+						className="space-y-2"
+						key={`${selected?.nativeSessionId}/${index}`}
+					>
+						<p className="font-medium text-xs">
+							{message.role === "user" ? "You" : selected?.localAgent.name}
+						</p>
+						<p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+							{message.text}
+							{message.truncated ? "\n[Message shortened]" : ""}
+						</p>
+					</div>
+				))}
+				{history?.messages.length === 0 ? (
 					<p className="text-muted-foreground text-sm">
-						No Codex sessions found on this computer.
+						No user or assistant messages in this conversation.
 					</p>
 				) : null}
-				{sessions.length > 0 ? (
-					<ul className="space-y-2">
-						{sessions.map((session) => (
-							<li
-								className="flex items-center justify-between gap-3 text-sm"
-								key={`${session.project.id}/${session.nativeSessionId}`}
-							>
-								<span>
-									{session.nativeSessionTitle ?? "Untitled Codex session"}
-									<span className="ml-2 text-muted-foreground">
-										{session.project.name}
-									</span>
-								</span>
-								<Button
-									disabled={busy}
-									onClick={() => read(session)}
-									size="sm"
-									variant="outline"
-								>
-									Read history
-								</Button>
-							</li>
-						))}
-					</ul>
+				{reading ? (
+					<output className="block text-muted-foreground text-sm">
+						Reading from this computer…
+					</output>
 				) : null}
-				{cursor ? (
+				{readError ? (
+					<p className="text-destructive text-sm" role="alert">
+						{readError}
+					</p>
+				) : null}
+				{history && history.nextOffset !== null && selected ? (
 					<Button
-						disabled={busy}
-						onClick={() => run(() => listSessions(cursor))}
-						variant="outline"
+						disabled={reading}
+						onClick={() => read(selected, history.nextOffset ?? 0)}
+						size="sm"
+						variant="secondary"
 					>
-						Check more sessions
+						Load more messages
 					</Button>
 				) : null}
-				{history ? (
-					<section
-						aria-label="Session history"
-						className="space-y-3 border-t pt-3"
-					>
-						<div className="flex items-center justify-between">
-							<p className="font-medium text-sm">
-								{selected?.nativeSessionTitle ?? "Session history"}
-							</p>
-							<Button
-								disabled={busy}
-								onClick={() => setHistory(null)}
-								size="sm"
-								variant="ghost"
-							>
-								Close history
-							</Button>
-						</div>
-						<p className="text-muted-foreground text-xs">
-							User and assistant messages only. Tool output, internal reasoning,
-							and attachments are omitted.
-						</p>
-						{history.messages.length === 0 ? (
-							<p className="text-sm">No messages in this range.</p>
-						) : (
-							history.messages.map((message, index) => (
-								<div
-									className="space-y-1"
-									key={`${selected?.nativeSessionId}/${index}`}
-								>
-									<p className="font-medium text-xs">
-										{message.role === "user" ? "User" : "Agent"}
-									</p>
-									<p className="whitespace-pre-wrap break-words text-sm">
-										{message.text}
-										{message.truncated ? "\n[Message shortened]" : ""}
-									</p>
-								</div>
-							))
-						)}
-						{history.nextOffset !== null && selected ? (
-							<Button
-								disabled={busy}
-								onClick={() => read(selected, history.nextOffset ?? 0)}
-								variant="outline"
-							>
-								Read next messages
-							</Button>
-						) : null}
-					</section>
-				) : null}
-				{audit ? (
-					<section
-						aria-label="Access history"
-						className="space-y-2 border-t pt-3"
-					>
-						<p className="font-medium text-sm">Recent access</p>
-						<p className="text-muted-foreground text-xs">
-							The latest 200 requests on this computer. No message content is
-							recorded.
-						</p>
-						{audit.entries.length === 0 ? (
-							<p className="text-sm">No history reads yet.</p>
-						) : (
-							audit.entries.map((entry) => (
-								<p className="break-words text-xs" key={entry.requestId}>
-									{new Date(entry.atMs).toLocaleString()} · {entry.outcome} ·{" "}
-									{entry.requester.readerProfileId ?? "You"} · {entry.sessionId}{" "}
-									· {entry.count} messages ·{" "}
-									{entry.requester.audience === "owner_private"
-										? "Private"
-										: `Shared · ${entry.requester.spaceId ?? "External conversation"}`}
-								</p>
-							))
-						)}
-					</section>
-				) : null}
-			</CardContent>
-		</Card>
+			</ScrollArea>
+		</>
 	);
+}
+function errorText(error: unknown) {
+	return error instanceof Error
+		? error.message
+		: "Could not connect to this computer. Check that it is online and try again.";
+}
+function LoadError(input: { message: string; retry: () => Promise<void> }) {
+	return (
+		<div className="flex items-center gap-3 text-sm" role="alert">
+			<p className="text-destructive">{input.message}</p>
+			<Button onClick={input.retry} size="sm" variant="secondary">
+				Try again
+			</Button>
+		</div>
+	);
+}
+function inventoryNotice(sources: AgentActivityInventoryCoverage[]) {
+	const coverage = sources.filter(
+		(source) => sessionHistoryProviderSchema.safeParse(source.provider).success
+	);
+	if (coverage.some((source) => source.state === "error")) {
+		return "Some conversations could not be found. Check the local agents on this computer, then refresh.";
+	}
+	if (coverage.some((source) => source.state === "disconnected")) {
+		return "A project is disconnected. Reconnect it to update its conversations.";
+	}
+	if (coverage.some((source) => source.state === "unsupported")) {
+		return "Some local agents do not support conversation discovery on this computer.";
+	}
+	if (
+		coverage.length === 0 ||
+		coverage.some((source) => source.state !== "current")
+	) {
+		return "Waiting for an up-to-date list. Make sure this computer is online and has a connected project.";
+	}
+	return null;
 }

@@ -22,6 +22,7 @@ export async function executeAgentProfileWorkRecovery(
 		).execute({
 			agentProfileId: input.agentProfileId,
 			action: input.action,
+			...(input.spaceId ? { spaceId: input.spaceId } : {}),
 			expectedInterruptedTargetWakeLifecycleId:
 				input.expectedInterruptedTargetWakeLifecycleId,
 		});

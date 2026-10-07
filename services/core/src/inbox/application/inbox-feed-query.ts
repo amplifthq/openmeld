@@ -38,14 +38,17 @@ export function inboxFeedCte(
       scope.throughRowId,
       ...(scope.snapshotId ? [scope.snapshotId] : []),
     ],
-    sql: `WITH ${INBOX_FEED_PERSONAL_AGENTS_CTE}, source_rows AS (
+    sql: `WITH ${INBOX_FEED_PERSONAL_AGENTS_CTE}, scoped_rows AS MATERIALIZED (
       SELECT id, organization_id, recipient_user_id, source_kind,
-        source_target_json, source_facts_json, kind, attention, importance,
+        source_key, source_target_json::jsonb AS source_target_json,
+        source_facts_json::jsonb AS source_facts_json, kind, attention, importance,
         read_at_ms, resolution_status, occurred_at_ms
       FROM "openmeld"."inbox_items"
       WHERE (organization_id = $1 OR organization_id IS NULL) AND recipient_user_id = $2 AND cleared_at_ms IS NULL AND sequence <= $3
         ${scope.snapshotId ? 'AND EXISTS (SELECT 1 FROM "openmeld"."inbox_feed_snapshot_members" WHERE snapshot_id = $4 AND item_id = inbox_items.id)' : ""}
-        AND ${buildCurrentInboxSourceAccessSql("inbox_items", canManageOrganization, true)}
+    ), source_rows AS (
+      SELECT * FROM scoped_rows AS inbox_items
+      WHERE ${buildCurrentInboxSourceAccessSql("inbox_items", canManageOrganization, true)}
         AND ${inboxAttentionPresentationFilterSql(true)}
     ), classified AS ${materializeClassification ? "MATERIALIZED" : "NOT MATERIALIZED"} (
       SELECT *,

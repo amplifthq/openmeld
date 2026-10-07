@@ -37,6 +37,7 @@ export async function readSpaceBootstrap(input: {
 			includeAgentReadiness: false,
 			spaceId: input.spaceId,
 			includeAgentStreamPresence: true,
+			includeAgentStreamRecovery: true,
 			historyQuery: {
 				recent: true,
 				limit: SPACE_INITIAL_HISTORY_MAX_MESSAGES,

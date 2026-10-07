@@ -1,5 +1,8 @@
 ---
 id: live-agent-permission-updates
+publishedAt: 2026-10-07
+release: v0.3.247
+evidence: ["pr:1564", "pr:1568", "workflow:37607115073"]
 title: Change supported agent permissions during a task
 kind: fixed
 areas: ["agents", "spaces"]

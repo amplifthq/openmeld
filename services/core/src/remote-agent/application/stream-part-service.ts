@@ -28,7 +28,7 @@ export async function submitRemoteAgentStreamPart(
   const target = await resolveRemoteAgentStreamCallbackTarget({
     body: parsed.data,
     env,
-    partKind: "tool",
+    partKind: parsed.data.part.type,
   });
   if (target.kind === "response") {
     return target.response;
@@ -36,7 +36,7 @@ export async function submitRemoteAgentStreamPart(
   if (target.kind !== "space_target") {
     return buildRemoteAgentStreamRejectedResponse({
       body: parsed.data,
-      partKind: "tool",
+      partKind: parsed.data.part.type,
       reasonCode: "agent_stream.unsupported_conversation",
     });
   }

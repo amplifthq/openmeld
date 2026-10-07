@@ -7,7 +7,10 @@ import {
 } from "@earendil-works/pi-ai";
 import { defineTool, init, observe, useModel, useTool } from "@flue/runtime";
 import { start } from "@flue/runtime/node";
-import type { RemoteAgentStreamDeltaCallbackBody } from "@openmeld/schemas/types";
+import type {
+  RemoteAgentStreamDeltaCallbackBody,
+  RemoteAgentStreamPartCallbackBody,
+} from "@openmeld/schemas/types";
 import { object } from "valibot";
 import { expect, it } from "vitest";
 import {
@@ -15,6 +18,8 @@ import {
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import { initializeRemoteAgentExecutionState } from "../agent-core/execution-state";
+import { CENTER_AGENT_MODEL_RETRY } from "../flue-adapter/center-agent-durability";
+import { extractFlueModelRecovery } from "../flue-adapter/observation";
 import { createCenterAgentObservationDispatcher } from "../flue-adapter/observation-dispatcher";
 import { handleCenterAgentObservation } from "../flue-adapter/stream-observer";
 import { createRemoteAgentStreamPublisher } from "../flue-adapter/streaming";
@@ -76,10 +81,19 @@ it.each([
   Center.agentName = "center-agent-v2";
   Center.joinQueuedDeliveries = false;
   Center.durability = { maxAttempts: 5, timeoutMs: 0 };
+  Center.modelRetry = CENTER_AGENT_MODEL_RETRY;
   const storage = new InMemoryDurableObjectStorage();
   const publisher = createRemoteAgentStreamPublisher();
   const frames: RemoteAgentStreamDeltaCallbackBody[] = [];
+  const parts: RemoteAgentStreamPartCallbackBody[] = [];
   const coreWorker = {
+    submitRemoteAgentStreamPart: (body: RemoteAgentStreamPartCallbackBody) => {
+      parts.push(body);
+      return Promise.resolve({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      });
+    },
     submitRemoteAgentStreamDelta: (
       body: RemoteAgentStreamDeltaCallbackBody
     ) => {
@@ -121,6 +135,7 @@ it.each([
     if (
       event.type === "text_delta" ||
       event.type === "thinking_delta" ||
+      extractFlueModelRecovery(event) ||
       event.type === "message_end"
     ) {
       return dispatchObservation(event);
@@ -162,6 +177,18 @@ it.each([
     const answer = await agent.read(receipt);
     await Promise.all([...pending]);
     expect(errors).toEqual([]);
+    expect(
+      parts.map((frame) =>
+        frame.part.type === "recovery" ? frame.part.state : frame.part.type
+      )
+    ).toEqual(["waiting", "recovered"]);
+    expect(
+      parts.every(
+        (frame) =>
+          frame.submissionId === receipt.submissionId &&
+          frame.source === "flue.model_recovery"
+      )
+    ).toBe(true);
     const snapshots = frames
       .filter((frame) => !("kind" in frame) || frame.kind === "text")
       .map((frame) =>

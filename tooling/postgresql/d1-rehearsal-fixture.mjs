@@ -209,6 +209,7 @@ function inboxAndActivity(database, now) {
   for (const [rowid, id, read, cleared] of [
     [71, "unread", null, null],
     [73, "read", now, null],
+    [75, "ended-request", null, null],
     [79, "cleared", now, now],
   ]) {
     insert(database, "inbox_items", {
@@ -234,6 +235,15 @@ function inboxAndActivity(database, now) {
       occurred_at_ms: now,
       created_at_ms: now,
       updated_at_ms: now,
+      ...(id === "ended-request"
+        ? {
+            kind: "agent_interaction",
+            attention: "action_required",
+            source_kind: "runtime_coordinator_interaction",
+            resolution_status: "resolved",
+            resolved_at_ms: now,
+          }
+        : {}),
     });
   }
   // Tail 900 was already observed and deleted; preserving only max(rowid)=79

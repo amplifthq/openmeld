@@ -4,7 +4,7 @@ import {
 } from "@openmeld/ui/components/evilcharts/charts/echarts-area-chart";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { RobotIcon } from "@phosphor-icons/react";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { LocalAgentTokenSeries } from "./local-agent-token-series";
 
 // Audience Growth block composition, adapted to recorded daily token consumption.
@@ -17,7 +17,7 @@ const options = {
 	grid: { left: 44, right: 16, top: 12, bottom: 28 },
 };
 
-export default function ComputerTokenAreaChart(input: {
+function ComputerTokenAreaChart(input: {
 	data: Record<string, string | number | null>[];
 	agents: LocalAgentTokenSeries[];
 	loading: boolean;
@@ -74,3 +74,5 @@ export default function ComputerTokenAreaChart(input: {
 		</EChartsAreaChart>
 	);
 }
+
+export default memo(ComputerTokenAreaChart);

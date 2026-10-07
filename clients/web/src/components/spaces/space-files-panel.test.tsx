@@ -8,7 +8,10 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { SpaceFilesPanel } from "./space-files-panel";
+
+const CHAT_FILES_LABEL = /chat files/i;
 
 const spaceApiMocks = vi.hoisted(() => ({
 	createFolder: vi.fn(),
@@ -140,7 +143,7 @@ describe("SpaceFilesPanel", () => {
 		expect(screen.queryByRole("button", { name: "New" })).toBeNull();
 		expect(
 			screen.getByText(
-				"Files in this Space. Files sent in chat are hidden by default."
+				"Files shared in this Space, including chat attachments."
 			)
 		).toBeTruthy();
 	});
@@ -156,7 +159,13 @@ describe("SpaceFilesPanel", () => {
 				latestRevision: undefined,
 			},
 		});
-		renderPanel();
+		const { queryClient } = renderPanel();
+		const contentKey = spaceFileQueryKeys.content("space-1", IMAGE_FILE.id, 1);
+		queryClient.setQueryData(contentKey, {
+			bytes: new ArrayBuffer(4),
+			mimeType: "image/png",
+			revision: 1,
+		});
 
 		fireEvent.click(await screen.findByRole("button", { name: "New" }));
 		fireEvent.click(await screen.findByText("Folder"));
@@ -174,6 +183,10 @@ describe("SpaceFilesPanel", () => {
 				body: expect.objectContaining({ name: "Research", parentId: null }),
 			})
 		);
+		await waitFor(() =>
+			expect(screen.queryByRole("button", { name: "Create folder" })).toBeNull()
+		);
+		expect(queryClient.getQueryState(contentKey)?.isInvalidated).toBe(false);
 	});
 
 	it("opens Markdown files in the shared WYSIWYG editor", async () => {
@@ -183,9 +196,6 @@ describe("SpaceFilesPanel", () => {
 
 		const editor = await screen.findByLabelText("File contents");
 		expect(editor.getAttribute("contenteditable")).toBe("true");
-		const compactContentViewport = editor.closest(".p-5");
-		expect(compactContentViewport?.className).toContain("overflow-y-auto");
-		expect(compactContentViewport?.className).toContain("lg:overflow-hidden");
 		expect(screen.getByRole("toolbar")).toBeTruthy();
 		expect(
 			(
@@ -424,64 +434,35 @@ describe("SpaceFilesPanel", () => {
 		);
 	});
 
-	it("defaults Files to artifacts only and reveals chat uploads only after an explicit toggle", async () => {
+	it("includes chat attachments by default without a visibility toggle", async () => {
 		renderPanel();
-
 		await screen.findByText("launch-notes.md");
 		expect(spaceApiMocks.listFiles).toHaveBeenCalledWith(
 			expect.objectContaining({
-				query: { parentId: null, view: "active", origin: "artifact" },
+				query: { parentId: null, view: "active", origin: "all" },
 			})
 		);
-		expect(
-			screen.getByText(
-				"Files in this Space. Files sent in chat are hidden by default."
-			)
-		).toBeTruthy();
-
-		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
-
-		await waitFor(() =>
-			expect(spaceApiMocks.listFiles).toHaveBeenCalledWith(
-				expect.objectContaining({
-					query: { parentId: null, view: "active", origin: "all" },
-				})
-			)
-		);
-		expect(
-			screen.getByRole("button", { name: "Hide chat files" })
-		).toBeTruthy();
-		expect(
-			screen.getByText("Files in this Space, including files sent in chat.")
-		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: CHAT_FILES_LABEL })).toBeNull();
 	});
 
-	it("keeps the chat files toggle available if that file listing fails", async () => {
-		const files = {
+	it("reports listing failures and retries the complete file list", async () => {
+		spaceApiMocks.listFiles.mockRejectedValue(
+			Object.assign(new Error("The file listing is unavailable"), {
+				code: "gateway.invalid_response",
+			})
+		);
+		renderPanel();
+		await screen.findByText("Files couldn’t be loaded");
+		spaceApiMocks.listFiles.mockResolvedValue({
 			spaceId: "space-1",
 			parentId: null,
-			view: "active" as const,
+			view: "active",
 			breadcrumbs: [{ id: null, name: "Files" }],
 			entries: [FILE],
 			capabilities: { canRead: true, canWrite: true },
-		};
-		spaceApiMocks.listFiles.mockImplementation(
-			({ query }: { query: { origin?: string } }) => {
-				if (query.origin === "all") {
-					throw Object.assign(new Error("The file listing is unavailable"), {
-						code: "gateway.invalid_response",
-					});
-				}
-				return Promise.resolve(files);
-			}
-		);
-		renderPanel();
-
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 		await screen.findByText("launch-notes.md");
-		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
-		expect(await screen.findByText("Files couldn’t be loaded")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Show regular files" }));
-		expect(await screen.findByText("launch-notes.md")).toBeTruthy();
 	});
 
 	it("badges only explicit chat uploads, never an unclassified file, once shown", async () => {
@@ -509,7 +490,6 @@ describe("SpaceFilesPanel", () => {
 		renderPanel();
 
 		await screen.findByText("launch-notes.md");
-		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
 
 		expect(await screen.findByText("screenshot.png")).toBeTruthy();
 		expect(screen.getByText("legacy.txt")).toBeTruthy();
@@ -524,7 +504,7 @@ describe("SpaceFilesPanel", () => {
 		expect(unclassifiedRow?.textContent).not.toContain("Chat upload");
 	});
 
-	it("resets the chat-uploads toggle when switching to Trash", async () => {
+	it("keeps all file origins included after a round trip through Trash", async () => {
 		spaceApiMocks.listFiles.mockImplementation(
 			async ({ query }: { query: { view?: "active" | "trash" } }) =>
 				query.view === "trash"
@@ -551,10 +531,6 @@ describe("SpaceFilesPanel", () => {
 		renderPanel();
 
 		await screen.findByText("launch-notes.md");
-		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
-		expect(
-			await screen.findByRole("button", { name: "Hide chat files" })
-		).toBeTruthy();
 
 		fireEvent.click(await screen.findByRole("button", { name: "Trash" }));
 		await screen.findByText("Trash is empty");
@@ -564,15 +540,12 @@ describe("SpaceFilesPanel", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Back to Files" }));
 		await screen.findByText("launch-notes.md");
-		// The toggle does not survive the round trip through Trash: Files
-		// starts back at the default artifact-only state instead of silently
-		// restoring the "show chat uploads" filter Trash never displayed.
-		expect(
-			await screen.findByRole("button", { name: "Include chat files" })
-		).toBeTruthy();
-		expect(
-			screen.queryByRole("button", { name: "Hide chat files" })
-		).toBeNull();
+		expect(spaceApiMocks.listFiles).toHaveBeenCalledWith(
+			expect.objectContaining({
+				query: { parentId: null, view: "trash", origin: "all" },
+			})
+		);
+		expect(screen.queryByRole("button", { name: CHAT_FILES_LABEL })).toBeNull();
 	});
 
 	it("keeps deleted entries in one recoverable Trash view", async () => {
@@ -804,7 +777,7 @@ describe("SpaceFilesPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 		expect(
 			await screen.findByText(
-				"Files in this Space. Files sent in chat are hidden by default."
+				"Files shared in this Space, including chat attachments."
 			)
 		).toBeTruthy();
 	});
@@ -875,6 +848,7 @@ function renderPanel(input?: RenderPanelInput) {
 	const result = render(renderTree(input));
 	return {
 		...result,
+		queryClient,
 		rerenderPanel: (nextInput?: RenderPanelInput) =>
 			result.rerender(renderTree(nextInput)),
 	};

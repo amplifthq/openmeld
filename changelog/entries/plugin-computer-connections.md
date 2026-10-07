@@ -1,5 +1,8 @@
 ---
 id: plugin-computer-connections
+publishedAt: 2026-10-07
+release: v0.3.247
+evidence: ["pr:1565", "pr:1568", "workflow:37607115073", "https://github.com/amplifthq/open-connector/pull/23", "worker-version:d379bb22-ce61-4fc5-a66b-f72a41c457d8"]
 title: Reuse Plugin accounts from Computer
 kind: improved
 areas: ["plugins", "computer", "agents"]

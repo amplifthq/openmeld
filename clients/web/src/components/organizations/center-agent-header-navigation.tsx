@@ -1,7 +1,7 @@
 "use client";
 
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import {
 	getSpaceViewIndex,
 	resolveSpaceView,
@@ -29,6 +29,7 @@ export function CenterAgentHeaderTabs(input: {
 	organizationSlug: string;
 }) {
 	const navigate = useNavigate();
+	const router = useRouter();
 	const searchStr = useRouterState({
 		select: (state) => state.location.searchStr,
 	});
@@ -43,6 +44,16 @@ export function CenterAgentHeaderTabs(input: {
 		activeSectionId: input.activeSectionId,
 		activeSpaceView: input.activeSpaceView,
 	});
+	const preloadSection = (index: number) => {
+		const to = resolveCenterAgentHeaderDestination({
+			index,
+			organizationSlug: input.organizationSlug,
+		});
+		const query = new URLSearchParams(context).toString();
+		router.preloadRoute({ to: query ? `${to}?${query}` : to }).catch(() => {
+			// Ordinary navigation owns visible errors if this speculative read fails.
+		});
+	};
 
 	return (
 		<TabsSubtle
@@ -91,8 +102,20 @@ export function CenterAgentHeaderTabs(input: {
 			<TabsSubtleItem index={1} label="Graph" labelClassName="text-sm" />
 			<TabsSubtleItem index={2} label="Files" labelClassName="text-sm" />
 
-			<TabsSubtleItem index={3} label="Channels" labelClassName="text-sm" />
-			<TabsSubtleItem index={4} label="Memory" labelClassName="text-sm" />
+			<TabsSubtleItem
+				index={3}
+				label="Channels"
+				labelClassName="text-sm"
+				onFocus={() => preloadSection(3)}
+				onPointerEnter={() => preloadSection(3)}
+			/>
+			<TabsSubtleItem
+				index={4}
+				label="Memory"
+				labelClassName="text-sm"
+				onFocus={() => preloadSection(4)}
+				onPointerEnter={() => preloadSection(4)}
+			/>
 		</TabsSubtle>
 	);
 }

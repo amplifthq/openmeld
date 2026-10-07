@@ -233,6 +233,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       source: "not_checked",
     };
     teamReadiness.primaryBinding = null;
+    teamReadiness.wakeRouteEvidence = {
+      observedAt: ISO_NOW,
+      reasonCode: "not_requested",
+      status: "unavailable",
+    };
     const directory = organizationDirectoryResponseSchema.parse({
       ...organizationDirectoryResponse(),
       members: Array.from({ length: 19 }, (_, index) => ({
@@ -296,6 +301,33 @@ describe("remote agent OpenMeld tool catalog", () => {
       ).toBe(true);
       expect(page.totalMembers).toBe(19);
       expect(page.totalAgentProfiles).toBe(1);
+      const progressValue = tools.find(
+        (tool) => tool.name === "openmeld_read_organization_directory"
+      )?.progressValue;
+      expect(progressValue).toBeDefined();
+      expect(progressValue?.(page)).toEqual(
+        progressValue?.({
+          ...page,
+          generatedAt: "2026-10-07T14:00:00.000Z",
+          agentProfiles: page.agentProfiles.map((agent) => ({
+            ...agent,
+            readiness: {
+              ...agent.readiness,
+              generatedAt: "2026-10-07T14:00:00.000Z",
+              wakeRouteEvidence: {
+                ...agent.readiness.wakeRouteEvidence,
+                observedAt: "2026-10-07T14:00:00.000Z",
+              },
+            },
+          })),
+        })
+      );
+      expect(progressValue?.(page)).not.toEqual(
+        progressValue?.({
+          ...page,
+          totalMembers: page.totalMembers + 1,
+        })
+      );
       members.push(...page.members);
       agents.push(...page.agentProfiles);
       cursor = page.nextCursor ?? undefined;
@@ -5700,6 +5732,21 @@ describe("remote agent OpenMeld tool catalog", () => {
         targetOwnerUserId: "user_1",
       })
     ).resolves.toEqual(response);
+    const description = tools.find(
+      (tool) => tool.name === "openmeld_create_agent_profile_request"
+    )?.description;
+    expect(description).toContain(
+      'connectionSelection must be { kind: "remote" }'
+    );
+    expect(description).toContain(
+      "Fork requires canFork; Resume requires canResume and an unbound Session"
+    );
+    expect(description).toContain(
+      "createdAgentProfileId proves identity creation, not current reply readiness"
+    );
+    expect(description).toContain(
+      "recover its setup rather than creating another"
+    );
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         configuration: {

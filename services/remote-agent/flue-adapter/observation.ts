@@ -1,4 +1,6 @@
 import type { FlueObservation } from "@flue/runtime";
+import { agentStreamRecoveryPartSchema } from "@openmeld/schemas";
+
 import type {
   AgentStreamToolPart,
   AgentWorkActivity,
@@ -7,6 +9,20 @@ import {
   resolveRemoteAgentToolWorkActivity,
   resolveRemoteAgentToolWorkOutcome,
 } from "./tool-work-activity";
+
+export function extractFlueModelRecovery(event: FlueObservation) {
+  if (event.type !== "log" || event.attributes?.modelRecovery !== true) {
+    return null;
+  }
+  const parsed = agentStreamRecoveryPartSchema.safeParse({
+    type: "recovery",
+    state: event.attributes.state,
+    attempt: event.attributes.attempt,
+    maxAttempts: event.attributes.maxRetries,
+    nextRetryAtMs: event.attributes.nextRetryAtMs,
+  });
+  return parsed.success ? parsed.data : null;
+}
 
 export type FlueStreamDelta = {
   delta: string;

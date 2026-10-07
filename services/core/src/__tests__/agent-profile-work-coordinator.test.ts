@@ -30,6 +30,68 @@ const workItem = (index: number) => ({
   targetWakeLifecycleId: `wake-${index}`,
 });
 
+describe("fork continuation follow-ups", () => {
+  it.each([
+    { outcome: "succeeded", successorContext: "replacement", resumes: true },
+    { outcome: "succeeded", successorContext: "unrelated", resumes: false },
+    { outcome: "stopped", successorContext: "replacement", resumes: false },
+    { outcome: "failed", successorContext: "replacement", resumes: false },
+  ] as const)("settles $outcome with $successorContext follow-up", ({
+    outcome,
+    successorContext,
+    resumes,
+  }) => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1,
+      targetProfileId: PROFILE_ID,
+    });
+    coordinator = acceptAgentProfileWork({
+      coordinator,
+      item: { ...workItem(1), executionContextId: "original" },
+      nowMs: 2,
+    }).coordinator;
+    coordinator = settleAgentProfileWork({
+      coordinator,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-1",
+      nowMs: 3,
+    }).coordinator;
+    coordinator = authorizeAgentProfileWorkContinuation({
+      coordinator,
+      continuationClientMessageId: "fork",
+      nowMs: 4,
+    }).coordinator;
+    coordinator = acceptAgentProfileWork({
+      coordinator,
+      continuationClientMessageId: "fork",
+      item: { ...workItem(2), executionContextId: "replacement" },
+      nowMs: 5,
+    }).coordinator;
+    coordinator = acceptAgentProfileWork({
+      coordinator,
+      item: { ...workItem(3), executionContextId: successorContext },
+      nowMs: 6,
+    }).coordinator;
+    const result = settleAgentProfileWork({
+      coordinator,
+      outcome,
+      targetWakeLifecycleId: "wake-2",
+      nowMs: 7,
+    });
+    if (resumes) {
+      expect(result.coordinator.recoveryGate).toBeNull();
+      expect(result.promotedItem?.targetWakeLifecycleId).toBe("wake-3");
+    } else {
+      expect(result.coordinator.recoveryGate?.status).toBe(
+        outcome === "failed"
+          ? "continuation_needs_attention"
+          : "awaiting_owner_approval"
+      );
+      expect(result.promotedItems).toEqual([]);
+    }
+  });
+});
+
 describe("independent execution context reservations", () => {
   const empty = () =>
     createAgentProfileWorkCoordinator({

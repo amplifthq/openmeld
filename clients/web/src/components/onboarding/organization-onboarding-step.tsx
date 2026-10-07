@@ -5,6 +5,10 @@ import { Card } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import {
+	FluidActionList,
+	FluidActionListItem,
+} from "@openmeld/ui/fluid/action-list";
+import {
 	ArrowRightIcon,
 	BuildingsIcon,
 	LinkIcon,
@@ -14,7 +18,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
-import type { OrganizationOnboardingPreview } from "#/components/onboarding/organization-onboarding-demo";
 import { OrganizationIdentityMark } from "#/components/organizations/organization-identity-mark";
 import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import {
@@ -47,9 +50,6 @@ export function OrganizationOnboardingStep(input: {
 	currentOrganization: OrganizationSummary;
 	currentUserId: string;
 	onOrganizationChosen: (organization: OrganizationSummary) => Promise<void>;
-	onPreviewOrganizationChange: (
-		organization: OrganizationOnboardingPreview
-	) => void;
 	organizations: OrganizationSummary[];
 }) {
 	const queryClient = useQueryClient();
@@ -210,19 +210,8 @@ export function OrganizationOnboardingStep(input: {
 				onBack={() => {
 					createMutation.reset();
 					setMode("choose");
-					input.onPreviewOrganizationChange(
-						toOrganizationOnboardingPreview(input.currentOrganization)
-					);
 				}}
-				onNameChange={(value) => {
-					setName(value);
-					input.onPreviewOrganizationChange({
-						id: "preview:create",
-						isPersonal: false,
-						logo: null,
-						name: value,
-					});
-				}}
+				onNameChange={setName}
 				onSubmit={async () => {
 					const organization = await createMutation.mutateAsync({
 						name: name.trim(),
@@ -242,9 +231,6 @@ export function OrganizationOnboardingStep(input: {
 					requestInvitationMutation.reset();
 					previewMutation.reset();
 					setMode("choose");
-					input.onPreviewOrganizationChange(
-						toOrganizationOnboardingPreview(input.currentOrganization)
-					);
 				}}
 				onChange={(value) => {
 					setInviteLink(value);
@@ -252,15 +238,7 @@ export function OrganizationOnboardingStep(input: {
 					requestInvitationMutation.reset();
 				}}
 				onPreview={async () => {
-					const preview = await previewMutation.mutateAsync(inviteLink);
-					if (preview.active) {
-						input.onPreviewOrganizationChange({
-							id: "preview:join",
-							isPersonal: false,
-							logo: null,
-							name: preview.organizationName,
-						});
-					}
+					await previewMutation.mutateAsync(inviteLink);
 				}}
 				onRequest={async () => {
 					await requestInvitationMutation.mutateAsync(inviteLink);
@@ -280,31 +258,33 @@ export function OrganizationOnboardingStep(input: {
 					{personalWorkspace ? (
 						<div className="mb-5">
 							<ChoiceGroupLabel>Personal</ChoiceGroupLabel>
-							<OrganizationChoice
-								current={personalWorkspace.id === input.currentOrganization.id}
-								description="For you only. Create an organization to connect Slack or invite teammates."
-								icon={
-									<UserIcon
-										aria-hidden="true"
-										className="size-4.5 text-muted-foreground"
-									/>
-								}
-								onClick={() => {
-									input.onPreviewOrganizationChange(
-										toOrganizationOnboardingPreview(personalWorkspace)
-									);
-									input
-										.onOrganizationChosen(personalWorkspace)
-										.catch((error: unknown) => {
-											console.error("OpenMeld could not open onboarding.", {
-												error,
-												organizationId: personalWorkspace.id,
+							<FluidActionList>
+								<OrganizationChoice
+									current={
+										personalWorkspace.id === input.currentOrganization.id
+									}
+									description="For you only. Create an organization to connect Slack or invite teammates."
+									icon={
+										<UserIcon
+											aria-hidden="true"
+											className="size-4.5 text-muted-foreground"
+										/>
+									}
+									index={0}
+									onClick={() => {
+										input
+											.onOrganizationChosen(personalWorkspace)
+											.catch((error: unknown) => {
+												console.error("OpenMeld could not open onboarding.", {
+													error,
+													organizationId: personalWorkspace.id,
+												});
 											});
-										});
-								}}
-								organization={personalWorkspace}
-								title="Personal Workspace"
-							/>
+									}}
+									organization={personalWorkspace}
+									title="Personal Workspace"
+								/>
+							</FluidActionList>
 						</div>
 					) : null}
 					{pendingInvitations.length > 0 ? (
@@ -345,15 +325,13 @@ export function OrganizationOnboardingStep(input: {
 					{teamOrganizations.length > 0 ? (
 						<div>
 							<ChoiceGroupLabel>Organizations</ChoiceGroupLabel>
-							<div className="grid gap-2">
-								{teamOrganizations.map((organization) => (
+							<FluidActionList className="grid gap-2">
+								{teamOrganizations.map((organization, index) => (
 									<OrganizationChoice
 										current={organization.id === input.currentOrganization.id}
+										index={index}
 										key={organization.id}
 										onClick={() => {
-											input.onPreviewOrganizationChange(
-												toOrganizationOnboardingPreview(organization)
-											);
 											input
 												.onOrganizationChosen(organization)
 												.catch((error: unknown) => {
@@ -366,24 +344,26 @@ export function OrganizationOnboardingStep(input: {
 										organization={organization}
 									/>
 								))}
-							</div>
+							</FluidActionList>
 						</div>
 					) : null}
 
-					<div className="mt-4 grid gap-2 sm:grid-cols-2">
+					<FluidActionList axis="xy" className="mt-4 grid gap-2 sm:grid-cols-2">
 						<ActionChoice
 							description="Set up OpenMeld for a team."
 							icon={<PlusIcon aria-hidden="true" className="size-4" />}
+							index={0}
 							onClick={() => setMode("create")}
 							title="Create an organization"
 						/>
 						<ActionChoice
 							description="Use an invitation from your team."
 							icon={<LinkIcon aria-hidden="true" className="size-4" />}
+							index={1}
 							onClick={() => setMode("join")}
 							title="Join with an invite link"
 						/>
-					</div>
+					</FluidActionList>
 				</div>
 			}
 		/>
@@ -396,15 +376,6 @@ function ChoiceGroupLabel(input: { children: React.ReactNode }) {
 			{input.children}
 		</p>
 	);
-}
-
-function toOrganizationOnboardingPreview(
-	organization: OrganizationSummary
-): OrganizationOnboardingPreview {
-	return {
-		...organization,
-		isPersonal: organization.isPersonal === true,
-	};
 }
 
 function PendingInvitationChoice(input: {
@@ -438,6 +409,7 @@ function PendingInvitationChoice(input: {
 }
 
 function OrganizationChoice(input: {
+	index: number;
 	current: boolean;
 	description?: string;
 	icon?: React.ReactNode;
@@ -446,9 +418,10 @@ function OrganizationChoice(input: {
 	title?: string;
 }) {
 	return (
-		<Card className="gap-0 overflow-visible rounded-md bg-card/35 py-0">
-			<button
-				className="group flex w-full items-center gap-3 rounded-md p-3.5 text-left transition-[background-color,transform] hover:-translate-y-px hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+		<Card className="gap-0 overflow-visible rounded-md bg-transparent py-0">
+			<FluidActionListItem
+				className="group flex w-full items-center gap-3 rounded-md p-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				index={input.index}
 				onClick={input.onClick}
 				type="button"
 			>
@@ -477,14 +450,15 @@ function OrganizationChoice(input: {
 				) : null}
 				<ArrowRightIcon
 					aria-hidden="true"
-					className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
+					className="size-4 text-muted-foreground group-hover:text-foreground"
 				/>
-			</button>
+			</FluidActionListItem>
 		</Card>
 	);
 }
 
 function ActionChoice(input: {
+	index: number;
 	description: string;
 	icon: React.ReactNode;
 	onClick: () => void;
@@ -492,8 +466,9 @@ function ActionChoice(input: {
 }) {
 	return (
 		<Card className="gap-0 overflow-visible rounded-md border border-border border-dashed bg-transparent py-0 ring-0">
-			<button
-				className="group flex min-h-24 flex-col items-start justify-between rounded-md p-3.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			<FluidActionListItem
+				className="group flex min-h-24 flex-col items-start justify-between rounded-md p-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				index={input.index}
 				onClick={input.onClick}
 				type="button"
 			>
@@ -506,7 +481,7 @@ function ActionChoice(input: {
 						{input.description}
 					</span>
 				</span>
-			</button>
+			</FluidActionListItem>
 		</Card>
 	);
 }

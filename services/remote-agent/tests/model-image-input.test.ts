@@ -1,3 +1,4 @@
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { describe, expect, it, vi } from "vitest";
@@ -75,7 +76,7 @@ describe("Remote Agent model reasoning", () => {
 
     const stream = streamOpenAICompletions(
       model,
-      { messages: [] },
+      normalizeContext({ messages: [] }),
       {
         apiKey: "unused",
         onPayload: (payload) => {
