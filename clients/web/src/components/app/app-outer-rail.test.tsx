@@ -27,7 +27,7 @@ vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
 const SEARCH_MENU_ITEM_PATTERN = /Search/;
 const ACME_ORGANIZATION_NAME_PATTERN = /Acme/;
-const CHAT_ATTENTION_LABEL = /Spaces, Needs action, 106/;
+const CHAT_ATTENTION_LABEL = /Spaces, Priority attention, 106/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
@@ -639,7 +639,7 @@ describe("AppOuterRail", () => {
 		renderRail();
 		expect(
 			await screen.findByRole("link", {
-				name: "Spaces, Needs action, 5 unread messages",
+				name: "Spaces, Priority attention, 5 unread messages",
 			})
 		).toBeTruthy();
 	});
@@ -674,7 +674,7 @@ describe("AppOuterRail", () => {
 		).toBeNull();
 	});
 
-	it("uses complete Chat counts and keeps read actions red", async () => {
+	it("uses complete Chat counts and keeps unresolved actions visible", async () => {
 		chatCounts = {
 			chatUnreadCount: 106,
 			chatUnresolvedActionCount: 1,
