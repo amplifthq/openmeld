@@ -1891,6 +1891,11 @@ only controls how quickly the new route becomes available again.
 Every durable local Project connection writer emits the same lane-local catalog
 refresh signal, while an idempotent no-op emits nothing.
 
+Execution Host connection refresh replaces the contents of its shared route
+map in place. Already queued dispatches must read that same map at admission
+so they see refreshed working-folder facts and route removals. Refresh does
+not relax the current identity, durable configuration, or freshness checks.
+
 Current working-folder facts are a negotiated transport capability. The Service
 requests expected routes in `v4`, then falls back through `v3`, `v2`, and the
 legacy query only when Core explicitly returns `invalid_payload`. A network,
@@ -3661,18 +3666,24 @@ or claim a Wake outcome.
   diagnostics.
 - Setup and repair must not report success from process start or inventory
   detection alone.
-## On-demand Codex history
+## On-demand local agent history
 
-The optional `session-history-v1` transport capability admits bounded read-only
-Codex history requests. The Service owns the local Organization-scoped policy
+The optional `session-history-v3` transport capability admits bounded read-only
+local agent history requests. The Service owns the local Organization-scoped policy
 and the latest 200 metadata-only access records. Grants pin Project connection
 generations; reconnecting requires renewed consent. File access restrictions
 intersect this policy. Recheck policy, canonical source path, and current Project
 connection before releasing messages. Persist neither source text nor provider
 errors in the policy/audit store.
 
-Use native `thread/read`, first without turns to authorize the source directory,
-then with turns to project user/assistant text. Do not resume, inject, index, or
+Codex uses native `thread/read`, first without turns to authorize the source
+directory, then with turns to project user/assistant text. Claude Code uses the
+official SDK's `getSessionInfo` and `getSessionMessages`. OpenCode uses read-only
+SQLite connections and projects native text parts. Grok Build reads metadata
+before its bounded `updates.jsonl` ACP stream. Each provider authorizes the source
+directory before message reads and again before release. Native identity and
+provider stay paired across clients, tools, routing, results, and audit.
+Do not resume, inject, index, or
 copy source transcripts. Core owns caller authentication and verified human
 provenance; local Service enforces owner, reader, Project, and policy scope.
 This capability does not change Wake execution ownership or readiness.

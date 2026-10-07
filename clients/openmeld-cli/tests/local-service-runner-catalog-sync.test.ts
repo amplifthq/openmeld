@@ -4,6 +4,24 @@ import {
   syncDaemonRouteCatalogState,
 } from "../src/local-service/carrier/service-runner";
 import type { RouteCatalog } from "../src/local-service/core/types";
+import { replaceMutableRouteCatalogState } from "../src/local-service/routing/route-catalog-state";
+
+it("queued route readers observe accepted refreshes and removals", () => {
+  const state = createMutableRouteCatalogState(
+    createRouteCatalog(["agt-a"], "connection-1")
+  );
+  const queuedRoutes = state.routeByProfileId;
+  const readAtAdmission = () => queuedRoutes.get("agt-a");
+  const next = createRouteCatalog(["agt-a"], "connection-2");
+  replaceMutableRouteCatalogState(state, next);
+  expect(
+    readAtAdmission()?.workingFolderRuntime?.workingFolderFact
+      .localProjectBindingGeneration
+  ).toBe("connection-2");
+  replaceMutableRouteCatalogState(state, createRouteCatalog([]));
+  expect(readAtAdmission()).toBeUndefined();
+  expect(next.routeByProfileId.has("agt-a")).toBe(true);
+});
 
 const createRouteCatalog = (
   profileIds: string[],

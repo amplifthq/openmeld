@@ -141,6 +141,10 @@ must redrive that same dispatch and attempt through hosted recovery instead of
 retiring the outbox item or creating another attempt. If the exact worker
 request is already persisted, recovery submits that frozen request directly;
 it does not rebuild mutable conversation context before replay.
+The dispatch attempt remains `dispatching` until the native admission
+acknowledgement is durably recorded. An ambiguous submit or failed ACK
+persistence must not advance it to `waiting_result`, which would prevent
+the hosted recovery claim from resuming that attempt.
 The direct path returns only after RuntimeCoordinator head acceptance and local
 delivery acceptance have completed or produced a durable retry decision. Its
 correctness must not depend on `DurableObjectState.waitUntil`, because that API
