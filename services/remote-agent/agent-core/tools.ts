@@ -71,6 +71,7 @@ import {
   centerAgentManageSpaceFilesResponseSchema,
   centerAgentManageSpaceFilesRpcInputSchema,
   centerAgentMemberResearchReportSchema,
+  centerAgentOrganizationDirectoryPageSchema,
   centerAgentPostChannelFileResponseSchema,
   centerAgentPostSlackChannelMessageResponseSchema,
   centerAgentPostSlackFileResponseSchema,
@@ -2451,6 +2452,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     }),
     toolDefinition({
       name: "openmeld_read_organization_directory",
+      progressValue: (result) => {
+        const { generatedAt: _generatedAt, ...facts } =
+          centerAgentOrganizationDirectoryPageSchema.parse(result);
+        return facts;
+      },
       description:
         "Read one bounded page of the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Readiness is a team-safe projection, including for the requester's own Agent: null Binding/route fields and false facts with source=not_checked or unavailable are withheld or unknown evidence, NOT proof of absence or failure. Only a current authoritative Binding fact with source=missing proves no Binding. Pass nextCursor back as cursor until it is null when you need the full directory or must establish that someone is absent or uniquely matched. A page may contain only members or only Agent Profiles; join ownership by exact ownerUserId across pages. totalMembers and totalAgentProfiles count the whole directory. limit caps the combined records (default 20, maximum 100); a byte limit may shorten a page without dropping any fields. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
       input: organizationReadPageToolInputSchema,

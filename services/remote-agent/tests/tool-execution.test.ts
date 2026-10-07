@@ -39,6 +39,49 @@ const SUBMISSION_ID = "submission-turn-end";
 
 describe("Remote Agent tool execution", () => {
   it.each([
+    "direct",
+    "code_mode",
+  ] as const)("compares owner facts through %s while returning the original evidence", async (source) => {
+    const { storage } = await createToolExecutionTestContext();
+    let generatedAt = 0;
+    let observedAt = 10;
+    const definition: RemoteAgentToolDefinition = {
+      name: "read_observation",
+      description: "Read current evidence.",
+      input: object({}),
+      progressTracking: "observation",
+      progressValue: (result) => (result as { evidence: unknown }).evidence,
+      execute: () =>
+        Promise.resolve({
+          generatedAt: ++generatedAt,
+          evidence: { observedAt },
+        }),
+    };
+    const call = () =>
+      executeRemoteAgentToolDefinition({
+        definition,
+        source,
+        storage,
+        submissionId: SUBMISSION_ID,
+        toolInput: {},
+      });
+    await expect(call()).resolves.toEqual({
+      generatedAt: 1,
+      evidence: { observedAt: 10 },
+    });
+    await call();
+    // A real new observation is progress even when its status is unchanged.
+    observedAt = 11;
+    await expect(call()).resolves.toEqual({
+      generatedAt: 3,
+      evidence: { observedAt: 11 },
+    });
+    await call();
+    await expect(call()).rejects.toBeInstanceOf(RemoteAgentNoProgressError);
+    await expect(call()).rejects.toBeInstanceOf(RemoteAgentNoProgressError);
+    expect(generatedAt).toBe(5);
+  });
+  it.each([
     {
       source: "direct",
       window: "unverified",

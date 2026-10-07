@@ -64,7 +64,10 @@ describe("Remote Agent capability discovery", () => {
       return tool;
     };
     await select(DEFINITIONS).execute({
-      names: ["openmeld_list_app_actions", "github_create_issue"],
+      names: ["github_create_issue"],
+    });
+    await select(DEFINITIONS).execute({
+      names: ["openmeld_list_app_actions"],
     });
     const restored = select(
       DEFINITIONS.filter((tool) => tool.name !== "github_create_issue")
@@ -84,6 +87,40 @@ describe("Remote Agent capability discovery", () => {
     await expect(
       select(DEFINITIONS, "other-execution").execute({})
     ).resolves.toEqual({ capabilities: [], unknownNames: [] });
+  });
+  it("bounds recovery across calls and moves reused names to the front", async () => {
+    const definitions = Array.from({ length: 10 }, (_, index) => ({
+      description: "Read one record.",
+      execute: () => Promise.resolve({}),
+      input: object({}),
+      name: `read_${index}`,
+    }));
+    const storage = new InMemoryDurableObjectStorage();
+    const describe = createRemoteAgentCapabilityDiscoveryDefinitions(
+      definitions,
+      undefined,
+      { storage, submissionId: "bounded" }
+    ).find((tool) => tool.name === REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME);
+    if (!describe) {
+      throw new Error("Missing capability recovery tool");
+    }
+    for (const definition of definitions) {
+      await describe.execute({ names: [definition.name] });
+    }
+    await describe.execute({ names: ["read_4"] });
+    const restored = (await describe.execute({})) as {
+      capabilities: { name: string }[];
+    };
+    expect(restored.capabilities.map(({ name }) => name)).toEqual([
+      "read_4",
+      "read_9",
+      "read_8",
+      "read_7",
+      "read_6",
+      "read_5",
+      "read_3",
+      "read_2",
+    ]);
   });
   it("searches a fixed turn catalog without returning every schema", async () => {
     const definitions =

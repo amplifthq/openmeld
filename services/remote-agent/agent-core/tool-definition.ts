@@ -17,4 +17,7 @@ export type RemoteAgentToolDefinition<Name extends string = string> = {
   input: RemoteAgentToolInputSchema;
   name: Name;
   progressTracking?: RemoteAgentToolProgressTracking;
+  // The read owner may exclude response-envelope metadata from progress.
+  // Returned evidence and business observation times must remain unchanged.
+  progressValue?(result: unknown): unknown;
 };

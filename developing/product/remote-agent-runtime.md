@@ -2127,6 +2127,20 @@ schemas, dependencies, and authorization hints; they do not grant authority or
 bypass execution-time policy. Multilingual aliases and deterministic ranking
 apply only after the model explicitly searches; they never classify the raw
 user request or become a second semantic owner.
+Known capability names can be described directly without searching. Recovery
+retains at most eight recently selected names across describe calls, scoped to
+the submission; descriptions and schemas always come from the current catalog.
+This bounded selection replaces no permission or operation owner. Provided
+evidence and recovered receipts should satisfy the next action when sufficient;
+available tools are not a mandatory preflight checklist. Detailed setup inputs
+belong in the selected tool contract instead of repeated always-on recipes.
+
+Observation progress compares the full result by default. A read owner may
+project its progress value to exclude response-envelope metadata, without
+changing the evidence returned to the model. The Organization directory excludes
+only its generated-at timestamp; member activity, readiness observations,
+pagination and all other facts still count. Never recursively strip timestamps
+or suppress changes to business evidence across the catalog.
 The generated Code Mode catalog still contains every active direct tool,
 and every direct or inner call re-enters the same
 cancellation, authorization, confirmation, audit, usage, and result-bounding
