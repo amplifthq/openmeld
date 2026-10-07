@@ -4411,7 +4411,7 @@ function FileSystemInformation({
   }
   if (rows.length === 0) return null
   return (
-    <div className="border-t pt-3">
+    <div className="pt-3">
       <div className="mb-1.5 text-xs font-semibold">Information</div>
       <dl className="space-y-1">
         {rows.map(([label, value]) => (

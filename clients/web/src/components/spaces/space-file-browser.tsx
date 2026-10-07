@@ -467,7 +467,7 @@ function SpaceFileBrowserContent(input: {
 		return (
 			<ContextMenu>
 				<ContextMenuTrigger
-					className="block"
+					className="block h-full min-h-0"
 					onContextMenuCapture={(event) => {
 						if (!(event.target as Element).closest('[role="option"]')) {
 							setSelectedId(null);
@@ -477,7 +477,7 @@ function SpaceFileBrowserContent(input: {
 					{mounted ? (
 						<Suspense fallback={<DelayedSpaceFilesSkeleton />}>
 							<FileSystem
-								className="h-[min(65vh,48rem)] min-h-96"
+								className="h-full min-h-0"
 								embedded
 								emptyContent={pendingEmptyContent}
 								errorContent={
