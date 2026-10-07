@@ -40,6 +40,7 @@ import { type ReactNode, useId, useState } from "react";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { DirectorySearch } from "#/components/directory/directory-search";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
+import { useBrowserPreference } from "#/lib/use-browser-preference";
 import { AgentGroupCards } from "./agent-group-cards";
 import {
 	AGENT_LIST_FACETS,
@@ -408,6 +409,7 @@ function ExpandAllControl({
 }
 
 export function AgentList(input: {
+	viewPreferenceKey: string;
 	items: readonly AgentListItem[];
 	search?: string;
 	defaults?: AgentListView;
@@ -424,7 +426,10 @@ export function AgentList(input: {
 	onDelete?: DeleteAgents;
 }) {
 	const [collapsed, setCollapsed] = useState(false);
-	const [expandAll, setExpandAll] = useState(false);
+	const [presentation, setPresentation] = useBrowserPreference(
+		input.viewPreferenceKey
+	);
+	const expandAll = presentation === "expanded";
 	const contentId = useId();
 	const [override, setOverride] = useState<AgentListView | null>(null);
 	const [search, setSearch] = useState("");
@@ -480,7 +485,7 @@ export function AgentList(input: {
 								label={input.label}
 								onClick={() => {
 									selection.reset();
-									setExpandAll(!expandAll);
+									setPresentation(expandAll ? "grouped" : "expanded");
 								}}
 							/>
 							<DirectorySearch
