@@ -43,7 +43,8 @@ import {
 	buildAppRailGroups,
 } from "./app-rail-navigation";
 import {
-	AppRailShortcuts,
+	AppTeamShortcutsPopover,
+	buildPinnedRailDestinations,
 	resolveActiveSidebarShortcut,
 } from "./app-rail-shortcuts";
 import { AppSidebarFooter } from "./app-sidebar-footer";
@@ -147,18 +148,23 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 							activeDestination={pinnedActive ?? activeDestination}
 							group={group}
 							key={group.id}
+							pinnedDestinations={buildPinnedRailDestinations(
+								shortcuts.pinned,
+								currentOrganization.slug
+							)}
 							position={index}
+							renderTeamTrigger={(trigger) => (
+								<AppTeamShortcutsPopover
+									orgSlug={currentOrganization.slug}
+									pinned={shortcuts.pinned}
+									toggle={shortcuts.toggle}
+									trigger={trigger}
+								/>
+							)}
 							standaloneSelection={Boolean(pinnedActive)}
 							tier={mode}
 						/>
 					))}
-					<AppRailShortcuts
-						active={activeShortcut}
-						orgSlug={currentOrganization.slug}
-						pinned={shortcuts.pinned}
-						tier={mode}
-						toggle={shortcuts.toggle}
-					/>
 				</ScrollArea>
 				<AppSidebarFooter
 					account={{ ...account, image: accountAvatarImage }}

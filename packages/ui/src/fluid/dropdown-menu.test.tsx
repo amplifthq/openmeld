@@ -13,6 +13,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuTrigger,
 } from "#components/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "#components/tooltip";
 import { FluidContextMenu } from "./context-menu";
 import {
   FluidDropdownMenuContent,
@@ -183,30 +184,47 @@ describe("FluidDropdownMenu", () => {
     });
     const { container } = render(
       <SidebarMenu>
-        <FluidContextMenu
-          target={
-            <SidebarMenuItem>
-              <SidebarMenuButton>Release planning</SidebarMenuButton>
-            </SidebarMenuItem>
-          }
-        >
-          <FluidDropdownMenuItem index={0}>Open</FluidDropdownMenuItem>
-          <FluidDropdownMenuItem index={1}>Copy link</FluidDropdownMenuItem>
-        </FluidContextMenu>
+        <SidebarMenuItem>
+          <Tooltip defaultOpen>
+            <FluidContextMenu
+              target={
+                <TooltipTrigger
+                  render={
+                    <SidebarMenuButton>Release planning</SidebarMenuButton>
+                  }
+                />
+              }
+            >
+              <FluidDropdownMenuItem index={0}>Open</FluidDropdownMenuItem>
+              <FluidDropdownMenuItem index={1}>Copy link</FluidDropdownMenuItem>
+            </FluidContextMenu>
+            <TooltipContent>Release planning tooltip</TooltipContent>
+          </Tooltip>
+        </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton>Product design</SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
     );
     const trigger = screen.getByRole("button", { name: "Release planning" });
+    await screen.findByRole("tooltip");
+    fireEvent.mouseMove(trigger, { clientX: 10, clientY: 10 });
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-slot="sidebar-menu-hover-indicator"]')
+      ).not.toBeNull()
+    );
     fireEvent.contextMenu(trigger, { clientX: 10, clientY: 10 });
+    fireEvent.mouseLeave(screen.getByRole("list", { hidden: true }));
     const menu = await screen.findByRole("menu");
     const copy = screen.getByRole("menuitem", { name: "Copy link" });
     fireEvent.mouseMove(copy, { clientX: 20, clientY: 50 });
     await waitFor(() => expect(copy.getAttribute("data-hovered")).toBe("true"));
-    expect(
-      container.querySelector('[data-slot="sidebar-menu-hover-indicator"]')
-    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-slot="sidebar-menu-hover-indicator"]')
+      ).toBeNull()
+    );
     fireEvent.keyDown(menu, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     fireEvent.mouseMove(

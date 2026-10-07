@@ -122,10 +122,12 @@ export function AppRailNavigationGroup(input: {
 	group: AppRailGroup;
 	position: number;
 	standaloneSelection?: boolean;
+	pinnedDestinations?: readonly AppRailDestination[];
+	renderTeamTrigger?: (trigger: ReactElement) => ReactElement;
 	tier: SidebarMode;
 }) {
 	const { presentation } = useAppNavigationPresentation();
-	const links = input.group.destinations.map((destination) => (
+	const renderDestination = (destination: AppRailDestination) => (
 		<AppRailLink
 			active={
 				destination.id === input.activeDestination ||
@@ -137,9 +139,12 @@ export function AppRailNavigationGroup(input: {
 			}
 			destination={destination}
 			key={destination.id}
+			renderTrigger={
+				destination.id === "people" ? input.renderTeamTrigger : undefined
+			}
 			tier={input.tier}
 		/>
-	));
+	);
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
 			<SidebarMenu
@@ -156,7 +161,20 @@ export function AppRailNavigationGroup(input: {
 					input.tier === "icon" ? '[data-slot="app-rail-icon"]' : undefined
 				}
 			>
-				{links}
+				{input.group.destinations.map(renderDestination)}
+				{Boolean(input.pinnedDestinations?.length) && (
+					<li>
+						<div
+							aria-hidden="true"
+							className="mx-auto my-2 h-px w-5 bg-border"
+						/>
+						<nav aria-label="Pinned shortcuts">
+							<ul className="flex flex-col gap-1">
+								{input.pinnedDestinations?.map(renderDestination)}
+							</ul>
+						</nav>
+					</li>
+				)}
 			</SidebarMenu>
 		</nav>
 	);
@@ -200,6 +218,7 @@ export function CollapsedRailTooltip(input: {
 
 export function AppRailLink(input: {
 	active: boolean;
+	renderTrigger?: (trigger: ReactElement) => ReactElement;
 	destination: AppRailDestination;
 	tier: SidebarMode;
 }) {
@@ -277,6 +296,9 @@ export function AppRailLink(input: {
 		isDrawer && "h-12 w-full gap-3 px-3 text-[15px]",
 		input.active && "text-sidebar-accent-foreground"
 	);
+	const prefetch = input.active
+		? undefined
+		: input.destination.onIntentPrefetch;
 	const link = (
 		<Link
 			activeOptions={{ exact: true }}
@@ -291,16 +313,31 @@ export function AppRailLink(input: {
 					dismiss();
 				}
 			}}
-			onFocus={input.active ? undefined : input.destination.onIntentPrefetch}
-			onPointerEnter={
-				input.active ? undefined : input.destination.onIntentPrefetch
-			}
+			onFocus={prefetch}
+			onPointerEnter={prefetch}
 			to={input.destination.to}
 		>
 			{children}
 		</Link>
 	);
 
+	if (input.renderTrigger) {
+		return (
+			<SidebarMenuItem
+				className={
+					isIcon ? "mx-auto h-[3.25rem] w-full" : "group/destination relative"
+				}
+				data-app-rail-item
+			>
+				{input.renderTrigger(
+					<SidebarMenuButton isActive={input.active} render={link}>
+						{children}
+					</SidebarMenuButton>
+				)}
+				<RailDestinationActions {...input} />
+			</SidebarMenuItem>
+		);
+	}
 	if (isIcon) {
 		return (
 			<SidebarMenuItem
@@ -331,17 +368,31 @@ export function AppRailLink(input: {
 			>
 				<ObjectMenuItems href={input.destination.to} />
 			</FluidContextMenu>
-			{(input.destination.id === "directMessages" ||
-				input.destination.id === "home" ||
-				input.destination.id === "people" ||
-				input.destination.id === "spaces" ||
-				input.destination.id === "agents") && (
-				<SidebarDestinationActionSlot
-					active={input.active}
-					destination={input.destination.id}
-				/>
-			)}
+			<RailDestinationActions {...input} />
 		</SidebarMenuItem>
+	);
+}
+
+function RailDestinationActions(input: {
+	active: boolean;
+	destination: AppRailDestination;
+	tier: SidebarMode;
+}) {
+	const id = input.destination.id;
+	if (
+		input.tier !== "expanded" ||
+		!(
+			id === "directMessages" ||
+			id === "home" ||
+			id === "people" ||
+			id === "spaces" ||
+			id === "agents"
+		)
+	) {
+		return null;
+	}
+	return (
+		<SidebarDestinationActionSlot active={input.active} destination={id} />
 	);
 }
 

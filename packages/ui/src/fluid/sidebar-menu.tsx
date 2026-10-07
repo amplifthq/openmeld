@@ -366,7 +366,8 @@ function useMenuScope(
   // attributes (Radix data-state, Base UI data-popup-open). Require a popup
   // trigger: tooltips also publish data-popup-open, but must not freeze the
   // traveling background. Context-menu areas have no aria-haspopup, so use
-  // their shared trigger slot with Base UI's open marker explicitly.
+  // their explicit state when available: a composed tooltip can also put
+  // data-popup-open on the same element while the context menu is closed.
   const popupOpen = useCallback(() => {
     const container = containerRef.current;
     if (!container) {
@@ -374,7 +375,7 @@ function useMenuScope(
     }
     const root = container.closest('[data-sidebar="panel"]') ?? container;
     return !!root.querySelector(
-      '[aria-haspopup]:not([aria-haspopup="false"]):is([data-popup-open], [data-state="open"], [aria-expanded="true"]), [data-slot="context-menu-trigger"][data-popup-open]'
+      '[aria-haspopup]:not([aria-haspopup="false"]):is([data-popup-open], [data-state="open"], [aria-expanded="true"]), [data-context-menu-open="true"], [data-slot="context-menu-trigger"]:not([data-context-menu-open])[data-popup-open]'
     );
   }, [containerRef]);
 

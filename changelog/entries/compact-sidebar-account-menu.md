@@ -18,7 +18,7 @@ them in Settings > Appearance when you need them. Saved choices stay unchanged.
 The Spaces and Team sidebar search fields stay aligned when switching sections,
 without an entrance animation.
 
-Open More navigation to jump to Agents, Plugins, Skills, Files, or Routines.
+Hover over Team to jump to Agents, Plugins, Skills, Files, or Routines.
 Pin the ones you use often to the sidebar, or unpin them from the same menu.
 Your pins are saved in this browser. Sidebar icons now show their names as soon
 as you hover over them.

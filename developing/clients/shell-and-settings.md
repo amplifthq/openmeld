@@ -517,13 +517,15 @@ Square.
 
 ## 6. Shared Sidebar family and resize behavior
 
-The outer rail's More navigation popover opens on hover, click, or keyboard
-activation. Agents, Plugins, Skills, Files, and Routines link to the existing
+The outer rail's Team resource popover opens on hover or Arrow Down/Space.
+Clicking Team still navigates to People. Agents, Plugins, Skills, Files, and Routines link to the existing
 Team destinations and each has a separate Pin to sidebar toggle. Pins start
 empty, persist in this browser in selection order, and resolve against the
 current Organization. A short divider separates pinned entries from the main
 navigation. A pinned current destination owns the selected state instead of
-also selecting Team. Compact rail tooltips open without a delay.
+also selecting Team. Compact rail tooltips open without a delay. Primary and
+pinned destinations share one Fluid hover scope across the visual divider.
+Tooltip visibility does not suspend hover; an open context menu does.
 
 
 Main Sidebar uses the Fluid Functionalism Base UI registry components in

@@ -203,9 +203,9 @@ its selected file revision while switching from Messages to Files.
 
 Web uses three navigation levels: a 64px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
-Team are the rail's primary destinations, in that order. More navigation opens
-on hover or activation and offers Agents, Plugins, Skills, Files, and Routines
-with separate pin toggles. Pinned shortcuts appear below a short divider and
+Team are the rail's primary destinations, in that order. Hovering Team (or pressing
+Arrow Down/Space on it) offers Agents, Plugins, Skills, Files, and Routines
+with separate pin toggles. Clicking Team still opens People. Pinned shortcuts appear below a short divider and
 persist in the browser; links always target the current Organization. A pinned
 current page selects its shortcut instead of also selecting Team. Icon tooltips
 open immediately. Desk is temporarily hidden

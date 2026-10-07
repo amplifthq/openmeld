@@ -1740,7 +1740,9 @@ describe("AppOuterRail", () => {
 		["Routines", "/o/acme/routines", "people"],
 	] as const)("pins %s without navigating, restores it, and selects only the pinned destination", async (label, path, section) => {
 		const view = renderRail();
-		fireEvent.click(screen.getByRole("button", { name: "More navigation" }));
+		fireEvent.keyDown(screen.getByRole("link", { name: "Team" }), {
+			key: "ArrowDown",
+		});
 		fireEvent.click(
 			await screen.findByRole("button", { name: `Pin ${label} to sidebar` })
 		);
@@ -1760,7 +1762,9 @@ describe("AppOuterRail", () => {
 		expect(
 			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "More navigation" }));
+		fireEvent.keyDown(screen.getByRole("link", { name: "Team" }), {
+			key: "ArrowDown",
+		});
 		fireEvent.click(
 			await screen.findByRole("button", { name: `Unpin ${label} from sidebar` })
 		);

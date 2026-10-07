@@ -8,10 +8,9 @@ import {
 	FluidActionList,
 	FluidActionListItem,
 } from "@openmeld/ui/fluid/action-list";
-import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import {
 	BooksIcon,
-	DotsThreeIcon,
 	FolderIcon,
 	PushPinIcon,
 	PuzzlePieceIcon,
@@ -19,7 +18,7 @@ import {
 	TimerIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { type ReactElement, useState } from "react";
 import {
 	SIDEBAR_SHORTCUT_IDS,
 	type SidebarShortcutId,
@@ -27,15 +26,14 @@ import {
 import {
 	buildOrganizationAgentsPath,
 	buildOrganizationFilesPath,
+	buildOrganizationPeoplePath,
 	buildOrganizationPluginsPath,
 	buildOrganizationRoutinesPath,
 	buildOrganizationSkillsPath,
 } from "#/lib/organizations/organization-routes";
 import { useAppNavigationPresentation } from "./app-navigation-presentation";
-import {
-	AppRailNavigationGroup,
-	CollapsedRailTooltip,
-} from "./app-rail-navigation";
+import { CollapsedRailTooltip } from "./app-rail-navigation";
+import { ObjectMenuItems } from "./object-menu-items";
 
 const SHORTCUTS = {
 	agents: {
@@ -71,112 +69,108 @@ export function resolveActiveSidebarShortcut(
 	});
 }
 
-export function AppRailShortcuts(input: {
+export function buildPinnedRailDestinations(
+	pinned: SidebarShortcutId[],
+	orgSlug: string
+) {
+	return pinned.map((id) => {
+		const item = SHORTCUTS[id];
+		return {
+			id,
+			label: item.label,
+			to: item.path(orgSlug),
+			icon: <item.icon aria-hidden="true" className="size-5" />,
+		};
+	});
+}
+
+export function AppTeamShortcutsPopover(input: {
 	orgSlug: string;
 	pinned: SidebarShortcutId[];
 	toggle: (id: SidebarShortcutId) => void;
-	active?: SidebarShortcutId;
-	tier: SidebarMode;
+	trigger: ReactElement;
 }) {
 	const [open, setOpen] = useState(false);
 	const { dismiss } = useAppNavigationPresentation();
 	return (
-		<>
-			<div className="mt-1 flex justify-center">
-				<Popover onOpenChange={setOpen} open={open}>
+		<Popover onOpenChange={setOpen} open={open}>
+			<FluidContextMenu
+				target={
 					<PopoverTrigger
 						delay={0}
-						openOnHover
-						render={
-							<Button
-								aria-label="More navigation"
-								className="size-9"
-								size="icon"
-								variant="ghost"
-							/>
-						}
-					>
-						<DotsThreeIcon className="size-5" />
-					</PopoverTrigger>
-					<PopoverContent
-						align="start"
-						aria-label="More navigation"
-						className="w-52 animate-none! gap-0 rounded-lg p-1"
-						side="right"
-						sideOffset={8}
-					>
-						<FluidActionList gapClick={false}>
-							{SIDEBAR_SHORTCUT_IDS.map((id, index) => {
-								const item = SHORTCUTS[id];
-								const pinned = input.pinned.includes(id);
-								return (
-									<div className="relative" key={id}>
-										<FluidActionListItem
-											className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md pr-9 pl-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-											index={index}
-											render={
-												<Link
-													onClick={() => {
-														setOpen(false);
-														dismiss();
-													}}
-													to={item.path(input.orgSlug)}
-												/>
-											}
-										>
-											<item.icon aria-hidden="true" className="size-4" />
-											{item.label}
-										</FluidActionListItem>
-										<CollapsedRailTooltip
-											label={pinned ? "Unpin from sidebar" : "Pin to sidebar"}
-											side="top"
-										>
-											<Button
-												aria-label={`${pinned ? "Unpin" : "Pin"} ${item.label} ${pinned ? "from" : "to"} sidebar`}
-												aria-pressed={pinned}
-												className="absolute top-0.5 right-0.5 z-20 size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent"
-												onClick={() => input.toggle(id)}
-												size="icon-sm"
-												variant="ghost"
-											>
-												<PushPinIcon
-													aria-hidden="true"
-													className="size-3.5"
-													weight={pinned ? "fill" : "regular"}
-												/>
-											</Button>
-										</CollapsedRailTooltip>
-									</div>
-								);
-							})}
-						</FluidActionList>
-					</PopoverContent>
-				</Popover>
-			</div>
-			{input.pinned.length > 0 && (
-				<>
-					<div aria-hidden="true" className="mx-auto my-2 h-px w-5 bg-border" />
-					<AppRailNavigationGroup
-						activeDestination={input.active ?? null}
-						group={{
-							id: "pinned",
-							label: "Pinned shortcuts",
-							destinations: input.pinned.map((id) => {
-								const item = SHORTCUTS[id];
-								return {
-									id,
-									label: item.label,
-									to: item.path(input.orgSlug),
-									icon: <item.icon aria-hidden="true" className="size-5" />,
-								};
-							}),
+						nativeButton={false}
+						onClick={(event) => {
+							event.preventBaseUIHandler();
+							setOpen(false);
 						}}
-						position={0}
-						standaloneSelection
-						tier={input.tier}
+						onKeyDown={(event) => {
+							if (event.key === "ArrowDown" || event.key === " ") {
+								event.preventDefault();
+								event.preventBaseUIHandler();
+								setOpen(true);
+							}
+						}}
+						openOnHover
+						render={input.trigger}
+						role="link"
 					/>
-				</>
-			)}
-		</>
+				}
+			>
+				<ObjectMenuItems href={buildOrganizationPeoplePath(input.orgSlug)} />
+			</FluidContextMenu>
+			<PopoverContent
+				align="start"
+				aria-label="Team resources"
+				className="w-52 animate-none! gap-0 rounded-lg p-1"
+				side="right"
+				sideOffset={8}
+			>
+				<FluidActionList gapClick={false}>
+					{SIDEBAR_SHORTCUT_IDS.map((id, index) => {
+						const item = SHORTCUTS[id];
+						const pinned = input.pinned.includes(id);
+						return (
+							<div className="relative" key={id}>
+								<FluidActionListItem
+									className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md pr-9 pl-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+									index={index}
+									render={
+										<Link
+											onClick={() => {
+												setOpen(false);
+												dismiss();
+											}}
+											to={item.path(input.orgSlug)}
+										/>
+									}
+								>
+									<item.icon aria-hidden="true" className="size-4" />
+									{item.label}
+								</FluidActionListItem>
+								<CollapsedRailTooltip
+									label={pinned ? "Unpin from sidebar" : "Pin to sidebar"}
+									side="top"
+								>
+									<Button
+										aria-label={`${pinned ? "Unpin" : "Pin"} ${item.label} ${pinned ? "from" : "to"} sidebar`}
+										aria-pressed={pinned}
+										className="absolute top-0.5 right-0.5 z-20 size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent"
+										onClick={() => input.toggle(id)}
+										size="icon-sm"
+										variant="ghost"
+									>
+										<PushPinIcon
+											aria-hidden="true"
+											className="size-3.5"
+											weight={pinned ? "fill" : "regular"}
+										/>
+									</Button>
+								</CollapsedRailTooltip>
+							</div>
+						);
+					})}
+				</FluidActionList>
+			</PopoverContent>
+		</Popover>
 	);
 }
