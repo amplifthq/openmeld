@@ -228,13 +228,17 @@ export function getRemoteAgentConnectorToolDefinitions(
                 service,
                 toolContext,
               });
+              let descriptionUnavailable = false;
               const description =
                 selection.connection && input.connectorExecution
                   ? await describePluginConnection({
                       service,
                       connectionName: selection.connection.connectionName,
                       connectorExecution: input.connectorExecution,
-                    }).catch(() => null)
+                    }).catch(() => {
+                      descriptionUnavailable = true;
+                      return null;
+                    })
                   : null;
               return {
                 connected: knownConnectionUsability(
@@ -242,6 +246,7 @@ export function getRemoteAgentConnectorToolDefinitions(
                   description?.connection?.health.state
                 ),
                 connectionStored: Boolean(selection.connection),
+                descriptionUnavailable,
                 health: description?.connection?.health ?? { state: "unknown" },
                 nativeHttp: description?.nativeHttp ?? null,
                 nextAction:

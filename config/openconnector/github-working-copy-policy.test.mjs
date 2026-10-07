@@ -148,6 +148,22 @@ describe("reviewed Git working-copy ingress", () => {
     assert.equal(calls[0].env.OOMOL_CONNECT_ALLOWED_PROXIES, "github");
     assert.equal(calls[0].env.OOMOL_CONNECT_BLOCKED_PROXIES, "");
     assert.equal(env.OOMOL_CONNECT_BLOCKED_PROXIES, "*");
+    for (const service of ["cloudflare_worker", "example_provider"]) {
+      const nativeRequest = new Request(
+        `https://connector.example/v1/openmeld/connections/${service}/request/accounts`,
+        {
+          headers: {
+            authorization: "Bearer wrong-token",
+            "x-oo-connector-alias": "selected",
+          },
+        }
+      );
+      const nativeResponse = await worker.fetch(nativeRequest, env, {});
+      assert.equal(nativeResponse.status, 401);
+      assert.equal(calls.at(-1).request, nativeRequest);
+      assert.equal(calls.at(-1).env.OOMOL_CONNECT_ALLOWED_PROXIES, service);
+      assert.equal(calls.at(-1).env.OOMOL_CONNECT_BLOCKED_PROXIES, "");
+    }
     for (const path of [
       "/v1/proxy/github",
       "/mcp",
@@ -229,7 +245,7 @@ describe("reviewed Git working-copy ingress", () => {
   it("pins the reviewed upstream contract and keeps the broad proxy block in both deploy configs", () => {
     assert.equal(
       OPENMELD_GIT_PROXY_UPSTREAM_SHA,
-      "8724ecc68f10844821ab1a1d99ec65a5569c7035"
+      "2700574cda447e96a957e8182a30da4c80dd80b3"
     );
     for (const lane of ["staging", "production"]) {
       const config = JSON.parse(

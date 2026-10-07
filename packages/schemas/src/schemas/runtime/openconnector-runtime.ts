@@ -27,6 +27,7 @@ export const pluginNativeHttpSchema = z.strictObject({
     z.strictObject({
       method: z.enum(["GET", "POST"]),
       path: nonEmptyStringSchema,
+      requiredPermissions: z.array(nonEmptyStringSchema).optional(),
       bodySchema: jsonSchemaObjectSchema.optional(),
       timeWindow: z
         .strictObject({

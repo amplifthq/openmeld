@@ -802,6 +802,36 @@ is not an empty inventory and must preserve the failure instead of rewriting
 status. Executor evidence cannot register a legacy or otherwise unowned
 connection.
 
+OpenConnector also owns credential health and refresh. Its connection summary
+reports observed credential state separately from Core's ownership status.
+An active Core row means a registered credential exists; it does not prove a
+provider request will succeed. Gateway projects health only to clients that
+request `includeConnectionHealth=true`, preserving published strict response
+schemas. No second health writer or credential copy is introduced in Core.
+An expired credential without a refresh token requires reconnecting the same
+account. Other unverified credentials remain `unknown`; discovery does not
+perform a provider health call before every action.
+
+Native Computer HTTP access uses the same selected Plugin account. Core owns
+the represented caller and current Agent permission; OpenConnector owns the
+catalog's declared read paths, input bounds, destination and authentication.
+Computer stores an expiring grant containing only an internal reauthorization
+request and non-secret connection identity. Its temporary URL is usable only
+through that Computer's container egress. Every request rechecks current
+execution/caller access and the exact connection name, scope and registration
+revision. Refreshing an OAuth token does not rewrite Core's registration.
+Git and native HTTP reuse remote account authorization; Git remains a binary
+stream, while native HTTP currently accepts bounded JSON API reads.
+
+Provider definitions declare native transport metadata; the host does not add
+a provider-specific tool or maintain provider CLI commands. Optional custom
+authentication adapters are reserved for protocols such as GitHub App token
+minting. Missing native transport means use existing Plugin actions. Writes
+and exact-action delegations retain their action authorization and recovery
+path; a delegated action cannot mint broader native access. Standard secret
+fields and known authentication values are redacted from native JSON results;
+arbitrary application log content is not guaranteed to be secret-free.
+
 Provider authentication mechanisms remain OpenConnector-owned credential
 detail and do not become a parallel Core connection kind. The Figma transition
 from PAT entry to public OAuth therefore changes how a new executor credential

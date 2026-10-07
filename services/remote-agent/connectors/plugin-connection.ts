@@ -73,6 +73,15 @@ export function pluginConnectionInstructions(
   baseUrl?: string
 ) {
   const cli = description.nativeHttp?.cli;
+  let nextAction =
+    "This Plugin does not declare native HTTP access. Use its Plugin actions.";
+  if (description.connection?.health.state === "reconnect_required") {
+    nextAction =
+      "Reconnect this same account in Plugins. Do not sign in again inside the Computer.";
+  } else if (description.nativeHttp) {
+    nextAction =
+      "Reuse this Plugin account. Inspect its native HTTP read rules and official documentation. Run a CLI, SDK, or HTTP client with computer action=command and backend=container, using the returned base URL; apply environment only to that command. Provider credentials stay on the server. Use Plugin actions for writes. Renew the same key if this temporary connection expires.";
+  }
   return {
     description,
     ...(baseUrl ? { baseUrl } : {}),
@@ -83,9 +92,6 @@ export function pluginConnectionInstructions(
             [cli.tokenEnvironment]: "openmeld-connection",
           }
         : {},
-    nextAction:
-      description.connection?.health.state === "reconnect_required"
-        ? "Reconnect this same account in Plugins. Do not sign in again inside the Computer."
-        : "Reuse this Plugin account. Inspect its native HTTP read rules and official documentation. Run a CLI, SDK, or HTTP client with computer action=command and backend=container, using the returned base URL; apply environment only to that command. Provider credentials stay on the server. Use Plugin actions for writes. Renew the same key if this temporary connection expires.",
+    nextAction,
   };
 }
