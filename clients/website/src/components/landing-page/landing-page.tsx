@@ -3,6 +3,10 @@ import {
 	LOCAL_AGENTS_GUIDE_PATH,
 	listLocalAgentInstallGuides,
 } from "@openmeld/product-catalog/local-agent-install-guides";
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
 import { OpenMeldWordmark } from "@openmeld/ui/components/openmeld-wordmark";
@@ -12,15 +16,22 @@ import {
 	AccordionItem,
 	AccordionTrigger,
 } from "@openmeld/ui/fluid/accordion";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidHoverHighlight } from "@openmeld/ui/fluid/fluid-hover-highlight";
 import {
 	useFluidHover,
 	useRegisterFluidHoverItem,
 } from "@openmeld/ui/hooks/use-fluid-hover";
 import {
+	AppleLogoIcon,
 	ArrowRightIcon,
 	ArrowUpRightIcon,
-	GithubLogoIcon,
+	CaretDownIcon,
+	DownloadSimpleIcon,
+	WindowsLogoIcon,
 } from "@phosphor-icons/react";
 import { MotionConfig } from "motion/react";
 import { type ReactNode, useRef } from "react";
@@ -28,6 +39,71 @@ import { appUrl } from "#/lib/app-url";
 import "./landing-page.css";
 
 const REPOSITORY_URL = "https://github.com/amplifthq/openmeld";
+function OpenAppButton({ compact = false }: { compact?: boolean }) {
+	return (
+		<a
+			className={`meld-button meld-button-web ${compact ? "meld-button-compact" : ""}`}
+			href={appUrl("/")}
+		>
+			Open App <span className="meld-web-badge">Web</span>
+		</a>
+	);
+}
+function DownloadButton() {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger className="meld-button">
+				<DownloadSimpleIcon aria-hidden size={18} />
+				Download
+				<CaretDownIcon aria-hidden size={14} />
+			</DropdownMenuTrigger>
+			<FluidDropdownMenuContent
+				align="start"
+				className="dark meld-download-menu"
+				gapClick={false}
+			>
+				<FluidDropdownMenuItem
+					index={0}
+					onClick={() =>
+						window.location.assign(appUrl("/desktop?platform=macos-arm64"))
+					}
+				>
+					<AppleLogoIcon aria-hidden />
+					<span>macOS</span>
+					<span className="ml-auto text-muted-foreground text-xs">
+						Apple silicon
+					</span>
+				</FluidDropdownMenuItem>
+				<FluidDropdownMenuItem
+					index={1}
+					onClick={() =>
+						window.location.assign(appUrl("/desktop?platform=windows-x64"))
+					}
+				>
+					<WindowsLogoIcon aria-hidden />
+					<span>Windows</span>
+					<span className="ml-auto text-muted-foreground text-xs">x64</span>
+				</FluidDropdownMenuItem>
+				<FluidDropdownMenuItem
+					index={2}
+					onClick={() => window.location.assign(appUrl("/desktop"))}
+				>
+					<DownloadSimpleIcon aria-hidden />
+					<span>All downloads</span>
+					<ArrowUpRightIcon aria-hidden className="ml-auto" />
+				</FluidDropdownMenuItem>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+function AppActions() {
+	return (
+		<div className="meld-actions">
+			<DownloadButton />
+			<OpenAppButton />
+		</div>
+	);
+}
 const questions = [
 	{
 		question: "What can I try first?",
@@ -89,7 +165,7 @@ function ProductDemo({
 export function LandingPage() {
 	return (
 		<MotionConfig reducedMotion="user">
-			<div className="meld-site">
+			<div className="dark meld-site">
 				<a className="meld-skip" href="#main-content">
 					Skip to content
 				</a>
@@ -113,14 +189,13 @@ export function LandingPage() {
 								links={[
 									{ href: "#product", content: "Product" },
 									{ href: "#agents", content: "Agents" },
+									{ href: appUrl("/desktop"), content: "Downloads" },
 									{ href: "https://docs.openmeld.ai", content: "Docs" },
 									{ href: "/changelog", content: "Changelog" },
 								]}
 							/>
 						</nav>
-						<a className="meld-header-action" href={appUrl("/")}>
-							Open app <ArrowUpRightIcon aria-hidden size={14} />
-						</a>
+						<OpenAppButton compact />
 					</div>
 				</header>
 				<main id="main-content">
@@ -134,14 +209,7 @@ export function LandingPage() {
 							Bring Codex, Claude Code, and your cloud agents into the same
 							conversation. Turn a brief into work your whole team can review.
 						</p>
-						<div className="meld-actions">
-							<a className="meld-button" href={appUrl("/")}>
-								Start with OpenMeld <ArrowRightIcon aria-hidden size={16} />
-							</a>
-							<a className="meld-link" href={REPOSITORY_URL}>
-								<GithubLogoIcon aria-hidden size={18} /> Built in the open
-							</a>
-						</div>
+						<AppActions />
 						<div id="product">
 							<ProductDemo
 								hero
@@ -383,9 +451,7 @@ export function LandingPage() {
 							<br />
 							<span>See where it goes.</span>
 						</h2>
-						<a className="meld-button" href={appUrl("/")}>
-							Start with OpenMeld <ArrowRightIcon aria-hidden size={16} />
-						</a>
+						<AppActions />
 					</section>
 				</main>
 				<footer className="meld-footer meld-wrap">

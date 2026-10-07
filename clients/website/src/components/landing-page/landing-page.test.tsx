@@ -4,14 +4,14 @@ import { LandingPage } from "./landing-page";
 
 it("sends application actions across the App boundary and keeps public guides on the website", () => {
 	render(<LandingPage />);
-	expect(
-		screen.getByRole("link", { name: "Open app" }).getAttribute("href")
-	).toBe("https://app.openmeld.ai/");
 	for (const link of screen.getAllByRole("link", {
-		name: "Start with OpenMeld",
+		name: "Open App Web",
 	})) {
 		expect(link.getAttribute("href")).toBe("https://app.openmeld.ai/");
 	}
+	expect(
+		screen.getByRole("link", { name: "Downloads" }).getAttribute("href")
+	).toBe("https://app.openmeld.ai/desktop");
 	for (const link of screen.getAllByRole("link", { name: "Add to Slack" })) {
 		expect(link.getAttribute("href")).toBe(
 			"https://app.openmeld.ai/add-to-slack"
