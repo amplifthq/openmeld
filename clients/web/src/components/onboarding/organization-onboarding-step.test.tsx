@@ -91,7 +91,6 @@ describe("OrganizationOnboardingStep", () => {
 					currentOrganization={personal}
 					currentUserId="user-1"
 					onOrganizationChosen={onOrganizationChosen}
-					onPreviewOrganizationChange={vi.fn()}
 					organizations={[personal]}
 				/>
 			</TestQueryClientProvider>
@@ -154,7 +153,6 @@ describe("OrganizationOnboardingStep", () => {
 					currentOrganization={personal}
 					currentUserId="user-1"
 					onOrganizationChosen={chosen}
-					onPreviewOrganizationChange={vi.fn()}
 					organizations={[personal]}
 				/>
 			</TestQueryClientProvider>
@@ -193,7 +191,6 @@ describe("OrganizationOnboardingStep", () => {
 					}}
 					currentUserId="user-1"
 					onOrganizationChosen={vi.fn().mockResolvedValue(undefined)}
-					onPreviewOrganizationChange={vi.fn()}
 					organizations={[
 						{
 							id: "org-amplift",
@@ -239,7 +236,6 @@ describe("OrganizationOnboardingStep", () => {
 			slug: "felix",
 		};
 		const onOrganizationChosen = vi.fn().mockResolvedValue(undefined);
-		const onPreviewOrganizationChange = vi.fn();
 
 		render(
 			<TestQueryClientProvider>
@@ -252,7 +248,6 @@ describe("OrganizationOnboardingStep", () => {
 					}}
 					currentUserId="user-1"
 					onOrganizationChosen={onOrganizationChosen}
-					onPreviewOrganizationChange={onPreviewOrganizationChange}
 					organizations={[
 						personalWorkspace,
 						{
@@ -274,7 +269,6 @@ describe("OrganizationOnboardingStep", () => {
 		await waitFor(() => {
 			expect(onOrganizationChosen).toHaveBeenCalledWith(personalWorkspace);
 		});
-		expect(onPreviewOrganizationChange).toHaveBeenCalledWith(personalWorkspace);
 	});
 
 	it("optimistically removes a pending invitation while joining", async () => {
@@ -293,7 +287,6 @@ describe("OrganizationOnboardingStep", () => {
 					}}
 					currentUserId="user-1"
 					onOrganizationChosen={onOrganizationChosen}
-					onPreviewOrganizationChange={vi.fn()}
 					organizations={[
 						{
 							id: "org-personal",

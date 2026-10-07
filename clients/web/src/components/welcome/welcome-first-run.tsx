@@ -10,6 +10,11 @@ import { useEffect } from "react";
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
 import { FullPagePending } from "#/components/app/full-page-pending";
 import { useStartFlowState } from "#/components/app/start-flow-state";
+import {
+	isActiveWalkthroughStep,
+	useWalkthrough,
+} from "#/components/onboarding/walkthrough/walkthrough-context";
+import { nextWelcomeSpaceName } from "#/components/onboarding/walkthrough/walkthrough-space-name";
 import { useUpdateUserName } from "#/hooks/account.hooks";
 import { useAuthSession } from "#/hooks/auth.hooks";
 import { resolveOnboardingFacts } from "#/lib/onboarding/onboarding-facts";
@@ -23,6 +28,7 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { listActiveProfilesByKind } from "#/lib/profiles/human-profiles";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
+import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import {
 	createSpaceInOrganization,
 	ORGANIZATION_SPACE_SCOPE_ERROR_MESSAGE,
@@ -98,6 +104,7 @@ function resolveWelcomeBackHandler(
 }
 
 function renderWelcomeSpaceStep(input: {
+	defaultName?: string;
 	onDiscover?: () => void;
 	accountSpacesIsError: boolean;
 	accountSpacesIsSuccess: boolean;
@@ -134,6 +141,7 @@ function renderWelcomeSpaceStep(input: {
 					: undefined
 			}
 			contextKind={input.contextKind}
+			defaultName={input.defaultName}
 			errorMessage={resolveCreateSpaceErrorMessage(input.createSpace.error)}
 			isPending={input.createSpace.isPending}
 			joinableSpaces={input.joinableSpaces}
@@ -157,6 +165,9 @@ function renderWelcomeSpaceStep(input: {
  * `selectWelcomeScreen`, so first-run never re-derives onboarding rules.
  */
 export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
+	const walkthrough = useWalkthrough();
+	const guideRecord = walkthrough?.record;
+	const guidedCreation = isActiveWalkthroughStep(guideRecord, "create-space");
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
@@ -209,6 +220,11 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 				name: item.spaceName,
 			}))
 		: [];
+	const suggestedSpaceName = resolveGuidedName(
+		guidedCreation,
+		accountSpaceSections,
+		currentOrganization.id
+	);
 
 	const screen = resolveWelcomeScreen({
 		actingProfile,
@@ -223,6 +239,7 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 			return;
 		}
 		navigate({
+			replace: guideRecord?.spaceId === spaceId,
 			to: buildOrganizationSpacePath({
 				orgSlug,
 				search: { profileId: actingProfile.openMeldProfileId },
@@ -257,6 +274,9 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 				return Promise.reject(
 					new Error("No usable profile to create a space.")
 				);
+			}
+			if (guidedCreation && walkthrough) {
+				return walkthrough.create(input).then((spaceId) => ({ spaceId }));
 			}
 			return createSpaceInOrganization({
 				actingProfile,
@@ -330,6 +350,7 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 			contextKind:
 				currentOrganization.isPersonal === true ? "personal" : "organization",
 			createSpace,
+			defaultName: suggestedSpaceName,
 			handleConnectComputer,
 			handleBack,
 			joinableSpaces,
@@ -347,6 +368,21 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 
 function WelcomeLoading() {
 	return <FullPagePending label="Loading" />;
+}
+
+function resolveGuidedName(
+	guided: boolean,
+	sections: AccountSpaceSections | undefined,
+	organizationId: string
+) {
+	if (!guided) {
+		return undefined;
+	}
+	return nextWelcomeSpaceName(
+		[...(sections?.pinnedItems ?? []), ...(sections?.spaceItems ?? [])]
+			.filter((item) => item.organizationId === organizationId)
+			.map((item) => item.spaceName)
+	);
 }
 
 function WelcomeDoneRedirect(input: { orgSlug: string }) {

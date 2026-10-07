@@ -1,18 +1,13 @@
 "use client";
 
+import { OpenMeldLoadingScreen } from "@openmeld/ui/components/openmeld-loading-screen";
 import { useNavigate } from "@tanstack/react-router";
 import type { PropsWithChildren } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { AppShellSection } from "#/components/app/shell-layout";
-import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
-import {
-	createInitialOnboardingProgress,
-	readOnboardingProgress,
-	resolveOnboardingResumeTarget,
-	writeOnboardingProgress,
-} from "#/lib/onboarding/onboarding-progress";
 import { buildOrganizationOnboardingPath } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { useWalkthrough } from "./walkthrough/walkthrough-context";
 
 type EntryState = "checking" | "ready" | "redirecting";
 
@@ -26,13 +21,20 @@ export function OnboardingEntryGate(
 	}>
 ) {
 	const navigate = useNavigate();
+	const walkthrough = useWalkthrough();
+	const hasWalkthrough = walkthrough?.hasStartedTutorial === true;
+	const walkthroughLoading = walkthrough?.loading === true;
 	const [entryState, setEntryState] = useState<EntryState>("checking");
 	const spaceJourneyScope = useRef<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
+		if (hasWalkthrough) {
+			setEntryState("ready");
+			return;
+		}
 		// A requested Space is already a concrete task. Keep its access gate and
-		// in-Space setup guidance; do not replace the destination with Studio.
+		// in-Space guidance; do not replace an invitation with the tutorial.
 		if (input.hasExplicitSpaceDestination) {
 			spaceJourneyScope.current = input.storageScope;
 		}
@@ -43,37 +45,17 @@ export function OnboardingEntryGate(
 			setEntryState("ready");
 			return;
 		}
-		const existing = readOnboardingProgress({
-			storage: window.localStorage,
-			storageScope: input.storageScope,
-		});
-		if (existing?.completedAtMs && input.currentSection !== "onboarding") {
+		if (input.currentSection === "onboarding") {
 			setEntryState("ready");
 			return;
 		}
-		if (!existing && input.currentSection === "onboarding") {
-			setEntryState("ready");
+		if (walkthroughLoading) {
+			setEntryState("checking");
 			return;
 		}
-		const progress =
-			existing ??
-			createInitialOnboardingProgress({
-				returnTo: `${window.location.pathname}${window.location.search}${window.location.hash}`,
-			});
-		const resumeTarget = resolveOnboardingResumeTarget({
-			currentOrganization: input.currentOrganization,
-			organizations: input.organizations,
-			progress,
-		});
-		writeOnboardingProgress({
-			progress: resumeTarget.progress,
-			storage: window.localStorage,
-			storageScope: input.storageScope,
-		});
-		if (
-			input.currentSection === "onboarding" &&
-			resumeTarget.organization.id === input.currentOrganization.id
-		) {
+		// A progress-service failure must not lock the user out of the product.
+		// The explicit tutorial entry owns its error and retry action.
+		if (walkthrough?.error) {
 			setEntryState("ready");
 			return;
 		}
@@ -81,7 +63,7 @@ export function OnboardingEntryGate(
 		Promise.resolve(
 			navigate({
 				replace: true,
-				to: buildOrganizationOnboardingPath(resumeTarget.organization.slug),
+				to: buildOrganizationOnboardingPath(input.currentOrganization.slug),
 			})
 		).catch((error: unknown) => {
 			if (cancelled) {
@@ -97,36 +79,18 @@ export function OnboardingEntryGate(
 			cancelled = true;
 		};
 	}, [
+		hasWalkthrough,
+		walkthroughLoading,
+		walkthrough?.error,
 		input.currentOrganization,
 		input.currentSection,
 		input.hasExplicitSpaceDestination,
-		input.organizations,
 		input.storageScope,
 		navigate,
 	]);
 
 	if (entryState !== "ready") {
-		return <OnboardingRedirectSurface />;
+		return <OpenMeldLoadingScreen className="h-dvh" />;
 	}
 	return input.children;
-}
-
-function OnboardingRedirectSurface() {
-	return (
-		<main
-			aria-busy="true"
-			aria-label="Opening OpenMeld setup"
-			className="grid h-dvh place-items-center overflow-hidden bg-background"
-		>
-			<div className="flex flex-col items-center gap-5 text-muted-foreground">
-				<OpenMeldLogo
-					ariaLabel="OpenMeld"
-					className="text-foreground"
-					pointerTracking="element"
-					scale={0.18}
-				/>
-				<span className="h-px w-12 animate-pulse bg-border" />
-			</div>
-		</main>
-	);
 }

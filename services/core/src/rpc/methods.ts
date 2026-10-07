@@ -194,6 +194,7 @@ import {
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
   executeAgentProfileWorkRecoveryBodySchema,
   executeAgentProfileWorkRecoveryResponseSchema,
+  firstWorkResponseSchema,
   forgetComputerResponseSchema,
   forgetComputerRouteParamsSchema,
   forgetCurrentComputerResponseSchema,
@@ -1031,6 +1032,12 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
+import {
+  hasStartedTutorial,
+  readFirstWork,
+  reserveFirstWork,
+  updateFirstWork,
+} from "../onboarding/first-work";
 import {
   rpcCenterAgentListOpportunities as centerAgentListOpportunities,
   rpcCenterAgentRecommendOpportunity as centerAgentRecommendOpportunity,
@@ -19077,6 +19084,86 @@ export async function rpcWriteCurrentDeviceObservedMetadata(
     metadata: parsed.data.metadata,
   });
 }
+export async function rpcFirstWork(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput } & (
+    | import("@openmeld/schemas").FirstWorkAction
+    | { action?: undefined }
+  )
+) {
+  const context = requireRpcContext(input.context);
+  const scope = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const human = requireHumanSpaceMemberFromContext({
+    context,
+    userId: scope.userId,
+  });
+  const db = requireCenterAgentDb(env);
+  let record = await readFirstWork(db, scope);
+  if (input.action === "start") {
+    // The same bootstrap owner used by Center Agent conversations. Fresh
+    // organizations must have a real candidate before opening the picker.
+    await readOrInitializeCenterAgentDesignation({
+      activeOrganization: scope,
+      context,
+      db,
+      env,
+      required: true,
+    });
+    record = await reserveFirstWork(db, {
+      ...scope,
+      profileId: human.profileId,
+      spaceId: resolveNewSpaceId(env.OPENMELD_SPACES).toString(),
+      runId: input.runId,
+      previousRunId: input.previousRunId,
+    });
+  }
+  if (input.action === "progress" && record?.runId === input.runId) {
+    record = await updateFirstWork(db, { ...scope, ...input });
+  }
+  if (input.action === "create") {
+    if (
+      !record ||
+      record.runId !== input.runId ||
+      record.profileId !== human.profileId
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "onboarding.run_changed",
+        reason: "The tutorial changed in another tab. Open Help to continue.",
+      });
+    }
+    // Same Space owner and authorization as ordinary creation. The reserved ID
+    // makes retries safe if the create response is lost. Never add members here.
+    await createSpaceWithResolvedId(env, {
+      ...input.space,
+      context,
+      organizationId: scope.organizationId,
+      spaceId: record.spaceId,
+      name: input.space.name,
+      visibility: input.space.visibility ?? "private",
+      accessMode: input.space.accessMode ?? "members_only",
+    });
+    if (record.step === "create-space") {
+      record = await updateFirstWork(db, {
+        ...scope,
+        runId: record.runId,
+        revision: record.revision,
+        step: "add-center-agent",
+        paused: false,
+      });
+    }
+  }
+  // This association never grants Space access. SpaceEntryGate and every
+  // ordinary Space request still enforce current membership and access.
+  return firstWorkResponseSchema.parse({
+    record: await readFirstWork(db, scope),
+    hasStartedTutorial: await hasStartedTutorial(db, scope.userId),
+  });
+}
+
 export async function rpcCreateSpace(
   env: CoreBindings,
   input?: CreateSpaceInput

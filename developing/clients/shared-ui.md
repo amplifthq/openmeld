@@ -402,6 +402,11 @@ Its readout must load independently of the owner's editable Binding settings.
 
 ### Loading regions
 
+`OpenMeldLoadingScreen` presents a centered, pointer-responsive shared Logo
+without visible loading copy or a progress bar. Web first-run admission and
+Desktop session loading reuse this surface. Their callers retain pending,
+authentication, error, and retry ownership; the Logo honors reduced motion.
+
 Keep the authorized shell, navigation, known identity, and unrelated usable
 content visible while a region loads. Shared `SkeletonRegion`, `SkeletonRows`,
 `SkeletonForm`, and `SkeletonTable` are presentation only: the caller owns query

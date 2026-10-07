@@ -54,6 +54,10 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
+import {
+	isActiveWalkthroughStep,
+	useWalkthrough,
+} from "#/components/onboarding/walkthrough/walkthrough-context";
 import { SpacePickerCreateAgent } from "#/components/profiles/space-picker-create-agent";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
@@ -898,6 +902,13 @@ function SpaceAddProfilesSection(input: SpaceAddProfilesSectionProps) {
 }
 
 function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
+	const walkthrough = useWalkthrough();
+	const preselectedRun = useRef<string | null>(null);
+	const guidedRun =
+		isActiveWalkthroughStep(walkthrough?.record, "add-center-agent") &&
+		walkthrough?.record?.spaceId === input.spaceId
+			? walkthrough?.record?.runId
+			: null;
 	const queryClient = useQueryClient();
 	const [selectedProfileIds, setSelectedProfileIds] = useState<
 		ReadonlySet<string>
@@ -998,6 +1009,23 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		[candidateGroups]
 	);
 	const normalizedAddQuery = addQuery.trim().toLocaleLowerCase();
+	useEffect(() => {
+		if (!input.open) {
+			preselectedRun.current = null;
+			return;
+		}
+		if (!guidedRun || preselectedRun.current === guidedRun || !input.snapshot) {
+			return;
+		}
+		const center = allCandidates.find(
+			(candidate) => candidate.isCenterAgent && !candidate.alreadyMember
+		);
+		if (!center) {
+			return;
+		}
+		preselectedRun.current = guidedRun;
+		setSelectedProfileIds(new Set([center.profileId]));
+	}, [input.open, input.snapshot, guidedRun, allCandidates]);
 	useEffect(() => {
 		const scope = organizationContext?.storageScope;
 		if (!(input.open && scope && activeSpaceId && input.snapshot)) {
@@ -1369,7 +1397,45 @@ type SpaceAddProfilesDialogProps = {
 	usesOrganizationDirectory: boolean;
 };
 
+function useWalkthroughPickerGuidance(
+	spaceId: string | undefined,
+	isSubmitting: boolean
+) {
+	const walkthrough = useWalkthrough();
+	const record = walkthrough?.record;
+	if (
+		!(walkthrough && record) ||
+		record.spaceId !== spaceId ||
+		record.paused ||
+		!(record.step === "add-center-agent" || record.step === "add-local-agent")
+	) {
+		return null;
+	}
+	return {
+		description:
+			record.step === "add-center-agent"
+				? "Add your Center Agent to get started. You can change the selection."
+				: "Add your local agent to this Space.",
+		action: (
+			<Button
+				disabled={walkthrough.pending || isSubmitting}
+				onClick={() =>
+					walkthrough.progress(record.step, true).catch(() => undefined)
+				}
+				size="sm"
+				variant="secondary"
+			>
+				Pause tutorial
+			</Button>
+		),
+	};
+}
+
 function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
+	const guidance = useWalkthroughPickerGuidance(
+		input.spaceId,
+		input.isSubmitting
+	);
 	const [creating, setCreating] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const waitsForDirectory =
@@ -1399,9 +1465,10 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			candidateGroups={input.candidateGroups}
 			canSubmit={input.canSubmit}
 			description={
-				input.usesOrganizationDirectory
+				guidance?.description ??
+				(input.usesOrganizationDirectory
 					? `Select people or agents from ${input.organizationName} to add directly to this Space.`
-					: "Choose people and their agents to add to this Space."
+					: "Choose people and their agents to add to this Space.")
 			}
 			emptyMessage={input.emptyMessage}
 			emptySelectionLabel="Select members to add"
@@ -1455,6 +1522,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			onToggle={input.onToggle}
 			open={input.open}
 			query={input.addQuery}
+			secondaryAction={guidance?.action}
 			selectedProfileIds={input.selectedProfileIds}
 			submitLabel={resolveAddMembersSubmitLabel(input)}
 			title="Add People or Agents"

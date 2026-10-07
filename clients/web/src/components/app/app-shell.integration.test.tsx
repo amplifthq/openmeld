@@ -6,11 +6,6 @@ import {
 	resolveStartFlowStorageKey,
 	serializeStartFlowState,
 } from "#/components/app/start-flow-state";
-import {
-	completeOnboardingProgress,
-	createInitialOnboardingProgress,
-	writeOnboardingProgress,
-} from "#/lib/onboarding/onboarding-progress";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { AppShell } from "./app-shell";
@@ -138,14 +133,10 @@ describe("AppShell", () => {
 	beforeEach(() => {
 		window.localStorage.clear();
 		window.sessionStorage.clear();
-		writeOnboardingProgress({
-			progress: completeOnboardingProgress({
-				current: createInitialOnboardingProgress({ nowMs: 1 }),
-				nowMs: 2,
-			}),
-			storage: window.localStorage,
-			storageScope: "user-123",
-		});
+		window.localStorage.setItem(
+			"openmeld:onboarding:user-123:v1",
+			JSON.stringify({ version: 1, completedAtMs: 2 })
+		);
 		useNavigateMock.mockReset();
 		useRouterStateMock.mockReset().mockReturnValue("/o/acme/connect");
 		routerMatchesMock.mockReset();

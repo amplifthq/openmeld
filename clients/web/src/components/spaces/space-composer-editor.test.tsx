@@ -1379,6 +1379,28 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
+	it("does not write a draft when only the caret moves after restoration", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const props = {
+			addressingTargets: [],
+			ariaLabel: "Message this space",
+			authoredMentions: [],
+			composerRef,
+			mentionPickerItems: [],
+			onChange,
+			onSend: vi.fn(),
+			placeholder: "Message",
+		};
+		const view = render(<SpaceComposerEditor {...props} text="" />);
+		view.rerender(<SpaceComposerEditor {...props} text="My edited draft" />);
+		await act(() => {
+			composerRef.current?.selectTextRange({ start: 3, end: 3 });
+		});
+		expect(screen.getByText("My edited draft")).toBeTruthy();
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
 	it("cancels deferred draft focus when the user focuses another input", () => {
 		const frames: FrameRequestCallback[] = [];
 		const animationFrame = vi

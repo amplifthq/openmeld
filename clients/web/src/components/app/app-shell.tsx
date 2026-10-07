@@ -8,6 +8,8 @@ import { InboxBrowserTab } from "#/components/inbox/inbox-browser-tab";
 import { InboxNotificationListener } from "#/components/inbox/inbox-notification-listener";
 import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visible-conversation";
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
+import { WalkthroughProvider } from "#/components/onboarding/walkthrough/walkthrough-context";
+import { WalkthroughGuide } from "#/components/onboarding/walkthrough/walkthrough-guide";
 import { HumanPresenceProvider } from "#/components/profiles/human-presence";
 import AppSettingsDialog from "#/components/settings/app-settings-dialog";
 import { ConversationNamesProvider } from "#/components/spaces/conversation-names";
@@ -87,23 +89,26 @@ export function AppShell(input: {
 											}
 											userId={input.organizationScope.currentUserId}
 										/>
-										<OnboardingEntryGate
-											currentOrganization={
-												input.organizationScope.currentOrganization
-											}
-											currentSection={currentSection}
-											hasExplicitSpaceDestination={Boolean(activeSpaceId)}
-											organizations={input.organizationScope.organizations}
-											storageScope={input.storageScope}
-										>
-											{currentSection === "space" && activeSpaceId ? (
-												<InboxBrowserNotificationPrompt
-													userId={input.organizationScope.currentUserId}
-												/>
-											) : null}
-											<AppShellScaffold currentSection={currentSection} />
-											<AppSettingsDialog />
-										</OnboardingEntryGate>
+										<WalkthroughProvider>
+											<OnboardingEntryGate
+												currentOrganization={
+													input.organizationScope.currentOrganization
+												}
+												currentSection={currentSection}
+												hasExplicitSpaceDestination={Boolean(activeSpaceId)}
+												organizations={input.organizationScope.organizations}
+												storageScope={input.storageScope}
+											>
+												{currentSection === "space" && activeSpaceId ? (
+													<InboxBrowserNotificationPrompt
+														userId={input.organizationScope.currentUserId}
+													/>
+												) : null}
+												<AppShellScaffold currentSection={currentSection} />
+												<AppSettingsDialog />
+												<WalkthroughGuide />
+											</OnboardingEntryGate>
+										</WalkthroughProvider>
 									</InboxVisibleConversationProvider>
 								</ConversationNamesProvider>
 							</CurrentComputerProvider>
