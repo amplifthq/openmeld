@@ -72,7 +72,8 @@ receivers keep their strict wire contract. Wake, setup, status, traces, Space
 actions, CLI commands and helper skills keep their existing contracts; no local
 contract epoch bump or required-client update is needed. Updated Desktop/Service
 artifacts are available updates. Cloud rollout is receiver-first: Remote Agent,
-then native migration `0029_user_time_context`, Auth and Core, then Gateway/Web and
+then native migrations `0029_user_time_context` and `0030_user_time_account_guard`,
+Auth and Core, then Gateway/Web and
 client artifacts. Remote Agent callbacks do not change, so this order introduces
 no reverse dependency. Rollback removes newer callers before their receivers and
 retains the additive table. No historical backfill is required.

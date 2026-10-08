@@ -25,7 +25,9 @@
 Core's PostgreSQL `user_time_contexts` table owns one observed timezone per
 authenticated user, with its claimed client source and server observation time.
 Auth erases this observation in the account-deletion transaction; the user
-foreign key also cascades on physical user deletion. This row is context, not a
+foreign key also cascades on physical user deletion. The existing live-account
+guard serializes observation writes with deletion acceptance and rejects a late
+write after the user's soft deletion. This row is context, not a
 clock, location record, explicit preference or per-device history. Routine
 timezone remains in each Routine's schedule.
 

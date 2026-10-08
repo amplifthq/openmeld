@@ -1,6 +1,7 @@
 import { accountDeletionPreviewSchema } from "@openmeld/schemas";
 import { afterEach, describe, expect, it } from "vitest";
 import { createPostgresHarness } from "../../../tooling/postgresql/test-harness";
+import { recordUserTimeZoneObservation } from "../../core/src/user-time-context/user-time-context-repository";
 import {
   requestAccountConnectionCleanup,
   runAccountDeletionCleanup,
@@ -99,10 +100,14 @@ describe("account deletion", () => {
     );
     expect(preview.deleteOrganizations).toHaveLength(1);
     expect(preview.requiresPassword).toBe(true);
-    await context.harness.query({
-      text: 'INSERT INTO "openmeld"."user_time_contexts" (user_id, time_zone, source, observed_at_ms) VALUES ($1, $2, $3, $4)',
-      values: [context.userId, "Asia/Taipei", "desktop", Date.now()],
-    });
+    const observeTime = () =>
+      recordUserTimeZoneObservation({
+        db: context.harness.db,
+        userId: context.userId,
+        observation: { timeZone: "Asia/Taipei", source: "desktop" },
+        nowMs: Date.now(),
+      });
+    await observeTime();
     const body = {
       confirmation: "DELETE",
       confirmationToken: preview.confirmationToken,
@@ -148,6 +153,13 @@ describe("account deletion", () => {
         ).length
       ).toBe(0);
     }
+    await expect(observeTime()).rejects.toThrow("account_unavailable");
+    expect(
+      await context.harness.queryFirst({
+        text: 'SELECT 1 FROM "openmeld"."user_time_contexts" WHERE user_id = $1',
+        values: [context.userId],
+      })
+    ).toBeNull();
     await expect(
       context.harness.query({
         text: `INSERT INTO "openmeld"."sessions" (id, token, user_id, expires_at, updated_at) VALUES ('late-session', 'late-token', $1, $2, $2)`,
