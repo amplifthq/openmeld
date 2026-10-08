@@ -295,12 +295,12 @@ index 0000000000000000000000000000000000000000..3abc3bc6a00d2fd717fb9093182fc444
 +  };
 +}
 diff --git a/dist/conversation-stream-store-2-jUriih.mjs b/dist/conversation-stream-store-2-jUriih.mjs
-index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8fef614a7 100644
+index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e7b15bc1a 100644
 --- a/dist/conversation-stream-store-2-jUriih.mjs
 +++ b/dist/conversation-stream-store-2-jUriih.mjs
 @@ -1,4 +1,6 @@
  import { c as encodeBase64, d as abortErrorFor, f as composeTimeoutSignal, m as raceToolWithDeadline, p as createCallHandle, r as createCwdSandbox, s as decodeBase64, u as abandonToolOnAbort } from "./sandbox-CR3o1Qmd.mjs";
-+import { buildCanonicalActionEvidence, collectRecordedSubmissionMetadata, projectSubmissionRetryTextPrefix } from "./dispatch-BlxCz6iq.mjs";
++import { buildCanonicalActionEvidence, collectRecordedSubmissionMetadata, projectSubmissionRetryTextPrefix, isOutputLimitedResponse, MAX_OUTPUT_LIMIT_CONTINUATIONS, OUTPUT_LIMIT_FAILURE_REASON } from "./dispatch-BlxCz6iq.mjs";
 +import { measureWorkingContext, workingContextBudget } from "./working-context.mjs";
  import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-BWvTzP0z.mjs";
  import { A as SubmissionAbortedError, B as classifyError, C as SessionBusyError, E as SkillNotRegisteredError, G as normalizeLogAttributes, I as ToolNameConflictError, M as SubmissionInterruptedError, N as SubmissionRetryExhaustedError, P as SubmissionTimeoutError, Q as generateBlockId, X as deriveKeyedSubmissionId, Y as createConversationIdentity, Z as generateAttemptId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateTaskId, d as FlueError, et as generateIncarnationId, g as OperationFailedError, it as generateOperationId, j as SubmissionConflictError, k as SubagentNotDeclaredError, l as ConversationStreamStoreError, lt as generateToolCallId, m as InvalidRequestError, n as AgentInstanceNotFoundError, nt as generateInstanceUid, pt as interceptExecution, q as serializeEventError, rt as generateInvocationId, st as generateSubmissionId, t as AgentInstanceExistsError, u as DelegationDepthExceededError, ut as generateTurnId } from "./errors-BcRwz-UD.mjs";
@@ -625,7 +625,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  		let start = options.start;
  		let assistant = options.resume?.assistant;
  		let turnCompleted = false;
-@@ -4088,12 +4196,16 @@ var Session = class {
+@@ -4088,12 +4196,17 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -635,7 +635,9 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  		while (true) {
  			const overflow = assistant !== void 0 && isAssistantContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
  			const retryable = !overflow && assistant !== void 0 && isRetryableModelError(assistant);
- 			if (turnCompleted && !overflow && !retryable) {
+-			if (turnCompleted && !overflow && !retryable) {
++			const truncated = assistant !== undefined && isOutputLimitedResponse(assistant);
++			if (turnCompleted && !overflow && !retryable && !truncated) {
 +				if (this.modelRecoveryAttempt > 0 && assistant && assistant.stopReason !== "error" && assistant.stopReason !== "aborted") {
 +					this.internalLog("info", "[flue:model-retry] Model recovery completed", { modelRecovery: true, state: "recovered", attempt: this.modelRecoveryAttempt, maxRetries: this.config.modelRetry?.maxRetries ?? MAX_TRANSIENT_MODEL_RETRIES, nextRetryAtMs: 0 });
 +				}
@@ -643,9 +645,52 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  				const settledAssistant = assistant ?? this.agentLoop.state.messages.findLast((message) => message.role === "assistant");
  				if (settledAssistant !== void 0) await this.checkCompaction(settledAssistant);
  				if (assistant?.stopReason === "error" || assistant?.stopReason === "aborted") await this.rebuildCanonicalContext();
-@@ -4145,20 +4257,24 @@ var Session = class {
+@@ -4104,7 +4217,10 @@ var Session = class {
+ 				return;
+ 			}
+ 			throwIfHalted();
+-			if (overflow && assistant !== void 0) {
++			if (truncated) {
++				await this.prepareOutputLimitContinuation();
++				start = continueRebuilt;
++			} else if (overflow && assistant !== void 0) {
+ 				overflowRecoveryAttempted = true;
+ 				this.internalLog("info", "[flue:compaction] Overflow detected, compacting...");
+ 				await this.rebuildCanonicalContext();
+@@ -4130,7 +4246,7 @@ var Session = class {
+ 				}
+ 				start = continueRebuilt;
+ 			}
+-			if (overflow || retryable) throwIfHalted();
++			if (overflow || retryable || truncated) throwIfHalted();
+ 			try {
+ 				await start();
+ 				await this.agentLoop.waitForIdle();
+@@ -4144,21 +4260,46 @@ var Session = class {
+ 			assistant = latest?.role === "assistant" ? latest : void 0;
  		}
  	}
++	async prepareOutputLimitContinuation() {
++		await this.flushCanonical();
++		const conversation = await this.requireConversation();
++		const truncated = getActiveConversationPath(conversation).filter((entry) =>
++			entry.type === "message" && isOutputLimitedResponse(entry.message) &&
++			(this.activeSubmissionId ? entry.submissionId === this.activeSubmissionId : entry.operationId === this.activeOperationId));
++		if (truncated.length > MAX_OUTPUT_LIMIT_CONTINUATIONS) throw new OperationFailedError({ operation: "complete response", reason: OUTPUT_LIMIT_FAILURE_REASON });
++		const partial = truncated.at(-1);
++		if (!partial) throw new Error("[flue] Truncated response is missing its canonical record.");
++		const messageId = `entry_output_limit_${partial.id}`;
++		if (!conversation.entries.has(messageId)) {
++			await this.appendCanonical([{
++				...this.canonicalEnvelope("signal", `record_output_limit_${partial.id}`),
++				type: "signal", messageId, parentId: conversation.activeLeafId,
++				signalType: "output_limit_continuation",
++				content: "Your previous response reached its output limit and is incomplete. Return one complete, shorter answer from the beginning in the requested format. Use the existing results; do not repeat completed actions. State any unresolved work clearly."
++			}]);
++		}
++		await this.rebuildCanonicalContext();
++		this.internalLog("info", "[flue:output-limit] Continuing incomplete response", { attempt: truncated.length, maxContinuations: MAX_OUTPUT_LIMIT_CONTINUATIONS });
++	}
  	async waitForTransientModelRetry(assistant, attempt) {
 -		if (attempt > MAX_TRANSIENT_MODEL_RETRIES) {
 +		const maxRetries = this.config.modelRetry?.maxRetries ?? MAX_TRANSIENT_MODEL_RETRIES;
@@ -671,7 +716,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  			delayMs,
  			error: assistant.errorMessage
  		});
-@@ -4171,6 +4287,10 @@ var Session = class {
+@@ -4171,6 +4312,10 @@ var Session = class {
  	}
  	async checkCompaction(assistantMessage) {
  		if (assistantMessage.stopReason === "aborted" || assistantMessage.stopReason === "error") return;
@@ -682,7 +727,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  		const model = this.agentLoop.state.model;
  		const settings = this.resolveCompactionSettings(model);
  		if (!settings.enabled) return;
-@@ -4189,6 +4309,7 @@ var Session = class {
+@@ -4189,6 +4334,7 @@ var Session = class {
  	* triggered compaction.
  	*/
  	async runCompaction(reason) {
@@ -690,7 +735,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  		this.compactionAbortController = new AbortController();
  		const messagesBefore = this.agentLoop.state.messages.length;
  		const compactionStartMs = Date.now();
-@@ -4197,30 +4318,51 @@ var Session = class {
+@@ -4197,30 +4343,51 @@ var Session = class {
  			const sessionModel = this.agentLoop.state.model;
  			const settings = this.resolveCompactionSettings(sessionModel);
  			const compactionConfig = this.config.compaction === false ? void 0 : this.config.compaction;
@@ -743,7 +788,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4230,6 +4372,7 @@ var Session = class {
+@@ -4230,6 +4397,7 @@ var Session = class {
  			});
  			terminalPending = true;
  			const result = await compact(preparation, summarizationModel, this.compactionAbortController.signal, {
@@ -751,7 +796,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  				start: (purpose, model, context, options) => {
  					const handle = { turnId: generateTurnId() };
  					this.emitTurnRequest(handle.turnId, purpose, model, context, options);
-@@ -4266,6 +4409,21 @@ var Session = class {
+@@ -4266,6 +4434,21 @@ var Session = class {
  			{
  				const sourceLeafId = (await this.requireConversation()).activeLeafId;
  				if (!sourceLeafId) throw new Error("[flue] Canonical compaction has no source leaf.");
@@ -773,7 +818,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  				await this.rebaselineResources({
  					...this.canonicalEnvelope("compaction"),
  					type: "compaction",
-@@ -4288,11 +4446,13 @@ var Session = class {
+@@ -4288,11 +4471,13 @@ var Session = class {
  				messagesAfter,
  				durationMs: durationSince(compactionStartMs),
  				isError: false,
@@ -787,7 +832,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  			const errorMessage = error instanceof Error ? error.message : String(error);
  			this.internalLog("error", `[flue:compaction] Failed: ${errorMessage}`, { error });
  			if (terminalPending) this.emit({
-@@ -4303,7 +4463,10 @@ var Session = class {
+@@ -4303,7 +4488,10 @@ var Session = class {
  				isError: true,
  				error: serializeEventError(error)
  			}, { errorInfo: classifyError(error) });
@@ -799,7 +844,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  			return false;
  		} finally {
  			this.compactionAbortController = void 0;
-@@ -4574,7 +4737,7 @@ var Session = class {
+@@ -4574,7 +4762,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -808,7 +853,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4616,12 +4779,19 @@ var Session = class {
+@@ -4616,12 +4804,19 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -829,7 +874,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  				this.activeSubmissionAttemptId = void 0;
  				this.activeJoinSource = void 0;
  				this.activeJoinSignal = void 0;
-@@ -5018,7 +5188,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+@@ -5018,7 +5213,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -849,7 +894,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  	};
  }
  /**
-@@ -5039,10 +5220,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5039,10 +5245,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -877,7 +922,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5056,7 +5253,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5056,7 +5278,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -886,7 +931,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5082,6 +5279,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5082,6 +5304,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -903,7 +948,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5098,7 +5305,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5098,7 +5330,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -912,7 +957,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5113,6 +5320,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5113,6 +5345,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -923,7 +968,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5126,8 +5337,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5126,8 +5362,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -954,7 +999,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5159,11 +5392,32 @@ async function processSubmission(opts) {
+@@ -5159,11 +5417,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -991,7 +1036,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5193,17 +5447,7 @@ async function processSubmission(opts) {
+@@ -5193,17 +5472,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -1010,7 +1055,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5223,7 +5467,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5223,7 +5492,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -1023,7 +1068,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5257,10 +5505,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5257,10 +5530,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -1037,7 +1082,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..4488649bca35ae7ffa67d8331aef35f8
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-BlxCz6iq.mjs b/dist/dispatch-BlxCz6iq.mjs
-index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f30c91c6a 100644
+index 94d0dc4e069259c5f321b429e5a086ed724c5158..253f8705ffaba070ee2e4474f32345fda6812fab 100644
 --- a/dist/dispatch-BlxCz6iq.mjs
 +++ b/dist/dispatch-BlxCz6iq.mjs
 @@ -1,9 +1,12 @@
@@ -1053,7 +1098,15 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  //#region src/conversation-records.ts
  /**
  * Signal types reserved as framework vocabulary: `dispatch()` admission and
-@@ -378,9 +381,14 @@ function toolResultOutput(content) {
+@@ -21,6 +24,7 @@ const RESERVED_SIGNAL_TYPES = /* @__PURE__ */ new Set([
+ 	"environment",
+ 	"stream_interrupted",
+ 	"stream_continued",
++	"output_limit_continuation",
+ 	"submission_aborted",
+ 	"submission_interrupted",
+ 	"compaction",
+@@ -378,9 +382,14 @@ function toolResultOutput(content) {
  function toolResultText(content) {
  	return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
  }
@@ -1070,7 +1123,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  }
  function escapeXmlText(value) {
  	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-@@ -926,6 +934,12 @@ function buildConversationContextEntries(conversation, options = {}) {
+@@ -926,6 +935,12 @@ function buildConversationContextEntries(conversation, options = {}) {
  			}), compaction.timestamp),
  			sourceEntry: compaction
  		},
@@ -1083,7 +1136,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  		...pathToContextEntries(path.slice(keptStart, latestCompactionIndex), options),
  		...pathToContextEntries(path.slice(latestCompactionIndex + 1), options)
  	];
-@@ -945,7 +959,7 @@ function pathToContextEntries(path, options) {
+@@ -945,7 +960,7 @@ function pathToContextEntries(path, options) {
  		const message = resolveMessageAttachments(entry, options);
  		if (message.role === "signal") {
  			messages.push({
@@ -1092,7 +1145,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  				sourceEntry: entry
  			});
  			index += 1;
-@@ -1730,6 +1744,7 @@ function estimateTokens(message) {
+@@ -1730,6 +1745,7 @@ function estimateTokens(message) {
  			if (typeof content === "string") chars = content.length;
  			else if (Array.isArray(content)) {
  				for (const block of content) if (block.type === "text") chars += block.text.length;
@@ -1100,7 +1153,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  			}
  			return Math.ceil(chars / 4);
  		}
-@@ -1743,7 +1758,7 @@ function estimateTokens(message) {
+@@ -1743,7 +1759,7 @@ function estimateTokens(message) {
  		case "toolResult": {
  			const { content } = message;
  			for (const block of content) if (block.type === "text") chars += block.text.length;
@@ -1109,7 +1162,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  			return Math.ceil(chars / 4);
  		}
  	}
-@@ -1812,6 +1827,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
+@@ -1812,6 +1828,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
  	return `\n\n${sections.join("\n\n")}`;
  }
  const TOOL_RESULT_MAX_CHARS = 2e3;
@@ -1118,7 +1171,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  function truncateForSummary(text, maxChars) {
  	if (text.length <= maxChars) return text;
  	const truncatedChars = text.length - maxChars;
-@@ -1845,6 +1862,60 @@ function serializeConversation(messages) {
+@@ -1845,6 +1863,60 @@ function serializeConversation(messages) {
  	}
  	return parts.join("\n\n");
  }
@@ -1179,7 +1232,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  const SUMMARIZATION_SYSTEM_PROMPT = "You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
  const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
  
-@@ -1857,36 +1928,45 @@ Use this EXACT format:
+@@ -1857,36 +1929,45 @@ Use this EXACT format:
  - [Any constraints, preferences, or requirements mentioned by user]
  - [Or "(none)" if none were mentioned]
  
@@ -1239,7 +1292,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  
  Use this EXACT format:
  
-@@ -1896,22 +1976,18 @@ Use this EXACT format:
+@@ -1896,22 +1977,18 @@ Use this EXACT format:
  ## Constraints & Preferences
  - [Preserve existing, add new ones discovered]
  
@@ -1268,7 +1321,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  ## Critical Context
  - [Preserve important context, add new if needed]
  
-@@ -1924,12 +2000,18 @@ Summarize the prefix to provide context for the retained suffix:
+@@ -1924,12 +2001,18 @@ Summarize the prefix to provide context for the retained suffix:
  [What did the user ask for in this turn?]
  
  ## Early Progress
@@ -1289,7 +1342,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  /** Valid cut points: user or assistant messages. Never cut at toolResult. */
  function findValidCutPoints(messages, start, end) {
  	const cutPoints = [];
-@@ -1958,10 +2040,10 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
+@@ -1958,10 +2041,10 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
  		const messageTokens = estimateTokens(message);
  		accumulatedTokens += messageTokens;
  		if (accumulatedTokens >= keepRecentTokens) {
@@ -1304,7 +1357,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  			break;
  		}
  	}
-@@ -2007,7 +2089,7 @@ function prepareCompaction(messages, settings, previousCompaction) {
+@@ -2007,7 +2090,7 @@ function prepareCompaction(messages, settings, previousCompaction) {
  * generateSummary and generateTurnPrefixSummary; those two only differ in the
  * prompt they build, the purpose label, and the error-message prefix.
  */
@@ -1313,7 +1366,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  	const summarizationMessages = [{
  		role: "user",
  		content: [{
-@@ -2020,60 +2102,90 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+@@ -2020,60 +2103,90 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
  		maxTokens,
  		signal
  	};
@@ -1431,13 +1484,63 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2421,6 +2533,17 @@ function supersededAssistantErrorEntryIds(conversation) {
+@@ -2166,6 +2279,13 @@ function classifySubmissionState(following, opts) {
+ 			assistant
+ 		};
+ 	}
++	if (isOutputLimitedResponse(assistant) && following.filter((entry) => entry.type === "message" && isOutputLimitedResponse(entry.message)).length > MAX_OUTPUT_LIMIT_CONTINUATIONS) return { kind: "terminal_error", reason: OUTPUT_LIMIT_FAILURE_REASON };
++	if (assistant.stopReason === "length") return {
++		kind: "resume",
++		mode: "output_limit",
++		assistant,
++		consecutiveRetryableErrors: countConsecutiveRetryableModelErrors(following)
++	};
+ 	if (isCompletedAssistantResponse(assistant)) return {
+ 		kind: "completed",
+ 		assistant,
+@@ -2320,7 +2440,12 @@ function isToolBatchAssistant(message) {
+ 	return message.stopReason === "toolUse" || (message.stopReason === "length" || message.stopReason === "stop") && message.content.some((block) => block.type === "toolCall");
+ }
+ function isCompletedAssistantResponse(message) {
+-	return message.stopReason === "stop" || message.stopReason === "length";
++	return message.stopReason === "stop";
++}
++export const MAX_OUTPUT_LIMIT_CONTINUATIONS = 2;
++export const OUTPUT_LIMIT_FAILURE_REASON = "model.output_limit_exhausted: The response remained incomplete after two continuation attempts.";
++export function isOutputLimitedResponse(message) {
++	return message.role === "assistant" && message.stopReason === "length" && !message.content.some((block) => block.type === "toolCall");
+ }
+ function countConsecutiveRetryableModelErrors(entries) {
+ 	let count = 0;
+@@ -2352,6 +2477,7 @@ function countConsecutiveRetryableModelErrors(entries) {
+ function classifySignal(signalType) {
+ 	switch (signalType) {
+ 		case "stream_interrupted":
++		case "output_limit_continuation":
+ 		case "stream_continued": return {
+ 			purpose: "advisory",
+ 			display: "hidden"
+@@ -2409,22 +2535,33 @@ function classifyConversationSubmission(conversation, inputEntryId, options) {
+ * replacement step. Once replaced, keep the first step's response shell (its
+ * id is the stable live-stream target) but omit the superseded model content.
+ */
+-function supersededAssistantErrorEntryIds(conversation) {
++function supersededAssistantDraftEntryIds(conversation) {
+ 	const path = getActiveConversationPath(conversation);
+ 	const laterSubmissions = new Set([...conversation.inProgressMessages.values()].flatMap((message) => message.submissionId ? [message.submissionId] : []));
+ 	const superseded = /* @__PURE__ */ new Set();
+ 	for (let index = path.length - 1; index >= 0; index--) {
+ 		const entry = path[index];
+ 		if (entry?.type !== "message" || entry.message.role !== "assistant") continue;
+-		if (entry.message.stopReason === "error" && entry.submissionId && laterSubmissions.has(entry.submissionId)) superseded.add(entry.id);
++		if ((entry.message.stopReason === "error" || isOutputLimitedResponse(entry.message)) && entry.submissionId && laterSubmissions.has(entry.submissionId)) superseded.add(entry.id);
+ 		if (entry.submissionId) laterSubmissions.add(entry.submissionId);
  	}
  	return superseded;
  }
 +export function projectSubmissionRetryTextPrefix(conversation, submissionId) {
 +	const previous = getActiveConversationPath(conversation).findLast((entry) => entry.type === "message" && entry.message.role === "assistant" && entry.submissionId === submissionId);
-+	if (previous?.message.stopReason !== "error") return void 0;
++	if (!previous || (previous.message.stopReason !== "error" && !isOutputLimitedResponse(previous.message))) return void 0;
 +	// Use the same projection as the official conversation-reset protocol,
 +	// after the replacement's start record made the failed step superseded.
 +	// Select this submission explicitly; never fall back to another response.
@@ -1449,7 +1552,21 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  function projectConversationUi(conversation, streamOffset) {
  	const messages = [];
  	const byId = /* @__PURE__ */ new Map();
-@@ -3129,6 +3252,44 @@ async function readSubmissionReply(options) {
+-	const supersededErrors = supersededAssistantErrorEntryIds(conversation);
++	const supersededErrors = supersededAssistantDraftEntryIds(conversation);
+ 	const responseBySubmission = /* @__PURE__ */ new Map();
+ 	for (const entry of getActiveConversationPath(conversation)) {
+ 		if (entry.type !== "message") continue;
+@@ -2765,7 +2902,7 @@ function requiresSnapshotReset(record, state) {
+ 	if (record.type !== "assistant_message_started" || !record.submissionId) return false;
+ 	const conversation = state.conversations.get(record.conversationId);
+ 	if (!conversation) return false;
+-	const superseded = supersededAssistantErrorEntryIds(conversation);
++	const superseded = supersededAssistantDraftEntryIds(conversation);
+ 	return getActiveConversationPath(conversation).some((entry) => entry.type === "message" && entry.message.role === "assistant" && entry.submissionId === record.submissionId && superseded.has(entry.id));
+ }
+ function encodeRecord(record, conversationId, state, responseIds) {
+@@ -3129,6 +3266,44 @@ async function readSubmissionReply(options) {
  	};
  	return replyFromSnapshot(snapshot, options.submissionId);
  }
@@ -1482,7 +1599,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
 +	// terminal answer from transient deltas or a different submission's reply.
 +	const steps = [...conversation.entries.values()].filter((entry) => entry.type === "message" && entry.submissionId === submission.submissionId && entry.message.role === "assistant");
 +	const final = steps.at(-1)?.message;
-+	if (!final || final.stopReason === "error" || final.stopReason === "aborted") return { terminalMetadata };
++	if (!final || final.stopReason === "error" || final.stopReason === "aborted" || final.stopReason === "length") return { terminalMetadata };
 +	return {
 +		terminalMetadata,
 +		completedOutput: {
@@ -1494,7 +1611,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  /**
  * Extract a submission's reply from a materialized conversation snapshot.
  * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
-@@ -3182,9 +3343,18 @@ function assertThinkingLevel(value, label) {
+@@ -3182,9 +3357,18 @@ function assertThinkingLevel(value, label) {
  function assertCompaction(definition, label) {
  	if (definition === void 0 || definition === false) return;
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
@@ -1514,7 +1631,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..038284879c61c19ad71a68d2bf677e2f
  	if (definition.model !== void 0 && typeof definition.model !== "string") throw new Error(`[flue] ${label} compaction.model must be a string.`);
  }
  function assertDurability(definition, label) {
-@@ -3192,7 +3362,7 @@ function assertDurability(definition, label) {
+@@ -3192,7 +3376,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);
@@ -1587,7 +1704,7 @@ index 8d022fce823a6e9f9a2bf8a222b309b5fccbcff1..1be99af3cba1e2c6a87e20ef26c451a1
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
 diff --git a/dist/types-B1PuLhZt.d.mts b/dist/types-B1PuLhZt.d.mts
-index 8c2299c8ee6225d171cb9fccb53454d5a18b1441..f4072aeced96bdf68f0f4216a8096871b38388da 100644
+index 8c2299c8ee6225d171cb9fccb53454d5a18b1441..5b6d883b2216203357e61e2b334904da371dc3f7 100644
 --- a/dist/types-B1PuLhZt.d.mts
 +++ b/dist/types-B1PuLhZt.d.mts
 @@ -562,6 +562,22 @@ interface FlueFs {

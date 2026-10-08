@@ -142,6 +142,17 @@ is not a future release strategy.
    permanent errors retain upstream classification. Existing platform durability
    attempts are a separate budget and are not multiplied by an adapter retry.
 
+   A text response stopped by the output limit is incomplete. The same session
+   can request a complete, shorter answer twice, using its existing tool results.
+   Original assistant records own this continuation budget across restarts and
+   compactions. Exhaustion is a named failure, including during read-only recovery
+   classification; a partial answer cannot become a completed terminal result.
+   The existing replacement projection removes superseded partial text from live
+   and restored replies instead of concatenating it with the complete answer.
+   Truncated tool-call batches keep Pi's existing repair path. The tests in
+   `flue-output-limit-recovery.test.ts` cover successful completion, exhaustion,
+   preserved effects, and continuation after reopening a SQLite snapshot.
+
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not
 ported. Flue 2 repairs partial streams at its execution ownership boundary.
