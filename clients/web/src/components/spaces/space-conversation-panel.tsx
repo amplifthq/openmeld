@@ -90,6 +90,7 @@ import {
 	type SpaceWakeOutcomeIndex,
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
+import { useCenterAgentCurrentModelName } from "#/query/profiles/agent-avatar-context";
 import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
 import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
@@ -3168,7 +3169,11 @@ function ConversationSpeakerHeader(input: {
 	selfAvatarImageUrl: string | null;
 	selfProfileId: string;
 }) {
+	const centerAgentModelName = useCenterAgentCurrentModelName(
+		input.run.speaker.profileId
+	);
 	const agentAttribution = formatSpaceAgentAttribution({
+		centerAgentModelName,
 		agentControllerRef: input.run.speaker.agentControllerRef,
 		ownerName: input.run.items[0]?.actorOwnerName ?? null,
 		profileKind: input.run.speaker.profileKind,

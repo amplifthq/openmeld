@@ -61,6 +61,7 @@ import {
 	type SpaceWakeStopRequestStatus,
 	type SpaceWakeStopTargetResolution,
 } from "#/lib/spaces/wake-stop-target";
+import { useCenterAgentCurrentModelName } from "#/query/profiles/agent-avatar-context";
 import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
@@ -1482,7 +1483,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				item: input.item,
 				timelineItems: input.allItems,
 			});
+	const centerAgentModelName = useCenterAgentCurrentModelName(
+		input.item.actorProfileId
+	);
 	const agentAttribution = formatSpaceAgentAttribution({
+		centerAgentModelName,
 		agentControllerRef: input.item.actorAgentControllerRef,
 		ownerName: input.item.actorOwnerName,
 		profileKind: input.item.actorProfileKind,

@@ -14,6 +14,7 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
+import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	CaretDownIcon,
@@ -25,7 +26,7 @@ import {
 	RobotIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
 import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
@@ -42,6 +43,10 @@ import {
 	updateCurrentCenterAgentOperatingState,
 	updateCurrentCenterAgentProfile,
 } from "#/lib/organizations/center-agent";
+import {
+	parseCenterAgentRouteSearch,
+	resolveSlackOAuthResult,
+} from "#/lib/organizations/center-agent-route-search";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
@@ -74,7 +79,10 @@ import {
 	resolveCenterAgentConnectionStatus,
 	resolveDesignatedCenterAgentProfile,
 } from "./center-agent-profile-presentation";
+import { CenterAgentRouteStateProvider } from "./center-agent-route-state";
+import { OrganizationMemoryPage } from "./organization-memory-page";
 import { OrganizationMemoryPolicySection } from "./organization-memory-policy-section";
+import { OrganizationMessageChannelsPage } from "./organization-message-channels-page";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
 	Available: resolveStatusToneProminentBadgeClassName("ready"),
@@ -83,7 +91,7 @@ const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
 	Unavailable: resolveStatusToneProminentBadgeClassName("warning"),
 } as const satisfies Record<CenterAgentConnectionStatus, string>;
 
-export function CenterAgentSettingsPage() {
+function CenterAgentGeneralSettings() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const directoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
@@ -1028,5 +1036,42 @@ function CenterAgentErrorState(input: {
 				Retry
 			</Button>
 		</div>
+	);
+}
+
+export function CenterAgentSettingsPage() {
+	const searchStr = useRouterState({
+		select: (state) => state.location.searchStr,
+	});
+	const search = Object.fromEntries(new URLSearchParams(searchStr));
+	const [section, setSection] = useState(() =>
+		Math.max(0, ["general", "channels", "memory"].indexOf(search.panel))
+	);
+	return (
+		<>
+			<TabsSubtle
+				aria-label="Center Agent settings"
+				className="gap-5"
+				idPrefix="center-agent-settings"
+				onSelect={setSection}
+				selectedIndex={section}
+				variant="underline"
+			>
+				<TabsSubtleItem index={0} label="General" labelClassName="text-sm" />
+				<TabsSubtleItem index={1} label="Channels" labelClassName="text-sm" />
+				<TabsSubtleItem index={2} label="Memory" labelClassName="text-sm" />
+			</TabsSubtle>
+			<CenterAgentRouteStateProvider
+				value={{
+					channelsSlackOAuthResult: resolveSlackOAuthResult(
+						parseCenterAgentRouteSearch(search)
+					),
+				}}
+			>
+				{section === 0 && <CenterAgentGeneralSettings />}
+				{section === 1 && <OrganizationMessageChannelsPage />}
+				{section === 2 && <OrganizationMemoryPage />}
+			</CenterAgentRouteStateProvider>
+		</>
 	);
 }
