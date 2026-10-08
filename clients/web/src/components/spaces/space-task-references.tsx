@@ -1,4 +1,5 @@
 import type { SpaceTask } from "@openmeld/schemas/types";
+import { GitBranchIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import {
@@ -92,6 +93,10 @@ export function SpaceMessageTaskReference(input: { signalId?: string }) {
 			label={`Open task: ${task.title}`}
 			onOpen={references?.onOpen}
 		>
+			<GitBranchIcon
+				aria-hidden="true"
+				className="mt-0.5 size-4 shrink-0 self-start text-muted-foreground"
+			/>
 			<span className="min-w-0">
 				<span className="line-clamp-2 break-words font-medium text-sm leading-5">
 					{task.title}

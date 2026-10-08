@@ -14,8 +14,8 @@ import {
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	CheckSquareIcon,
 	FileIcon,
+	GitBranchIcon,
 	PlusIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -150,7 +150,7 @@ export function SpaceComposerAddMenu(input: {
 					) : null}
 					{input.onCreateTask ? (
 						<FluidDropdownMenuItem index={2} onClick={input.onCreateTask}>
-							<CheckSquareIcon aria-hidden="true" />
+							<GitBranchIcon aria-hidden="true" />
 							Create task
 						</FluidDropdownMenuItem>
 					) : null}
