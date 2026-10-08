@@ -58,6 +58,20 @@ const CONFIGURED_AI_GATEWAY_ENV = {
 } as const;
 
 describe("remote agent model routing", () => {
+  it("bounds context deferral by a small route's input capacity", async () => {
+    const config = await resolveRemoteAgentModelRuntimeConfigForRegistration({
+      env: {},
+      modelRoute: {
+        ...TEST_CENTER_AGENT_MODEL_ROUTE,
+        contextWindow: 32_000,
+        maxOutputTokens: 8000,
+      },
+    });
+    expect(config.compaction.workingContextTokens).toBe(24_000);
+    expect(config.compaction.maxWorkingContextTokens).toBe(24_000);
+    expect(config.compaction.preserveActiveInput).toBe(true);
+    expect(config.compaction.thinkingLevel).toBe("low");
+  });
   let models = createModels();
   const streamRegisteredModel: typeof models.stream = (...args) =>
     models.stream(...args);
@@ -89,6 +103,9 @@ describe("remote agent model routing", () => {
     ).resolves.toEqual({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -122,6 +139,9 @@ describe("remote agent model routing", () => {
     ).resolves.toEqual({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -651,6 +671,9 @@ describe("remote agent model routing", () => {
     ).resolves.toEqual({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -682,6 +705,9 @@ describe("remote agent model routing", () => {
     ).resolves.toEqual({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -973,6 +999,9 @@ describe("remote agent model routing", () => {
     ).resolves.toEqual({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -1002,6 +1031,9 @@ describe("remote agent model routing", () => {
     ).resolves.toEqual({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -1033,6 +1065,9 @@ describe("remote agent model routing", () => {
     ).resolves.toEqual({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -1081,6 +1116,9 @@ describe("remote agent model routing", () => {
     ).resolves.toMatchObject({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -1117,6 +1155,9 @@ describe("remote agent model routing", () => {
     ).resolves.toMatchObject({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -1154,6 +1195,9 @@ describe("remote agent model routing", () => {
     ).resolves.toMatchObject({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
@@ -1240,6 +1284,9 @@ describe("remote agent model routing", () => {
     ).resolves.toEqual({
       compaction: {
         workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
