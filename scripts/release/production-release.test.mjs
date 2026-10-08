@@ -2176,8 +2176,8 @@ test("deploys the execution reconciliation receiver before its Core caller", () 
     [
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
     ]
   );
 });
@@ -2203,8 +2203,8 @@ test("deploys an additive Remote Agent turn-request receiver before its Core pro
       "Synchronize production database",
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
     ]
   );
 });
@@ -2229,8 +2229,8 @@ test("deploys the Slack turn-envelope receiver before its Core producer", () => 
       "Synchronize production database",
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
     ]
   );
 });
