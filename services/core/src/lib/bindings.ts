@@ -101,6 +101,8 @@ type CoreAuthDispatchBindingRpc = {
     profileId?: string | null;
     profileName?: string | null;
     avatarStyle?: string | null;
+    avatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
+    expectedAvatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
   }): Promise<AuthAgentProfileRpcResult>;
   updateAgentProfileDefaultProjectInOrganization?(input: {
     defaultProjectId: string | null;

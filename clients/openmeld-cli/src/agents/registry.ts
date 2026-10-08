@@ -117,11 +117,18 @@ export type SetupLocalAgentRegistrationReconciliation = {
   preservedEnabledAgentIds: string[];
 };
 
-export async function loadAgentCatalog(): Promise<AgentCatalog> {
+export async function loadAgentCatalog(
+  input: { agentIds?: readonly string[] } = {}
+): Promise<AgentCatalog> {
   const skillsConfig = await getConfiguredSkillsConfig().catch((error) => {
     throw wrapConfigError(error, "agents.config_read_failed");
   });
-  const builtins = resolveSkillsAgentRegistry(skillsConfig);
+  const requested = input.agentIds ? new Set(input.agentIds) : null;
+  const builtins = Object.fromEntries(
+    Object.entries(resolveSkillsAgentRegistry(skillsConfig)).filter(
+      ([id]) => !requested || requested.has(id)
+    )
+  );
   const detectedIds = new Set(await detectInstalledRuntimeAgents(builtins));
   const builtinsById = new Map<string, AgentTargetDescriptor>();
   for (const [agentId, entry] of Object.entries(builtins)) {
@@ -150,6 +157,9 @@ export async function loadAgentCatalog(): Promise<AgentCatalog> {
       dir: target.dir,
       ...(target.id ? { id: target.id } : {}),
     });
+    if (requested && !requested.has(resolvedId)) {
+      continue;
+    }
     customById.set(resolvedId, {
       agentId: resolvedId,
       displayName: target.name,
@@ -395,39 +405,75 @@ function reconcileAgentRegistrationRuntimeDefaults(input: {
   };
 }
 
-export async function listAgentTargetStates(): Promise<AgentTargetState[]> {
-  const [catalog, registrations] = await Promise.all([
-    loadAgentCatalog(),
+export async function listAgentTargetStates(
+  input: {
+    agentIds?: readonly string[];
+    onState?: (state: AgentTargetState) => Promise<void>;
+    reconcileNewRegistrations?: boolean;
+  } = {}
+): Promise<AgentTargetState[]> {
+  const [skillsConfig, registrations] = await Promise.all([
+    getConfiguredSkillsConfig(),
     listAgentRegistrations(),
   ]);
   const registrationById = new Map(
     registrations.map((registration) => [registration.agentId, registration])
   );
-  const stateById = new Map<string, AgentTargetState>();
-
-  // Built-in targets have higher priority than custom targets when ids collide.
-  for (const target of catalog.builtinsById.values()) {
-    const registration = registrationById.get(target.agentId) ?? null;
-    stateById.set(
-      target.agentId,
-      await toAgentTargetState(target, registration)
-    );
-  }
-
-  for (const target of catalog.customById.values()) {
-    if (stateById.has(target.agentId)) {
+  const agentIds = [
+    ...new Set(
+      input.agentIds ?? [
+        ...Object.keys(resolveSkillsAgentRegistry(skillsConfig)),
+        ...(skillsConfig?.customTargets ?? []).map((target) =>
+          resolveRuntimeSkillsCustomTargetId({
+            dir: target.dir,
+            ...(target.id ? { id: target.id } : {}),
+          })
+        ),
+      ]
+    ),
+  ].sort(compareAgentControllerRefsForDisplay);
+  const states: AgentTargetState[] = [];
+  for (const agentId of agentIds) {
+    // Discover one target at a time so a completed controller can be checked
+    // and reported before another installation's slow discovery begins.
+    const catalog = await loadAgentCatalog({ agentIds: [agentId] });
+    const target =
+      catalog.builtinsById.get(agentId) ?? catalog.customById.get(agentId);
+    if (!target) {
       continue;
     }
     const registration = registrationById.get(target.agentId) ?? null;
-    stateById.set(
-      target.agentId,
-      await toAgentTargetState(target, registration)
-    );
+    let state = await toAgentTargetState(target, registration);
+    if (
+      input.reconcileNewRegistrations &&
+      !state.registered &&
+      isRunnableBuiltinForAutomaticSetup(state)
+    ) {
+      await reconcileNewRunnableBuiltinAgentRegistrations({ states: [state] });
+      // Use the committed registration, including a concurrent disabled choice.
+      const current = (
+        await getConfiguredDeviceRuntimeState()
+      )?.controllers?.find((item) => item.agentId === agentId);
+      if (current) {
+        state =
+          state.launchContract &&
+          current.launchContract &&
+          launchContractsEqual(state.launchContract, current.launchContract)
+            ? {
+                ...state,
+                registered: true,
+                enabled: current.enabled,
+                registration: current,
+                contextIdMappingSpec:
+                  current.contextIdMappingSpec ?? state.contextIdMappingSpec,
+              }
+            : await toAgentTargetState(target, current);
+      }
+    }
+    states.push(state);
+    await input.onState?.(state);
   }
-
-  return [...stateById.values()].sort((left, right) =>
-    compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
-  );
+  return states;
 }
 
 export async function resolveAgentTargetState(
@@ -443,7 +489,7 @@ export async function resolveAgentTargetState(
   }
 
   const [catalog, registrations] = await Promise.all([
-    loadAgentCatalog(),
+    loadAgentCatalog({ agentIds: [agentId] }),
     listAgentRegistrations(),
   ]);
   const registrationById = new Map(

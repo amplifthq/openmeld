@@ -3,13 +3,22 @@
 import type { MessageMentionType } from "@openmeld/schemas/types";
 import { listSpaceMentionRelationChoices } from "@openmeld/space";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
+	DropdownMenu,
+	DropdownMenuRadioGroup,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuGroup,
+	FluidDropdownMenuRadioItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
-import { SpinnerGapIcon, UsersIcon, XIcon } from "@phosphor-icons/react";
+import {
+	CaretDownIcon,
+	SpinnerGapIcon,
+	UsersIcon,
+	XIcon,
+} from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
 import { MotionConfig } from "framer-motion";
 import { PathApi, type TElement, TextApi } from "platejs";
@@ -114,6 +123,7 @@ export type SpaceComposerEditorChange = {
 };
 
 type SpaceComposerEditorProps = {
+	renderAgentOptions?: (profileId: string) => ReactNode;
 	addressingTargets: readonly SpaceComposerAddressingTarget[];
 	ariaLabel: string;
 	authoredMentions: readonly ComposerDraftAuthoredMention[];
@@ -153,6 +163,7 @@ type SpaceComposerEditorContextValue = Pick<
 	| "lockedWakeProfileIds"
 	| "inline"
 	| "wakeRecommendation"
+	| "renderAgentOptions"
 >;
 
 const SpaceComposerEditorContext =
@@ -215,6 +226,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			lockedWakeProfileIds: input.lockedWakeProfileIds,
 			inline: input.inline,
 			wakeRecommendation: input.wakeRecommendation,
+			renderAgentOptions: input.renderAgentOptions,
 		}),
 		[
 			input.addressingTargets,
@@ -224,6 +236,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			input.lockedWakeProfileIds,
 			input.inline,
 			input.wakeRecommendation,
+			input.renderAgentOptions,
 		]
 	);
 
@@ -764,106 +777,101 @@ function SpaceComposerProfileToken(
 			(element.relation === "wake" ? "Wake" : "Mention only");
 		relationControl = (
 			<MotionConfig reducedMotion="user">
-				<Select
-					onCloseAutoFocus={(event) => {
-						event.preventDefault();
-						// Preserve any typing that occurred before the close animation frame.
-						const selection =
-							editor.selection ??
-							relationSelection.current ??
-							editor.api.end([]);
-						editor.tf.focus();
-						if (selection) {
-							editor.tf.select(selection);
-						}
-					}}
-					onValueChange={(value) => {
-						if (
-							!choices.some(
-								(choice) => choice.relation === value && !choice.disabled
-							)
-						) {
-							return;
-						}
-						const path = editor.api.findPath(element);
-						if (!path) {
-							return;
-						}
-						editor.tf.setNodes(
-							{
-								relation: value as MessageMentionType,
-							},
-							{ at: path }
-						);
-						const selection = relationSelection.current ?? editor.api.end([]);
-						if (selection) {
-							editor.tf.select(selection);
-						}
-					}}
-					value={element.relation}
-				>
-					<SelectTrigger
+				<DropdownMenu>
+					<DropdownMenuTrigger
 						aria-label={`Change relation for ${profileName}`}
 						className={cn(
 							SPACE_PROFILE_MENTION_RELATION_CLASS_NAME,
-							"h-5 min-w-0 gap-1 rounded-none border-0 border-l py-0 pr-0 max-lg:h-5 max-lg:min-w-0 [&>svg]:size-3"
+							"inline-flex h-5 items-center gap-1 border-l bg-transparent"
 						)}
-						displayValue={
-							<span className="inline-flex items-center gap-1">
-								{composerRelationLabel(
-									selectedRelationLabel,
-									element.relation,
-									target
-								)}
-								{element.relation === "wake" &&
-								(target?.wakeAvailability.status === "preparing" ||
-									(isBlockedWake &&
-										!target?.wakeAvailability.reasonCodes.length)) ? (
-									<ComposerWakeChecking key={element.profileId} />
-								) : null}
-							</span>
-						}
 						onClickCapture={() => {
 							relationSelection.current = editor.selection;
 						}}
 						onKeyDownCapture={() => {
 							relationSelection.current = editor.selection;
 						}}
-						onMouseDown={(event) => {
-							event.preventDefault();
+						onMouseDown={(event) => event.preventDefault()}
+					>
+						{composerRelationLabel(
+							selectedRelationLabel,
+							element.relation,
+							target
+						)}
+						{element.relation === "wake" &&
+						(target?.wakeAvailability.status === "preparing" ||
+							(isBlockedWake &&
+								!target?.wakeAvailability.reasonCodes.length)) ? (
+							<ComposerWakeChecking key={element.profileId} />
+						) : null}
+						<CaretDownIcon aria-hidden="true" className="size-3" />
+					</DropdownMenuTrigger>
+					<FluidDropdownMenuContent
+						align="end"
+						className="min-w-64"
+						finalFocus={() => {
+							const selection =
+								editor.selection ??
+								relationSelection.current ??
+								editor.api.end([]);
+							editor.tf.focus();
+							if (selection) {
+								editor.tf.select(selection);
+							}
+							return false;
 						}}
-						variant="borderless"
-					/>
-					<SelectContent align="end" className="min-w-40" side="top">
-						{choices.map((choice, index) => (
-							<SelectItem
-								aria-label={
-									choice.relation === "reference"
-										? "Mention only — Won’t wake the agent"
-										: undefined
-								}
-								disabled={choice.disabled}
-								index={index}
-								key={choice.relation}
-								value={choice.relation}
+						side="top"
+					>
+						<FluidDropdownMenuGroup>
+							<DropdownMenuRadioGroup
+								onValueChange={(value) => {
+									if (
+										!choices.some(
+											(choice) => choice.relation === value && !choice.disabled
+										)
+									) {
+										return;
+									}
+									const path = editor.api.findPath(element);
+									if (path) {
+										editor.tf.setNodes(
+											{ relation: value as MessageMentionType },
+											{ at: path }
+										);
+									}
+								}}
+								value={element.relation}
 							>
-								{composerRelationLabel(
-									choice.label,
-									choice.relation,
-									target,
-									choice.disabled
-										? resolveComposerUnavailableLabel(pickerItem)
-										: undefined
-								)}
-								{choice.relation === "reference" ? (
-									<span className="text-muted-foreground">
-										{" — Won’t wake the agent"}
-									</span>
-								) : null}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+								{choices.map((choice, index) => (
+									<FluidDropdownMenuRadioItem
+										closeOnClick
+										disabled={choice.disabled}
+										index={index}
+										key={choice.relation}
+										value={choice.relation}
+									>
+										{composerRelationLabel(
+											choice.label,
+											choice.relation,
+											target,
+											choice.disabled
+												? resolveComposerUnavailableLabel(pickerItem)
+												: undefined
+										)}
+										{choice.relation === "reference" ? (
+											<span className="text-muted-foreground">
+												{" "}
+												— Won’t wake the agent
+											</span>
+										) : null}
+									</FluidDropdownMenuRadioItem>
+								))}
+							</DropdownMenuRadioGroup>
+						</FluidDropdownMenuGroup>
+						{element.relation === "wake"
+							? context.renderAgentOptions?.(element.profileId)
+							: null}
+					</FluidDropdownMenuContent>
+				</DropdownMenu>
 			</MotionConfig>
 		);
 	} else if (isRepeatedAgent) {

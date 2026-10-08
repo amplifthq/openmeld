@@ -46,7 +46,7 @@ describe("tutorial progress", () => {
     const paused = await updateFirstWork(harness.db, {
       ...scope,
       revision: 0,
-      step: "first-task",
+      step: "local-task",
       paused: true,
     });
     await updateFirstWork(harness.db, {
@@ -62,7 +62,7 @@ describe("tutorial progress", () => {
     });
     expect(resumed).toEqual({
       ...first,
-      step: "first-task",
+      step: "local-task",
       paused: true,
       revision: 1,
     });
@@ -89,6 +89,19 @@ describe("tutorial progress", () => {
       paused: false,
     });
     expect(await readFirstWork(harness.db, scope)).toEqual(replay);
+    const review = await updateFirstWork(harness.db, {
+      ...scope,
+      runId: replayId,
+      revision: 0,
+      step: "review-replies",
+      paused: true,
+    });
+    expect(await readFirstWork(harness.db, scope)).toEqual(review);
+    expect(review).toMatchObject({
+      step: "review-replies",
+      paused: true,
+      revision: 1,
+    });
     const count = await harness.query(
       "SELECT count(*)::int AS count FROM openmeld.first_work_experiences"
     );

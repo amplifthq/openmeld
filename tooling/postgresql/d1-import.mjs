@@ -291,6 +291,15 @@ async function lockEmptyTarget(client, catalog) {
 
 function nativeColumns(table, targetColumns) {
   const columns = [...table.columns];
+  if (table.name === "openmeld_profiles") {
+    // Historical avatars retain their style; appearance options remain unset.
+    columns.push({
+      name: "avatar_options",
+      type: "JSONB",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
   if (table.name === "projects") {
     // Historical Projects retain their repository and identity. Workflow
     // preferences begin unset; importing data never grants new access.
@@ -450,10 +459,12 @@ function nativeColumns(table, targetColumns) {
     const native = target.find(
       (candidate) => candidate.column_name === column.name
     );
-    const valid =
-      column.type === "TEXT"
-        ? native.data_type === "text"
-        : ["integer", "bigint"].includes(native.data_type);
+    let valid = ["integer", "bigint"].includes(native.data_type);
+    if (column.type === "JSONB") {
+      valid = native.data_type === "jsonb";
+    } else if (column.type === "TEXT") {
+      valid = native.data_type === "text";
+    }
     if (
       !valid ||
       (native.is_generated === "ALWAYS") !== (column.hidden === 3)

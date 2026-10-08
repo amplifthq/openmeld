@@ -114,6 +114,8 @@ export type UpdateManagedAgentProfileInOrganizationInput = {
   profileId: string;
   profileName?: string;
   avatarStyle?: string;
+  avatarOptions?: OpenMeldProfileRecord["avatarOptions"];
+  expectedAvatarOptions?: OpenMeldProfileRecord["avatarOptions"];
 };
 
 export type DeleteProfileForOwnerInput = {
@@ -1089,6 +1091,8 @@ export function createOpenMeldProfileService(
       if (avatarStyle !== undefined) {
         await repository.updateAgentAvatarStyle(profileId, avatarStyle, {
           organizationId,
+          avatarOptions: input.avatarOptions ?? null,
+          expectedAvatarOptions: input.expectedAvatarOptions,
         });
       }
 

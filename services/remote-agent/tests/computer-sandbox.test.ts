@@ -399,6 +399,83 @@ describe("Agent computer layout", () => {
 });
 
 describe("Organization Documents computer scope", () => {
+  it("declares authorized tools without contacting unavailable Computer, browser or document resources", async () => {
+    const get = vi.fn(() => {
+      throw new Error("Computer offline");
+    });
+    const snapshot = vi.fn(() => {
+      throw new Error("Document snapshot offline");
+    });
+    const capability = await createRemoteAgentComputerCapability({
+      context: createComputerContext(),
+      coreWorker: {
+        centerAgentOrganizationDocumentsComputerSnapshot: snapshot,
+      },
+      env: { AGENT_COMPUTER: { get, idFromName: () => ({}) }, BROWSER: {} },
+      includeOrganizationDocuments: true,
+    });
+    expect(capability.definitions.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "computer",
+        "browser_execute",
+        "openmeld_checkout_org_document",
+      ])
+    );
+    expect(get).not.toHaveBeenCalled();
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(cloudflareComputerMock.getWorkspace).not.toHaveBeenCalled();
+    const computer = capability.definitions.find(
+      (tool) => tool.name === "computer"
+    );
+    if (!computer) {
+      throw new Error("Missing Computer tool");
+    }
+    await expect(computer.execute({ action: "describe" })).rejects.toThrow(
+      "Computer offline"
+    );
+    expect(snapshot).not.toHaveBeenCalled();
+  });
+
+  it("shares successful lazy preparation and can retry failed preparation without replaying an operation", async () => {
+    const fixture = createWorkspaceFake();
+    cloudflareComputerMock.getWorkspace
+      .mockRejectedValueOnce(new Error("Connection closed"))
+      .mockRejectedValueOnce(new Error("Connection closed"))
+      .mockResolvedValue(fixture.workspace);
+    const computerOperation = vi.fn(async () => ({ kind: "capabilities" }));
+    const id = { name: "original-computer" };
+    const namespace = {
+      idFromName: vi.fn(() => id),
+      get: vi.fn((_target: unknown) => ({ computerOperation })),
+    };
+    const capability = await createRemoteAgentComputerCapability({
+      context: createComputerContext(),
+      coreWorker: {},
+      env: { AGENT_COMPUTER: namespace },
+      includeOrganizationDocuments: false,
+    });
+    const computer = capability.definitions.find(
+      (tool) => tool.name === "computer"
+    );
+    if (!computer) {
+      throw new Error("Missing Computer tool");
+    }
+    await expect(computer.execute({ action: "describe" })).rejects.toThrow(
+      "Connection closed"
+    );
+    expect(computerOperation).not.toHaveBeenCalled();
+    await Promise.all([
+      computer.execute({ action: "describe" }),
+      computer.execute({ action: "describe" }),
+    ]);
+    expect(computerOperation).toHaveBeenCalledTimes(2);
+    expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(3);
+    expect(namespace.idFromName).toHaveBeenCalledOnce();
+    expect(namespace.get.mock.calls.every(([target]) => target === id)).toBe(
+      true
+    );
+  });
+
   it("keeps parallel conversation checkouts independent", async () => {
     const { allowedInput, fixture } =
       createOrganizationDocumentsComputerFixture();
@@ -499,7 +576,9 @@ describe("Organization Documents computer scope", () => {
       .mockResolvedValueOnce(replacementWorkspace.workspace);
     const durableComputerId = { name: "agent-computer:agt_test" };
     const namespace = {
-      get: vi.fn(() => ({})),
+      get: vi.fn(() => ({
+        computerOperation: vi.fn(async () => ({ kind: "capabilities" })),
+      })),
       idFromName: vi.fn(() => durableComputerId),
     };
     const centerAgentOrganizationDocumentsComputerSnapshot = vi.fn(() =>
@@ -515,14 +594,25 @@ describe("Organization Documents computer scope", () => {
       includeOrganizationDocuments: true,
     });
 
+    expect(namespace.get).not.toHaveBeenCalled();
+    expect(
+      centerAgentOrganizationDocumentsComputerSnapshot
+    ).not.toHaveBeenCalled();
+    const computer = capability.definitions.find(
+      (definition) => definition.name === "computer"
+    );
+    if (!computer) {
+      throw new Error("Missing Computer tool");
+    }
+    await computer.execute({ action: "describe" });
     expect(namespace.idFromName).toHaveBeenCalledOnce();
-    expect(namespace.get).toHaveBeenCalledTimes(2);
+    expect(namespace.get).toHaveBeenCalledTimes(3);
     expect(namespace.get).toHaveBeenNthCalledWith(1, durableComputerId);
     expect(namespace.get).toHaveBeenNthCalledWith(2, durableComputerId);
     expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(2);
     expect(
       centerAgentOrganizationDocumentsComputerSnapshot
-    ).toHaveBeenCalledOnce();
+    ).not.toHaveBeenCalled();
     expect(firstWorkspace.dispose).toHaveBeenCalledOnce();
     expect(replacementWorkspace.dispose).toHaveBeenCalledOnce();
     expect(state.files.has(oldProjectionPath)).toBe(true);
@@ -550,7 +640,7 @@ describe("Organization Documents computer scope", () => {
       result: { isError: false },
     }));
     const namespace = {
-      get: vi.fn(() => ({ computerOperation })),
+      get: vi.fn((_target: unknown) => ({ computerOperation })),
       idFromName: vi.fn(() => ({})),
     };
     const capability = await createRemoteAgentComputerCapability({
@@ -594,7 +684,7 @@ describe("Organization Documents computer scope", () => {
 
     expect(
       centerAgentOrganizationDocumentsComputerSnapshot
-    ).toHaveBeenCalledOnce();
+    ).not.toHaveBeenCalled();
     expect(
       fixture.files.has(
         `${ORGANIZATION_DOCUMENTS_COMPUTER_ROOT}/Private-Launch-Plan--doc_private.md`
@@ -616,6 +706,9 @@ describe("Organization Documents computer scope", () => {
       { documentId: "doc_private" },
       undefined
     )) as { path: string };
+    expect(
+      centerAgentOrganizationDocumentsComputerSnapshot
+    ).toHaveBeenCalledOnce();
     const original = fixture.files.get(copy.path);
     expect(original).toBeTruthy();
     centerAgentOrganizationDocumentsComputerSnapshot.mockClear();

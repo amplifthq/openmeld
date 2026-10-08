@@ -906,7 +906,10 @@ state remains null because no Linear subscription owns it. Gateway authenticates
 Space Durable Object. Writes require an active human or Agent member whose
 profile ownership matches the authenticated actor. Member reads use the same
 actor boundary; public and shared-link reads use the existing read-only Space
-access contract. Current Direct Messages reject the capability.
+access contract. Direct Messages support the same Task workflow. Private writes
+require active conversation membership; observing an owned Agent's conversation
+does not grant the human owner mutation access. Agent tools use the current
+conversation ID and retain the same Core actor and membership checks.
 
 Create and mutation requests carry an operation id. Mutations also carry an
 expected revision. The Space Durable Object compares `expectedRevision` in the

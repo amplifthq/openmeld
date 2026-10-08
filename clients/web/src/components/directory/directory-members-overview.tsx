@@ -7,41 +7,9 @@ import type {
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@openmeld/ui/components/card";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-} from "@openmeld/ui/components/dialog";
-import { Input } from "@openmeld/ui/components/input";
-import { Label } from "@openmeld/ui/components/label";
-import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
-import { PaperPlaneTiltIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import {
-	type ComponentProps,
-	type FormEvent,
-	useEffect,
-	useId,
-	useRef,
-	useState,
-} from "react";
+import { type ComponentProps, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
@@ -63,16 +31,11 @@ import {
 	DirectoryHumanProfilesWorkspace,
 	type DirectoryMemberResearchRequest,
 } from "#/components/directory/directory-human-profiles-workspace";
-import { OrganizationInviteLink } from "#/components/organizations/organization-invite-link";
-import { PersonalWorkspaceInvitationGuidance } from "#/components/organizations/personal-workspace-invitation-guidance";
+import { OrganizationInviteDialog } from "#/components/organizations/organization-invite-dialog";
 import {
 	isCurrentLocalRuntimeServiceDisconnected,
 	resolveCurrentLocalRuntimeSubjectDeviceId,
 } from "#/lib/computer-summary-status";
-import {
-	inviteOrganizationMember,
-	type OrganizationInviteRole,
-} from "#/lib/organizations/auth-organizations";
 import {
 	disconnectCurrentMessageChannelIdentityLink,
 	requestCurrentOrganizationMessageChannelSetup,
@@ -85,7 +48,6 @@ import {
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
 	buildOrganizationDirectMessagePath,
-	buildOrganizationNewOrganizationPath,
 	buildOrganizationPersonPath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
@@ -105,7 +67,6 @@ import {
 import {
 	organizationComputersQueryOptions,
 	organizationMemberRoleQueryOptions,
-	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
 import {
 	organizationDocumentQueryKeys,
@@ -117,14 +78,6 @@ import {
 } from "#/query/profiles/profile-capabilities";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
-
-const INVITE_ROLE_OPTIONS = [
-	{ label: "Member", value: "member" },
-	{ label: "Admin", value: "admin" },
-] as const satisfies readonly {
-	label: string;
-	value: OrganizationInviteRole;
-}[];
 
 type DirectoryQueryState = {
 	data?: OrganizationProfileDirectoryResponse | OrganizationDirectoryResponse;
@@ -157,13 +110,6 @@ type DirectoryMembersOverviewProps = {
 	recovery: LocalAgentRecoveryController;
 	storageScope: string;
 };
-
-type DirectoryInvitationAccess =
-	| { kind: "allowed" }
-	| { kind: "forbidden" }
-	| { kind: "loading" }
-	| { kind: "personal" }
-	| { kind: "unavailable" };
 
 const PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE =
 	"Report links are unavailable because Documents could not be loaded.";
@@ -590,15 +536,9 @@ function useDirectoryMembersOverviewModel(
 			strictComputerGroups,
 		};
 	return {
-		invitationAccess: resolveDirectoryInvitationAccess({
-			canInvite,
-			isPersonalWorkspace,
-			isRoleError: roleQuery.isError,
-			isRolePending: roleQuery.isPending,
-		}),
+		canInvite: isPersonalWorkspace || canInvite,
 		isInviteDialogOpen,
 		onInviteDialogOpenChange: setIsInviteDialogOpen,
-		organization: input.currentOrganization,
 		workspaceProps,
 	};
 }
@@ -631,75 +571,19 @@ function DirectoryMembersOverviewView(input: {
 			<DirectoryHumanProfilesWorkspace
 				{...input.model.workspaceProps}
 				onInviteMembers={
-					input.model.invitationAccess.kind === "allowed"
+					input.model.canInvite
 						? () => input.model.onInviteDialogOpenChange(true)
 						: undefined
 				}
 			/>
-			<DirectoryInviteDialog
-				access={input.model.invitationAccess}
-				isOpen={input.model.isInviteDialogOpen}
-				onOpenChange={input.model.onInviteDialogOpenChange}
-				organization={input.model.organization}
-			/>
+			{input.model.isInviteDialogOpen ? (
+				<OrganizationInviteDialog
+					onOpenChange={input.model.onInviteDialogOpenChange}
+					open={input.model.isInviteDialogOpen}
+				/>
+			) : null}
 		</>
 	);
-}
-
-function DirectoryInviteDialog(input: {
-	access: DirectoryInvitationAccess;
-	isOpen: boolean;
-	onOpenChange: (open: boolean) => void;
-	organization: OrganizationSummary;
-}) {
-	return (
-		<Dialog onOpenChange={input.onOpenChange} open={input.isOpen}>
-			<DialogContent className="max-h-[min(50rem,calc(100dvh-2rem))] overflow-hidden p-0 sm:max-w-4xl">
-				<ScrollArea
-					className="max-h-[inherit]"
-					contentClassName="grid gap-4 p-4"
-				>
-					<DialogHeader>
-						<DialogTitle>Invite Members</DialogTitle>
-						<DialogDescription>
-							Invite teammates by email or share an organization invite link.
-						</DialogDescription>
-					</DialogHeader>
-					{input.access.kind === "personal" ? (
-						<PersonalWorkspaceInvitationGuidance
-							createOrganizationPath={buildOrganizationNewOrganizationPath(
-								input.organization.slug
-							)}
-							title="Create an organization to invite members"
-						/>
-					) : (
-						<DirectoryInvitePanel
-							access={input.access}
-							organizationId={input.organization.id}
-						/>
-					)}
-				</ScrollArea>
-			</DialogContent>
-		</Dialog>
-	);
-}
-
-function resolveDirectoryInvitationAccess(input: {
-	canInvite: boolean;
-	isPersonalWorkspace: boolean;
-	isRoleError: boolean;
-	isRolePending: boolean;
-}): DirectoryInvitationAccess {
-	if (input.isPersonalWorkspace) {
-		return { kind: "personal" };
-	}
-	if (input.isRolePending) {
-		return { kind: "loading" };
-	}
-	if (input.isRoleError) {
-		return { kind: "unavailable" };
-	}
-	return { kind: input.canInvite ? "allowed" : "forbidden" };
 }
 
 function resolveDirectoryProjectionStatus(input: {
@@ -710,177 +594,6 @@ function resolveDirectoryProjectionStatus(input: {
 		return "loading";
 	}
 	return input.isError ? "failed" : "ready";
-}
-
-function DirectoryInvitePanel(input: {
-	access: Exclude<DirectoryInvitationAccess, { kind: "personal" }>;
-	organizationId: string;
-}) {
-	if (input.access.kind === "loading") {
-		return (
-			<Card>
-				<CardHeader>
-					<CardTitle>Invite members</CardTitle>
-					<CardDescription>
-						Checking your invitation permissions.
-					</CardDescription>
-				</CardHeader>
-			</Card>
-		);
-	}
-
-	if (input.access.kind === "unavailable") {
-		return (
-			<Card>
-				<CardHeader>
-					<CardTitle>Invite members</CardTitle>
-					<CardDescription>
-						OpenMeld could not confirm your invitation permissions.
-					</CardDescription>
-				</CardHeader>
-			</Card>
-		);
-	}
-
-	if (input.access.kind === "forbidden") {
-		return (
-			<Card>
-				<CardHeader>
-					<CardTitle>Invite members</CardTitle>
-					<CardDescription>
-						Only organization owners and admins can invite teammates. Ask one of
-						them if you need to add someone.
-					</CardDescription>
-				</CardHeader>
-			</Card>
-		);
-	}
-
-	return (
-		<div className="space-y-4">
-			<InvitationForm organizationId={input.organizationId} />
-			<OrganizationInviteLink organizationId={input.organizationId} />
-		</div>
-	);
-}
-
-export function InvitationForm(input: { organizationId: string }) {
-	const emailId = useId();
-	const roleId = useId();
-	const queryClient = useQueryClient();
-	const [email, setEmail] = useState("");
-	const [role, setRole] = useState<OrganizationInviteRole>("member");
-	const [sentMessage, setSentMessage] = useState<string | null>(null);
-	const inviteMutation = useMutation({
-		mutationFn: async () =>
-			await inviteOrganizationMember({
-				email: email.trim(),
-				organizationId: input.organizationId,
-				role,
-			}),
-		onSuccess: () => {
-			setSentMessage(`Invitation sent to ${email.trim()}.`);
-			setEmail("");
-			setRole("member");
-			Promise.all([
-				queryClient.invalidateQueries({
-					queryKey: organizationQueryKeys.invitations(input.organizationId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: organizationQueryKeys.directory(input.organizationId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: organizationQueryKeys.profileDirectory(
-						input.organizationId
-					),
-				}),
-			]).catch(() => undefined);
-		},
-	});
-	const normalizedEmail = email.trim();
-	const canSubmit = normalizedEmail.length > 0 && !inviteMutation.isPending;
-
-	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-		event.preventDefault();
-		if (!canSubmit) {
-			return;
-		}
-		setSentMessage(null);
-		inviteMutation.mutate();
-	};
-
-	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Invite members</CardTitle>
-				<CardDescription>
-					Invite a teammate to join this organization and work together in
-					Spaces.
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="@container">
-				<form
-					className="grid @sm:grid-cols-2 @xl:grid-cols-[minmax(0,1fr)_8rem_auto] @sm:items-end gap-3"
-					onSubmit={handleSubmit}
-				>
-					<div className="@sm:col-span-2 @xl:col-span-1 grid gap-2">
-						<Label htmlFor={emailId}>Email</Label>
-						<Input
-							autoComplete="email"
-							disabled={inviteMutation.isPending}
-							id={emailId}
-							onChange={(event) => setEmail(event.target.value)}
-							placeholder="teammate@example.com"
-							type="email"
-							value={email}
-						/>
-					</div>
-					<div className="grid gap-2">
-						<Label htmlFor={roleId}>Role</Label>
-						<Select
-							disabled={inviteMutation.isPending}
-							onValueChange={(value) =>
-								setRole(value === "admin" ? "admin" : "member")
-							}
-							value={role}
-						>
-							<SelectTrigger
-								className="w-full min-w-0"
-								displayValue={
-									INVITE_ROLE_OPTIONS.find((option) => option.value === role)
-										?.label
-								}
-								id={roleId}
-							/>
-							<SelectContent>
-								{INVITE_ROLE_OPTIONS.map((option, index) => (
-									<SelectItem
-										index={index}
-										key={option.value}
-										value={option.value}
-									>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-					<Button disabled={!canSubmit} type="submit">
-						<PaperPlaneTiltIcon aria-hidden="true" data-icon="inline-start" />
-						Send invitation
-					</Button>
-				</form>
-				{inviteMutation.isError ? (
-					<p className="mt-3 text-destructive text-sm">
-						{inviteMutation.error.message}
-					</p>
-				) : null}
-				{sentMessage ? (
-					<p className="mt-3 text-muted-foreground text-sm">{sentMessage}</p>
-				) : null}
-			</CardContent>
-		</Card>
-	);
 }
 
 function resolveActiveResearchBatch(

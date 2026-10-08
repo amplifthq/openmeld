@@ -43,6 +43,11 @@ describe("FluidActionList", () => {
     fireEvent.focus(item);
     expect(
       container.querySelector('[data-slot="fluid-action-list-focus-indicator"]')
+    ).toBeNull();
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    fireEvent.focus(item);
+    expect(
+      container.querySelector('[data-slot="fluid-action-list-focus-indicator"]')
     ).not.toBeNull();
   });
   it("keeps nested menu focus from highlighting an unrelated outer action", () => {

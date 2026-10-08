@@ -2763,7 +2763,7 @@ surface adopts official features where they are free**:
   create Agent Profiles, enable Agent Profiles, add active Organization members
   and Agent Profiles to Spaces, remove Agent Profiles from Spaces, update Space
   settings, post plain Space messages, manage revision-bound Space Tasks in the
-  current ordinary shared Space, and Wake Agent Profiles in Spaces through
+  current OpenMeld Space or private chat, and Wake Agent Profiles in Spaces through
   Space activation targets. Space Task creation is reserved for clear delivery
   obligations; assignment, start, submission, review, and cancellation remain
   distinct. GitHub issues created from that shared Space record a linked Task

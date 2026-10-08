@@ -112,6 +112,9 @@ export const postNormalMessageBodySchema = z
     deviceWait: signalTextRequestDataSchema.shape.deviceWait.optional(),
     contextSelection:
       signalTextRequestDataSchema.shape.contextSelection.optional(),
+    contextSelections:
+      signalTextRequestDataSchema.shape.contextSelections.optional(),
+    taskDraft: signalTextRequestDataSchema.shape.taskDraft.optional(),
     attachments: signalTextRequestDataSchema.shape.attachments.optional(),
     files: signalTextRequestDataSchema.shape.files.optional(),
     messageEnvelope:

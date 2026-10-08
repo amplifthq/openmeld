@@ -78,9 +78,7 @@ describe("AgentProfileGenerator", () => {
 		fireEvent.click(screen.getByRole("button", { name: label }));
 		expect(onStart).toHaveBeenCalledOnce();
 		if (state === "local_agents") {
-			expect(
-				screen.getByText("Local agent details aren’t available")
-			).toBeTruthy();
+			expect(screen.getByText("Computer connected")).toBeTruthy();
 			expect(screen.queryByText("No supported agents detected")).toBeNull();
 			expect(
 				screen.getByText(
