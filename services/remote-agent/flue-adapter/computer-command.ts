@@ -72,6 +72,10 @@ async function readComputerTarget(input: {
   >;
 }
 const MAX_OUTPUT_CHARS = 50_000;
+const OBSERVATION_SETUP_BUDGET_MS = 5000;
+const STOP_INSPECTION_BUDGET_MS = 1000;
+const READER_CANCEL_BUDGET_MS = 100;
+const COLLECTION_CONCURRENCY = 4;
 // Flue requires an object at the tool boundary. The action-specific schema
 // in packages/schemas is the shared execution validator, including forbidden fields.
 const commandToolSchema = strictObject({
@@ -97,7 +101,11 @@ type Command = {
   key: string;
   fingerprint: string;
   createdAt: number;
+  observedAt?: number;
+  exitedAt?: number;
   stopRequested?: boolean;
+  stopSignal?: "SIGTERM" | "SIGKILL" | "SIGINT" | "SIGHUP";
+  stopSentAt?: number;
   lossReported?: boolean;
   lostDuringCleanup?: boolean;
   completed?: boolean;
@@ -121,8 +129,66 @@ type CommandResult = {
   outputPending?: true;
   outputTruncated?: true;
   syncPending?: true;
+  syncError?: "ENOENT" | "EEXEC_LOST";
+  nextAction?: "inspect" | "done" | "poll";
   result?: WorkspaceRuntimeValue;
 };
+
+/** Bound external observation, including Workspace acquisition and disposal.
+ * A timeout never establishes process loss or authorizes another launch. */
+async function withCommandWorkspace<T>(input: {
+  access: AgentComputerWorkspaceAccess;
+  budgetMs: number;
+  phase: "launch" | "poll" | "stop" | "cleanup";
+  signal?: AbortSignal;
+  operation: (workspace: WorkspaceClient, signal: AbortSignal) => Promise<T>;
+}): Promise<T> {
+  let phase = "workspace-acquisition";
+  const timeout = new AbortController();
+  const signal = input.signal
+    ? AbortSignal.any([input.signal, timeout.signal])
+    : timeout.signal;
+  const timer = setTimeout(
+    () =>
+      timeout.abort(
+        Object.assign(
+          new Error(
+            "Computer command observation timed out. The command may still be running. Poll the same key; do not start it again."
+          ),
+          { code: "computer.observation_timeout", phase }
+        )
+      ),
+    input.budgetMs
+  );
+  let abort: (() => void) | undefined;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => reject(signal.reason);
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener("abort", abort, { once: true });
+    }
+  });
+  try {
+    return await Promise.race([
+      input.access.withWorkspace(async (workspace) => {
+        signal.throwIfAborted();
+        phase = input.phase;
+        // Dispose the acquired Workspace even if a native RPC never settles.
+        return await Promise.race([
+          input.operation(workspace, signal),
+          cancelled,
+        ]);
+      }),
+      cancelled,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (abort) {
+      signal.removeEventListener("abort", abort);
+    }
+  }
+}
 
 class MissingComputerExecRecordError extends Error {
   readonly code = "ENOENT";
@@ -138,6 +204,7 @@ function isCommandLoss(
 ): error is Error & { code: "ENOENT" | "EEXEC_LOST" } {
   return (
     error instanceof MissingComputerExecRecordError ||
+    error instanceof ConfirmedLostComputerCommandsError ||
     hasErrorCode(error, "EEXEC_LOST")
   );
 }
@@ -153,12 +220,17 @@ function recordExit(
 }
 
 export class ConfirmedLostComputerCommandsError extends AggregateError {
+  readonly code: "ENOENT" | "EEXEC_LOST";
+
   constructor(errors: unknown[]) {
     super(
       errors,
       "Computer command cleanup failed: a retained execution was confirmed lost."
     );
     this.name = "ConfirmedLostComputerCommandsError";
+    this.code = errors.some((error) => hasErrorCode(error, "EEXEC_LOST"))
+      ? "EEXEC_LOST"
+      : "ENOENT";
   }
 }
 
@@ -181,6 +253,28 @@ function isCommandComplete(command: Command) {
   );
 }
 
+function hasCommandExited(command: Command) {
+  const receipt = command.observation ?? command.terminalResult;
+  return Boolean(receipt && receipt.exitCode !== null);
+}
+
+function commandDiagnostics(command?: Command) {
+  return {
+    commandId: command?.id,
+    backend: command ? commandBackend(command) : undefined,
+    createdAt: command?.createdAt,
+    observedAt: command?.observedAt,
+    exitedAt: command?.exitedAt,
+    exitCode: command?.observation?.exitCode,
+    syncPending: command?.observation?.syncPending,
+    syncError: command?.observation?.syncError,
+    stopRequested: command?.stopRequested,
+    stopSignal: command?.stopSignal,
+    stopSentAt: command?.stopSentAt,
+    loss: command?.loss,
+  };
+}
+
 function isReportedCommandLoss(command: Command) {
   return (
     command.lossReported &&
@@ -199,6 +293,7 @@ function acceptsObservation(
   }
   return (
     previous.status !== "completed" &&
+    !(previous.syncError && result.status !== "completed") &&
     after >= previous.after &&
     !(previous.syncPending && result.exitCode === null)
   );
@@ -227,6 +322,66 @@ function retainOutput(output: NonNullable<Command["output"]>) {
     stderr += err.length;
   }
   return { output: retained.reverse(), clipped };
+}
+
+function mergeCommandObservation(
+  command: Command,
+  result: CommandResult,
+  exitSequence?: number
+): Command {
+  if (!acceptsObservation(command, result, exitSequence ?? result.after)) {
+    return command;
+  }
+  const previous = command.observation;
+  const output = [...(command.output ?? [])];
+  if (result.after > (previous?.after ?? 0)) {
+    output.push({
+      after: result.after,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+  const retained = retainOutput(output);
+  const clipped =
+    retained.clipped || previous?.outputTruncated || result.outputTruncated;
+  const observation: CommandResult = {
+    ...result,
+    after: Math.max(previous?.after ?? 0, exitSequence ?? result.after),
+    stdout: "",
+    stderr: "",
+    ...(clipped ? { outputTruncated: true } : {}),
+  };
+  const {
+    loss: _loss,
+    lossReported: _reported,
+    lossConfirmed: _confirmed,
+    lostDuringCleanup: _cleanupLoss,
+    ...retainedCommand
+  } = command;
+  const observedAt = Date.now();
+  return {
+    ...retainedCommand,
+    ...(result.status !== "completed" && command.lostDuringCleanup
+      ? { lostDuringCleanup: true }
+      : {}),
+    collectable: true,
+    observedAt,
+    ...(result.exitCode !== null && !command.exitedAt
+      ? { exitedAt: observedAt }
+      : {}),
+    observation,
+    output: retained.output,
+    ...(exitSequence !== undefined ? { syncCursor: result.after } : {}),
+  };
+}
+
+function launchBudgetMs(request: StartCommand, created: boolean) {
+  if (!created) {
+    return OBSERVATION_SETUP_BUDGET_MS + 1000;
+  }
+  return request.backend === "worker-shell"
+    ? (request.timeoutSeconds ?? 300) * 1000 + OBSERVATION_SETUP_BUDGET_MS
+    : 60_000;
 }
 
 export async function hasCollectableComputerCommands(
@@ -315,11 +470,52 @@ async function commandFingerprint(request: StartCommand, cwd: string) {
     .join("");
 }
 
+function hasPendingStop(command: Command) {
+  return (
+    command.stopRequested &&
+    command.stopSentAt === undefined &&
+    !hasCommandExited(command)
+  );
+}
+
+/** A native acknowledgement confirms signal delivery, never process exit.
+ * Recheck the desired signal when recording it: an older acknowledgement
+ * cannot acknowledge a newer request for the same command identity. */
+async function sendPendingComputerStop(input: {
+  storage: RemoteAgentStorage;
+  key: string;
+  workspace: WorkspaceClient;
+  signal?: AbortSignal;
+  force?: boolean;
+}): Promise<void> {
+  const command = await input.storage.get<Command>(input.key);
+  input.signal?.throwIfAborted();
+  if (
+    !command?.stopRequested ||
+    isCommandComplete(command) ||
+    hasCommandExited(command) ||
+    (!input.force && command.stopSentAt !== undefined)
+  ) {
+    return;
+  }
+  const stopSignal = command.stopSignal ?? "SIGTERM";
+  await input.workspace.runtime.killExec(command.id, {
+    backend: commandBackend(command),
+    signal: stopSignal,
+  });
+  await updateCommand(input.storage, input.key, (current) =>
+    current.stopRequested && (current.stopSignal ?? "SIGTERM") === stopSignal
+      ? { ...current, stopSentAt: Date.now() }
+      : current
+  );
+}
+
 export function createComputerCommandTool(input: {
   context: Pick<RemoteAgentCallbackContext, "submissionId">;
   storage: RemoteAgentStorage;
   workspaceAccess: AgentComputerWorkspaceAccess;
   workingDirectory: string;
+  prepareLaunch?: (workspace: WorkspaceClient) => Promise<void>;
   assertCanStart?: () => Promise<void>;
   scheduleCollection?: () => Promise<void>;
   reportErrors?: boolean;
@@ -337,6 +533,12 @@ export function createComputerCommandTool(input: {
     }
     return command;
   };
+  const readDiagnosticCommand = async (key: unknown) =>
+    typeof key === "string"
+      ? await input.storage
+          .get<Command>(`${prefix}${encodeURIComponent(key)}`)
+          .catch(() => undefined)
+      : undefined;
   const saveObservation = async (
     key: string,
     result: CommandResult,
@@ -345,47 +547,7 @@ export function createComputerCommandTool(input: {
     return await updateCommand(
       input.storage,
       `${prefix}${encodeURIComponent(key)}`,
-      (command) => {
-        if (
-          !acceptsObservation(command, result, exitSequence ?? result.after)
-        ) {
-          return command;
-        }
-        const previous = command.observation;
-        const output = [...(command.output ?? [])];
-        if (result.after > (previous?.after ?? 0)) {
-          output.push({
-            after: result.after,
-            stdout: result.stdout,
-            stderr: result.stderr,
-          });
-        }
-        const retained = retainOutput(output);
-        const clipped =
-          retained.clipped ||
-          previous?.outputTruncated ||
-          result.outputTruncated;
-        const observation = {
-          ...result,
-          after: Math.max(previous?.after ?? 0, exitSequence ?? result.after),
-          stdout: "",
-          stderr: "",
-          ...(clipped ? { outputTruncated: true as const } : {}),
-        };
-        const {
-          loss: _loss,
-          lossReported: _reported,
-          lossConfirmed: _confirmed,
-          ...retainedCommand
-        } = command;
-        return {
-          ...retainedCommand,
-          collectable: true,
-          observation,
-          output: retained.output,
-          ...(exitSequence !== undefined ? { syncCursor: result.after } : {}),
-        };
-      }
+      (command) => mergeCommandObservation(command, result, exitSequence)
     );
   };
   const project = (command: Command, after = 0): CommandResult => {
@@ -404,6 +566,17 @@ export function createComputerCommandTool(input: {
       stderr: chunks.map((chunk) => chunk.stderr).join(""),
     };
   };
+  const reportUnconfirmedSync = async (command: Command, after = 0) =>
+    project(
+      input.reportErrors === false
+        ? command
+        : await updateCommand(
+            input.storage,
+            `${prefix}${encodeURIComponent(command.key)}`,
+            (current) => ({ ...current, lossReported: true })
+          ),
+      after
+    );
   const confirmSync = async (
     workspace: WorkspaceClient,
     command: Command,
@@ -416,20 +589,14 @@ export function createComputerCommandTool(input: {
     }
     // result() is the SDK's public synchronization receipt. Stream closure alone
     // also occurs after a failed pull and therefore cannot establish completion.
-    const handle = await workspace.runtime
-      .getExec(command.id, {
+    let handle: WorkspaceRuntimeExecHandle<"utf8"> | undefined;
+    const timer = new AbortController();
+    try {
+      handle = await workspace.runtime.getExec(command.id, {
         backend: commandBackend(command),
         encoding: "utf8",
         resume: command.syncCursor ?? 0,
-      })
-      .catch((error) => {
-        if (hasErrorCode(error, "ENOENT")) {
-          throw new MissingComputerExecRecordError(command.id, error);
-        }
-        throw error;
       });
-    const timer = new AbortController();
-    try {
       const result = await Promise.race([
         handle.result(),
         delay(waitMs, null, {
@@ -447,9 +614,37 @@ export function createComputerCommandTool(input: {
         });
       }
       return command;
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (
+        !(hasErrorCode(error, "ENOENT") || hasErrorCode(error, "EEXEC_LOST"))
+      ) {
+        throw error;
+      }
+      const syncError = hasErrorCode(error, "ENOENT") ? "ENOENT" : "EEXEC_LOST";
+      // An observed exit is durable evidence. Native retention loss removes
+      // sync confirmation, not the already recorded exit or output.
+      return await updateCommand(
+        input.storage,
+        `${prefix}${encodeURIComponent(command.key)}`,
+        (current) =>
+          isCommandComplete(current) || !current.observation
+            ? current
+            : {
+                ...current,
+                loss: syncError,
+                lossConfirmed: true,
+                ...(input.reportErrors === false ? {} : { lossReported: true }),
+                observation: {
+                  ...current.observation,
+                  syncError,
+                  nextAction: "inspect",
+                },
+              }
+      );
     } finally {
       timer.abort();
-      handle[Symbol.dispose]();
+      handle?.[Symbol.dispose]();
     }
   };
   const observe = async (
@@ -460,6 +655,15 @@ export function createComputerCommandTool(input: {
     started?: WorkspaceRuntimeExecHandle<"utf8">
   ) => {
     const deadline = Date.now() + waitMs;
+    if (command.observation?.syncError) {
+      return input.reportErrors === false
+        ? command
+        : await updateCommand(
+            input.storage,
+            `${prefix}${encodeURIComponent(command.key)}`,
+            (current) => ({ ...current, lossReported: true })
+          );
+    }
     if (command.loss === "EEXEC_LOST") {
       throw Object.assign(
         new Error(
@@ -516,15 +720,82 @@ export function createComputerCommandTool(input: {
   };
   const launchWasStopped = async (key: string, signal?: AbortSignal) =>
     Boolean((await read(key)).stopRequested || signal?.aborted);
+  const observeWithPendingStop = async (
+    workspace: WorkspaceClient,
+    command: Command,
+    waitMs: number,
+    signal: AbortSignal
+  ) => {
+    const deadline = Date.now() + waitMs;
+    const current = await read(command.key);
+    if (!hasPendingStop(current)) {
+      return await observe(workspace, current, waitMs, signal);
+    }
+    // Inspect queued exit evidence before signalling. A pending Stop should
+    // not wait for a live process to produce output before its signal is sent.
+    let inspectionError: unknown;
+    try {
+      const observed = await withCommandWorkspace({
+        access: { withWorkspace: (operation) => operation(workspace) },
+        budgetMs: STOP_INSPECTION_BUDGET_MS,
+        phase: "poll",
+        signal,
+        operation: (client, inspectionSignal) =>
+          observe(client, current, 0, inspectionSignal),
+      });
+      if (hasCommandExited(observed)) {
+        return observed;
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      if (hasErrorCode(error, "EEXEC_LOST")) {
+        throw error;
+      }
+      inspectionError = error;
+    }
+    try {
+      await sendPendingComputerStop({
+        storage: input.storage,
+        key: `${prefix}${encodeURIComponent(command.key)}`,
+        workspace,
+        signal,
+      });
+    } catch (error) {
+      if (
+        inspectionError instanceof MissingComputerExecRecordError &&
+        hasErrorCode(error, "ENOENT")
+      ) {
+        throw new ConfirmedLostComputerCommandsError([error]);
+      }
+      throw error;
+    }
+    if (inspectionError) {
+      throw inspectionError;
+    }
+    return await observe(
+      workspace,
+      await read(command.key),
+      Math.max(0, deadline - Date.now()),
+      signal
+    );
+  };
   const launchCommand = async (
     workspace: WorkspaceClient,
     request: StartCommand,
     command: Command,
-    signal?: AbortSignal
-  ) => {
+    observationSignal: AbortSignal,
+    userSignal?: AbortSignal
+  ): Promise<CommandResult> => {
     // Persist identity before dispatch. An uncertain spawn must be inspected,
     // never replayed: even a missing retained handle cannot prove no effect.
+    observationSignal.throwIfAborted();
+    await input.prepareLaunch?.(workspace);
+    observationSignal.throwIfAborted();
     await input.assertCanStart?.();
+    if (await launchWasStopped(request.key, userSignal)) {
+      throw new Error("Computer command was stopped during launch.");
+    }
+    observationSignal.throwIfAborted();
     const handle = await workspace.runtime.exec(
       command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
         ? buildComputerCommandProcess(request.command)
@@ -548,36 +819,162 @@ export function createComputerCommandTool(input: {
     await input.scheduleCollection?.();
     let result: CommandResult;
     try {
+      observationSignal.throwIfAborted();
       result = project(
-        await observe(
-          workspace,
-          command,
-          1000,
-          command.backend === "worker-shell" ? undefined : signal,
-          handle
-        )
+        await observe(workspace, command, 1000, observationSignal, handle)
       );
     } finally {
       handle[Symbol.dispose]();
-      if (await launchWasStopped(request.key, signal)) {
-        await workspace.runtime.killExec(command.id, {
-          backend: commandBackend(command),
-          signal: "SIGTERM",
+      const current = await read(request.key);
+      if (
+        (current.stopRequested || userSignal?.aborted) &&
+        !hasCommandExited(current)
+      ) {
+        if (!current.stopRequested) {
+          await updateCommand(
+            input.storage,
+            `${prefix}${encodeURIComponent(command.key)}`,
+            (receipt) => ({ ...receipt, stopRequested: true })
+          );
+        }
+        // The launch acknowledgement can arrive after the original Workspace
+        // was disposed. Acquire a fresh client to stop that exact identity.
+        await withCommandWorkspace({
+          access: input.workspaceAccess,
+          budgetMs: OBSERVATION_SETUP_BUDGET_MS,
+          phase: "stop",
+          operation: (currentWorkspace, stopObservationSignal) =>
+            sendPendingComputerStop({
+              storage: input.storage,
+              key: `${prefix}${encodeURIComponent(command.key)}`,
+              workspace: currentWorkspace,
+              signal: stopObservationSignal,
+              force: true,
+            }),
         });
       }
     }
-    if (await launchWasStopped(request.key, signal)) {
+    if (await launchWasStopped(request.key, userSignal)) {
       throw new Error("Computer command was stopped during launch.");
     }
     return {
       ...result,
-      nextAction: result.status === "completed" ? "done" : "poll",
+      nextAction:
+        result.nextAction ?? (result.status === "completed" ? "done" : "poll"),
+    };
+  };
+  const startCommand = async (request: StartCommand, signal?: AbortSignal) => {
+    await input.assertCanStart?.();
+    const key = `${prefix}${encodeURIComponent(request.key)}`;
+    const fingerprint = await commandFingerprint(
+      request,
+      input.workingDirectory
+    );
+    const candidate: Command = {
+      id: crypto.randomUUID(),
+      key: request.key,
+      fingerprint,
+      createdAt: Date.now(),
+      backend: request.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+      collectable: false,
+    };
+    const created = await input.storage.putIfAbsentExpiring(
+      key,
+      candidate,
+      Date.now() + 7 * 24 * 60 * 60 * 1000
+    );
+    // Arm recovery before spawn or any other external I/O. Pending launches
+    // can be inspected, but an absent record does not prove dispatch failed.
+    await input.scheduleCollection?.();
+    const command = created ? candidate : await read(request.key);
+    assertCommandMatches(command, fingerprint);
+    if (
+      isCommandComplete(command) &&
+      (command.observation || command.terminalResult)
+    ) {
+      return project(command);
+    }
+    if (command.observation?.syncError) {
+      return await reportUnconfirmedSync(command);
+    }
+    return await withCommandWorkspace({
+      access: input.workspaceAccess,
+      budgetMs: launchBudgetMs(request, created),
+      phase: created ? "launch" : "poll",
+      signal,
+      operation: (workspace, observationSignal) =>
+        created
+          ? launchCommand(
+              workspace,
+              request,
+              command,
+              observationSignal,
+              signal
+            )
+          : observe(workspace, command, 1000, observationSignal).then(
+              (current) => project(current)
+            ),
+    });
+  };
+  const stopCommand = async (
+    request: Extract<
+      CloudComputerOperation,
+      { action: "command" }
+    >["command"] & { action: "stop" },
+    command: Command,
+    signal?: AbortSignal
+  ) => {
+    if (command.backend === "worker-shell") {
+      throw new Error(
+        "computer.cancellation_unsupported: worker-shell runs in the foreground and cannot be interrupted. Wait for its result or timeout. Use container or worker-javascript for cancellable work."
+      );
+    }
+    // Retain Stop before acquisition. A pending launch must see it even when
+    // this call cannot acquire a native client within its observation budget.
+    const current = await updateCommand(
+      input.storage,
+      `${prefix}${encodeURIComponent(command.key)}`,
+      (current) => {
+        const stopSignal = request.signal ?? "SIGTERM";
+        return {
+          ...current,
+          stopRequested: true,
+          stopSignal,
+          ...((current.stopSignal ?? "SIGTERM") === stopSignal
+            ? {}
+            : { stopSentAt: undefined }),
+        };
+      }
+    );
+    if (isCommandComplete(current)) {
+      return project(current);
+    }
+    if (!hasCommandExited(current)) {
+      await withCommandWorkspace({
+        access: input.workspaceAccess,
+        budgetMs: OBSERVATION_SETUP_BUDGET_MS,
+        phase: "stop",
+        signal,
+        operation: (workspace, observationSignal) =>
+          sendPendingComputerStop({
+            storage: input.storage,
+            key: `${prefix}${encodeURIComponent(command.key)}`,
+            workspace,
+            signal: observationSignal,
+          }),
+      });
+    }
+    return {
+      id: command.id,
+      key: command.key,
+      status: "stop_requested",
+      nextAction: "poll",
     };
   };
   const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
-      "Run commands on your personal Computer. start accepts key, command, backend (container by default, worker-shell or worker-javascript), env, stdin, structured input, and timeoutSeconds. JavaScript source exports a default function; its returned JSON is in result. worker-shell completes before returning and cannot be interrupted or reattached. Use container or worker-javascript for long or cancellable execution. Replies keep bounded recent output and flag outputTruncated. Redirect large output to a persistent file. Start once with a stable key, then poll using the returned after cursor until completed. syncPending means the process exited but its file synchronization is not confirmed; continue polling. The Computer saves results independently of model polling. list recovers this invocation's keys. stop sends signal (SIGTERM by default); stop_requested is not confirmed exit. A repeated start never launches twice. After a transport error or missing execution record, inspect existing results before deciding what can safely be repeated. Report any unresolved work in your final answer. Cancellation cleans up only this task's commands. Do not add shell backgrounding to evade command lifecycle. Use computer for files, capability details or a different cwd.",
+      "Run commands on your personal Computer. start accepts key, command, backend (container by default, worker-shell or worker-javascript), env, stdin, structured input, and timeoutSeconds. JavaScript source exports a default function; its returned JSON is in result. worker-shell completes before returning and cannot be interrupted or reattached. Use container or worker-javascript for long or cancellable execution. Replies keep bounded recent output and flag outputTruncated. Redirect large output to a persistent file. Start once with a stable key, then poll using the returned after cursor until completed. syncPending means the process exited but file synchronization is not confirmed. Continue polling unless syncError or nextAction inspect is present. syncError preserves the known exit and output, but synchronization cannot be confirmed. Stop polling and inspect persistent files. Process exit does not prove file synchronization succeeded. The Computer saves results independently of model polling. list recovers this invocation's keys. stop sends signal (SIGTERM by default); stop_requested is not confirmed exit. A repeated start never launches twice. After a transport error or missing execution record, inspect existing results before deciding what can safely be repeated. Report any unresolved work in your final answer. Cancellation cleans up only this task's commands. Do not add shell backgrounding to evade command lifecycle. Use computer for files, capability details or a different cwd.",
     input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
@@ -588,45 +985,15 @@ export function createComputerCommandTool(input: {
         ].map(({ key, id, createdAt }) => ({ key, id, createdAt }));
       }
       if (request.action === "start") {
-        await input.assertCanStart?.();
-        const key = `${prefix}${encodeURIComponent(request.key)}`;
-        const fingerprint = await commandFingerprint(
-          request,
-          input.workingDirectory
-        );
-        const candidate: Command = {
-          id: crypto.randomUUID(),
-          key: request.key,
-          fingerprint,
-          createdAt: Date.now(),
-          backend: request.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-          collectable: false,
-        };
-        const created = await input.storage.putIfAbsentExpiring(
-          key,
-          candidate,
-          Date.now() + 7 * 24 * 60 * 60 * 1000
-        );
-        // Arm recovery before spawn or any other external I/O. Pending launches
-        // can be inspected, but an absent record does not prove dispatch failed.
-        await input.scheduleCollection?.();
-        const command = created ? candidate : await read(request.key);
-        assertCommandMatches(command, fingerprint);
-        if (
-          isCommandComplete(command) &&
-          (command.observation || command.terminalResult)
-        ) {
-          return project(command);
-        }
-        return await input.workspaceAccess.withWorkspace((workspace) =>
-          created
-            ? launchCommand(workspace, request, command, options?.signal)
-            : observe(workspace, command, 1000, options?.signal).then(
-                (current) => project(current)
-              )
-        );
+        return await startCommand(request, options?.signal);
       }
       const command = await read(request.key);
+      if (command.observation?.syncError) {
+        return await reportUnconfirmedSync(
+          command,
+          request.action === "poll" ? request.after : undefined
+        );
+      }
       if (
         isCommandComplete(command) &&
         (command.observation || command.terminalResult)
@@ -637,92 +1004,100 @@ export function createComputerCommandTool(input: {
         );
       }
       await input.scheduleCollection?.();
-      return await input.workspaceAccess.withWorkspace(async (workspace) => {
-        if (request.action === "stop") {
-          if (command.backend === "worker-shell") {
-            throw new Error(
-              "computer.cancellation_unsupported: worker-shell runs in the foreground and cannot be interrupted. Wait for its result or timeout. Use container or worker-javascript for cancellable work."
-            );
-          }
-          await updateCommand(
-            input.storage,
-            `${prefix}${encodeURIComponent(command.key)}`,
-            (current) => ({ ...current, stopRequested: true })
+      if (request.action === "stop") {
+        return await stopCommand(request, command, options?.signal);
+      }
+      return await withCommandWorkspace({
+        access: input.workspaceAccess,
+        budgetMs:
+          OBSERVATION_SETUP_BUDGET_MS + (request.waitSeconds ?? 20) * 1000,
+        phase: "poll",
+        signal: options?.signal,
+        operation: async (workspace, observationSignal) => {
+          return project(
+            await observeWithPendingStop(
+              workspace,
+              command,
+              (request.waitSeconds ?? 20) * 1000,
+              observationSignal
+            ),
+            request.after ?? 0
           );
-          await workspace.runtime.killExec(command.id, {
-            backend: commandBackend(command),
-            signal: request.signal ?? "SIGTERM",
-          });
-          return {
-            id: command.id,
-            key: command.key,
-            status: "stop_requested",
-            nextAction: "poll",
-          };
-        }
-        return project(
-          await observe(
-            workspace,
-            command,
-            (request.waitSeconds ?? 20) * 1000,
-            options?.signal
-          ),
-          request.after ?? 0
-        );
+        },
       });
     },
+  };
+  const logResult = async (
+    rawInput: Record<string, unknown>,
+    result: unknown
+  ) => {
+    const receipt =
+      result && typeof result === "object"
+        ? (result as Record<string, unknown>)
+        : {};
+    // Background polling logs terminal evidence, not every running tick.
+    if (
+      source === "tool" ||
+      receipt.status === "completed" ||
+      receipt.syncError
+    ) {
+      console.info("[remote_agent.computer_command_result]", {
+        source,
+        submissionId: input.context.submissionId,
+        action: rawInput.action,
+        ...commandDiagnostics(await readDiagnosticCommand(rawInput.key)),
+        status: receipt.status,
+        after: receipt.after,
+      });
+    }
+  };
+  const recordFailure = async (
+    rawInput: Record<string, unknown>,
+    error: unknown
+  ) => {
+    const command = await readDiagnosticCommand(rawInput.key);
+    if (isCommandLoss(error) && command) {
+      await updateCommand(
+        input.storage,
+        `${prefix}${encodeURIComponent(command.key)}`,
+        (current) =>
+          current.collectable === false || isCommandComplete(current)
+            ? current
+            : {
+                ...current,
+                loss: error.code,
+                ...(error instanceof ConfirmedLostComputerCommandsError
+                  ? { lossConfirmed: true }
+                  : {}),
+                ...(input.reportErrors === false ? {} : { lossReported: true }),
+              }
+      );
+    }
+    if (source === "tool" || (isCommandLoss(error) && !command?.loss)) {
+      console.warn("[remote_agent.computer_command_failed]", {
+        source,
+        submissionId: input.context.submissionId,
+        action: rawInput.action,
+        ...commandDiagnostics(command),
+        phase:
+          error instanceof Error && "phase" in error
+            ? error.phase
+            : rawInput.action,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorCode:
+          error instanceof Error && "code" in error ? error.code : undefined,
+      });
+    }
   };
   return {
     ...definition,
     async execute(rawInput, options) {
       try {
         const result = await definition.execute(rawInput, options);
-        const receipt =
-          result && typeof result === "object"
-            ? (result as Record<string, unknown>)
-            : {};
-        console.info("[remote_agent.computer_command_result]", {
-          source,
-          submissionId: input.context.submissionId,
-          action: rawInput.action,
-          commandId: receipt.id,
-          status: receipt.status,
-          exitCode: receipt.exitCode,
-          after: receipt.after,
-          stdoutChars:
-            typeof receipt.stdout === "string"
-              ? receipt.stdout.length
-              : undefined,
-        });
+        await logResult(rawInput, result);
         return result;
       } catch (error) {
-        if (isCommandLoss(error) && typeof rawInput.key === "string") {
-          const command = await read(rawInput.key);
-          await updateCommand(
-            input.storage,
-            `${prefix}${encodeURIComponent(command.key)}`,
-            (current) =>
-              current.collectable === false || isCommandComplete(current)
-                ? current
-                : {
-                    ...current,
-                    loss: error.code,
-                    ...(input.reportErrors === false
-                      ? {}
-                      : { lossReported: true }),
-                  }
-          );
-        }
-        console.warn("[remote_agent.computer_command_failed]", {
-          source,
-          submissionId: input.context.submissionId,
-          action: rawInput.action,
-          errorName: error instanceof Error ? error.name : "UnknownError",
-          errorCode:
-            typeof error === "object" && error !== null && "code" in error
-              ? error.code
-              : undefined,
-        });
+        await recordFailure(rawInput, error);
         throw error;
       }
     },
@@ -743,33 +1118,49 @@ export async function collectComputerCommands(input: {
 }): Promise<boolean> {
   const commands = await input.storage.list<Command>({ prefix: PREFIX });
   let pending = false;
-  for (const [key, command] of commands) {
-    if (!isCollectableCommand(command)) {
-      continue;
-    }
-    const submissionId = decodeURIComponent(
-      key.slice(PREFIX.length, key.lastIndexOf(":"))
-    );
-    try {
-      const result = (await createComputerCommandTool({
-        ...input,
-        context: { submissionId },
-        workingDirectory: "/computer",
-        reportErrors: false,
-      }).execute({
-        action: "poll",
-        key: command.key,
-        waitSeconds: 1,
-      })) as CommandResult;
-      pending ||= result.status !== "completed";
-    } catch (error) {
-      // Record confirmed loss but do not mark it delivered to the model.
-      // Transport failures remain retryable by this same owner.
-      pending ||= !(
-        hasErrorCode(error, "ENOENT") || hasErrorCode(error, "EEXEC_LOST")
+  const remaining = [...commands].filter(([, command]) =>
+    isCollectableCommand(command)
+  );
+  const collect = async () => {
+    for (;;) {
+      const next = remaining.shift();
+      if (!next) {
+        return;
+      }
+      const [key, command] = next;
+      if (!isCollectableCommand(command)) {
+        continue;
+      }
+      const submissionId = decodeURIComponent(
+        key.slice(PREFIX.length, key.lastIndexOf(":"))
       );
+      try {
+        const result = (await createComputerCommandTool({
+          ...input,
+          context: { submissionId },
+          workingDirectory: "/computer",
+          reportErrors: false,
+        }).execute({
+          action: "poll",
+          key: command.key,
+          waitSeconds: 1,
+        })) as CommandResult;
+        pending ||= result.status !== "completed" && !result.syncError;
+      } catch (error) {
+        // Record confirmed loss but do not mark it delivered to the model.
+        // Transport failures remain retryable by this same owner.
+        pending ||= !(
+          hasErrorCode(error, "ENOENT") || hasErrorCode(error, "EEXEC_LOST")
+        );
+      }
     }
-  }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(COLLECTION_CONCURRENCY, remaining.length) },
+      collect
+    )
+  );
   return pending;
 }
 
@@ -852,6 +1243,25 @@ function appendOutput(
   result[name] = text.slice(-MAX_OUTPUT_CHARS);
 }
 
+async function detachCommandReader(
+  handle: WorkspaceRuntimeExecHandle<"utf8">,
+  reader: ReadableStreamDefaultReader<unknown>
+) {
+  const timer = new AbortController();
+  try {
+    // Cap'n Web can wait for a silent producer's next write. Cancellation is
+    // reader detachment, not process termination or new command evidence.
+    await Promise.race([
+      reader.cancel().catch(() => undefined),
+      delay(READER_CANCEL_BUDGET_MS, undefined, { signal: timer.signal }),
+    ]);
+  } finally {
+    timer.abort();
+    reader.releaseLock();
+    handle[Symbol.dispose]();
+  }
+}
+
 export async function readCommandSlice(
   handle: WorkspaceRuntimeExecHandle<"utf8">,
   key: string,
@@ -921,12 +1331,7 @@ export async function readCommandSlice(
     if (onAbort) {
       signal?.removeEventListener("abort", onAbort);
     }
-    try {
-      await reader.cancel();
-    } finally {
-      reader.releaseLock();
-      handle[Symbol.dispose]();
-    }
+    await detachCommandReader(handle, reader);
   }
 }
 
@@ -996,12 +1401,8 @@ export async function stopStoredComputerCommands(input: {
     return { unfinished: 0, lostDuringCleanup: false };
   }
   let unfinished = 0;
-  let lostDuringCleanup = 0;
-  const previouslyLost = [...commands.values()].some(
-    (command) => command.lostDuringCleanup
-  );
-  const failures: unknown[] = [];
-  for (const command of commands.values()) {
+  const failures: { key: string; error: unknown }[] = [];
+  for (const [key, command] of commands) {
     // A reported loss reached the model. A cleanup loss is reconciled through
     // the execution owner, including after a crash before its failure request.
     // Neither absent process should be retried.
@@ -1020,22 +1421,43 @@ export async function stopStoredComputerCommands(input: {
         storage: input.storage,
       });
     } catch (error) {
-      if (error instanceof ConfirmedLostComputerCommandsError) {
-        lostDuringCleanup++;
-      }
-      failures.push(error);
+      failures.push({ key, error });
     }
   }
-  if (failures.length > 0) {
-    if (lostDuringCleanup === failures.length) {
+  // A concurrent authoritative sync receipt can resolve a cleanup loss while
+  // another command is still being inspected. Decide from current receipts.
+  const current = await input.storage.list<Command>({
+    prefix: commandPrefix(input.context.submissionId),
+  });
+  const unresolved = failures
+    .filter(({ key, error }) => {
+      const receipt = current.get(key);
+      return !(
+        error instanceof ConfirmedLostComputerCommandsError &&
+        receipt &&
+        isCommandComplete(receipt)
+      );
+    })
+    .map(({ error }) => error);
+  if (unresolved.length > 0) {
+    if (
+      unresolved.every(
+        (error) => error instanceof ConfirmedLostComputerCommandsError
+      )
+    ) {
       if (input.reportConfirmedLoss) {
         return { unfinished, lostDuringCleanup: true };
       }
-      throw new ConfirmedLostComputerCommandsError(failures);
+      throw new ConfirmedLostComputerCommandsError(unresolved);
     }
-    throw new AggregateError(failures, "Computer command cleanup failed.");
+    throw new AggregateError(unresolved, "Computer command cleanup failed.");
   }
-  return { unfinished, lostDuringCleanup: previouslyLost };
+  return {
+    unfinished,
+    lostDuringCleanup: [...current.values()].some(
+      (command) => command.lostDuringCleanup && !isCommandComplete(command)
+    ),
+  };
 }
 
 async function stopAndRecordComputerCommand(input: {
@@ -1072,8 +1494,7 @@ async function stopAndRecordComputerCommand(input: {
       }
       console.warn("[remote_agent.computer_command_cleanup_lost]", {
         submissionId: input.context.submissionId,
-        commandId: input.command.id,
-        commandKey: input.command.key,
+        ...commandDiagnostics(reconciled),
         errorCode: hasErrorCode(error.errors[0], "EEXEC_LOST")
           ? "EEXEC_LOST"
           : "ENOENT",
@@ -1081,7 +1502,8 @@ async function stopAndRecordComputerCommand(input: {
     }
     console.warn("[remote_agent.computer_command_cleanup_error]", {
       submissionId: input.context.submissionId,
-      commandId: input.command.id,
+      ...commandDiagnostics(current),
+      phase: "cleanup",
       errorName: error instanceof Error ? error.name : "UnknownError",
       errorCode:
         error instanceof Error && "code" in error ? error.code : undefined,
@@ -1102,57 +1524,100 @@ async function inspectAndStopComputerCommand(input: {
     // call can establish completion. Keep cleanup explicitly unfinished.
     return 1;
   }
-  return await access.withWorkspace(async (workspace) => {
-    let completed = false;
-    let recordMissing = false;
-    let runtimeLost = false;
-    let inspectionFailed = false;
-    let inspectionError: unknown;
-    try {
-      const result = (await createComputerCommandTool({
-        context: input.context,
-        storage: input.storage,
-        workspaceAccess: { withWorkspace: (operation) => operation(workspace) },
-        workingDirectory: "/computer",
-        reportErrors: false,
-      }).execute({
-        action: "poll",
-        key: command.key,
-        waitSeconds: 1,
-      })) as CommandResult;
-      completed = result.status === "completed";
-    } catch (error) {
-      recordMissing = error instanceof MissingComputerExecRecordError;
-      runtimeLost = hasErrorCode(error, "EEXEC_LOST");
-      inspectionFailed = true;
-      inspectionError = error;
-    }
-    // A transport failure can leave a live command behind. A replaced
-    // runtime cannot: the old execution identity is already gone.
-    if (!(completed || runtimeLost)) {
-      try {
-        await workspace.runtime.killExec(command.id, {
-          backend: commandBackend(command),
-          signal: "SIGTERM",
-        });
-      } catch (error) {
-        if (
-          hasErrorCode(error, "EEXEC_LOST") ||
-          (recordMissing && hasErrorCode(error, "ENOENT"))
-        ) {
-          throw new ConfirmedLostComputerCommandsError([error]);
+  return await withCommandWorkspace({
+    access,
+    budgetMs: OBSERVATION_SETUP_BUDGET_MS + 1000,
+    phase: "cleanup",
+    operation: async (workspace, signal) => {
+      const inspection = await inspectComputerCommandForCleanup({
+        ...input,
+        workspace,
+        signal,
+      });
+      signal.throwIfAborted();
+      const { result, error } = inspection;
+      const completed = result?.status === "completed";
+      const runtimeLost = hasErrorCode(error, "EEXEC_LOST");
+      const recordMissing = error instanceof MissingComputerExecRecordError;
+      // A transport failure can leave a live command behind. A replaced
+      // runtime cannot: the old execution identity is already gone.
+      if (!(completed || inspection.exited || runtimeLost)) {
+        try {
+          await sendPendingComputerStop({
+            storage: input.storage,
+            key: `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
+            workspace,
+            signal,
+            // A prior signal acknowledgement is not an exit receipt. When
+            // inspection finds no record, confirm this exact ID is gone.
+            force: recordMissing,
+          });
+        } catch (error) {
+          if (
+            hasErrorCode(error, "EEXEC_LOST") ||
+            (recordMissing && hasErrorCode(error, "ENOENT"))
+          ) {
+            throw new ConfirmedLostComputerCommandsError([error]);
+          }
+          throw error;
         }
+      }
+      if (runtimeLost) {
+        throw new ConfirmedLostComputerCommandsError([error]);
+      }
+      if (error) {
         throw error;
       }
-    }
-    if (runtimeLost) {
-      throw new ConfirmedLostComputerCommandsError([inspectionError]);
-    }
-    if (inspectionFailed) {
-      throw inspectionError;
-    }
-    return completed ? 0 : 1;
+      return completed ? 0 : 1;
+    },
   });
+}
+
+async function inspectComputerCommandForCleanup(input: {
+  command: Command;
+  context: Pick<RemoteAgentCallbackContext, "submissionId">;
+  storage: RemoteAgentStorage;
+  workspace: WorkspaceClient;
+  signal: AbortSignal;
+}): Promise<{ result?: CommandResult; error?: unknown; exited: boolean }> {
+  try {
+    const result = (await createComputerCommandTool({
+      context: input.context,
+      storage: input.storage,
+      workspaceAccess: {
+        withWorkspace: (operation) => operation(input.workspace),
+      },
+      workingDirectory: "/computer",
+      reportErrors: false,
+    }).execute(
+      { action: "poll", key: input.command.key, waitSeconds: 1 },
+      { signal: input.signal }
+    )) as CommandResult;
+    if (result.syncError && result.exitCode !== null) {
+      throw new ConfirmedLostComputerCommandsError([
+        Object.assign(
+          new Error(
+            "The command exited, but its file synchronization could not be confirmed."
+          ),
+          { code: result.syncError }
+        ),
+      ]);
+    }
+    return { result, exited: result.exitCode !== null };
+  } catch (error) {
+    if (error instanceof ConfirmedLostComputerCommandsError) {
+      throw error;
+    }
+    const key = `${commandPrefix(input.context.submissionId)}${encodeURIComponent(input.command.key)}`;
+    const current = await input.storage.get<Command>(key);
+    if (current && isCommandComplete(current)) {
+      return {
+        result: current.observation ?? current.terminalResult,
+        exited: true,
+      };
+    }
+    return { error, exited: hasCommandExited(current ?? input.command) };
+  }
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

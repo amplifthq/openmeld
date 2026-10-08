@@ -291,6 +291,13 @@ export function resolveProductionCompatibilityDependencies(
     "clients/openmeld-cli/src/space/dispatch-task.ts"
   );
   const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
+  const remoteRequestReceiverFirst =
+    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context);
+  const remoteReceiverRequired = requiresRemoteAgentRequestReceiver(
+    changedPaths,
+    context,
+    remoteRequestReceiverFirst
+  );
   const dependencyGroups = [
     {
       enabled: isProjectIssueWorkflowDiff(changedPaths),
@@ -326,6 +333,16 @@ export function resolveProductionCompatibilityDependencies(
         ["core", "gateway"],
         ["gateway", "web"],
       ],
+    },
+    {
+      enabled: isGatewayRequestContextReceiverFirstDiff(changedPaths, context),
+      edges: [["core", "gateway"]],
+    },
+    {
+      enabled:
+        hasRemoteExecutionInputOwners(changedPaths) &&
+        inspectRemoteExecutionInputSchemaDirection(context)?.responseChanged,
+      edges: [["core", "remote-agent"]],
     },
     {
       enabled: isCenterAgentEvidenceDiff(changedPaths),
@@ -487,16 +504,14 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["core", "cli"]],
     },
     {
-      enabled:
-        (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
-          changedPaths.some(isRemoteAgentReceiverFirstContractPath)) &&
-        !resolveRemoteAgentRequestCompatibilityBridge({
-          ...context,
-          readGitFile:
-            context.readGitFile ??
-            ((ref, path) => runGit(["show", `${ref}:${path}`])),
-        }),
+      enabled: remoteReceiverRequired,
       edges: [["remote-agent", "core"]],
+    },
+    {
+      // CLI publication deploys the candidate Core projection. It must not
+      // activate that strict request producer before the Remote receiver.
+      enabled: remoteRequestReceiverFirst && remoteReceiverRequired,
+      edges: [["remote-agent", "cli"]],
     },
     {
       enabled: isIndependentSkillBridgeDiff(changedPaths),
@@ -517,7 +532,10 @@ export function resolveProductionCompatibilityDependencies(
   return edges;
 }
 
-export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
+export function resolveProductionCompatibilityReceiverWitnesses(
+  changedPaths,
+  context = {}
+) {
   const witnesses = isWorkingFolderRecoveryDiff(changedPaths)
     ? [
         {
@@ -533,9 +551,16 @@ export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
         },
       ]
     : [];
+  if (isGatewayRequestContextReceiverFirstDiff(changedPaths, context)) {
+    witnesses.push({
+      receiver: "core",
+      producer: "gateway",
+      receiverPaths: [GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH],
+    });
+  }
   if (
     !(
-      isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+      isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context) ||
       changedPaths.some(isRemoteAgentReceiverFirstContractPath)
     )
   ) {
@@ -543,19 +568,25 @@ export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
   }
   const receiverPaths = [
     ...REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS,
+    REMOTE_EXECUTION_INPUT_SCHEMA_PATH,
     REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH,
     ...REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS,
   ].filter((path) => changedPaths.includes(path));
-  return receiverPaths.length > 0
-    ? [
-        ...witnesses,
-        {
-          producer: "core",
-          receiver: "remote-agent",
-          receiverPaths,
-        },
-      ]
-    : witnesses;
+  if (receiverPaths.length > 0) {
+    witnesses.push({
+      producer: "core",
+      receiver: "remote-agent",
+      receiverPaths,
+    });
+    if (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context)) {
+      witnesses.push({
+        producer: "cli",
+        receiver: "remote-agent",
+        receiverPaths,
+      });
+    }
+  }
+  return witnesses;
 }
 
 function isWorkingFolderRecoveryDiff(paths) {
@@ -731,6 +762,10 @@ function describeCompatibilityPathSignals(changedPaths) {
 }
 const REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH =
   "packages/schemas/src/schemas/runtime/remote-agent-worker.ts";
+const REMOTE_EXECUTION_INPUT_SCHEMA_PATH =
+  "packages/schemas/src/schemas/runtime/remote-agent-execution-input.ts";
+const GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH =
+  "packages/schemas/src/schemas/daemon/profile-identity.ts";
 const REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS = new Set([
   REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH,
   "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
@@ -1271,7 +1306,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertInboxSourceTargetReleaseScopes(
     scopes,
     changedPaths,
-    input.taskInboxRetired
+    input.taskInboxRetired,
+    input.compatibilityContext
   );
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
@@ -1279,7 +1315,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertSpaceTaskReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     compatibilityChangedPaths,
-    input.taskInboxRetired
+    input.taskInboxRetired,
+    input.compatibilityContext
   );
   if (
     deployOrderProfile === "space-caller-context-receivers-first" &&
@@ -1421,6 +1458,7 @@ function appendDatabaseDeploySteps(input) {
       input.steps.push({
         command: "node",
         args: ["tooling/postgresql/cutover.mjs", command],
+        controlPath: "tooling/postgresql/cutover.mjs",
         label: `PostgreSQL database: ${command}`,
       });
     }
@@ -1551,7 +1589,8 @@ function resolveProductionDeployScopeOrder(
 ) {
   const profile = resolveProductionDeployOrderProfile(
     changedPaths,
-    taskInboxRetired
+    taskInboxRetired,
+    context
   );
   const order = DEPLOY_SCOPE_ORDER_BY_PROFILE[profile];
   const selected = new Set(scopes);
@@ -1578,7 +1617,10 @@ function resolveProductionDeployScopeOrder(
       isRemoteAiUsageDiff(changedPaths) ||
       isCenterAgentEvidenceDiff(changedPaths) ||
       isSpaceMessageSearchReceiverFirstDiff(changedPaths) ||
-      isInboxNotificationObservationDiff(changedPaths)
+      isInboxNotificationObservationDiff(changedPaths) ||
+      isGatewayRequestContextReceiverFirstDiff(changedPaths, context) ||
+      hasRemoteTurnEnvelopeOwners(changedPaths) ||
+      hasRemoteExecutionInputOwners(changedPaths)
     )
   ) {
     return preferred;
@@ -1617,14 +1659,16 @@ function resolveProductionDeployScopeOrder(
 
 function resolveProductionDeployOrderProfile(
   changedPaths,
-  taskInboxRetired = false
+  taskInboxRetired = false,
+  context = {}
 ) {
   if (isPersonalCloudComputerDiff(changedPaths)) {
     const profile = resolveProductionDeployOrderProfile(
       changedPaths.filter(
         (file) => !PERSONAL_CLOUD_COMPUTER_CONTRACT_PATHS.has(file)
       ),
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
     if (profile !== "default-auth-receiver-first") {
       throw new Error(
@@ -1643,7 +1687,8 @@ function resolveProductionDeployOrderProfile(
           file !== SPACE_MESSAGE_SEARCH_SCHEMA_PATH &&
           !CENTER_AGENT_EVIDENCE_SCHEMA_PATHS.has(file)
       ),
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
     if (otherProfile === "core-worker-response-reader-first") {
       return otherProfile;
@@ -1663,7 +1708,8 @@ function resolveProductionDeployOrderProfile(
   if (isSpaceTaskReceiverFirstDiff(changedPaths)) {
     const otherProfile = resolveProductionDeployOrderProfile(
       changedPaths.filter((file) => file !== SPACE_TASK_SCHEMA_PATH),
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
     if (
       ![
@@ -1683,12 +1729,14 @@ function resolveProductionDeployOrderProfile(
   if (!isSpaceCallerContextDiff(changedPaths)) {
     return resolveOtherProductionDeployOrderProfile(
       changedPaths,
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
   }
   const profile = resolveOtherProductionDeployOrderProfile(
     changedPaths,
-    taskInboxRetired
+    taskInboxRetired,
+    context
   );
   if (
     ![
@@ -1705,7 +1753,8 @@ function resolveProductionDeployOrderProfile(
 
 function resolveOtherProductionDeployOrderProfile(
   changedPaths,
-  taskInboxRetired
+  taskInboxRetired,
+  context
 ) {
   if (isPersonalRemoteToolsReceiverFirstDiff(changedPaths)) {
     // This entrypoint change exports the browser facet; it does not expand a
@@ -1717,7 +1766,8 @@ function resolveOtherProductionDeployOrderProfile(
           file !==
             "services/core/src/remote-agent/application/remote-agent-tool-caller.ts"
       ),
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
     if (
       ![
@@ -1736,7 +1786,9 @@ function resolveOtherProductionDeployOrderProfile(
     // The exact retired contract is proven against Git below. Other contracts
     // still select their ordinary profile and must be composable with Core first.
     const profile = resolveProductionDeployOrderProfile(
-      changedPaths.filter((file) => file !== INBOX_SCHEMA_PATH)
+      changedPaths.filter((file) => file !== INBOX_SCHEMA_PATH),
+      false,
+      context
     );
     if (
       profile === "remote-agent-receiver-first" ||
@@ -1755,7 +1807,10 @@ function resolveOtherProductionDeployOrderProfile(
       `Task Inbox retirement requires Core before its strict readers and conflicts with ${profile}; split the release.`
     );
   }
-  const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
+  const profile = resolveExistingProductionDeployOrderProfile(
+    changedPaths,
+    context
+  );
   if (isDeviceWaitReceiverFirstDiff(changedPaths)) {
     assertComposableDeviceWaitReleaseProfile(changedPaths, profile);
     return "device-wait-receivers-first";
@@ -1870,13 +1925,13 @@ function isPeopleComputersReceiverFirstDiff(changedPaths) {
   );
 }
 
-function resolveExistingProductionDeployOrderProfile(changedPaths) {
+function resolveExistingProductionDeployOrderProfile(changedPaths, context) {
   const isConnectComputerReceiverFirst =
     isConnectComputerCliReceiverFirstDiff(changedPaths);
   const isInboxReceiverFirst =
     isInboxSourceTargetReceiverFirstDiff(changedPaths);
   const isRemoteAgentRequestReceiverFirst =
-    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths);
+    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context);
   const isRemoteAgentReceiverFirst = changedPaths.some(
     isRemoteAgentReceiverFirstContractPath
   );
@@ -2306,7 +2361,8 @@ function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
 function assertInboxSourceTargetReleaseScopes(
   scopes,
   changedPaths,
-  taskInboxRetired = false
+  taskInboxRetired = false,
+  context = {}
 ) {
   if (
     !(taskInboxRetired || isInboxSourceTargetReceiverFirstDiff(changedPaths))
@@ -2325,7 +2381,11 @@ function assertInboxSourceTargetReleaseScopes(
       "remote-agent-and-inbox-receivers-first",
       "remote-agent-and-inbox-task-retirement-first",
     ].includes(
-      resolveProductionDeployOrderProfile(changedPaths, taskInboxRetired)
+      resolveProductionDeployOrderProfile(
+        changedPaths,
+        taskInboxRetired,
+        context
+      )
     ) &&
     !selected.has("remote-agent")
   ) {
@@ -2335,16 +2395,148 @@ function assertInboxSourceTargetReleaseScopes(
   }
 }
 
-function isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) {
+function isRemoteAgentWorkerRequestReceiverFirstDiff(
+  changedPaths,
+  context = {}
+) {
   return (
-    changedPaths.some((path) =>
+    isImportedRemoteAgentRequestReceiverFirstDiff(changedPaths, context) ||
+    (changedPaths.some((path) =>
       REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS.has(path)
     ) &&
-    changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
-    changedPaths.some((path) =>
-      REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS.has(path)
-    )
+      changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
+      changedPaths.some((path) =>
+        REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS.has(path)
+      ))
   );
+}
+function isImportedRemoteAgentRequestReceiverFirstDiff(paths, context) {
+  const direction = hasRemoteExecutionInputOwners(paths)
+    ? inspectRemoteExecutionInputSchemaDirection(context)
+    : null;
+  return (
+    hasRemoteTurnEnvelopeOwners(paths) ||
+    (direction?.requestChanged === true && direction.responseChanged === false)
+  );
+}
+function requiresRemoteAgentRequestReceiver(paths, context, requestChanged) {
+  return (
+    // The native-request bridge does not witness these separate producers.
+    isImportedRemoteAgentRequestReceiverFirstDiff(paths, context) ||
+    ((requestChanged || paths.some(isRemoteAgentReceiverFirstContractPath)) &&
+      !resolveRemoteAgentRequestCompatibilityBridge({
+        ...context,
+        readGitFile:
+          context.readGitFile ??
+          ((ref, path) => runGit(["show", `${ref}:${path}`])),
+      }))
+  );
+}
+function hasRemoteTurnEnvelopeOwners(paths) {
+  return [
+    "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+    "services/core/src/remote-agent/application/turn-envelope.ts",
+  ].every((file) => paths.includes(file));
+}
+function hasRemoteExecutionInputOwners(paths) {
+  return [
+    REMOTE_EXECUTION_INPUT_SCHEMA_PATH,
+    "services/core/src/space/transport/do/space.ts",
+    "services/remote-agent/flue-adapter/execution-input.ts",
+  ].every((file) => paths.includes(file));
+}
+function readContractSources(context, file) {
+  if (!(context.base && context.sourceSha)) {
+    return null;
+  }
+  const readGitFile =
+    context.readGitFile ?? ((ref, path) => runGit(["show", `${ref}:${path}`]));
+  try {
+    return [
+      readGitFile(context.base, file),
+      readGitFile(context.sourceSha, file),
+    ];
+  } catch {
+    return null;
+  }
+}
+function inspectRemoteExecutionInputSchemaDirection(context) {
+  const sources = readContractSources(
+    context,
+    REMOTE_EXECUTION_INPUT_SCHEMA_PATH
+  );
+  if (!sources) {
+    return null;
+  }
+  const sections = sources.map((source) => {
+    const identity = source.indexOf("const inputIdentity =");
+    const request = source.indexOf(
+      "export const remoteAgentWorkerExecutionInputRequestSchema"
+    );
+    const response = source.indexOf(
+      "export const remoteAgentWorkerExecutionInputReceiptSchema"
+    );
+    return identity >= 0 && request > identity && response > request
+      ? [
+          source.slice(identity, request),
+          source.slice(request, response),
+          source.slice(response),
+        ]
+      : null;
+  });
+  if (sections.some((section) => !section)) {
+    return null;
+  }
+  const [before, after] = sections;
+  const identityChanged = before[0] !== after[0];
+  return {
+    requestChanged: identityChanged || before[1] !== after[1],
+    responseChanged: identityChanged || before[2] !== after[2],
+  };
+}
+function hasGatewayRequestContextOwners(paths) {
+  return [
+    GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH,
+    "services/gateway/src/lib/openmeld-context.ts",
+  ].every((file) => paths.includes(file));
+}
+function inspectGatewayRequestContextChange(context) {
+  const sources = readContractSources(
+    context,
+    GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH
+  );
+  const contexts = sources?.map((source) => {
+    const start = source.indexOf("export const openMeldRequestContextSchema");
+    return start >= 0 ? source.slice(start) : null;
+  });
+  return contexts?.every((schema) => schema !== null)
+    ? contexts[0] !== contexts[1]
+    : null;
+}
+function isGatewayRequestContextReceiverFirstDiff(paths, context) {
+  return (
+    hasGatewayRequestContextOwners(paths) &&
+    inspectGatewayRequestContextChange(context) === true
+  );
+}
+
+function assertStrictRequestContextDirection(changedPaths, context) {
+  if (hasRemoteExecutionInputOwners(changedPaths)) {
+    const direction = inspectRemoteExecutionInputSchemaDirection(context);
+    if (!direction || (direction.requestChanged && direction.responseChanged)) {
+      throw new Error(
+        "Remote execution-input changes require a proven request or response direction. Unknown or mixed strict contracts need separate receiver-first stages."
+      );
+    }
+  }
+  if (
+    hasGatewayRequestContextOwners(changedPaths) &&
+    inspectGatewayRequestContextChange(context) === null
+  ) {
+    throw new Error(
+      "Gateway request-context changes require readable strict schema history before publishing its Core caller."
+    );
+  }
 }
 
 function isReviewedHostedProgressCompatibilityBridge(input) {
@@ -2475,6 +2667,7 @@ function resolveProductionReleaseContext(input) {
     readGitFile:
       input.readGitFile ?? ((ref, path) => runGit(["show", `${ref}:${path}`])),
   };
+  assertStrictRequestContextDirection(changedPaths, compatibilityContext);
   const computerBridge = isPersonalCloudComputerDiff(changedPaths)
     ? resolvePersonalCloudComputerRequestCompatibility(compatibilityContext)
     : null;
@@ -2485,8 +2678,10 @@ function resolveProductionReleaseContext(input) {
   }
   const requestBridge =
     computerBridge ??
-    (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
-    changedPaths.some(isRemoteAgentReceiverFirstContractPath)
+    (isRemoteAgentWorkerRequestReceiverFirstDiff(
+      changedPaths,
+      compatibilityContext
+    ) || changedPaths.some(isRemoteAgentReceiverFirstContractPath)
       ? resolveRemoteAgentRequestCompatibilityBridge(compatibilityContext)
       : null);
   let compatibilityChangedPaths = isReviewedHostedProgressCompatibilityBridge({
@@ -2552,7 +2747,8 @@ function describeProductionReleaseImpact(context) {
     ),
     compatibilityReceiverWitnesses:
       resolveProductionCompatibilityReceiverWitnesses(
-        context.compatibilityChangedPaths
+        context.compatibilityChangedPaths,
+        context.compatibilityContext
       ),
     scopes: context.scopes,
     sourceSha: context.sourceSha,
@@ -2607,7 +2803,10 @@ export function buildProductionReleasePlan(input) {
     compatibilityChangedPaths.includes(
       REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH
     ) &&
-    !isRemoteAgentWorkerRequestReceiverFirstDiff(compatibilityChangedPaths) &&
+    !isRemoteAgentWorkerRequestReceiverFirstDiff(
+      compatibilityChangedPaths,
+      compatibilityContext
+    ) &&
     !isReviewedProviderConnectionMissingResponseAddition({
       base: input.base,
       changedPaths: compatibilityChangedPaths,
@@ -2624,7 +2823,8 @@ export function buildProductionReleasePlan(input) {
   }
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     compatibilityChangedPaths,
-    taskInboxRetired
+    taskInboxRetired,
+    compatibilityContext
   );
   const deployScopeOrder = resolveProductionDeployScopeOrder(
     scopes,

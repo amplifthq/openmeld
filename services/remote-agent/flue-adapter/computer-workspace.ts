@@ -25,6 +25,7 @@ import yqModules from "@cloudflare/computer/shell/yq";
 import {
   agentComputerBrowserRequestSchema,
   agentComputerPreviewRequestSchema,
+  type CloudComputerOperation,
   cloudComputerOperationSchema,
   type PluginConnectionGrant,
   pluginConnectionGrantSchema,
@@ -242,6 +243,9 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         describeComputerStorage(this.ctx.storage.sql.databaseSize)
       );
     }
+    if (request.action === "command") {
+      return await this.#executeCommandOperation(request);
+    }
     await this.workspace.ready();
     if (request.action === "files") {
       const execute = () =>
@@ -276,23 +280,28 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         }),
       };
     }
-    if (request.action !== "command") {
-      return await this.#files.execute(request);
-    }
+    return await this.#files.execute(request);
+  }
+
+  async #executeCommandOperation(
+    request: Extract<CloudComputerOperation, { action: "command" }>
+  ) {
     const workingDirectory = posix.resolve(
       `/computer/tasks/${encodeURIComponent(request.invocationId)}`,
       request.cwd ?? "."
     );
-    if (
-      workingDirectory === "/computer" ||
-      workingDirectory.startsWith("/computer/")
-    ) {
-      await this.workspace.fs.mkdir(workingDirectory, { recursive: true });
-    }
     return await createComputerCommandTool({
       context: { submissionId: request.invocationId },
       storage: this.#commands,
       workingDirectory,
+      prepareLaunch: async (workspace) => {
+        if (
+          workingDirectory === "/computer" ||
+          workingDirectory.startsWith("/computer/")
+        ) {
+          await workspace.fs.mkdir(workingDirectory, { recursive: true });
+        }
+      },
       scheduleCollection: () => this.scheduleAlarm(Date.now() + 15_000),
       assertCanStart: async () => {
         await requireRetainedAccountStorage(this.ctx.storage);

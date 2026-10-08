@@ -20,6 +20,45 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## User time context
+
+Core's PostgreSQL `user_time_contexts` table owns one observed timezone per
+authenticated user, with its claimed client source and server observation time.
+Auth erases this observation in the account-deletion transaction; the user
+foreign key also cascades on physical user deletion. The existing live-account
+guard serializes observation writes with deletion acceptance and rejects a late
+write after the user's soft deletion. This row is context, not a
+clock, location record, explicit preference or per-device history. Routine
+timezone remains in each Routine's schedule.
+
+One atomic upsert rejects older in-flight observations at the same priority;
+interactive observations can preempt racing Service writes. Browser/Desktop
+updates take precedence over Service during the next 30 days. Service can fill a missing
+row or update it after that priority window. A valid saved zone remains usable
+offline regardless of age. Each accepted observation advances the row's timestamp,
+including an unchanged zone, so a delayed change cannot overwrite newer context.
+Existing activity, message and Service sampling supplies these observations;
+there is no separate polling timer. The initiating client's valid observation
+always supplies its own request, even if the canonical row rejects that write.
+Missing or invalid saved context resolves to an explicit UTC fallback.
+
+Core stores accepted request time with the existing dispatch/input owners, so
+queue delays and retries cannot move relative-date interpretation. The current
+UTC clock is generated for each outgoing model payload and is never stored as a
+continuously ticking client value. Both hosted personal and Center Agents use
+the same Core turn-envelope resolver and provider-payload clock boundary.
+
+## Background alarm failure scheduling
+
+Space background alarm failures retain per-step retry deadlines in local
+Durable Object storage. Deadline selection and step admission honor the same
+persisted cooldown: five seconds initially, doubling to at most five minutes,
+and cleared after a successful step. Other owners' due work remains eligible.
+Failure logs include the retry deadline. Upload cleanup reads an indexed,
+bounded batch, retains failed records, and attempts the other records in that
+batch before reporting failure. These retry records are operational scheduling
+state, not Space, membership, or execution truth, and are not a billing cap.
+
 ## Personal cloud Computer ownership
 
 Core's PostgreSQL `cloud_computers` table owns the stable Computer ID, unique
@@ -388,8 +427,8 @@ message text the only way to understand what happened.
 ## Data Ownership Rule
 
 Production uses Hyperdrive + PlanetScale PostgreSQL in the Amplift organization.
-Shared staging retains its deployed D1 revision and the production D1 source is
-frozen migration/recovery evidence; see [physical-db-split.md](physical-db-split.md).
+Shared staging uses its separate PostgreSQL target. Former D1 databases remain
+historical evidence; see [physical-db-split.md](physical-db-split.md).
 The storage change does not transfer logical ownership, move Space Durable Object/R2 state, or
 make a relational projection a second execution authority.
 
@@ -2211,6 +2250,18 @@ Unknown, running and completed native executions do not enter this path. Web
 action controls, Inbox re-promotion and restarting the original work are not
 implemented by this tool.
 
+An exact Space coordinator `remote_agent.computer.command_cleanup_failed`
+terminal delivery may request that same single restricted summary automatically.
+Its native delivery and idempotency key must match the settled source
+subscription. Native terminal projection and subscription settlement share this
+check, including their existing durable retries, because the failed callback
+can precede settlement. A settled subscription confirms continuation delivery;
+the native delivery owner still determines coordinator execution and publication.
+Automatic and requester-driven recovery share one summary identity and current
+authorization. Original failure, child outcomes and verified published results
+are retained. A summary cannot recover itself. Stop, input-needed work, budget
+limits, unknown execution and unsupported receivers remain terminal or unavailable.
+
 An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
 `center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
 attribution before a direct Space publication; delegated publication writes
@@ -2661,6 +2712,13 @@ and the provider result pointer. It never returns prompt text, reply text,
 tokens, raw provider payloads, another member's history, or Routine history.
 Execution status, failure evidence, and publication are independent facts; a
 reader must not infer any one from the others or from user-facing copy.
+
+The admitted Task continuation context and existing authorized result readers
+provide child execution evidence. The native turn diagnostic remains the
+coordinator's evidence. Child execution completion does not prove the business
+goal is complete; a published blocker is still a result. Current authorized
+result reads remain required before describing its contents. Missing runtime
+evidence does not establish a context failure or missing result.
 
 For an interactive Center Agent turn, that self-diagnostic projection also
 joins bounded exact runtime evidence by the native-delivery submission id. Core

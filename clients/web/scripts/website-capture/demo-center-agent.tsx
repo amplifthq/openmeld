@@ -45,7 +45,7 @@ export function DemoCenterAgent() {
 					modelId={model}
 					onSave={async (style) => setAvatar(style)}
 					profileId="demo-center-agent"
-					profileName="Amplift Center Agent"
+					profileName="OpenMeld"
 					saving={false}
 					size={88}
 				/>
@@ -53,10 +53,8 @@ export function DemoCenterAgent() {
 					<p className="mb-2 text-muted-foreground text-xs">
 						Center Agent settings
 					</p>
-					<h1 className="font-medium text-2xl">Amplift Center Agent</h1>
-					<p className="mt-1 text-muted-foreground text-sm">
-						@amplift-center-agent
-					</p>
+					<h1 className="font-medium text-2xl">OpenMeld</h1>
+					<p className="mt-1 text-muted-foreground text-sm">@openmeld</p>
 				</div>
 			</header>
 			<div className="demo-center-grid">

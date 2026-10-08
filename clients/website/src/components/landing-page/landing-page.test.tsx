@@ -9,9 +9,9 @@ it("sends application actions across the App boundary and keeps public guides on
 	})) {
 		expect(link.getAttribute("href")).toBe("https://app.openmeld.ai/");
 	}
-	expect(
-		screen.getByRole("link", { name: "Downloads" }).getAttribute("href")
-	).toBe("https://app.openmeld.ai/desktop");
+	for (const link of screen.getAllByRole("link", { name: "Downloads" })) {
+		expect(link.getAttribute("href")).toBe("/downloads");
+	}
 	for (const link of screen.getAllByRole("link", { name: "Add to Slack" })) {
 		expect(link.getAttribute("href")).toBe(
 			"https://app.openmeld.ai/add-to-slack"

@@ -303,7 +303,13 @@ describe("remote agent Flue capability inventory", () => {
     });
   });
 
-  it("finds structured Center Agent turn diagnostics from a Chinese failure question", async () => {
+  it.each([
+    "调查 Center Agent 为什么失败，给我准确执行状态",
+    "子报告发出后为什么停了",
+    "没有自动接续",
+    "task continuation failed",
+    "missing child report",
+  ])("finds structured Center Agent turn diagnostics: %s", async (query) => {
     const tools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(),
@@ -317,7 +323,7 @@ describe("remote agent Flue capability inventory", () => {
 
     await expect(
       runFlueTool(searchTool, {
-        input: { query: "调查 Center Agent 为什么失败，给我准确执行状态" },
+        input: { query },
       })
     ).resolves.toMatchObject({
       capabilities: expect.arrayContaining([

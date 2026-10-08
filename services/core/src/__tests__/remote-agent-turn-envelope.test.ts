@@ -67,6 +67,10 @@ describe("remote agent turn envelope", () => {
     });
 
     expect(envelope).toEqual({
+      requestTimeContext: {
+        submittedAtMs: createDispatchMessage().enqueuedAtMs,
+        userTime: { timeZone: "UTC", source: "utc", observedAtMs: null },
+      },
       contextScopePlan: {
         authenticationSecrets: "never_available",
         interactionEnvironment: "requester_private",
@@ -115,6 +119,42 @@ describe("remote agent turn envelope", () => {
         source: "web_dm",
       },
     });
+  });
+
+  it.each([
+    "agt_center",
+    "agt_hosted",
+  ])("keeps the accepted request clock for %s through later delivery", async (profileId) => {
+    const requestTimeContext = {
+      submittedAtMs: 1000,
+      userTime: {
+        timeZone: "Asia/Taipei",
+        source: "desktop" as const,
+        observedAtMs: 1000,
+      },
+    };
+    const message = createDispatchMessage();
+    const envelope = await resolveRemoteAgentTurnEnvelope({
+      author: {
+        displayName: "Felix",
+        profileId: "hum_123",
+        profileKind: "human",
+      } as RemoteAgentWorkerAuthorContext,
+      centerAgentProfileId: profileId,
+      db: createTurnEnvelopeDb(),
+      message: {
+        ...message,
+        enqueuedAtMs: 100_000,
+        sourceSignalSnapshot: {
+          text: "A queued request",
+          profileId: "hum_123",
+          profileKind: "human",
+          requestTimeContext,
+        },
+      },
+      organizationId: "org_personal",
+    });
+    expect(envelope.requestTimeContext).toEqual(requestTimeContext);
   });
 
   it("adds the Core-owned working-language advisory for a shared Organization", async () => {
@@ -331,6 +371,7 @@ describe("remote agent turn envelope", () => {
 
 function createDispatchMessage(): OpenMeldDaemonDispatchQueueMessage {
   return {
+    enqueuedAtMs: 1_700_000_000_000,
     sourceEventId: "signal_123",
     sourceProfileNameSnapshot: "Felix",
     sourceSignalSnapshot: {
@@ -350,6 +391,9 @@ function createDispatchMessage(): OpenMeldDaemonDispatchQueueMessage {
 
 function createTurnEnvelopeDb() {
   return createProjectionPostgresDatabase(({ text }) => {
+    if (text.includes('FROM "openmeld"."user_time_contexts"')) {
+      return [];
+    }
     if (text.includes('FROM "openmeld"."organizations"')) {
       return [
         {
@@ -396,6 +440,9 @@ function createTurnEnvelopeDb() {
 
 function createTeamTurnEnvelopeDb(input?: { agentSender?: boolean }) {
   return createProjectionPostgresDatabase(({ text }) => {
+    if (text.includes('FROM "openmeld"."user_time_contexts"')) {
+      return [];
+    }
     if (text.includes("organization_working_language_preferences")) {
       return [
         {

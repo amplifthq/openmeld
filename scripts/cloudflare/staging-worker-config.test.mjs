@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { parseJsoncObject } from "../../packages/db/src/tooling/parse-jsonc.ts";
 
-const STAGING_DB_ID = "10da3483-0644-459a-8523-381a2a17ac39";
+const STAGING_HYPERDRIVE_ID = "6af2d43ec8d8498b9607c653ca231e73";
 const STAGING_KV_ID = "ce0678aff60e4d5b864ad0591ea5e88a";
 const PRODUCTION_RESOURCE_PATTERN = /-prod/u;
 const PRODUCTION_URL_PATTERN =
@@ -94,14 +94,13 @@ test("routes staging public Workers through staging.openmeld.ai", () => {
 
 test("binds Auth and Core only to the staging database", () => {
   for (const config of [configs.auth, configs.core]) {
-    assert.ok(config.env.stg.d1_databases.length > 0);
-    assert.ok(
-      config.env.stg.d1_databases.every(
-        (binding) =>
-          binding.database_name === "openmeld-db-stg" &&
-          binding.database_id === STAGING_DB_ID
-      )
-    );
+    assert.equal(config.env.stg.d1_databases, undefined);
+    assert.deepEqual(config.env.stg.hyperdrive, [
+      {
+        binding: "OPENMELD_POSTGRESQL",
+        id: STAGING_HYPERDRIVE_ID,
+      },
+    ]);
   }
   assert.deepEqual(configs.auth.env.stg.kv_namespaces, [
     { binding: "OPENMELD_AUTH_KV", id: STAGING_KV_ID },

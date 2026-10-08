@@ -25,9 +25,12 @@ cache-disabled Hyperdrive. The frozen `openmeld-db-prod` D1 database
 (`15f16284-5240-4675-b626-3b7144e1d684`) is retained as migration and recovery
 evidence, not a live writer or fallback. See the
 [production cutover record](../engineering/postgresql-cutover.md#current-production-state).
-Shared staging was not migrated: its deployed D1 database remains
-`openmeld-db-stg` (`10da3483-0644-459a-8523-381a2a17ac39`), separate from the
-isolated PostgreSQL foundation resources.
+Shared staging targets the existing `openmeld-postgresql-stg` PostgreSQL 18
+database through its own cache-disabled Hyperdrive. The former `openmeld-db-stg`
+(`10da3483-0644-459a-8523-381a2a17ac39`) is retained for historical test-data
+inspection, without bindings in current Auth/Core. Staging starts with isolated
+test identities; retaining D1 does not make its accounts or Spaces available
+in PostgreSQL. The guarded staging workflow owns deployment and acceptance.
 
 Use standard PostgreSQL drivers through cache-disabled Hyperdrive for Workers
 and direct TLS connections for migration and backup owners. Do not build a

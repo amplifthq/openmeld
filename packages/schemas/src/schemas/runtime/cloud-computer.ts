@@ -105,6 +105,9 @@ export const cloudComputerWorkerRequestSchema = z.strictObject({
   computer: cloudComputerSchema,
   operation: cloudComputerOperationSchema,
 });
+export const REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE =
+  "remote_agent.computer.command_cleanup_failed";
+
 export const cloudComputerOperationResultSchema = z.union([
   z.strictObject({
     kind: z.literal("capabilities"),
@@ -129,6 +132,7 @@ export const cloudComputerOperationResultSchema = z.union([
     after: z.number().optional(),
     outputPending: z.literal(true).optional(),
     syncPending: z.literal(true).optional(),
+    syncError: z.enum(["ENOENT", "EEXEC_LOST"]).optional(),
     outputTruncated: z.literal(true).optional(),
     result: z.json().optional(),
     nextAction: z.string().optional(),

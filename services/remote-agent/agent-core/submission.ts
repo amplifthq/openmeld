@@ -4,6 +4,7 @@ import {
   remoteAgentWorkerReadAdmissionStopResponseSchema,
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
+  resolveUserTimeContext,
   spaceAttachmentMimeTypeSchema,
 } from "@openmeld/schemas";
 import type {
@@ -28,7 +29,7 @@ import {
   initializeRemoteAgentExecutionState,
   readRemoteAgentAdmissionStopIntent,
 } from "./execution-state";
-import { buildRemoteAgentTurnTimeContext } from "./prompt";
+import { buildRemoteAgentRequestTimeContext } from "./prompt";
 import { renderPersonalRemoteAgentCollaborationContext } from "./prompt/space-collaboration";
 import { cleanupExpiredRemoteAgentToolResults } from "./result-retention";
 import { cleanupExpiredRemoteAgentSlackMemberResearchState } from "./slack-member-research-state";
@@ -373,24 +374,26 @@ export function buildRemoteAgentSubmissionMetadata(input: {
 export function buildRemoteAgentPromptMessage(
   request: RemoteAgentWorkerSubmitTurnRequest,
   options: {
-    currentTimeIso?: string;
+    requestSubmittedAtMs?: number;
     includeContinuityContext?: boolean;
   } = {}
 ): string {
-  const prompt = buildRemoteAgentPromptContent(
+  const content = buildRemoteAgentPromptContent(
     request,
     options.includeContinuityContext ?? true
   );
-  return options.currentTimeIso
-    ? appendRemoteAgentTurnTimeContext(prompt, options.currentTimeIso)
-    : prompt;
-}
-
-function appendRemoteAgentTurnTimeContext(
-  prompt: string,
-  currentTimeIso: string
-): string {
-  return `${prompt}\n\n${buildRemoteAgentTurnTimeContext(currentTimeIso)}`;
+  const requestTimeContext =
+    request.turnEnvelope.requestTimeContext ??
+    (options.requestSubmittedAtMs === undefined
+      ? null
+      : {
+          submittedAtMs: options.requestSubmittedAtMs,
+          userTime: resolveUserTimeContext(null),
+        });
+  const prompt = requestTimeContext
+    ? `${content}\n\n${buildRemoteAgentRequestTimeContext(requestTimeContext)}`
+    : content;
+  return prompt;
 }
 
 function buildRemoteAgentPromptContent(
@@ -664,14 +667,12 @@ export async function submitRemoteAgentConversationTurn(
   }
   const submitted = await input.host.admitConversationTurn({
     images: attachmentResolution.images,
-    message: appendRemoteAgentTurnTimeContext(
-      appendRemoteAgentImageContext(
-        buildRemoteAgentPromptMessage(request, {
-          includeContinuityContext: input.includeContinuityContext,
-        }),
-        attachmentResolution
-      ),
-      new Date(originalSubmittedAtMs).toISOString()
+    message: appendRemoteAgentImageContext(
+      buildRemoteAgentPromptMessage(request, {
+        includeContinuityContext: input.includeContinuityContext,
+        requestSubmittedAtMs: originalSubmittedAtMs,
+      }),
+      attachmentResolution
     ),
     metadata,
     request,

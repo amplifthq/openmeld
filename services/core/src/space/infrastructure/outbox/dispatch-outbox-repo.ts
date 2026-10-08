@@ -151,6 +151,7 @@ export const createDispatchOutboxRecord = (input: {
     sourceVisitedProfileIds: input.sourceVisitedProfileIds,
   });
   const sourceSignalSnapshot = buildSourceSignalSnapshot({
+    requestTimeContext: input.sourceSignalSnapshot.requestTimeContext,
     callerContext: input.sourceSignalSnapshot.callerContext,
     quotedMessage: input.sourceSignalSnapshot.quotedMessage,
     contextMessages: input.sourceSignalSnapshot.contextMessages,
@@ -277,6 +278,7 @@ const resolveDispatchChainContextForOutbox = (input: {
   });
 };
 const buildSourceSignalSnapshot = (input: {
+  requestTimeContext?: DispatchSourceSignalSnapshotInput["requestTimeContext"];
   evidenceRefs?: DispatchSourceSignalSnapshotInput["evidenceRefs"];
   workHandoff?: DispatchSourceSignalSnapshotInput["workHandoff"];
   contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
@@ -303,6 +305,9 @@ const buildSourceSignalSnapshot = (input: {
     input.profileMentionLabel
   );
   return {
+    ...(input.requestTimeContext
+      ? { requestTimeContext: input.requestTimeContext }
+      : {}),
     ...(input.callerContext ? { callerContext: input.callerContext } : {}),
     ...(input.contextMessages?.length
       ? { contextMessages: input.contextMessages }
