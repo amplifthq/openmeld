@@ -48,6 +48,7 @@ import {
 import type { Context, Hono } from "hono";
 import type { z } from "zod/v4";
 import type { HonoBindings } from "../lib/bindings";
+import { normalizeCenterAgentAvatarImage } from "../lib/center-agent-avatar-image";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
@@ -258,6 +259,28 @@ export function registerCenterAgentRoutes(app: Hono<HonoBindings>): void {
     const parsed = await parseJsonBody(c, centerAgentUpdateProfileBodySchema);
     if (!parsed.ok) {
       return parsed.response;
+    }
+    if (parsed.data.avatar?.kind === "image") {
+      try {
+        if (!c.env.OPENMELD_IMAGES) {
+          throw new Error("Image upload is temporarily unavailable.");
+        }
+        parsed.data.avatar = await normalizeCenterAgentAvatarImage(
+          parsed.data.avatar,
+          c.env.OPENMELD_IMAGES
+        );
+      } catch (error) {
+        return respondBadRequest({
+          c,
+          route: CENTER_AGENT_PROFILE_ROUTE,
+          method: "PATCH",
+          code: "invalid_payload",
+          message:
+            error instanceof Error
+              ? error.message
+              : "This image could not be processed.",
+        });
+      }
     }
     return executeRpcRoute({
       c,

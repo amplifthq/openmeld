@@ -554,10 +554,16 @@ recognizable across Organizations. A missing or blank Organization name falls
 back to "Center Agent", and an Organization name that already ends with
 "Center Agent" is not given a duplicate suffix. Existing profiles are not
 renamed by ensure. Center Agent settings let an authorized organization owner
-or admin choose a Bot avatar or the abstract fluid avatar on the managed
-profile. An unset avatar uses a stable Bot choice derived from that profile's
-identity, so every member sees the same default. The user previews choices in
-place and explicitly saves the selected avatar. Future customization of the
+or admin open an avatar dialog with Bots, Colors, and Custom image choices.
+Bots offer Original, Balanced, and Soft palettes. The live preview follows the
+pointer and plays the library animation on click; reduced-motion preferences
+turn off that motion. Changes apply only after Save. An unset avatar uses Clover.
+The managed Profile stores `avatarStyle` and `avatarOptions` together, so all
+members see the saved palette, color, or image. Auth owns that atomic write;
+Core checks Organization permission and designation before storing a custom
+image in the account-avatar bucket. Gateway decodes and normalizes uploaded
+images through the shared identity-image pipeline. The editor does not accept
+arbitrary image URLs. Future customization of the
 role description or instructions also edits
 the same managed profile. It must not create a second Center Agent or turn an
 arbitrary ordinary Agent Profile into the Center Agent. The UI shows a

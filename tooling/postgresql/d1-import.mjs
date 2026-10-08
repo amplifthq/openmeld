@@ -291,6 +291,15 @@ async function lockEmptyTarget(client, catalog) {
 
 function nativeColumns(table, targetColumns) {
   const columns = [...table.columns];
+  if (table.name === "openmeld_profiles") {
+    // Historical avatars retain their style; appearance options remain unset.
+    columns.push({
+      name: "avatar_options",
+      type: "JSONB",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
   if (table.name === "projects") {
     // Historical Projects retain their repository and identity. Workflow
     // preferences begin unset; importing data never grants new access.
