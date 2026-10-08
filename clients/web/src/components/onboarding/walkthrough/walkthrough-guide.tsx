@@ -12,7 +12,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import {
+	FluidActionList,
+	FluidActionListItem,
+} from "@openmeld/ui/fluid/action-list";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, TimerIcon, XIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -41,6 +44,9 @@ import { useWalkthrough } from "./walkthrough-context";
 
 // DOM discovery controls presentation only. Product success is observed by the
 // owning surfaces, never inferred from clicks or the presence of a selector.
+const WALKTHROUGH_ANCHOR_SELECTOR =
+	'[data-walkthrough], [aria-label^="Members"], [aria-label="Add People or Agents"], [aria-label="Send message"], [role="log"]';
+
 function useWalkthroughTarget(step: string | undefined) {
 	const [match, setMatch] = useState<{
 		step: string;
@@ -88,7 +94,20 @@ function useWalkthroughTarget(step: string | undefined) {
 					: { step, target: found }
 			);
 		};
-		const observer = new MutationObserver(() => {
+		const observer = new MutationObserver((mutations) => {
+			// Streaming messages and hover highlights do not change tutorial
+			// anchors. Avoid a document query and layout read for those updates.
+			const changesAnchor = mutations.some((mutation) =>
+				[...mutation.addedNodes, ...mutation.removedNodes].some(
+					(node) =>
+						node instanceof Element &&
+						(node.matches(WALKTHROUGH_ANCHOR_SELECTOR) ||
+							node.querySelector(WALKTHROUGH_ANCHOR_SELECTOR))
+				)
+			);
+			if (!changesAnchor) {
+				return;
+			}
 			cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(find);
 		});
@@ -294,7 +313,9 @@ export function WalkthroughGuide({
 	const showingLocalReply =
 		record?.step === "local-task" && spaceProgress?.localSent;
 	const targetStep = showingLocalReply ? "local-reply" : record?.step;
-	const target = useWalkthroughTarget(active ? targetStep : undefined);
+	const target = useWalkthroughTarget(
+		active && targetStep !== "options" ? targetStep : undefined
+	);
 	usePauseOnEscape(active, record, guide);
 	if (!spaceProgress && guide?.pauseNotice && record?.paused && noticeAnchor) {
 		return (
@@ -340,7 +361,7 @@ export function WalkthroughGuide({
 			</WalkthroughNotice>
 		) : null;
 	}
-	if (record.step === "options" && target?.isConnected) {
+	if (record.step === "options") {
 		return <WalkthroughChoices organization={organization} record={record} />;
 	}
 
@@ -714,54 +735,51 @@ function WalkthroughChoices({
 						<>
 							<p>Choose an option, or finish the tutorial.</p>
 							{
-								<FluidCardGroup
+								<FluidActionList
+									axis="xy"
 									className={cn(
 										"mt-4 grid grid-cols-1 gap-3",
 										canConnectChannels ? "sm:grid-cols-3" : "sm:grid-cols-2"
 									)}
 								>
-									{actions.map((action) => (
-										<FluidCardItem
-											className="border"
-											itemId={action.label}
+									{actions.map((action, index) => (
+										<FluidActionListItem
+											className="flex h-full w-full flex-col items-start rounded-md border p-4 text-left"
+											index={index}
 											key={action.path}
+											onClick={async () => {
+												if (action.label === "Plugins") {
+													await navigate({
+														to: "/o/$orgSlug/plugins",
+														params: { orgSlug: organization.slug },
+														search: {
+															scope: canManageSharedPlugins
+																? "organization"
+																: "personal",
+														},
+													});
+													return;
+												}
+												await navigate({ to: action.path });
+											}}
+											type="button"
 										>
-											<button
-												className="flex h-full w-full flex-col items-start rounded-md p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-												onClick={async () => {
-													if (action.label === "Plugins") {
-														await navigate({
-															to: "/o/$orgSlug/plugins",
-															params: { orgSlug: organization.slug },
-															search: {
-																scope: canManageSharedPlugins
-																	? "organization"
-																	: "personal",
-															},
-														});
-														return;
-													}
-													await navigate({ to: action.path });
-												}}
-												type="button"
-											>
-												<span className="mb-4 flex h-8 items-center gap-2">
-													{action.icon}
-												</span>
-												<span className="flex w-full items-center justify-between gap-2 font-medium">
-													{action.label}
-													<ArrowRightIcon
-														aria-hidden="true"
-														className="size-4 text-muted-foreground"
-													/>
-												</span>
-												<span className="mt-1 text-muted-foreground text-xs leading-5">
-													{action.description}
-												</span>
-											</button>
-										</FluidCardItem>
+											<span className="mb-4 flex h-8 items-center gap-2">
+												{action.icon}
+											</span>
+											<span className="flex w-full items-center justify-between gap-2 font-medium">
+												{action.label}
+												<ArrowRightIcon
+													aria-hidden="true"
+													className="size-4 text-muted-foreground"
+												/>
+											</span>
+											<span className="mt-1 text-muted-foreground text-xs leading-5">
+												{action.description}
+											</span>
+										</FluidActionListItem>
 									))}
-								</FluidCardGroup>
+								</FluidActionList>
 							}
 							{canManageTeam && (
 								<div className="mt-4 pt-4">
