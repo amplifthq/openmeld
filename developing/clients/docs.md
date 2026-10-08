@@ -52,6 +52,11 @@ components. `@openmeld/ui` owns the wordmark, fonts, and copied public assets.
 Fumadocs CSS remains scoped to this client. Do not import the complete App shell
 or replace shared tokens globally.
 
+`src/lib/layout.shared.tsx` supplies the same official image wordmark to the
+home, article, and mobile layouts. The logo links to the configured Website
+origin; the separate Docs link returns to `/`. Use the light/dark wordmark
+exports from `packages/ui/public/brand` and the shared favicon URLs.
+
 For new product primitives, inspect the shared Fluid component first. Add
 eligible standalone components through the MDX component map. Keep Fumadocs
 compound slots inside their own Base UI roots. Its dependency version differs

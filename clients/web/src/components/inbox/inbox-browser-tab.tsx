@@ -1,6 +1,6 @@
+import { FAVICON_32_URL } from "@openmeld/ui/lib/favicon";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
-import { FAVICON_32_URL } from "#/lib/favicon";
 import { resolveInboxIndicatorClassName } from "#/lib/inbox/attention";
 import {
 	applyInboxTabTitle,

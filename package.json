@@ -4,6 +4,8 @@
   "description": "OpenMeld - Root",
   "private": true,
   "scripts": {
+    "brand:generate": "node packages/ui/scripts/brand-assets.mjs && node clients/web/scripts/generate-favicon.mjs && node clients/desktop/scripts/generate-icons.mjs",
+    "brand:preview": "node packages/ui/scripts/brand-preview.mjs",
     "pg": "pnpm --filter @openmeld/postgresql pg",
     "pg:local": "node tooling/postgresql/local.mjs",
     "pg:check": "pnpm --filter @openmeld/postgresql test",
