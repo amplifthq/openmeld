@@ -12,6 +12,7 @@
     }
   ],
   "keep_vars": true,
+  "triggers": { "crons": ["* * * * *"] },
   "cache": {
     "enabled": true
   },
