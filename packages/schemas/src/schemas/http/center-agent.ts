@@ -79,7 +79,9 @@ import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 import {
   authProfileViewSchema,
   CENTER_AGENT_BOT_AVATAR_TYPES,
+  centerAgentAvatarSelectionSchema,
 } from "./profiles";
+import { projectIssueDestinationSchema } from "./projects";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
 import {
   CENTER_AGENT_SLACK_FILE_MAX_BASE64_CHARACTERS,
@@ -106,6 +108,7 @@ import {
 } from "./space-members";
 import { spaceMetaSchema } from "./space-meta";
 import { spacePasswordSchema } from "./space-password";
+import { linearExternalWorkItemSchema } from "./space-tasks";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -302,10 +305,13 @@ const centerAgentConnectorActionOperationSchema = z
     replayWindowRemainingMs: z.int().nonnegative().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     connectionName: connectorConnectionNameSchema,
+    createdAtMs: z.number().int().nonnegative().optional(),
     executionConnection: centerAgentConnectorActionExecutionConnectionSchema
       .nullable()
       .optional(),
     operationId: trimmedNonEmptyStringSchema.max(256),
+    linearIssueReceipt: linearExternalWorkItemSchema.nullable().optional(),
+    providerExecutionId: nullableTrimmedStringSchema.optional(),
     service: connectorServiceSchema,
     status: centerAgentConnectorActionOperationStatusSchema,
   })
@@ -340,7 +346,9 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     operationId: trimmedNonEmptyStringSchema.max(256),
     outcome: centerAgentConnectorActionAuditOutcomeSchema,
     providerExecutionId: nullableTrimmedStringSchema,
+    linearIssueReceipt: linearExternalWorkItemSchema.optional(),
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
+    issueDestination: projectIssueDestinationSchema.optional(),
     service: connectorServiceSchema,
     speakerMember: centerAgentToolSpeakerSchema,
   })
@@ -351,6 +359,26 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
         message:
           "providerExecutionId must be null while claiming a connector action operation.",
         path: ["providerExecutionId"],
+      });
+    }
+    if (value.outcome !== "attempted" && value.issueDestination) {
+      context.addIssue({
+        code: "custom",
+        message: "issueDestination is only accepted with an operation claim.",
+        path: ["issueDestination"],
+      });
+    }
+    if (
+      value.linearIssueReceipt &&
+      (value.outcome !== "completed" ||
+        value.service !== "linear" ||
+        value.actionId !== "linear.create_linear_issue")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A Linear issue receipt is accepted only for a completed Linear issue creation.",
+        path: ["linearIssueReceipt"],
       });
     }
   });
@@ -595,10 +623,13 @@ export const centerAgentUpdateProfileBodySchema = z
   .strictObject({
     profileName: trimmedNonEmptyStringSchema.optional(),
     avatarStyle: z.enum(["fluid", ...CENTER_AGENT_BOT_AVATAR_TYPES]).optional(),
+    avatar: centerAgentAvatarSelectionSchema.optional(),
   })
   .refine(
     (value) =>
-      value.profileName !== undefined || value.avatarStyle !== undefined,
+      value.profileName !== undefined ||
+      value.avatarStyle !== undefined ||
+      value.avatar !== undefined,
     {
       message: "Choose a profile name or avatar.",
     }

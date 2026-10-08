@@ -1,8 +1,17 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FluidNavMenu, FluidNavMenuItem } from "./nav-menu";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 function Navigation({ active }: { active: string | null }) {
   return (
     <FluidNavMenu
@@ -20,6 +29,31 @@ function Navigation({ active }: { active: string | null }) {
   );
 }
 describe("FluidNavMenu", () => {
+  it("bounds ordering work when a long menu mounts and keeps new rows reachable", async () => {
+    const compare = vi.spyOn(Node.prototype, "compareDocumentPosition");
+    const ids = Array.from({ length: 100 }, (_, index) => String(index));
+    const menu = (values: string[]) => (
+      <FluidNavMenu activeValue={null} aria-label="Long navigation">
+        {values.map((id, index) => (
+          <FluidNavMenuItem index={index} key={id} value={id}>
+            <a href={`#${id}`}>Row {id}</a>
+          </FluidNavMenuItem>
+        ))}
+      </FluidNavMenu>
+    );
+    const view = render(menu(ids));
+    await act(() => Promise.resolve());
+    // A bulk mount must not sort every growing prefix of the same list.
+    expect(compare.mock.calls.length).toBeLessThan(1400);
+    view.rerender(menu(["new", ...ids.slice(1)]));
+    await act(() => Promise.resolve());
+    const link = screen.getByText("Row new");
+    fireEvent.focus(link);
+    expect(link.closest("li")?.hasAttribute("data-fluid-hover-active")).toBe(
+      true
+    );
+    expect(screen.queryByText("Row 0")).toBeNull();
+  });
   it("shares the sidebar primitive and transfers one selection between real navigation links", () => {
     const view = render(<Navigation active="alpha" />);
     const alpha = screen.getByRole("link", { name: "Alpha" });

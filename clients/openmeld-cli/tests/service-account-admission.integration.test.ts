@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { betterAuthSessionSnapshotResponseSchema } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { disconnectComputer } from "../src/commands/computer-disconnect";
+import {
+  disconnectComputer,
+  runComputerDisconnectTarget,
+} from "../src/commands/computer-disconnect";
 import {
   requestAccountCheckedServiceStop,
   runServiceAccountControl,
@@ -226,6 +229,28 @@ describe("Service account admission across processes", () => {
         previousSessionIdentity: buildStoredAuthSessionIdentity(session),
       });
       expect(await getAuthSession()).toBeNull();
+      expect(await readDaemonServiceContract()).toEqual(contract);
+    });
+  });
+  it.each([
+    ["A", "test-device", "dev-local", true],
+    ["B", "test-device", "dev-local", false],
+    ["A", "other-device", "dev-local", false],
+    ["A", "test-device", "prod", false],
+  ] as const)("admits Web disconnect only for its account and exact Computer: %s %s %s", async (expectedAccount, deviceId, runtimeLane, accepted) => {
+    await withTempHome(async () => {
+      const { contract, session } = await connectedService();
+      const operation = runComputerDisconnectTarget(
+        { expectedAccount, expectedConnection: { deviceId, runtimeLane } },
+        "agent"
+      );
+      if (accepted) {
+        await operation;
+        expect(await getAuthSession()).toBeNull();
+      } else {
+        await expect(operation).rejects.toThrow();
+        expect(await getAuthSession()).toEqual(session);
+      }
       expect(await readDaemonServiceContract()).toEqual(contract);
     });
   });

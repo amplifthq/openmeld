@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { selectProjectConnectionFingerprint } from "../src/projects/local-project-control-rpc";
 import {
   buildCanonicalLocalProjectConnectRequest,
   buildCanonicalLocalProjectDiscoveryRequest,
@@ -65,5 +66,42 @@ describe("Core local Project control canonical downlink", () => {
       projectSlug: "openmeld",
       repositoryFingerprint: CANONICAL_FINGERPRINT,
     });
+  });
+
+  it("accepts only a repository associated with the current Project", () => {
+    const secondFingerprint = `sha256:${"b".repeat(64)}`;
+    const settings = {
+      projectId: PROJECT.id,
+      repositories: [
+        {
+          repositoryFingerprint: CANONICAL_FINGERPRINT,
+          repositoryUrl: "https://github.com/amplifthq/openmeld",
+          isDefault: true,
+        },
+        {
+          repositoryFingerprint: secondFingerprint,
+          repositoryUrl: "https://github.com/amplifthq/sdk",
+          isDefault: false,
+        },
+      ],
+      legacyDefaultFingerprint: null,
+      revision: 1,
+      updatedAtMs: null,
+      updatedByUserId: null,
+    };
+    expect(
+      selectProjectConnectionFingerprint({
+        project: PROJECT,
+        requestedFingerprint: secondFingerprint,
+        settings,
+      })
+    ).toBe(secondFingerprint);
+    expect(() =>
+      selectProjectConnectionFingerprint({
+        project: PROJECT,
+        requestedFingerprint: `sha256:${"c".repeat(64)}`,
+        settings,
+      })
+    ).toThrow("no longer associated");
   });
 });

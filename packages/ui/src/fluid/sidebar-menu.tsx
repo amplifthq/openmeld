@@ -33,6 +33,7 @@ import {
 import { FluidHoverHighlight } from "#fluid/fluid-hover-highlight";
 import { resolveSlotTemplate, slotElement } from "#fluid/sidebar-group";
 import { type ItemRect, useFluidHover } from "#hooks/use-fluid-hover";
+import { createActiveItemStore } from "#lib/active-item-store";
 import { fontWeights } from "#lib/font-weight";
 import { useShape } from "#lib/shape-context";
 import { springs as spring } from "#lib/springs";
@@ -80,41 +81,7 @@ type MenuScopeValue = {
 
 const MenuScopeContext = createContext<MenuScopeValue | null>(null);
 
-function createRowHoverStore() {
-  let hovered: HTMLElement | null = null;
-  const listeners = new Map<HTMLElement, Set<() => void>>();
-  return {
-    isHovered: (row: HTMLElement | null) => row !== null && row === hovered,
-    subscribe(row: HTMLElement | null, callback: () => void) {
-      if (!row) {
-        return () => undefined;
-      }
-      const subscribers = listeners.get(row) ?? new Set<() => void>();
-      listeners.set(row, subscribers);
-      subscribers.add(callback);
-      return () => {
-        subscribers.delete(callback);
-        if (!subscribers.size) {
-          listeners.delete(row);
-        }
-      };
-    },
-    set(row: HTMLElement | null) {
-      if (row === hovered) {
-        return;
-      }
-      const previous = hovered;
-      hovered = row;
-      for (const target of [previous, row]) {
-        if (target) {
-          for (const callback of listeners.get(target) ?? []) {
-            callback();
-          }
-        }
-      }
-    },
-  };
-}
+const createRowHoverStore = createActiveItemStore<HTMLElement>;
 
 const NO_HOVER_STORE = createRowHoverStore();
 const getServerHover = () => false;
@@ -226,10 +193,14 @@ function useMenuScope(
   const [orderedRows, setOrderedRows] = useState<HTMLElement[]>([]);
   const orderedRowsRef = useRef(orderedRows);
   const registeredCountRef = useRef(0);
+  const rowsDirtyRef = useRef(false);
   const [activeRows, setActiveRows] = useState<HTMLElement[]>([]);
   const [focusedRowEl, setFocusedRowEl] = useState<HTMLElement | null>(null);
 
   const recomputeActive = useCallback(() => {
+    if (rowsDirtyRef.current) {
+      return;
+    }
     const next = orderedRowsRef.current.filter(
       (el) => activeMapRef.current.get(el) && !rowHidden(el)
     );
@@ -251,12 +222,13 @@ function useMenuScope(
   // sub-tree is a tall <li>, and hit-testing against that whole box would hand
   // the sub-tree's gaps and gutter to the parent — the button strip is the
   // only part that is really "the row".
-  const syncRows = useCallback(() => {
+  const flushRows = useCallback(() => {
+    if (!rowsDirtyRef.current) {
+      return;
+    }
+    rowsDirtyRef.current = false;
     const sorted = [...rowsRef.current].sort(byDomOrder);
-    // The ref updates synchronously (not just at the next render): callers in
-    // the same commit — a row registering, its button turning active — must
-    // see the row set they just changed, or the first recompute of a mount
-    // filters every row out against the previous render's empty list.
+    // Publish the complete order before resolving this commit's active rows.
     orderedRowsRef.current = sorted;
     setOrderedRows((prev) => (sameElements(prev, sorted) ? prev : sorted));
     sorted.forEach((el, i) => {
@@ -273,6 +245,25 @@ function useMenuScope(
     registeredCountRef.current = sorted.length;
     recomputeActive();
   }, [registerItem, recomputeActive, rowButton]);
+
+  // Ref and layout-effect registrations arrive together during a commit.
+  // Sort that complete set once, before paint, instead of sorting every
+  // growing prefix and re-registering every preceding row for each new row.
+  const syncRows = useCallback(() => {
+    if (rowsDirtyRef.current) {
+      return;
+    }
+    rowsDirtyRef.current = true;
+    queueMicrotask(() => {
+      if (containerRef.current) {
+        flushRows();
+      }
+    });
+  }, [containerRef, flushRows]);
+
+  // The usual mount/update can finish in this same layout phase. The
+  // microtask also covers a row-only commit that did not render its scope.
+  useIsoLayoutEffect(flushRows);
 
   const registerRow = useCallback(
     (el: HTMLElement) => {
@@ -820,7 +811,7 @@ function useMenuRow(rowRef: RefObject<HTMLLIElement | null>, isSubRow = false) {
     [hoverStore, rowRef]
   );
   const getHover = useCallback(
-    () => hoverStore.isHovered(rowRef.current),
+    () => hoverStore.isActive(rowRef.current),
     [hoverStore, rowRef]
   );
   const isHovered = useSyncExternalStore(

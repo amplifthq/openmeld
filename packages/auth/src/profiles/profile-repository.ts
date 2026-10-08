@@ -5,6 +5,7 @@ import {
   type InferInsertModel,
   type InferSelectModel,
   inArray,
+  sql,
 } from "@openmeld/db/query";
 import type { createAuthDatabase } from "../db";
 import type {
@@ -12,6 +13,7 @@ import type {
   OpenMeldProfileSource,
 } from "../db/openmeld-profile.schema";
 import { openMeldProfiles } from "../db/openmeld-profile.schema";
+import { ProfileValidationError } from "./profile-errors";
 export type OpenMeldProfileRecord = InferSelectModel<typeof openMeldProfiles>;
 type OpenMeldProfileFactRecord = Pick<
   OpenMeldProfileRecord,
@@ -25,6 +27,7 @@ type OpenMeldProfileFactRecord = Pick<
   | "defaultProjectId"
   | "managedRole"
   | "avatarStyle"
+  | "avatarOptions"
 >;
 type NewOpenMeldProfileRecord = InferInsertModel<typeof openMeldProfiles>;
 type PrimaryHumanProfileInsertInput = {
@@ -103,6 +106,8 @@ export type OpenMeldProfileRepository = {
     scope:
       | {
           organizationId: string;
+          avatarOptions?: OpenMeldProfileRecord["avatarOptions"];
+          expectedAvatarOptions?: OpenMeldProfileRecord["avatarOptions"];
         }
       | {
           ownerUserId: string;
@@ -148,6 +153,7 @@ export function createDrizzleOpenMeldProfileRepository(
           defaultProjectId: openMeldProfiles.defaultProjectId,
           managedRole: openMeldProfiles.managedRole,
           avatarStyle: openMeldProfiles.avatarStyle,
+          avatarOptions: openMeldProfiles.avatarOptions,
         })
         .from(openMeldProfiles)
         .where(inArray(openMeldProfiles.profileId, profileIds));
@@ -372,18 +378,34 @@ export function createDrizzleOpenMeldProfileRepository(
         );
     },
     async updateAgentAvatarStyle(profileId, avatarStyle, scope) {
-      await db
+      const updated = await db
         .update(openMeldProfiles)
-        .set({ avatarStyle, updatedAt: new Date() })
+        .set({
+          avatarStyle,
+          ...("avatarOptions" in scope
+            ? { avatarOptions: scope.avatarOptions }
+            : {}),
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(openMeldProfiles.profileId, profileId),
             eq(openMeldProfiles.profileKind, "agent"),
+            "expectedAvatarOptions" in scope &&
+              scope.expectedAvatarOptions !== undefined
+              ? sql`${openMeldProfiles.avatarOptions} IS NOT DISTINCT FROM ${scope.expectedAvatarOptions === null ? null : JSON.stringify(scope.expectedAvatarOptions)}::jsonb`
+              : undefined,
             "organizationId" in scope
               ? eq(openMeldProfiles.organizationId, scope.organizationId)
               : eq(openMeldProfiles.ownerUserId, scope.ownerUserId)
           )
+        )
+        .returning({ profileId: openMeldProfiles.profileId });
+      if (!updated.length) {
+        throw new ProfileValidationError(
+          "This avatar changed. Refresh and try again."
         );
+      }
     },
     async updateProfileIdentityForOwner(ownerUserId, profileId, input) {
       await db

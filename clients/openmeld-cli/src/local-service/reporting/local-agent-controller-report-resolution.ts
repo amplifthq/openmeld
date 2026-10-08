@@ -36,6 +36,7 @@ export async function resolveLocalAgentControllerReportInput(input: {
     input.controllerInventory ??
     (
       await collectLocalAgentControllerInventory({
+        agentIds: [parsedRef.id],
         includeControllerInterface: true,
       })
     ).capabilities;

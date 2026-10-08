@@ -428,11 +428,14 @@ failure.
 
 The standalone connection page reads the same native account-aligned Computer
 projection as Working folder selection. A positive connection shows Connected
-and a destructive Disconnect this Mac action; the header links to that page and
-preserves the originating Human Profile for Back. New Agent recovery retains
+and a destructive Disconnect this Mac action. The account menu's Computer entry
+opens the native account-aligned device's Computer details when connected, and
+the connection page when no local connection is available. A browser-selected
+remote Computer never replaces native device identity for this entry. The
+connection page preserves the originating Human Profile for Back. New Agent recovery retains
 its explicit connection intent instead of offering Disconnect.
-The toolbar and account-menu Computer entry open the ordinary native connection
-check without a fresh-session request, regardless of browser Computer selection.
+The toolbar and account-menu Computer entry use this same native destination
+without a fresh-session request, regardless of browser Computer selection.
 Connection presentation is independent of Disconnect eligibility: embedded flows
 show an existing connection and Continue without running Setup, while an explicit
 reconnect shows Connected and Reconnect this Mac. After confirmed completion, the

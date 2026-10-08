@@ -1,6 +1,23 @@
 import { spaceTaskSchema } from "@openmeld/schemas/schemas";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
+import {
+	SpaceTaskDetailDrawer,
+	type SpaceTaskDetailDrawerProps,
+} from "./space-task-detail-drawer";
+import {
+	SpaceMessageTaskReference,
+	SpaceTaskReferencesProvider,
+} from "./space-task-references";
 import { SpaceTasksPanel } from "./space-tasks-panel";
 import { useSpaceTasksPanelController } from "./use-space-tasks-panel-controller";
 
@@ -58,14 +75,233 @@ vi.mock("./use-space-tasks-panel-controller", () => ({
 	useSpaceTasksPanelController: vi.fn(),
 }));
 
+const detailProps: SpaceTaskDetailDrawerProps = {
+	busy: false,
+	commonAgentIds: new Set(),
+	outsideCommonAgents: [],
+	onAddAndAssign: vi.fn(),
+	spaceName: "Engineering",
+	detail: { task, events: [], allowedActions: ["assign"] },
+	error: false,
+	loading: false,
+	members: [],
+	onMutate: vi.fn(),
+	onOpenChange: vi.fn(),
+	onRefresh: vi.fn(),
+	open: true,
+	projects: [],
+	selfProfileId: requester.profileId,
+	task,
+};
+
 describe("SpaceTasksPanel", () => {
 	afterEach(() => {
 		cleanup();
 		vi.mocked(useSpaceTasksPanelController).mockReset();
 	});
 
+	it.each([
+		false,
+		true,
+	])("removes unavailable Task Projects even with no active choices (replacement=%s)", async (replacement) => {
+		const onMutate = vi.fn(async () => true);
+		const associatedTask = { ...task, projectIds: ["project-archived"] };
+		render(
+			<SpaceTaskDetailDrawer
+				{...detailProps}
+				detail={{
+					task: associatedTask,
+					events: [],
+					allowedActions: ["set_projects"],
+				}}
+				onMutate={onMutate}
+				projects={
+					replacement
+						? [
+								{
+									id: "project-active",
+									name: "Active Project",
+									slug: "active",
+									organizationId: "org-acme",
+									createdByUserId: "user-ming",
+									createdAtMs: 1,
+									updatedAtMs: 1,
+									archivedAtMs: null,
+									repositoryUrl: null,
+									repositoryFingerprint: null,
+									canManage: true,
+									canArchive: true,
+								},
+							]
+						: []
+				}
+				task={associatedTask}
+			/>
+		);
+		fireEvent.click(screen.getByText("Edit Projects"));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Remove unavailable Project" })
+		);
+		if (replacement) {
+			fireEvent.click(screen.getByLabelText("Active Project"));
+		}
+		fireEvent.click(screen.getByText("Save Projects"));
+		await waitFor(() =>
+			expect(onMutate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "set_projects",
+					projectIds: replacement ? ["project-active"] : [],
+				})
+			)
+		);
+	});
+
+	it.each([
+		false,
+		true,
+	])("preserves partial Add and assign feedback when the last candidate disappears (refresh before receipt=%s)", async (refreshBeforeReceipt) => {
+		let finish!: (
+			result: Awaited<ReturnType<SpaceTaskDetailDrawerProps["onAddAndAssign"]>>
+		) => void;
+		const onAddAndAssign = vi.fn(
+			() =>
+				new Promise<
+					Awaited<ReturnType<SpaceTaskDetailDrawerProps["onAddAndAssign"]>>
+				>((resolve) => {
+					finish = resolve;
+				})
+		);
+		const unassignedTask = { ...task, assignee: null };
+		const props = {
+			...detailProps,
+			task: unassignedTask,
+			detail: {
+				task: unassignedTask,
+				events: [],
+				allowedActions: ["assign" as const],
+			},
+			onAddAndAssign,
+			outsideCommonAgents: [
+				{
+					profileId: assignee.profileId,
+					profileName: assignee.profileName,
+					ownerName: requester.profileName,
+				},
+			],
+		};
+		const view = render(<SpaceTaskDetailDrawer {...props} />);
+		fireEvent.click(screen.getByText("Add and assign"));
+		if (refreshBeforeReceipt) {
+			view.rerender(
+				<SpaceTaskDetailDrawer {...props} outsideCommonAgents={[]} />
+			);
+		}
+		const message =
+			"Space membership was updated, but the Task assignment did not complete. Refresh the Task and try assignment again.";
+		await act(async () =>
+			finish({ membership: "confirmed", assigned: false, message })
+		);
+		expect(screen.getByText(message)).toBeTruthy();
+		expect(screen.queryByText("Common Agents outside this Space")).toBeNull();
+		view.rerender(
+			<SpaceTaskDetailDrawer {...props} outsideCommonAgents={[]} />
+		);
+		expect(screen.getByText(message)).toBeTruthy();
+		const otherTask = {
+			...unassignedTask,
+			taskId: "tsk_66666666-6666-4666-8666-666666666666",
+		};
+		view.rerender(
+			<SpaceTaskDetailDrawer
+				{...props}
+				detail={{ ...props.detail, task: otherTask }}
+				outsideCommonAgents={[]}
+				task={otherTask}
+			/>
+		);
+		expect(screen.queryByText(message)).toBeNull();
+	});
+
+	it("preserves every task on one message and opens the exact selected task", () => {
+		const client = new QueryClient();
+		const second = {
+			...task,
+			taskId: "tsk_66666666-6666-4666-8666-666666666666",
+			title: "Finished follow-up",
+			phase: "done" as const,
+		};
+		client.setQueryData(spaceTaskQueryKeys.list("space-1"), {
+			tasks: [task, second],
+			truncated: false,
+		});
+		const onOpen = vi.fn();
+		render(
+			<QueryClientProvider client={client}>
+				<SpaceTaskReferencesProvider
+					disabled={false}
+					onOpen={onOpen}
+					profileId={requester.profileId}
+					spaceId="space-1"
+				>
+					<SpaceMessageTaskReference signalId="signal-1" />
+				</SpaceTaskReferencesProvider>
+			</QueryClientProvider>
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Open task: Follow the GitHub issue linkage",
+			})
+		);
+		expect(onOpen).toHaveBeenLastCalledWith(task.taskId);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open task: Finished follow-up" })
+		);
+		expect(onOpen).toHaveBeenLastCalledWith(second.taskId);
+		expect(screen.getByText("Task · To do")).toBeTruthy();
+		expect(screen.getByText("Task · Done")).toBeTruthy();
+	});
+
+	it.each([
+		false,
+		true,
+	])("gates creation by active membership (%s), while opening a task outside the board list", (isMember) => {
+		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			projects: [],
+			commonAgentIds: new Set(),
+			outsideCommonAgents: [],
+			members: isMember ? [requester] : [],
+			mutateTask: vi.fn(),
+			pendingTaskId: null,
+			detailQuery: {
+				data: { task, events: [], allowedActions: [] },
+				isPending: false,
+			},
+			tasksQuery: { data: { tasks: [], truncated: false }, isPending: false },
+		} as unknown as ReturnType<typeof useSpaceTasksPanelController>);
+		render(
+			<SpaceTasksPanel
+				membersSnapshot={null}
+				onSelectTask={vi.fn()}
+				openMeldProfileId={requester.profileId}
+				selectedTaskId={task.taskId}
+				spaceId="space-1"
+			/>
+		);
+		expect(
+			Boolean(screen.queryByRole("button", { name: "New task", hidden: true }))
+		).toBe(isMember);
+		expect(screen.getByTestId("space-task-detail-drawer")).toBeTruthy();
+		expect(
+			screen.getByText(task.description ?? "Missing description")
+		).toBeTruthy();
+	});
+
 	it("keeps board cards compact until a card is opened for details", () => {
 		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			addAndAssignTask: vi.fn(),
+			commonAgentIds: new Set(),
+			outsideCommonAgents: [],
+			projects: [],
 			members: [],
 			mutateTask: vi.fn(async () => true),
 			pendingTaskId: null,
@@ -100,9 +336,7 @@ describe("SpaceTasksPanel", () => {
 				name: "Open details for Follow the GitHub issue linkage",
 			})
 		).toBeTruthy();
-		expect(
-			screen.getByText("Waiting for Amplifth Center Agent to start")
-		).toBeTruthy();
+		expect(screen.getByText("Amplifth Center Agent")).toBeTruthy();
 		expect(screen.getByText("amplifthq/openmeld#1143")).toBeTruthy();
 		expect(
 			screen.queryByText(
@@ -110,7 +344,7 @@ describe("SpaceTasksPanel", () => {
 			)
 		).toBeNull();
 		expect(screen.queryByText("Done when")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Cancel Task" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -131,11 +365,62 @@ describe("SpaceTasksPanel", () => {
 		expect(
 			screen.getByRole("link", { name: "amplifthq/openmeld#1143" })
 		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Cancel Task" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Cancel task" })).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("button", { name: "Close task details" }));
 		expect(screen.queryByText("Done when")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Cancel Task" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
+	});
+
+	it("filters this Space's Tasks by their explicit Project association", async () => {
+		const payments = spaceTaskSchema.parse({
+			...task,
+			projectIds: ["project-payments"],
+			title: "Review Payments",
+		});
+		const platform = spaceTaskSchema.parse({
+			...task,
+			projectIds: ["project-platform"],
+			taskId: "tsk_66666666-6666-4666-8666-666666666666",
+			title: "Review Platform",
+		});
+		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			addAndAssignTask: vi.fn(),
+			commonAgentIds: new Set(),
+			outsideCommonAgents: [],
+			projects: [
+				{ id: "project-payments", name: "Payments" },
+				{ id: "project-platform", name: "Platform" },
+			],
+			members: [],
+			mutateTask: vi.fn(async () => true),
+			pendingTaskId: null,
+			detailQuery: {
+				data: null,
+				isError: false,
+				isPending: false,
+				refetch: vi.fn(),
+			},
+			tasksQuery: {
+				data: { tasks: [payments, platform], truncated: false },
+				isError: false,
+				isPending: false,
+				refetch: vi.fn(),
+			},
+		} as unknown as ReturnType<typeof useSpaceTasksPanelController>);
+		render(
+			<SpaceTasksPanel
+				membersSnapshot={null}
+				openMeldProfileId={requester.profileId}
+				spaceId="space-1"
+			/>
+		);
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Filter tasks by Project" })
+		);
+		fireEvent.click(await screen.findByRole("option", { name: "Platform" }));
+		expect(screen.getByText("Review Platform")).toBeTruthy();
+		expect(screen.queryByText("Review Payments")).toBeNull();
 	});
 
 	it("lets a Space owner resume an Agent-requested Task and reach its source message", () => {
@@ -173,6 +458,10 @@ describe("SpaceTasksPanel", () => {
 		});
 		const mutateTask = vi.fn(async () => true);
 		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			addAndAssignTask: vi.fn(),
+			commonAgentIds: new Set(),
+			outsideCommonAgents: [],
+			projects: [],
 			members: [],
 			mutateTask,
 			pendingTaskId: null,
@@ -217,9 +506,7 @@ describe("SpaceTasksPanel", () => {
 		).toBeTruthy();
 		expect(screen.getByText("OpenMeld will retry automatically.")).toBeTruthy();
 		expect(
-			screen
-				.getByRole("link", { name: "Open source message" })
-				.getAttribute("href")
+			screen.getByRole("link", { name: "View message" }).getAttribute("href")
 		).toContain("focusSignalId=signal-1");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Authorize another correction" })

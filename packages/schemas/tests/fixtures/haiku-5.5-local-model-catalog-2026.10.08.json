@@ -1,0 +1,195 @@
+{
+  "claudeCode": {
+    "sourceUrl": "https://code.claude.com/docs/en/model-config",
+    "observedAt": "2026-10-08T09:50:35Z",
+    "modelId": "claude-haiku-5-5",
+    "minCliVersion": "2.1.293",
+    "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+    "executionScope": "Official Claude Code contract only; installed 2.1.289, not signed in"
+  },
+  "cursor": {
+    "capture": {
+      "harnessVersion": "2026.09.28-64d2043",
+      "observedAt": "2026-10-08T09:50:35Z",
+      "commands": ["agent acp: initialize, session/new"],
+      "scope": "Authenticated inventory; named-model inference blocked by the review account free plan"
+    },
+    "availableModels": [
+      {
+        "modelId": "claude-haiku-5-5[thinking=true,context=300k,reasoning_effort=high]",
+        "name": "claude-haiku-5-5"
+      }
+    ],
+    "configOptions": [
+      {
+        "value": "claude-haiku-5-5[thinking=true,context=300k,reasoning_effort=high]",
+        "name": "claude-haiku-5-5"
+      }
+    ]
+  },
+  "opencode": {
+    "capture": {
+      "harnessVersion": "1.18.34",
+      "observedAt": "2026-10-08T09:50:35Z",
+      "commands": [
+        "opencode models opencode --verbose --pure --refresh",
+        "OPENCODE_API_KEY=catalog-inventory-only opencode models opencode --verbose --pure",
+        "opencode models opencode-go --verbose --pure"
+      ],
+      "scope": "Zen inventory uses a noncredential placeholder; Go inventory uses the existing credential. Neither proves paid account entitlement or inference."
+    },
+    "nativeExecution": [
+      {
+        "modelId": "opencode-go/claude-haiku-5-5",
+        "variant": "medium",
+        "harnessVersion": "1.18.34",
+        "command": "opencode run --pure --agent build --model opencode-go/claude-haiku-5-5 --variant medium --format json",
+        "statusCode": 403,
+        "message": "Upstream request failed: An active OpenCode Go subscription is required to use Go models.",
+        "scope": "Review account subscription; not global model withdrawal"
+      }
+    ],
+    "models": [
+      {
+        "id": "claude-haiku-5-5",
+        "providerID": "opencode",
+        "name": "Claude Haiku 5.5",
+        "api": {
+          "id": "claude-haiku-5-5",
+          "url": "https://opencode.ai/zen/v1",
+          "npm": "@ai-sdk/anthropic"
+        },
+        "status": "active",
+        "capabilities": {
+          "temperature": false,
+          "reasoning": true,
+          "attachment": true,
+          "toolcall": true,
+          "input": {
+            "text": true,
+            "audio": false,
+            "image": true,
+            "video": false,
+            "pdf": true
+          },
+          "output": {
+            "text": true,
+            "audio": false,
+            "image": false,
+            "video": false,
+            "pdf": false
+          },
+          "interleaved": false
+        },
+        "variants": {
+          "low": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "low"
+          },
+          "medium": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "medium"
+          },
+          "high": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "high"
+          },
+          "xhigh": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "xhigh"
+          },
+          "max": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "max"
+          }
+        },
+        "release_date": "2026-10-07"
+      },
+      {
+        "id": "claude-haiku-5-5",
+        "providerID": "opencode-go",
+        "name": "Claude Haiku 5.5",
+        "api": {
+          "id": "claude-haiku-5-5",
+          "url": "https://opencode.ai/zen/go/v1",
+          "npm": "@ai-sdk/anthropic"
+        },
+        "status": "active",
+        "capabilities": {
+          "temperature": false,
+          "reasoning": true,
+          "attachment": true,
+          "toolcall": true,
+          "input": {
+            "text": true,
+            "audio": false,
+            "image": true,
+            "video": false,
+            "pdf": true
+          },
+          "output": {
+            "text": true,
+            "audio": false,
+            "image": false,
+            "video": false,
+            "pdf": false
+          },
+          "interleaved": false
+        },
+        "variants": {
+          "low": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "low"
+          },
+          "medium": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "medium"
+          },
+          "high": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "high"
+          },
+          "xhigh": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "xhigh"
+          },
+          "max": {
+            "thinking": {
+              "type": "adaptive",
+              "display": "summarized"
+            },
+            "effort": "max"
+          }
+        },
+        "release_date": "2026-10-07"
+      }
+    ]
+  }
+}

@@ -81,38 +81,61 @@ export async function submitSelectedAgentControllerReports(input: {
   // This is the highlighted local execution target handoff from CLI/Service
   // evidence into Core. Phase 2 should make this an explicit inventory fact,
   // not a side effect of Prepare wording.
-  const controllerInventory = (
-    await collectLocalAgentControllerInventory({
-      includeControllerInterface: true,
-    })
-  ).capabilities;
-  const decisions = resolveSelectedAgentControllerReadiness({
-    ...input,
-    controllerInventory,
-  });
-  const submissions = await submitRuntimeAgentControllerReports({
-    reports: decisions.map((decision) => ({
-      agentControllerRef: decision.agentControllerRef,
-      ...(decision.agentControllerInterface
-        ? { agentControllerInterface: decision.agentControllerInterface }
-        : {}),
-      localParticipationState: decision.localParticipationState,
-      reasonCodes: decision.reasonCodes,
-    })),
-  });
-
-  return decisions.map((decision, index) => {
-    const runtimeReportSubmission = submissions[index];
+  const results = new Map<string, SelectedAgentControllerReportResult>();
+  const submitDecision = async (
+    decision: SelectedAgentControllerReadinessDecision
+  ) => {
+    const [runtimeReportSubmission] = await submitRuntimeAgentControllerReports(
+      {
+        reports: [
+          {
+            agentControllerRef: decision.agentControllerRef,
+            ...(decision.agentControllerInterface
+              ? { agentControllerInterface: decision.agentControllerInterface }
+              : {}),
+            localParticipationState: decision.localParticipationState,
+            reasonCodes: decision.reasonCodes,
+          },
+        ],
+      }
+    );
     if (!runtimeReportSubmission) {
       throw new Error(
         `OpenMeld Agent Controller reporting did not return a submission result for ${decision.agentId}.`
       );
     }
-    return {
+    results.set(decision.agentId, {
       ...decision,
       runtimeReportSubmission,
-    };
+    });
+  };
+  const localAgentIds = [...new Set(input.localAgentIds.map(normalizeId))]
+    .filter(Boolean)
+    .sort();
+  await collectLocalAgentControllerInventory({
+    agentIds: localAgentIds,
+    includeControllerInterface: true,
+    onCapability: async (capability) => {
+      const [decision] = resolveSelectedAgentControllerReadiness({
+        localAgentIds: [capability.agentId],
+        readiness: input.readiness,
+        controllerInventory: [capability],
+      });
+      if (decision) {
+        await submitDecision(decision);
+      }
+    },
   });
+  // Preserve explicit not-found reports for requested IDs absent from the catalog.
+  for (const decision of resolveSelectedAgentControllerReadiness({
+    ...input,
+    localAgentIds: localAgentIds.filter((id) => !results.has(id)),
+  })) {
+    await submitDecision(decision);
+  }
+  return [...results.values()].sort((left, right) =>
+    left.agentId.localeCompare(right.agentId)
+  );
 }
 
 export function assertSelectedAgentControllerReportSubmissionsAccepted(

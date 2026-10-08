@@ -2,6 +2,7 @@
 
 import { Drawer } from "@base-ui/react/drawer";
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import type {
 	AuthProfileView,
 	ModelCatalog,
@@ -911,8 +912,10 @@ function SpaceAddProfilesSection(input: SpaceAddProfilesSectionProps) {
 function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	const walkthrough = useWalkthrough();
 	const preselectedRun = useRef<string | null>(null);
+	const submittedTutorialRun = useRef<string | null>(null);
 	const guidedRun =
-		isActiveWalkthroughStep(walkthrough?.record, "add-center-agent") &&
+		(isActiveWalkthroughStep(walkthrough?.record, "add-center-agent") ||
+			isActiveWalkthroughStep(walkthrough?.record, "add-local-agent")) &&
 		walkthrough?.record?.spaceId === input.spaceId
 			? walkthrough?.record?.runId
 			: null;
@@ -1032,14 +1035,25 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			return;
 		}
 		const center = allCandidates.find(
-			(candidate) => candidate.isCenterAgent && !candidate.alreadyMember
+			(candidate) =>
+				!candidate.alreadyMember &&
+				(walkthrough?.record?.step === "add-center-agent"
+					? candidate.isCenterAgent
+					: isOwnLocalAgent(candidate, input.currentOwnerUserId))
 		);
 		if (!center) {
 			return;
 		}
 		preselectedRun.current = guidedRun;
 		setSelectedProfileIds(new Set([center.profileId]));
-	}, [input.open, input.snapshot, guidedRun, allCandidates]);
+	}, [
+		input.open,
+		input.snapshot,
+		guidedRun,
+		allCandidates,
+		walkthrough?.record?.step,
+		input.currentOwnerUserId,
+	]);
 	useEffect(() => {
 		const scope = organizationContext?.storageScope;
 		if (!(input.open && scope && activeSpaceId && input.snapshot)) {
@@ -1155,16 +1169,34 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			});
 			return Promise.resolve();
 		}
-		addition.mutate({
+		const request = {
 			spaceId: activeSpaceId ?? "",
 			directoryProfileIds: profileIds,
 			members: allCandidates.filter((candidate) =>
 				effectiveSelectedProfileIds.has(candidate.profileId)
 			),
-		});
+		};
+		if (
+			guidedRun &&
+			request.members.some((candidate) =>
+				walkthrough?.record?.step === "add-center-agent"
+					? candidate.isCenterAgent
+					: isOwnLocalAgent(candidate, input.currentOwnerUserId)
+			)
+		) {
+			submittedTutorialRun.current = guidedRun;
+			return addition.mutateAsync(request).then(() => undefined);
+		}
+		addition.mutate(request);
 		handleOpenChange(false);
 		return Promise.resolve();
 	};
+	useEffect(() => {
+		if (addition.isSuccess && submittedTutorialRun.current && !guidedRun) {
+			submittedTutorialRun.current = null;
+			input.onOpenChange(false);
+		}
+	}, [addition.isSuccess, guidedRun, input.onOpenChange]);
 	const handleConfirmConversion = async (name: string) => {
 		if (!(conversionRequest && input.onConvertDirectMessageToSpace)) {
 			return;
@@ -1242,7 +1274,10 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		handleConfirmConversion,
 		handleOpenChange,
 		handleSubmit,
-		isSubmitting,
+		isSubmitting:
+			isSubmitting ||
+			addition.isPending ||
+			Boolean(submittedTutorialRun.current && addition.isSuccess),
 		organization,
 		organizationDirectoryCandidates,
 		personalProfilesPlan,
@@ -1408,9 +1443,11 @@ type SpaceAddProfilesDialogProps = {
 
 function useWalkthroughPickerGuidance(
 	spaceId: string | undefined,
-	isSubmitting: boolean
+	groups: SpaceAddMembersCandidateGroups,
+	selectedCount: number
 ) {
 	const walkthrough = useWalkthrough();
+	const organization = useOptionalAppOrganization();
 	const record = walkthrough?.record;
 	if (
 		!(walkthrough && record) ||
@@ -1420,30 +1457,67 @@ function useWalkthroughPickerGuidance(
 	) {
 		return null;
 	}
+	const hasLocalAgent = groups.personGroups.some((group) =>
+		group.agentCandidates.some(
+			(candidate) =>
+				!candidate.alreadyMember &&
+				isOwnLocalAgent(candidate, organization?.currentUserId)
+		)
+	);
+	return pickerTutorialCopy(record.step, selectedCount, hasLocalAgent);
+}
+
+function pickerTutorialCopy(
+	step: string,
+	selectedCount: number,
+	hasLocalAgent: boolean
+): { nextAction?: "create" | "select" | "submit"; description: string } {
+	if (step === "add-center-agent") {
+		return {
+			nextAction: selectedCount > 0 ? "submit" : "select",
+			description:
+				selectedCount > 0
+					? "Your Center Agent is selected. Add it to this Space."
+					: "Select your Center Agent, then select Add.",
+		};
+	}
+	if (selectedCount > 0) {
+		return {
+			nextAction: "submit",
+			description:
+				"Your agent is selected. Select Add to bring it into this Space.",
+		};
+	}
+	if (hasLocalAgent) {
+		return {
+			nextAction: "select",
+			description: "Choose your agent below, then select Add.",
+		};
+	}
 	return {
+		nextAction: "create",
 		description:
-			record.step === "add-center-agent"
-				? "Add your Center Agent to get started. You can change the selection."
-				: "Add your local agent to this Space.",
-		action: (
-			<Button
-				disabled={walkthrough.pending || isSubmitting}
-				onClick={() =>
-					walkthrough.progress(record.step, true).catch(() => undefined)
-				}
-				size="sm"
-				variant="secondary"
-			>
-				Pause tutorial
-			</Button>
-		),
+			"Select New Agent. Connect your computer if needed, then create your agent.",
 	};
+}
+
+function isOwnLocalAgent(
+	candidate: SpaceAddMembersCandidateSummary,
+	userId: string | null | undefined
+) {
+	const kind = parseAgentControllerRef(candidate.agentControllerRef)?.kind;
+	return (
+		candidate.ownerUserId === userId &&
+		Boolean(userId) &&
+		(kind === "builtin" || kind === "custom")
+	);
 }
 
 function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 	const guidance = useWalkthroughPickerGuidance(
 		input.spaceId,
-		input.isSubmitting
+		input.candidateGroups,
+		input.selectedCount
 	);
 	const waitsForDirectory =
 		input.usesOrganizationDirectory && !input.directoryHasData;
@@ -1460,10 +1534,12 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			candidateGroups={input.candidateGroups}
 			canSubmit={input.canSubmit}
 			description={
-				guidance?.description ??
-				(input.usesOrganizationDirectory
-					? `Select people or agents from ${input.organizationName} to add directly to this Space.`
-					: "Choose people and their agents to add to this Space.")
+				input.isSubmitting
+					? "Adding selected members…"
+					: (guidance?.description ??
+						(input.usesOrganizationDirectory
+							? `Select people or agents from ${input.organizationName} to add directly to this Space.`
+							: "Choose people and their agents to add to this Space."))
 			}
 			emptyMessage={input.emptyMessage}
 			emptySelectionLabel="Select members to add"
@@ -1513,10 +1589,10 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			onToggle={input.onToggle}
 			open={input.open}
 			query={input.addQuery}
-			secondaryAction={guidance?.action}
 			selectedProfileIds={input.selectedProfileIds}
 			submitLabel={resolveAddMembersSubmitLabel(input)}
 			title="Add People or Agents"
+			tutorialAction={guidance?.nextAction}
 		/>
 	);
 }

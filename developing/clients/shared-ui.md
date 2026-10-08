@@ -177,6 +177,15 @@ rows and gaps, gap activation, keyboard operation, reopening, disabled states,
 touch behavior, and reduced motion in the complete surface. Official reference:
 [Fluid Hover](https://www.fluidfunctionalism.com/docs/fluid-hover).
 
+Shared card and Inbox highlights notify only the departed and entered items.
+`SharedLayoutGroup` and the sidebar reuse the UI-only `active-item-store`
+subscription helper; this is a presentation projection, not product selection
+or persistence. Sidebar rows batch DOM ordering and registration within a commit
+instead of repeating whole-list work for each row. Preserve the existing DOM,
+Motion layout identity, spring values, focus behavior, and reduced-motion path
+when changing these optimizations. Check long groups in production-mode React;
+development compiler memoization is not a production performance guarantee.
+
 
 ## Import Rule
 

@@ -264,11 +264,13 @@ export async function updateCurrentCenterAgentProfile(input: {
 	organizationId: string;
 	profileName?: string;
 	avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
+	avatar?: CenterAgentUpdateProfileBody["avatar"];
 }): Promise<CenterAgentUpdateProfileResponse> {
 	try {
 		return await createWebCenterAgentApi(input.organizationId).updateProfile({
 			...(input.profileName ? { profileName: input.profileName } : {}),
 			...(input.avatarStyle ? { avatarStyle: input.avatarStyle } : {}),
+			...(input.avatar ? { avatar: input.avatar } : {}),
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

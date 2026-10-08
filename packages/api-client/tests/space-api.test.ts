@@ -451,6 +451,7 @@ describe("api-client space api", () => {
       automaticReworkRounds: 0,
       needsHumanDecision: false,
       externalWorkItems: [],
+      projectIds: [],
       revision: 1,
       createdAt: "2026-09-15T00:00:00.000Z",
       updatedAt: "2026-09-15T00:00:00.000Z",
@@ -538,6 +539,14 @@ describe("api-client space api", () => {
         },
       })
     ).resolves.toMatchObject({ applied: true, task });
+
+    expect(
+      transport.mock.calls
+        .slice(0, 5)
+        .map(([request]) =>
+          new URL(request.url).searchParams.get("taskContractVersion")
+        )
+    ).toEqual(["2", "2", "2", "2", "2"]);
 
     expect(transport).toHaveBeenNthCalledWith(
       5,

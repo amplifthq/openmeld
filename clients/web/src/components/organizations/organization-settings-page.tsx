@@ -55,6 +55,7 @@ import {
 	updateOrganizationMemberRole,
 } from "#/lib/organizations/auth-organizations";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { INVITE_PEOPLE_INTENT } from "#/lib/organizations/organization-entry-intent";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
 	buildOrganizationOrgSettingsPath,
@@ -71,6 +72,14 @@ import { applyOrganizationDeletionToScopeCache } from "#/query/organizations/org
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { OrganizationInvitationRecords } from "./organization-invitation-records";
 import { OrganizationInviteControls } from "./organization-invite-controls";
+import { PersonalWorkspaceOrganizationGuidance } from "./personal-workspace-organization-guidance";
+
+const PERSONAL_SETTINGS_INTENTS = {
+	general: undefined,
+	members: INVITE_PEOPLE_INTENT,
+	invitations: INVITE_PEOPLE_INTENT,
+	security: undefined,
+} as const;
 
 const MEMBER_ROLE_OPTIONS = [
 	{ label: "Member", value: "member" },
@@ -140,7 +149,12 @@ function OrganizationSettingsContent(input: {
 	} else if (!personal && role.error) {
 		content = <p role="alert">{role.error.message}</p>;
 	} else if (personal && input.section !== "general") {
-		content = <p>This setting is available in team organizations.</p>;
+		content = (
+			<PersonalWorkspaceOrganizationGuidance
+				description="Create or choose an organization to manage teammates, invitations, and organization security."
+				intent={PERSONAL_SETTINGS_INTENTS[input.section]}
+			/>
+		);
 	} else {
 		switch (input.section) {
 			case "members":

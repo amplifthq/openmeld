@@ -1,16 +1,23 @@
-import type { Project } from "@openmeld/schemas/types";
+import type {
+	OrganizationProfileDirectoryResponse,
+	Project,
+} from "@openmeld/schemas/types";
 import {
 	cleanup,
 	fireEvent,
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readCurrentOrganizationProfileDirectory } from "#/lib/organizations/organization-directory";
 import {
 	archiveCurrentProject,
 	listCurrentProjects,
+	readCurrentProjectCommonAgents,
+	updateCurrentProjectCommonAgents,
 } from "#/lib/organizations/projects";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { ProjectDetailPage } from "./project-detail-page";
@@ -52,7 +59,53 @@ vi.mock("#/lib/organizations/projects", async (importOriginal) => {
 		...original,
 		archiveCurrentProject: vi.fn(),
 		listCurrentProjects: vi.fn(),
+		readCurrentProjectRepositorySettings: vi.fn(async () => ({
+			settings: {
+				projectId: "project-1",
+				repositories: [
+					{
+						repositoryUrl: "https://github.com/amplifthq/openmeld",
+						repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+						isDefault: true,
+					},
+				],
+				legacyDefaultFingerprint: null,
+				revision: 0,
+				updatedAtMs: null,
+				updatedByUserId: null,
+			},
+		})),
+		readCurrentProjectIssueRouting: vi.fn(async () => ({
+			routing: {
+				projectId: "project-1",
+				destination: null,
+				revision: 0,
+				updatedAtMs: null,
+				updatedByUserId: null,
+			},
+		})),
+		readCurrentProjectCommonAgents: vi.fn(async () => ({
+			commonAgents: {
+				projectId: "project-1",
+				agentProfileIds: [],
+				revision: 0,
+				updatedAtMs: null,
+				updatedByUserId: null,
+			},
+		})),
+		readCurrentProjectRecentTasks: vi.fn(async () => ({
+			tasks: [
+				{
+					spaceId: "a".repeat(64),
+					taskId: "tsk_11111111-1111-4111-8111-111111111111",
+					title: "Ship the SDK",
+					phase: "in_progress",
+					updatedAt: "2026-09-29T00:00:00.000Z",
+				},
+			],
+		})),
 		updateCurrentProject: vi.fn(),
+		updateCurrentProjectCommonAgents: vi.fn(),
 	};
 });
 
@@ -78,6 +131,11 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 		],
 		organizationId: "org-acme",
 	})),
+	readCurrentOrganizationProfileDirectory: vi.fn(async () => ({
+		agentProfiles: [],
+		members: [],
+		organizationId: "org-acme",
+	})),
 }));
 
 vi.mock("./project-computer-section", () => ({
@@ -90,7 +148,94 @@ afterEach(() => {
 });
 
 describe("ProjectDetailPage", () => {
-	it("renders the three detail sections and the server-projected archive boundary", async () => {
+	it.each([
+		false,
+		true,
+	])("removes inactive Common Agents even with no active choices (replacement=%s)", async (replacement) => {
+		vi.mocked(listCurrentProjects).mockResolvedValueOnce({
+			organizationId: "org-acme",
+			projects: [project({})],
+		});
+		const inactive: OrganizationProfileDirectoryResponse["agentProfiles"][number] =
+			{
+				organizationId: "org-acme",
+				profileId: "agt_11111111-1111-4111-8111-111111111111",
+				profileName: "Inactive Agent",
+				profileHandle: "inactive-agent",
+				profileKind: "agent",
+				isDefault: false,
+				status: "disabled",
+				ownerUserId: "user-1",
+				source: "local",
+				managedRole: null,
+				createdByUserId: "user-1",
+				creatorProfileId: null,
+				lastUsedAt: null,
+				createdAt: "2026-07-14T00:00:00.000Z",
+				updatedAt: "2026-07-14T00:00:00.000Z",
+				agentControllerRef: null,
+			};
+		const active = {
+			...inactive,
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+			profileName: "Active Agent",
+			status: "active" as const,
+		};
+		vi.mocked(readCurrentOrganizationProfileDirectory).mockResolvedValueOnce({
+			organizationId: "org-acme",
+			generatedAt: "2026-07-14T00:00:00.000Z",
+			members: [],
+			agentProfiles: replacement ? [inactive, active] : [inactive],
+		});
+		const commonAgents = {
+			projectId: "project-1",
+			agentProfileIds: [inactive.profileId],
+			revision: 3,
+			updatedAtMs: null,
+			updatedByUserId: null,
+		};
+		vi.mocked(readCurrentProjectCommonAgents).mockResolvedValueOnce({
+			commonAgents,
+		});
+		vi.mocked(updateCurrentProjectCommonAgents).mockImplementationOnce(
+			async (input) => ({
+				commonAgents: {
+					...commonAgents,
+					agentProfileIds: input.agentProfileIds,
+					revision: 4,
+				},
+			})
+		);
+		renderPage();
+		await screen.findByText("Unavailable Agent");
+		const section = within(
+			screen.getByRole("region", { name: "Common Agents" })
+		);
+		fireEvent.click(section.getByRole("button", { name: "Edit" }));
+		fireEvent.click(
+			section.getByRole("button", { name: "Remove unavailable Agent" })
+		);
+		if (replacement) {
+			fireEvent.click(
+				section.getByLabelText("Active Agent · Organization Agent")
+			);
+		}
+		fireEvent.click(section.getByText("Save Common Agents"));
+		await waitFor(() =>
+			expect(updateCurrentProjectCommonAgents).toHaveBeenCalledWith({
+				expectedOrganizationId: "org-acme",
+				projectId: "project-1",
+				expectedRevision: 3,
+				agentProfileIds: replacement ? [active.profileId] : [],
+			})
+		);
+		await waitFor(() =>
+			expect(section.queryByText("Save Common Agents")).toBeNull()
+		);
+		expect(section.queryByText("Unavailable Agent")).toBeNull();
+	});
+
+	it("renders Project configuration and the server-projected archive boundary", async () => {
 		vi.mocked(listCurrentProjects).mockResolvedValueOnce({
 			organizationId: "org-acme",
 			projects: [project({ canArchive: false, canManage: false })],
@@ -102,12 +247,22 @@ describe("ProjectDetailPage", () => {
 		).toBeTruthy();
 		expect(screen.getByText("Felix")).toBeTruthy();
 		expect(
-			screen
-				.getByRole("link", {
+			(
+				await screen.findByRole("link", {
 					name: "https://github.com/amplifthq/openmeld",
 				})
-				.getAttribute("href")
+			).getAttribute("href")
 		).toBe("https://github.com/amplifthq/openmeld");
+		expect(screen.getByRole("heading", { name: "Repositories" })).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "Where new issues go" })
+		).toBeTruthy();
+		expect(screen.getByRole("heading", { name: "Common Agents" })).toBeTruthy();
+		expect(
+			(await screen.findByRole("link", { name: "Ship the SDK" })).getAttribute(
+				"href"
+			)
+		).toBe(`/o/acme/spaces/${"a".repeat(64)}`);
 		expect(
 			screen.getByRole("heading", { name: "This computer controls" })
 		).toBeTruthy();

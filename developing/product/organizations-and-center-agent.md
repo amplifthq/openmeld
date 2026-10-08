@@ -554,10 +554,16 @@ recognizable across Organizations. A missing or blank Organization name falls
 back to "Center Agent", and an Organization name that already ends with
 "Center Agent" is not given a duplicate suffix. Existing profiles are not
 renamed by ensure. Center Agent settings let an authorized organization owner
-or admin choose a Bot avatar or the abstract fluid avatar on the managed
-profile. An unset avatar uses a stable Bot choice derived from that profile's
-identity, so every member sees the same default. The user previews choices in
-place and explicitly saves the selected avatar. Future customization of the
+or admin open an avatar dialog with Bots, Colors, and Custom image choices.
+Bots offer Original, Balanced, and Soft palettes. The live preview follows the
+pointer and plays the library animation on click; reduced-motion preferences
+turn off that motion. Changes apply only after Save. An unset avatar uses Clover.
+The managed Profile stores `avatarStyle` and `avatarOptions` together, so all
+members see the saved palette, color, or image. Auth owns that atomic write;
+Core checks Organization permission and designation before storing a custom
+image in the account-avatar bucket. Gateway decodes and normalizes uploaded
+images through the shared identity-image pipeline. The editor does not accept
+arbitrary image URLs. Future customization of the
 role description or instructions also edits
 the same managed profile. It must not create a second Center Agent or turn an
 arbitrary ordinary Agent Profile into the Center Agent. The UI shows a
@@ -641,19 +647,15 @@ where translation would reduce precision.
 
 The Center Agent has one Web product home with complementary destinations:
 
-- **Center Agent** is the product home for the workspace's managed agent and
-  owns no secondary sidebar. Its stable header navigation is **Messages,
-  Graph, Files, Routines, Channels**. The first three preserve the selected
-  conversation surface; Routines owns scheduled work. Skills management belongs
-  to Team at `/o/{orgSlug}/skills`, while Center Agent retains its conversational
-  Skill tools and authorized consumption. One compact header menu preserves
-  **Memory, Center Agent settings** and, on the
-  conversation, **Conversation information**. There is no separate About
-  surface or Slack shortcut. Identity and configuration live in Center Agent
-  settings, while Slack management lives in Channels.
-- **Center Agent → Center Agent settings** is the only Center Agent management
-  page. It contains model information, usage, the Audit Log, and the reversible
-  **Pause Center Agent** control in Danger Zone. Current Organization owners and
+- **Center Agent** is the conversation home for the workspace's managed agent.
+  Its header contains **Messages, Tasks, Graph, Files**. Skills management belongs
+  to Team at `/o/{orgSlug}/skills`. Conversation information remains on the
+  conversation surface.
+- **App Settings → Center Agent** shows one page with **Channels** and **Memory** sections below the general settings. The general settings
+  contains model information, identity, the Audit Log, and the reversible
+  **Pause Center Agent** control. Channels and Memory reuse the existing provider
+  cards and memory controls. Legacy Channel and Memory URLs redirect to the
+  settings page, preserving OAuth callback results. Current Organization owners and
   admins may pause or resume it. Web and Core enforce the same current membership
   permission. Creation history grants no additional authority.
 
@@ -859,9 +861,9 @@ concept. Its surviving destinations use the stable header or its compact menu:
 | Former tab | Target home                                          | Placement rule                                                                                                                                                              |
 | ---------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                                                                                           |
-| Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
+| Channels   | **App Settings → Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
 | Plugins       | **Plugins**                                             | The single member and shared App catalog in every workspace.                                                                                                                |
-| Memory     | **Center Agent → Memory** for member memory; **Settings → Center Agent settings** for Organization memory | Personal recall stays with the member-facing Memory surface. Organization policy stays with the other Organization-owned Center Agent settings. |
+| Memory     | **App Settings → Center Agent → Memory** for member memory; **Settings → Center Agent settings** for Organization memory | Personal recall stays with the member-facing Memory surface. Organization policy stays with the other Organization-owned Center Agent settings. |
 | Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.                                                                                   |
 | Activity   | **Center Agent → Center Agent settings → Audit Log** | Retire the misleading label; this journal records Center Agent tool calls.                                                                                                  |
 | Settings   | **Center Agent → Center Agent settings**             | One configuration home, with mutations role-gated.                                                                                                                          |
@@ -1869,7 +1871,7 @@ move, or disconnect the other. `Connector` remains an implementation and
 vendor term; the product category is `Plugins`.
 
 Do not show a planned Slack App merely because the Slack Channel exists. The
-Channel is presented as Slack in **Center Agent → Channels**. A separate Slack
+Channel is presented as Slack in **App Settings → Center Agent → Channels**. A separate Slack
 entry appears in **Plugins** only when OpenMeld ships a distinct
 OpenConnector-backed Slack data/action connection and its model-visible tool
 surface.
@@ -2167,7 +2169,7 @@ execution authority.
 
 Management location follows the owner instead of repeating mutation controls:
 
-- In every workspace, **Center Agent → Channels** is the single Channel
+- In every workspace, **App Settings → Center Agent → Channels** is the single Channel
   destination. It owns Channel management in an Organization and shows only
   Organization-creation guidance in a Personal Workspace. **Center Agent →
   Plugins** is the single catalog and
@@ -2192,7 +2194,7 @@ Management location follows the owner instead of repeating mutation controls:
   member app connections. An ordinary member may request that owners and admins
   set up one available Message Channel provider. Core creates one deduplicated
   Organization Inbox request per requester and provider; it grants no setup
-  authority, links recipients to **Center Agent → Channels**, and resolves the
+  authority, links recipients to **App Settings → Center Agent → Channels**, and resolves the
   request after that provider becomes connected.
 - The personal workspace uses the same Center Agent pages. Only content, available
   actions, and role-appropriate guidance differ.
@@ -2383,11 +2385,9 @@ than by the model provider:
 Core owns scope, authorization, enabled state, subject identity, and deletion
 lifecycle. `developing/architecture/data-and-observability.md` owns storage and
 provider boundaries; `developing/product/remote-agent-runtime.md` owns recall
-and turn-envelope behavior. In a multi-member Organization, **Center Agent →
-Memory** owns the current member-memory wipe entry, while **Settings → Center
+and turn-envelope behavior. In a multi-member Organization, **App Settings → Center Agent → Memory** owns the current member-memory wipe entry, while **Settings → Center
 Agent settings** owns ongoing Organization policy management. A Personal
-Workspace keeps both Workspace memory and member memory on **Center Agent →
-Memory** because there is no separate Organization administration boundary.
+Workspace keeps both Workspace memory and member memory on **App Settings → Center Agent → Memory** because there is no separate Organization administration boundary.
 **Settings → Personal → Privacy** links to the member-facing Memory page instead
 of owning a second mutation surface. Setup Studio presents the Core-owned
 default as enabled without manufacturing a user choice. It does not own another
@@ -2983,3 +2983,10 @@ implemented; until then this section is their definition source:
 - **Ambient session**: a local agent session started by the user directly
   rather than by a Wake, observable only under an explicitly bound Agent
   Activity Project.
+
+Center Agent attribution in Space messages and thread replies shows the current
+effective model display name from the same query cache as the model settings.
+Saving a model updates this cache immediately. One shell observer refreshes on
+window focus and every 30 seconds while active; failed reads hide the old model
+label. The label describes current configuration, not the model that generated
+a historical message.

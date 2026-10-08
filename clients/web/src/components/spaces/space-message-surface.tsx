@@ -6,6 +6,7 @@ import { SPACE_MESSAGE_CONTENT_PADDING_CLASS } from "./space-message-bubble-styl
 /** One message/action target, with attachments outside the painted text bubble. */
 export function SpaceMessageSurface({
 	attachments,
+	references,
 	bubbleClassName,
 	children,
 	className,
@@ -13,6 +14,7 @@ export function SpaceMessageSurface({
 	...props
 }: ComponentProps<typeof BubbleContent> & {
 	attachments?: ReactNode;
+	references?: ReactNode;
 	bubbleClassName?: string;
 	edited?: boolean;
 	"data-highlighted"?: string;
@@ -25,6 +27,7 @@ export function SpaceMessageSurface({
 				className
 			)}
 		>
+			{references}
 			{attachments}
 			<div
 				className={cn(

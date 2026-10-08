@@ -72,7 +72,33 @@ export const CENTER_AGENT_BOT_AVATAR_TYPES = [
 export const agentAvatarStyleSchema = z.enum([
   "automatic",
   "fluid",
+  "custom",
   ...CENTER_AGENT_BOT_AVATAR_TYPES,
+]);
+export const agentAvatarOptionsSchema = z.strictObject({
+  palette: z.enum(["original", "balanced", "soft"]).optional(),
+  color: z
+    .enum(["sage", "sky", "lavender", "rose", "amber", "clay"])
+    .optional(),
+  imageUrl: z.string().min(1).max(2048).optional(),
+});
+export const centerAgentAvatarSelectionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("bot"),
+    type: z.enum(CENTER_AGENT_BOT_AVATAR_TYPES),
+    palette: z.enum(["original", "balanced", "soft"]),
+  }),
+  z.strictObject({
+    kind: z.literal("color"),
+    color: z.enum(["sage", "sky", "lavender", "rose", "amber", "clay"]),
+  }),
+  z.strictObject({
+    kind: z.literal("image"),
+    dataUrl: z
+      .string()
+      .max(400_000)
+      .regex(/^data:image\/(?:png|webp);base64,[A-Za-z0-9+/]+={0,2}$/),
+  }),
 ]);
 const authProfileViewManagedRoleSchema = authProfileManagedRoleSchema
   .nullish()
@@ -91,6 +117,7 @@ export const authProfileViewSchema = z
     ownerName: z.string().min(1).optional(),
     avatarUrl: z.string().min(1).optional(),
     avatarStyle: agentAvatarStyleSchema.nullable().optional(),
+    avatarOptions: agentAvatarOptionsSchema.nullable().optional(),
     source: z.string().min(1),
     managedRole: authProfileViewManagedRoleSchema,
     defaultProjectId: z.string().trim().min(1).nullable().optional(),

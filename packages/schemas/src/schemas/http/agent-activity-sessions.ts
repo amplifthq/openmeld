@@ -243,6 +243,7 @@ export const observedLocalAgentSessionSchema = z
 
 export const agentActivitySessionReconciliationResultSchema = z.enum([
   "sessions",
+  "partial",
   "unsupported",
   "error",
   "disconnected",
@@ -290,6 +291,16 @@ export const submitAgentActivitySessionReconciliationBodySchema = z
         context.addIssue({
           code: "custom",
           message: "Successful reconciliation pages cannot include a problem.",
+          path: ["problemCode"],
+        });
+      }
+      return;
+    }
+    if (value.result === "partial") {
+      if (value.problemCode === undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "Partial reconciliation requires a stable problem code.",
           path: ["problemCode"],
         });
       }

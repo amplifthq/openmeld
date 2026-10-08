@@ -93,6 +93,7 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
       "Create staging prerequisites",
       "Create staging Worker identities",
       "Apply staging database migrations",
+      "Grant staging runtime access",
       "Deploy staging Auth",
       "Deploy staging Core",
       "Deploy staging Gateway",
@@ -113,7 +114,18 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
 
   const commandArguments = steps.flatMap((step) => step.args ?? []);
   assert.equal(commandArguments.includes("staging"), true);
-  assert.equal(commandArguments.includes("stg"), true);
+  assert.equal(commandArguments.includes("component:stg"), true);
+  assert.equal(commandArguments.includes("d1"), false);
+  assert.deepEqual(steps[4].args, [
+    "tooling/postgresql/cloud.mjs",
+    "migrate",
+    "staging",
+  ]);
+  assert.deepEqual(steps[5].args, [
+    "tooling/postgresql/cloud.mjs",
+    "grant-runtime",
+    "staging",
+  ]);
   assert.equal(commandArguments.includes("prod"), false);
   assert.equal(
     steps
