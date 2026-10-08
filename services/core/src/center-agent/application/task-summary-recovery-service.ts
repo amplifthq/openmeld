@@ -4,6 +4,7 @@ import {
   type centerAgentContinueTaskSummaryResponseSchema,
   getSpaceDispatchLookupResponseSchema,
   getSpaceMessageDetailsResponseSchema,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
   remoteAgentWorkerExecutionQueryResponseSchema,
   taskSummaryRecoveryAccessResponseSchema,
 } from "@openmeld/schemas";
@@ -72,6 +73,79 @@ export async function isTaskSummaryRecoveryAuthorized(input: {
       ownerUserId: input.operatorUserId,
     })
   ).allowed;
+}
+/** One restricted summary for an exact failed coordinator; never turn replay. */
+export async function recoverFailedTaskContinuationSummary(input: {
+  db: PostgresDatabase;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+}): Promise<void> {
+  const { delivery } = input;
+  const trigger = (
+    delivery.workerSubmitRequest ?? delivery.executionRecoverySubmitRequest
+  )?.turnEnvelope?.trigger;
+  if (
+    delivery.status !== "failed" ||
+    delivery.failureCode !== REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE ||
+    delivery.conversationKind !== "space" ||
+    delivery.routineRunId ||
+    !delivery.publishedSignalId ||
+    !delivery.onBehalfOfUserId ||
+    trigger?.source !== "task_continuation" ||
+    trigger.summaryOnly
+  ) {
+    return;
+  }
+  const source = await readAgentTaskCompletionSubscription({
+    db: input.db,
+    subscriptionId: trigger.subscriptionId,
+  });
+  // Failure can arrive before continuation settlement. That owner's settlement
+  // and Queue redelivery call this same helper once the exact delivery is saved.
+  if (
+    source?.state !== "settled" ||
+    source.organizationId !== delivery.organizationId ||
+    source.continuation?.kind !== "resume_agent" ||
+    source.continuation.summaryRecovery ||
+    source.continuation.delegationId !== trigger.delegationId ||
+    source.continuationTask?.kind !== "native_delivery" ||
+    source.continuationTask.deliveryId !== delivery.deliveryId ||
+    source.continuationIdempotencyKey !== delivery.idempotencyKey
+  ) {
+    return;
+  }
+  const receipt = await continueTaskSummary({
+    actorProfileId: delivery.profileId,
+    db: input.db,
+    env: input.env,
+    inspectOnly: false,
+    nowMs: input.nowMs,
+    operatorUserId: delivery.onBehalfOfUserId,
+    organizationId: delivery.organizationId,
+    sourceSubscriptionId: source.subscriptionId,
+  });
+  if (
+    receipt.status === "unavailable" &&
+    ![
+      "task_summary_recovery.receiver_unsupported",
+      "task_summary_recovery.not_authorized",
+      "task_summary_recovery.stopped",
+      "task_summary_recovery.no_verified_results",
+    ].includes(receipt.reasonCode ?? "") &&
+    !(
+      receipt.subscriptionId &&
+      [
+        "task_summary_recovery.cancelled",
+        "task_summary_recovery.failed",
+        "task_summary_recovery.completed",
+      ].includes(receipt.reasonCode ?? "")
+    )
+  ) {
+    // Unknown evidence is not a terminal refusal. Keep the existing callback
+    // or settled-source Queue message retryable, without creating another run.
+    throw new Error(receipt.reasonCode ?? "task_summary_recovery.unavailable");
+  }
 }
 /** Starts a fresh summary continuation, never a replay of the child request. */
 export async function continueTaskSummary(input: {
@@ -230,7 +304,7 @@ export async function continueTaskSummary(input: {
     delivery: old,
     env: input.env,
     submissionId: old.submissionId,
-    reason: "The requester chose a fresh summary of existing results.",
+    reason: "Fence the failed execution for a summary of existing results.",
     summaryRecoveryId: subscriptionId,
   });
   const fence = await readRemoteAgentWorkerAdmissionStop({
@@ -329,23 +403,18 @@ async function readSummaryReceiverRejection(
   if (request.turnEnvelope.trigger.source !== "task_continuation") {
     return "task_summary_recovery.receiver_unsupported";
   }
-  // Probe the existing read-only receipt, without changing its identity or
-  // creating admission. Old strict receivers reject this opt-in field.
-  let support: Awaited<ReturnType<typeof readRemoteAgentWorkerAdmissionStop>>;
-  try {
-    support = await readRemoteAgentWorkerAdmissionStop({
-      worker,
-      request: {
-        ...request,
-        turnEnvelope: {
-          ...request.turnEnvelope,
-          trigger: { ...request.turnEnvelope.trigger, summaryOnly: true },
-        },
+  // The receipt owner recognizes a missing receiver method. Transport and
+  // validation errors must propagate; neither proves unsupported recovery.
+  const support = await readRemoteAgentWorkerAdmissionStop({
+    worker,
+    request: {
+      ...request,
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        trigger: { ...request.turnEnvelope.trigger, summaryOnly: true },
       },
-    });
-  } catch {
-    return "task_summary_recovery.receiver_unsupported";
-  }
+    },
+  });
   if (
     !(support?.summaryOnlySupported && support.summaryRecoveryFenceSupported)
   ) {

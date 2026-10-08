@@ -1,6 +1,7 @@
 import * as z from "../../lazy-zod";
 import { spaceEvidenceReferencesSchema } from "../../space-evidence";
 import { spaceWorkHandoffSchema } from "../../space-work-handoff";
+import { userRequestTimeContextSchema } from "../../user-time-context";
 import {
   spaceMessageFileReferenceSchema,
   spaceMessageFileReferencesSchema,
@@ -105,6 +106,7 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  requestTimeContext: userRequestTimeContextSchema.optional(),
   evidenceRefs: spaceEvidenceReferencesSchema.optional(),
   workHandoff: spaceWorkHandoffSchema.optional(),
   contextMessages: z

@@ -1,13 +1,11 @@
 "use client";
 
-import {
-	OPENMELD_LOGO_CURRENT_COLOR as SHARED_OPENMELD_LOGO_CURRENT_COLOR,
-	OPENMELD_LOGO_LINES as SHARED_OPENMELD_LOGO_LINES,
-} from "@openmeld/ui/components/openmeld-logo-core";
+import { OPENMELD_LOGO_CURRENT_COLOR as SHARED_OPENMELD_LOGO_CURRENT_COLOR } from "@openmeld/ui/components/openmeld-logo-core";
 import {
 	OpenMeldLogoWeak,
 	type OpenMeldLogoWeakProps,
 } from "@openmeld/ui/components/openmeld-logo-weak";
+import { OPENMELD_LOGO_LINES as SHARED_OPENMELD_LOGO_LINES } from "@openmeld/ui/lib/openmeld-logo-lines";
 
 export const OPENMELD_LOGO_CURRENT_COLOR = SHARED_OPENMELD_LOGO_CURRENT_COLOR;
 export const OPENMELD_LOGO_LINES = SHARED_OPENMELD_LOGO_LINES;

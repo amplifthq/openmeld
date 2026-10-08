@@ -5,12 +5,13 @@ import type { AgentAvatarStyle } from "../../src/components/agents/remote-agent-
 // Same-origin demo frames share one tab-scoped identity, never a real Profile.
 const key = "openmeld.website-demo.center-avatar";
 const changed = "website-demo-center-avatar";
+const defaultAvatar = "clover";
 export function readDemoCenterAvatar(): AgentAvatarStyle {
 	const value = sessionStorage.getItem(key);
 	return value === "fluid" ||
 		CENTER_AGENT_BOT_AVATAR_TYPES.some((type) => type === value)
 		? (value as AgentAvatarStyle)
-		: "cloud";
+		: defaultAvatar;
 }
 function subscribe(listener: () => void) {
 	const storage = (event: StorageEvent) => {
@@ -26,10 +27,10 @@ function subscribe(listener: () => void) {
 	};
 }
 export function useDemoCenterAvatar() {
-	const avatar = useSyncExternalStore(
+	const avatar = useSyncExternalStore<AgentAvatarStyle>(
 		subscribe,
 		readDemoCenterAvatar,
-		() => "cloud" as const
+		() => defaultAvatar
 	);
 	return [
 		avatar,

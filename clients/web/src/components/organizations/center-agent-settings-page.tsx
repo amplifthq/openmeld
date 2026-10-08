@@ -28,7 +28,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
-import { CenterAgentAvatarEditor } from "#/components/agents/center-agent-avatar-editor";
+import {
+	CenterAgentAvatarEditor,
+	type CenterAgentAvatarUpdate,
+} from "#/components/agents/center-agent-avatar-editor";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import {
 	AgentConfigurationCard,
@@ -318,11 +321,7 @@ export function CenterAgentSettingsContent(input: {
 		},
 	});
 	const updateProfileMutation = useMutation({
-		mutationFn: async (variables: {
-			profileName?: string;
-			avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
-			avatar?: CenterAgentUpdateProfileBody["avatar"];
-		}) =>
+		mutationFn: async (variables: CenterAgentUpdateProfileBody) =>
 			await updateCurrentCenterAgentProfile({
 				organizationId: input.organizationId,
 				...variables,
@@ -422,8 +421,8 @@ export function CenterAgentSettingsContent(input: {
 						operatingStateQuery.data?.operatingState !== "active"
 					}
 					onMessage={() => dmMutation.mutate()}
-					onSaveAvatar={async (avatar) => {
-						await updateProfileMutation.mutateAsync({ avatar });
+					onSaveAvatar={async (update) => {
+						await updateProfileMutation.mutateAsync(update);
 					}}
 					operatingState={
 						operatingStateQuery.isError
@@ -786,9 +785,7 @@ function resolveRemoteConnectionDescription(input: {
 
 function CenterAgentConnectionSection(input: {
 	canManage: boolean;
-	onSaveAvatar: (
-		avatar: NonNullable<CenterAgentUpdateProfileBody["avatar"]>
-	) => Promise<void>;
+	onSaveAvatar: (update: CenterAgentAvatarUpdate) => Promise<void>;
 	savingAvatar: boolean;
 	disableMessage: boolean;
 	onMessage: () => void;

@@ -7,6 +7,20 @@ const environment = {
 };
 
 describe("website App boundary", () => {
+	it.each([
+		"/desktop",
+		"/desktop/",
+	])("keeps legacy %s download links on the website, including selectors", (path) => {
+		const query = `?candidate=${"a".repeat(64)}&platform=macos-arm64`;
+		const response = routeAppRequest(
+			new Request(`https://openmeld.ai${path}${query}`),
+			environment
+		) as Response;
+		expect(response.status).toBe(307);
+		expect(response.headers.get("Location")).toBe(
+			`https://openmeld.ai/downloads${query}`
+		);
+	});
 	it("redirects existing page links to a fixed App origin, preserving path and query", () => {
 		const response = routeAppRequest(
 			new Request(
@@ -26,6 +40,7 @@ describe("website App boundary", () => {
 		"/privacy",
 		"/terms",
 		"/changelog",
+		"/downloads",
 		"/guides/local-agents/codex",
 		"/_website/serverFn/read",
 		"/_website/assets/main.js",
