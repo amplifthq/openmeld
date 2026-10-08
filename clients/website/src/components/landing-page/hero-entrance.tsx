@@ -10,6 +10,17 @@ export function HeroEntrance({ children }: { children: ReactNode }) {
 			aria-labelledby="hero-title"
 			className="meld-hero meld-wrap"
 			data-hero-ready={ready ? "" : undefined}
+			onFocusCapture={(event) => {
+				const group = event.target.closest(".meld-actions, .meld-open-source");
+				if (group?.parentElement !== event.currentTarget) {
+					return;
+				}
+				// Finish the existing timeline. Removing its CSS declaration on focus
+				// would create a new entrance when focus moves to a menu or the page.
+				for (const animation of group.getAnimations()) {
+					animation.finish();
+				}
+			}}
 		>
 			{children}
 		</section>

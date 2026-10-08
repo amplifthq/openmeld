@@ -71,11 +71,6 @@
 		opacity: 0;
 	}
 }
-/* Keyboard navigation does not wait for the decorative entrance. */
-.meld-hero > .meld-actions:focus-within,
-.meld-hero > .meld-open-source:focus-within {
-	animation: none;
-}
 @media (prefers-reduced-motion: reduce) {
 	.meld-demo-hero::before {
 		animation: none;

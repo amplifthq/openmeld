@@ -93,6 +93,9 @@ Linear's one-second blur and translation timing. The live App uses a later opaci
 edge veil that disappears completely; it has no persistent blend mask or blur.
 Hero avatars reuse the shared poster-backed renderer, so their server-rendered
 first frame is visible before hydration. Reduced motion uses a short fade only.
+Focus on hero actions completes their existing browser animation. Focus changes
+never remove or restore its CSS declaration, so menus and keyboard navigation
+cannot replay the entrance. The same rule applies to the open-source link group.
 Other demos use static CSS alpha masks with broad directional fades, measured
 against Linear's feature stages. Files and Skills retain their upper-left edges
 while fading roughly half of their bottom and right areas. Routines fade both
