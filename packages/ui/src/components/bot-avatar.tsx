@@ -31,6 +31,7 @@ export type BotAvatarMaterial = "fabric" | "plastic";
 
 // The stock renderer blends lighting during motion. Keep pristine still frames
 // in their own contexts, shared across identical avatars and bounded in memory.
+const SVG_SUBPATH_START = /(?=M)/;
 const restingFrames = new Map<string, HTMLCanvasElement>();
 function restingFrame(
   key: string,
@@ -155,7 +156,10 @@ const InteractiveBotAvatar = forwardRef<
       ...preset,
       path: new Path2D(botAvatarShapes[type]),
       parts: botAvatarParts[type]
-        ? new Path2D(botAvatarParts[type])
+        ? botAvatarParts[type]
+            .split(SVG_SUBPATH_START)
+            .filter((part) => part.trim())
+            .map((part) => new Path2D(part))
         : undefined,
       color,
       ink: autoInk(color),
