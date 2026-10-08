@@ -4,7 +4,7 @@ import {
 	HOSTED_CENTER_AGENT_CONTROLLER_REF,
 	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 } from "@openmeld/agent-runtime";
-import { AvatarAction } from "@openmeld/ui/components/avatar";
+import { Button } from "@openmeld/ui/components/button";
 import {
 	CaretLeftIcon,
 	CaretRightIcon,
@@ -45,63 +45,71 @@ export function AgentAvatarEditor(input: {
 		setCandidate(choices[(index + step + choices.length) % choices.length]);
 		setOpen(true);
 	};
+	const navigationClassName = `absolute top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center text-foreground before:absolute before:size-5 before:rounded-full before:bg-background/85 before:shadow-sm [@media(hover:none)]:opacity-100 focus-visible:outline-2 focus-visible:outline-ring ${open ? "opacity-100" : "opacity-0 group-focus-within/avatar-editor:opacity-100 group-hover/avatar-editor:opacity-100"}`;
 	return (
 		<div
-			className="group/avatar-editor relative shrink-0"
-			style={{ width: size, height: size }}
+			className="group/avatar-editor flex shrink-0 flex-col items-center gap-2"
+			style={{ width: size }}
 		>
-			<RemoteAgentAvatar
-				agentControllerRef={
-					input.centerAgent
-						? HOSTED_CENTER_AGENT_CONTROLLER_REF
-						: HOSTED_REMOTE_AGENT_CONTROLLER_REF
-				}
-				avatarStyle={changed ? candidate : current}
-				clickable
-				modelId={input.modelId}
-				preview={changed}
-				profileId={input.profileId}
-				profileName={input.profileName}
-				shape={input.centerAgent ? "circle" : "rounded-square"}
-				size={size}
-			/>
+			<div className="relative" style={{ width: size, height: size }}>
+				<RemoteAgentAvatar
+					agentControllerRef={
+						input.centerAgent
+							? HOSTED_CENTER_AGENT_CONTROLLER_REF
+							: HOSTED_REMOTE_AGENT_CONTROLLER_REF
+					}
+					avatarStyle={changed ? candidate : current}
+					clickable
+					modelId={input.modelId}
+					preview={changed}
+					profileId={input.profileId}
+					profileName={input.profileName}
+					shape={input.centerAgent ? "circle" : "rounded-square"}
+					size={size}
+				/>
+				{input.canEdit ? (
+					<>
+						<button
+							aria-label="Previous avatar"
+							className={`${navigationClassName} left-0`}
+							disabled={input.saving}
+							onClick={(event) => {
+								event.stopPropagation();
+								rotate(-1);
+							}}
+							type="button"
+						>
+							<CaretLeftIcon
+								aria-hidden="true"
+								className="relative size-3"
+								weight="bold"
+							/>
+						</button>
+						<button
+							aria-label="Next avatar"
+							className={`${navigationClassName} right-0`}
+							disabled={input.saving}
+							onClick={(event) => {
+								event.stopPropagation();
+								rotate(1);
+							}}
+							type="button"
+						>
+							<CaretRightIcon
+								aria-hidden="true"
+								className="relative size-3"
+								weight="bold"
+							/>
+						</button>
+					</>
+				) : null}
+			</div>
 			{input.canEdit ? (
-				<>
-					<button
-						aria-label="Previous avatar"
-						className={`absolute top-1/2 left-0 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full bg-background/85 text-foreground shadow-sm transition-opacity focus-visible:outline-2 focus-visible:outline-ring ${open ? "opacity-100" : "opacity-0 group-focus-within/avatar-editor:opacity-100 group-hover/avatar-editor:opacity-100"}`}
-						disabled={input.saving}
-						onClick={(event) => {
-							event.stopPropagation();
-							rotate(-1);
-						}}
-						type="button"
-					>
-						<CaretLeftIcon
-							aria-hidden="true"
-							className="size-3.5"
-							weight="bold"
-						/>
-					</button>
-					<button
-						aria-label="Next avatar"
-						className={`absolute top-1/2 right-0 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full bg-background/85 text-foreground shadow-sm transition-opacity focus-visible:outline-2 focus-visible:outline-ring ${open ? "opacity-100" : "opacity-0 group-focus-within/avatar-editor:opacity-100 group-hover/avatar-editor:opacity-100"}`}
-						disabled={input.saving}
-						onClick={(event) => {
-							event.stopPropagation();
-							rotate(1);
-						}}
-						type="button"
-					>
-						<CaretRightIcon
-							aria-hidden="true"
-							className="size-3.5"
-							weight="bold"
-						/>
-					</button>
+				<div className="min-h-7 w-full max-lg:min-h-11">
 					{changed ? (
-						<AvatarAction
+						<Button
 							aria-label="Save avatar"
+							className="w-full"
 							disabled={input.saving}
 							onClick={async (event) => {
 								event.stopPropagation();
@@ -115,11 +123,14 @@ export function AgentAvatarEditor(input: {
 									setOpen(false);
 								}
 							}}
+							size="sm"
+							variant="secondary"
 						>
-							<CheckIcon aria-hidden="true" weight="bold" />
-						</AvatarAction>
+							<CheckIcon aria-hidden="true" className="size-3" weight="bold" />
+							Save
+						</Button>
 					) : null}
-				</>
+				</div>
 			) : null}
 		</div>
 	);
