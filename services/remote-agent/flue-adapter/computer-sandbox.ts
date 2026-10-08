@@ -61,9 +61,13 @@ import { createComputerPluginConnectionTool } from "./computer-plugin-connection
 import { getComputerSpaceFileTools } from "./computer-space-files";
 import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
-import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
+import {
+  AGENT_COMPUTER_SHELL_BACKEND_ID,
+  resolveAgentComputerWorkingDirectory,
+} from "./computer-workspace";
 import { getGitHubWorkingCopyTools } from "./github-working-copy-tools";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
+import { prepareOrganizationDocumentsComputerSnapshot } from "./organization-document-computer-snapshot";
 import { getOrganizationDocumentComputerToolDefinitions } from "./organization-document-computer-tools";
 import { disabledNoNetworkSandbox } from "./sandbox";
 import { materializeSpaceWork } from "./space-work-materialization";
@@ -148,31 +152,40 @@ export async function createRemoteAgentComputerCapability(input: {
   }
   const authorize = async () => await requireRemoteAgentExecutionAccess(input);
   await authorize();
-  const workspaceAccess = createAgentComputerWorkspaceAccess({
+  // Keep the frozen identity and authorization boundary at admission. Opening
+  // the remote workspace is optional until a task actually uses Computer.
+  const unpreparedWorkspaceAccess = createAgentComputerWorkspaceAccess({
     computerId,
     namespace,
     authorize,
   });
-  const organizationDocumentsSnapshot = input.includeOrganizationDocuments
-    ? await callCoreRpc(
-        input.coreWorker,
-        "centerAgentOrganizationDocumentsComputerSnapshot",
-        {
-          context: buildRemoteAgentCoreContext(
-            input.context,
-            `remote-agent-computer-documents:${input.context.submissionId}`
-          ),
-        },
-        (binding, rpcInput) =>
-          binding.centerAgentOrganizationDocumentsComputerSnapshot?.(rpcInput)
-      )
-    : null;
-  const { documents, workingDirectory: baseWorkingDirectory } =
-    await materializeAgentComputerWorkspace({
+  const baseWorkingDirectory = resolveAgentComputerWorkingDirectory({
+    taskId: input.context.submissionId,
+    spaceId: input.context.spaceId ?? null,
+  });
+  let preparation: Promise<void> | undefined;
+  const prepareWorkspace = async () => {
+    preparation ??= materializeAgentComputerWorkspace({
       context: input.context,
-      organizationDocumentsSnapshot,
-      workspaceAccess,
-    });
+      workspaceAccess: unpreparedWorkspaceAccess,
+    })
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        // Successful setup is shared by concurrent tools; a failed setup can be
+        // attempted by a later tool call without repeating a business operation.
+        preparation = undefined;
+        throw error;
+      });
+    await preparation;
+  };
+  const workspaceAccess = createAgentComputerWorkspaceAccess({
+    computerId,
+    namespace,
+    authorize: async () => {
+      await authorize();
+      await prepareWorkspace();
+    },
+  });
   if (input.context.workHandoff && !input.storage) {
     throw new Error("Durable storage is required to prepare handoff files.");
   }
@@ -192,34 +205,66 @@ export async function createRemoteAgentComputerCapability(input: {
     env: input.env,
   });
   const sessionEnv = createSandboxSessionEnv(api, workingDirectory);
-  const organizationDocumentDefinitions = documents
+  let workingCopies:
+    | Promise<
+        ReturnType<typeof createReacquiringOrganizationDocumentWorkingCopyStore>
+      >
+    | undefined;
+  const getWorkingCopies = async () => {
+    await authorize();
+    workingCopies ??= callCoreRpc(
+      input.coreWorker,
+      "centerAgentOrganizationDocumentsComputerSnapshot",
+      {
+        context: buildRemoteAgentCoreContext(
+          input.context,
+          `remote-agent-computer-documents:${input.context.submissionId}`
+        ),
+      },
+      (binding, rpcInput) =>
+        binding.centerAgentOrganizationDocumentsComputerSnapshot?.(rpcInput)
+    )
+      .then((snapshot) =>
+        createReacquiringOrganizationDocumentWorkingCopyStore({
+          projection: prepareOrganizationDocumentsComputerSnapshot(snapshot),
+          workspaceAccess,
+          workingDirectory: baseWorkingDirectory,
+        })
+      )
+      .catch((error: unknown) => {
+        workingCopies = undefined;
+        throw error;
+      });
+    return await workingCopies;
+  };
+  const organizationDocumentDefinitions = input.includeOrganizationDocuments
     ? getOrganizationDocumentComputerToolDefinitions({
         context: input.context,
         coreWorker: input.coreWorker,
-        workingCopies: createReacquiringOrganizationDocumentWorkingCopyStore({
-          projection: documents,
-          workspaceAccess,
-          workingDirectory: baseWorkingDirectory,
-        }),
+        workingCopies: {
+          checkout: async (documentId) =>
+            (await getWorkingCopies()).checkout(documentId),
+          read: async (path) => (await getWorkingCopies()).read(path),
+        },
       })
     : [];
   const browserDefinitions: RemoteAgentToolDefinition[] = [];
   if (input.env.BROWSER && input.context.spaceId) {
     const spaceId = input.context.spaceId;
-    const browser = namespace.get(
-      computerId
-    ) as DurableObjectStub<AgentComputer>;
+    const browser = () =>
+      namespace.get(computerId) as DurableObjectStub<AgentComputer>;
     const browserInput = strictObject({
       code: pipe(string(), minLength(1), maxLength(32_000)),
     });
     browserDefinitions.push({
       name: "browser_execute",
-      description: `${await browser.describeBrowser(spaceId)} This browser session is isolated to this execution and closes when the call completes. Complete navigation and all interactions within one call.`,
+      description:
+        "Run a one-shot browser script. First call computer action=describe to read the current browser API. The browser closes when the call completes. Finish navigation and interactions in one call.",
       input: browserInput,
       execute: async (rawInput) => {
         const { code } = parse(browserInput, rawInput);
         await authorize();
-        const result = await browser.executeBrowser({ spaceId, code });
+        const result = await browser().executeBrowser({ spaceId, code });
         await authorize();
         return result;
       },
@@ -237,7 +282,7 @@ export async function createRemoteAgentComputerCapability(input: {
       execute: async (rawInput) => {
         const preview = parse(previewInput, rawInput);
         await authorize();
-        const result = await browser.inspectPreview(preview);
+        const result = await browser().inspectPreview(preview);
         await authorize();
         return result;
       },
