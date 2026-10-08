@@ -523,8 +523,15 @@ its `shading` prop also supports Plastic. Both rendering paths use the same pale
 and the library's material-specific lighting defaults. Still-frame cache keys include
 the material and palette so changing either cannot reuse an old finish.
 `lib/bot-avatar-palette` owns all eighteen muted Bot colors for Website and Web.
-Appearance offers Soft, Slate, and Sand palettes through the existing browser
+Appearance offers Original, Balanced, Soft, Slate, and Sand palettes through the existing browser
 preference store; this is a viewer preference, not a change to saved Profile identity.
+An explicit saved Profile palette takes precedence. A Bot without a saved palette
+inherits Appearance colors in both the editor preview and every avatar entrance.
+The editor leaves Profile color choices unselected until the user chooses one;
+it must not label an inherited palette as a saved Original choice. Changing only
+the Bot type uses the existing `avatarStyle` write and preserves Appearance
+inheritance. Choosing a Profile palette saves that explicit choice without
+persisting the viewer's inherited colors.
 Both preview and saved rendering use the selected colors without extra saturation.
 The regular renderer includes an SVG first frame using the vendor's shape and
 face placement in server HTML, then replaces it with the rendered canvas on mount.
