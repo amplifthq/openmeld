@@ -50,6 +50,10 @@ import {
 } from "./remote-agent-avatar";
 
 type Selection = NonNullable<CenterAgentUpdateProfileBody["avatar"]>;
+export type CenterAgentAvatarUpdate = Pick<
+	CenterAgentUpdateProfileBody,
+	"avatar" | "avatarStyle"
+>;
 type Draft =
 	| Selection
 	| {
@@ -70,7 +74,7 @@ export function CenterAgentAvatarEditor(input: {
 	avatarOptions?: AuthProfileView["avatarOptions"];
 	canEdit: boolean;
 	saving: boolean;
-	onSave: (avatar: Selection) => Promise<void>;
+	onSave: (update: CenterAgentAvatarUpdate) => Promise<void>;
 }) {
 	const profile = useAgentAvatarProfile(input.profileId);
 	const style = profile?.avatarStyle ?? input.avatarStyle;
@@ -108,7 +112,7 @@ export function CenterAgentAvatarEditor(input: {
 	const chosenPalette =
 		draft.kind === "bot" ? draft.palette : (options?.palette ?? null);
 	const palette = chosenPalette ?? appearancePalette;
-	const selection = explicitSelection(draft);
+	const update = avatarUpdate(draft);
 	const closeCrop = () => {
 		if (cropDraft) {
 			releaseIdentityImageCropDraft(cropDraft);
@@ -401,14 +405,14 @@ export function CenterAgentAvatarEditor(input: {
 							) : null}
 							<Button
 								className="w-full"
-								disabled={input.saving || !selection || same(draft, current)}
+								disabled={input.saving || !update || same(draft, current)}
 								onClick={async () => {
-									if (!selection) {
+									if (!update) {
 										return;
 									}
 									setError(null);
 									try {
-										await input.onSave(selection);
+										await input.onSave(update);
 										setOpen(false);
 									} catch {
 										setError("This avatar could not be saved. Try again.");
@@ -444,14 +448,14 @@ export function CenterAgentAvatarEditor(input: {
 	);
 }
 
-function explicitSelection(draft: Draft): Selection | null {
-	if (
-		draft.kind === "saved" ||
-		(draft.kind === "bot" && draft.palette === null)
-	) {
+function avatarUpdate(draft: Draft): CenterAgentAvatarUpdate | null {
+	if (draft.kind === "saved") {
 		return null;
 	}
-	return draft;
+	if (draft.kind === "bot" && draft.palette === null) {
+		return { avatarStyle: draft.type };
+	}
+	return { avatar: draft };
 }
 
 function previewHint(draft: Draft, motionEnabled: boolean) {

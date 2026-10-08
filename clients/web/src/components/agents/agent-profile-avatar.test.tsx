@@ -186,10 +186,10 @@ describe("Agent avatar identity across entrances", () => {
 		const onSave = vi.fn().mockResolvedValue(undefined);
 		const view = renderCenterEditor(client, onSave);
 		fireEvent.click(view.getByRole("button", { name: "Edit avatar" }));
-		const dialog = view.getByRole("dialog", { name: "Choose an avatar" });
-		const original = dialog.querySelector('[aria-label="Original"]');
+		let dialog = view.getByRole("dialog", { name: "Choose an avatar" });
+		let original = dialog.querySelector('[aria-label="Original"]');
 		expect(original?.getAttribute("aria-pressed")).toBe("false");
-		const preview = dialog.querySelector(
+		let preview = dialog.querySelector(
 			'[aria-label="Animate Center\'s avatar"] canvas'
 		);
 		expect(preview?.getAttribute("data-bot-palette")).toBe(palette);
@@ -201,6 +201,22 @@ describe("Agent avatar identity across entrances", () => {
 		expect(
 			view.getByRole("button", { name: "Save" }).hasAttribute("disabled")
 		).toBe(true);
+		fireEvent.click(dialog.querySelector('[aria-label="Flower"]') as Element);
+		expect(preview?.getAttribute("data-bot-palette")).toBe(palette);
+		expect(
+			view.getByRole("button", { name: "Save" }).hasAttribute("disabled")
+		).toBe(false);
+		fireEvent.click(view.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(onSave).toHaveBeenCalledWith({ avatarStyle: "flower" })
+		);
+		onSave.mockClear();
+		fireEvent.click(view.getByRole("button", { name: "Edit avatar" }));
+		dialog = view.getByRole("dialog", { name: "Choose an avatar" });
+		original = dialog.querySelector('[aria-label="Original"]');
+		preview = dialog.querySelector(
+			'[aria-label="Animate Center\'s avatar"] canvas'
+		);
 		fireEvent.click(original as Element);
 		expect(preview?.getAttribute("data-bot-palette")).toBe("original");
 		expect(
@@ -211,9 +227,11 @@ describe("Agent avatar identity across entrances", () => {
 		fireEvent.click(view.getByRole("button", { name: "Save" }));
 		await waitFor(() =>
 			expect(onSave).toHaveBeenCalledWith({
-				kind: "bot",
-				type: "clover",
-				palette: "original",
+				avatar: {
+					kind: "bot",
+					type: "clover",
+					palette: "original",
+				},
 			})
 		);
 	});

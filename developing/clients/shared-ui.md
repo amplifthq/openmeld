@@ -521,8 +521,10 @@ preference store; this is a viewer preference, not a change to saved Profile ide
 An explicit saved Profile palette takes precedence. A Bot without a saved palette
 inherits Appearance colors in both the editor preview and every avatar entrance.
 The editor leaves Profile color choices unselected until the user chooses one;
-it must not label an inherited palette as a saved Original choice. Saving a Bot
-requires an explicit Profile palette and does not persist the viewer's inherited colors.
+it must not label an inherited palette as a saved Original choice. Changing only
+the Bot type uses the existing `avatarStyle` write and preserves Appearance
+inheritance. Choosing a Profile palette saves that explicit choice without
+persisting the viewer's inherited colors.
 Both preview and saved rendering use the selected colors without extra saturation.
 The regular renderer includes an SVG first frame using the vendor's shape and
 face placement in server HTML, then replaces it with the rendered canvas on mount.

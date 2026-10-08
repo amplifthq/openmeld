@@ -147,6 +147,13 @@ and never imply membership or availability. Existing-Space additions close the
 picker immediately and show presentation-only `Adding…` rows. Only the server
 response changes membership; failure removes pending rows and offers retry.
 
+Completed Agent creation refreshes the Organization Profile Directory. Before
+automatically opening its Direct Message, the route shares that confirmed
+directory with the sidebar identity reader, so the first conversation render
+uses the current model avatar. Creation receipts do not define avatar identity,
+membership, or availability. Leaving the creation route still prevents automatic
+navigation when the reads finish.
+
 ## Selected Space work
 
 Team → Files contains Team files, member-private My files, and Knowledge. Knowledge
