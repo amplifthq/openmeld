@@ -185,6 +185,15 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           assert.deepEqual(
             (
               await client.query(
+                "SELECT avatar_options FROM openmeld.openmeld_profiles WHERE profile_id=$1",
+                [fixture.center]
+              )
+            ).rows,
+            [{ avatar_options: null }]
+          );
+          assert.deepEqual(
+            (
+              await client.query(
                 "SELECT id,scope,executor_kind,status,next_due_at FROM openmeld.routines ORDER BY id"
               )
             ).rows,

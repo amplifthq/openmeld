@@ -286,6 +286,15 @@ async function lockEmptyTarget(client, catalog) {
 
 function nativeColumns(table, targetColumns) {
   const columns = [...table.columns];
+  if (table.name === "openmeld_profiles") {
+    // Historical avatars keep their style and use the default palette.
+    columns.push({
+      name: "avatar_options",
+      type: "JSONB",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
   if (table.name === "space_index_spaces") {
     columns.push({
       name: "recent_message_previews_json",
@@ -391,10 +400,12 @@ function nativeColumns(table, targetColumns) {
     const native = target.find(
       (candidate) => candidate.column_name === column.name
     );
-    const valid =
-      column.type === "TEXT"
-        ? native.data_type === "text"
-        : ["integer", "bigint"].includes(native.data_type);
+    const nativeTypes = {
+      JSONB: ["jsonb"],
+      TEXT: ["text"],
+      INTEGER: ["integer", "bigint"],
+    };
+    const valid = nativeTypes[column.type]?.includes(native.data_type);
     if (
       !valid ||
       (native.is_generated === "ALWAYS") !== (column.hidden === 3)
