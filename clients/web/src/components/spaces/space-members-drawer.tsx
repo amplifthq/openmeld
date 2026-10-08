@@ -1423,7 +1423,7 @@ function useWalkthroughPickerGuidance(
 		description:
 			record.step === "add-center-agent"
 				? "Add your Center Agent to get started. You can change the selection."
-				: "Add your local agent to this Space.",
+				: "Choose your agent, or select New Agent to connect this computer.",
 		action: (
 			<Button
 				disabled={walkthrough.pending || isSubmitting}

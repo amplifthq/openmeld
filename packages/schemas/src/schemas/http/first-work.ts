@@ -7,6 +7,8 @@ export const walkthroughStepSchema = z.enum([
   "first-task",
   "local-agent",
   "add-local-agent",
+  "local-task",
+  "review-replies",
   "options",
   "complete",
 ]);

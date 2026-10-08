@@ -27,9 +27,11 @@ type RecoveryInput = {
 
 export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 	const [repairComputerId, setRepairComputerId] = useState<string | null>(null);
+	const [pendingSetup, setPendingSetup] = useState<SetupTarget | null>(null);
 	useEffect(() => {
 		if (!input.enabled) {
 			setRepairComputerId(null);
+			setPendingSetup(null);
 		}
 	}, [input.enabled]);
 	const { target, selected, enrolled } = resolveRepairComputer(
@@ -41,9 +43,24 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 		input.guidance !== "set_up_local_agents" ||
 		!input.hasLocalAgents;
 	const state = resolveRecoveryState(input, target);
-	const activeTarget = resolveAutomaticSetupTarget(blocked, state, target);
+	const automaticTarget = resolveAutomaticSetupTarget(blocked, state, target);
+	const setupId = automaticTarget?.connectedComputerId;
+	const setupName = automaticTarget?.name;
+	const setupState = automaticTarget?.state;
+	useEffect(() => {
+		if (input.enabled && setupState) {
+			setPendingSetup({
+				connectedComputerId: setupId,
+				name: setupName,
+				state: setupState,
+			});
+		}
+	}, [input.enabled, setupId, setupName, setupState]);
+	// Connection facts can arrive before Prepare's completion callback. Keep
+	// that workflow mounted so it can select the runtime it actually connected.
+	const activeTarget = automaticTarget ?? pendingSetup;
 	const recovery: AgentCreationComputerRecovery | undefined =
-		input.enabled && blocked
+		input.enabled && (blocked || activeTarget)
 			? {
 					state: activeTarget?.state ?? state,
 					computerName: activeTarget ? activeTarget.name : target.name,
@@ -92,6 +109,7 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 											runtimeLane: lane.data,
 										});
 									}
+									setPendingSetup(null);
 									input.onRetry();
 								}}
 								orgSlug={input.orgSlug}

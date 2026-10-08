@@ -175,23 +175,31 @@ describe("Agent creation computer recovery", () => {
 	it("pins recovery to the selected stable computer, then follows its verified new runtime", () => {
 		const onSelect = vi.fn();
 		const onRetry = vi.fn();
-		const { result } = renderHook(() =>
-			useAgentCreationComputerRecovery({
-				enabled: true,
-				orgSlug: "acme",
-				recovery: agentCreationRecoveryFixture({
-					computers: [
-						agentCreationComputerFixture("Other Mac", "other-mac"),
-						agentCreationComputerFixture(),
-					],
-					deviceId: "office-mac",
-					onSelect,
+		const { result, rerender } = renderHook(
+			({ guidance }) =>
+				useAgentCreationComputerRecovery({
+					enabled: true,
+					orgSlug: "acme",
+					recovery: agentCreationRecoveryFixture({
+						computers: [
+							agentCreationComputerFixture("Other Mac", "other-mac"),
+							agentCreationComputerFixture(),
+						],
+						deviceId: "office-mac",
+						onSelect,
+					}),
+					guidance,
+					hasLocalAgents: false,
+					isPending: false,
+					onRetry,
 				}),
-				guidance: "connect_computer",
-				hasLocalAgents: false,
-				isPending: false,
-				onRetry,
-			})
+			{
+				initialProps: {
+					guidance: "connect_computer" as
+						| "connect_computer"
+						| "set_up_local_agents",
+				},
+			}
 		);
 		render(result.current.computerRecovery?.computerChoices);
 		fireEvent.change(
@@ -205,6 +213,10 @@ describe("Agent creation computer recovery", () => {
 		expect(provider.props.routeIntent.connectedComputerId).toBe(
 			"computer-office-mac"
 		);
+		// A connection refresh must not unmount Prepare before it selects the
+		// verified runtime. This previously stranded the form until reopening.
+		rerender({ guidance: "set_up_local_agents" });
+		expect(result.current.computerRecovery?.setup).toBeTruthy();
 		act(() =>
 			provider.props.children.props.onCompleted({
 				deviceId: "office-mac-reinstalled",
@@ -216,8 +228,7 @@ describe("Agent creation computer recovery", () => {
 			runtimeLane: "dev-local",
 		});
 		expect(onRetry).toHaveBeenCalledOnce();
-		// Keep the workflow visible until the owning readiness projection refreshes.
-		expect(result.current.computerRecovery?.setup).toBeTruthy();
+		expect(result.current.computerRecovery?.setup).toBeUndefined();
 	});
 	it("shows setup immediately when open and never mounts it while closed", () => {
 		const base = {
