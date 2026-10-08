@@ -414,6 +414,7 @@ export {
   cloudComputerSchema,
   cloudComputerStorageSchema,
   cloudComputerWorkerRequestSchema,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
 } from "./schemas/runtime/cloud-computer";
 export {
   pluginConnectionDescriptionSchema,

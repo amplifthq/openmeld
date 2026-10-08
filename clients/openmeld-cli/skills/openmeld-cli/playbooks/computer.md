@@ -1,5 +1,11 @@
 # Work on the cloud Computer
 
+A Local Agent uses its already authorized local Project folder or working
+directory for code work by default. Use cloud Computer when the user chooses
+it or a concrete environment or isolation requirement justifies it. Explain
+the requirement before changing environments. Continue an existing cloud task
+in its current environment and preserve its work.
+
 Use `openmeld computer cloud --operation '{"action":"describe"}' --view agent`
 to inspect current capabilities and persistent storage. Missing storage data
 on an older server means unknown, not empty. The Computer belongs to the signed-in
@@ -29,9 +35,24 @@ Worktrees share Git objects, but working files, dependencies and builds can stil
 consume space. Do not share mutable dependency directories across tasks blindly.
 
 Use the selected Plugin account for fresh Git access; see `plugins.md`.
+Refresh temporary Git transport through the current Plugin connection before
+fetching in a reused repository. Keep the same selected account and connection
+key. Do not save temporary URLs or credentials in Git remotes or configuration.
 Cached files do not grant new permissions to fetch, publish or disclose code.
 Pass an explicit `cwd` in the Computer command. Task logs and temporary outputs
 can remain under `/computer/tasks/<task-id>`.
+
+## Recover command results
+
+Start once with a stable invocation ID and command key. Poll that same key.
+Use `list` after an uncertain response. A timeout or missing native record
+never proves the command had no effect and never permits an automatic relaunch.
+
+`syncPending` means the process exited but file synchronization is unconfirmed.
+Continue polling unless `syncError` or `nextAction: inspect` is present. Then
+stop polling and inspect persistent files. The receipt preserves the known
+exit code and output. An exit code does not prove file synchronization succeeded.
+Explain unresolved synchronization before treating a generated file as complete.
 
 ## Check capacity and preserve work
 

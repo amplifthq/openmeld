@@ -14,7 +14,8 @@ import { RemoteAgentSqlStorage } from "../../flue-adapter/storage";
  * the external computerd RPC is controlled, using its shipped event contract. */
 export async function verifyDurableCommandResults(
   storage: ConstructorParameters<typeof Workspace>[0]["storage"],
-  sql: ConstructorParameters<typeof RemoteAgentSqlStorage>[0]
+  sql: ConstructorParameters<typeof RemoteAgentSqlStorage>[0],
+  syncOutcome: "complete" | "ENOENT" | "EEXEC_LOST" = "complete"
 ) {
   let exited = false;
   let pullFails = true;
@@ -22,7 +23,9 @@ export async function verifyDurableCommandResults(
   let starts = 0;
   const attach = (id: string, after: number | "tail" = 0) => {
     if (expired) {
-      throw Object.assign(new Error("no exec record"), { code: "ENOENT" });
+      throw Object.assign(new Error("no exec record"), {
+        code: syncOutcome === "complete" ? "ENOENT" : syncOutcome,
+      });
     }
     return {
       id,
@@ -144,7 +147,14 @@ export async function verifyDurableCommandResults(
       key: "work",
       waitSeconds: 1,
     });
-    pullFails = false;
+    // An exited process is never signalled while synchronization is pending.
+    const pendingCleanup = await stopStoredComputerCommands({
+      context: { submissionId: "durable-result" },
+      storage: new RemoteAgentSqlStorage(sql),
+      access: () => workspaceAccess,
+    });
+    pullFails = syncOutcome !== "complete";
+    expired = syncOutcome !== "complete";
     // No model poll: collection must retain the terminal result itself.
     await collectComputerCommands({
       storage: new RemoteAgentSqlStorage(sql),
@@ -161,7 +171,7 @@ export async function verifyDurableCommandResults(
       storage: new RemoteAgentSqlStorage(sql),
       access: () => workspaceAccess,
     });
-    return { started, pending, recovered, cleanup, starts };
+    return { started, pending, pendingCleanup, recovered, cleanup, starts };
   } finally {
     await owner.close();
   }

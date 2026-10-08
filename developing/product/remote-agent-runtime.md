@@ -207,6 +207,13 @@ SDK rather than a second OpenMeld implementation. The older public JSON
 read/write/edit/list actions remain compatible with installed CLI clients;
 their exact-text compare-and-write semantics are unchanged.
 
+Code work assigned to a Local Agent uses its already authorized local Project
+folder or working directory by default. Center Agent delegation preserves that
+environment. Cloud Computer is appropriate when the user chooses it or a
+concrete environment or isolation requirement justifies it. The agent explains
+that requirement before changing environments. An existing cloud task continues
+in its current environment and preserves its work.
+
 `command` uses one launch/poll/stop/list owner for all three backends. Linux is
 the default; worker-shell runs built-in commands to completion; worker-javascript
 runs an ECMAScript module with structured input and result, durable file imports,
@@ -469,6 +476,33 @@ an already collected result. An exited process with unconfirmed file sync report
 `syncPending`; it must not be presented as completed. Infrastructure outages or
 container replacement can still prevent collection. Such uncertainty remains an
 explicit error, never an automatic replay or invented success.
+If synchronization loses its native record with `ENOENT` or `EEXEC_LOST`, the
+receipt preserves the known exit and output. It reports `syncError` and
+`nextAction: inspect`. The agent stops polling and inspects persistent files.
+The status stays `running` with `syncPending` for existing clients; it does not
+mean the process still runs. Cleanup never signals a command with an observed
+exit. Loss delivered to the model permits its final explanation to publish.
+Loss first discovered by cleanup keeps the explicit failed outcome.
+The cleanup owner uses `remote_agent.computer.command_cleanup_failed` only for
+confirmed command loss. Transport timeouts and pending Stop keep their separate
+errors. User cancellation retains priority.
+Workspace acquisition and native observation share a bounded operation budget.
+Reader cancellation has a 100 ms grace period before local detachment. The
+collector observes up to four existing identities concurrently so a hung native
+call does not prevent collection of the other receipts. Neither budget permits
+another launch. A launch acknowledgement received after Stop still addresses
+the original command identity through a fresh Workspace client.
+Structured diagnostics include command and submission IDs, backend, observation
+and exit times, exit code, synchronization state and failure phase. They exclude
+command text, output, credentials and temporary transport URLs. Background
+collection does not log every running poll.
+
+This is an additive Computer response and local Skill guidance change. Existing
+CLI command-result parsers use a non-strict object, ignore the optional
+`syncError`, and retain exit, `syncPending` and `nextAction`. No status enum,
+command input, setup, Wake, Space action, Service or daemon contract changes.
+Old and new cloud/local components continue to interoperate. Updated Skills
+are available guidance, not a required local-component update.
 The container's `EEXEC_BUSY` is explicit evidence of a live process with an
 existing output subscriber, not a failed command. A bounded poll can report
 `running` with `outputPending: true` and an unchanged cursor in this case;
