@@ -26,6 +26,9 @@ widths. Commit the builder and regenerated `clients/website/public/product-demo`
 together. Ordinary Website builds never refresh this artifact. Revert those
 files together to restore a prior version.
 
+Append `&theme=light` to preview the same product components in light mode.
+The default remains dark for the homepage embeds.
+
 Refreshes keep the current entry and hashed assets available while building.
 The builder writes new assets first, then atomically replaces `index.html`.
 A failed build therefore leaves the previous demo usable. Old hashed assets
@@ -56,7 +59,8 @@ demo builds against the same output directory at once.
   connection to the visitor's computer.
 - Center Agent: the real `AgentAvatarEditor`, `HostedModelSelect`, and Agent
   configuration cards. Its initial model is GPT-6 Astra. Avatar preview/save
-  and model selection remain in memory. Connected apps and Channels are
+  is shared across the same tab's demo frames through a dedicated sessionStorage
+  key; model selection remains in memory. Connected apps and Channels are
   fictional readouts using the public catalog's shared logos.
 - Usage: the real `RemoteUsageCard` and `LocalAgentTokenUsageCard`, including
   their shared ECharts SVG charts, Fluid scope tabs, Details accordions, period
@@ -72,8 +76,10 @@ starts open on desktop at the product's minimum width (17rem). The module sideba
 starts at 200px, enough to show Customer research in full. The 28px user avatar
 shares the rail's centerline with the organization switcher and navigation.
 Claude Code and Codex messages show their human owner.
-The first Space follows a checkout regression: Maya wakes James's Codex, which
-wakes Maya's Claude Code to check the billing rules. A prefilled Wake draft lets
+The first Space follows a checkout regression: James reports the failure, Maya
+sets the review requirements, and Center Agent delegates to Codex and Claude Code
+before reporting to both people. A pinned Center Agent private chat links to
+Release handoff, a three-agent Space with no human composer. A prefilled Wake draft lets
 visitors send the next step with one click. Optimistic messages and replies use
 the same transcript layout. Each requested Agent starts with Working inside its
 reply bubble; streamed text fills that same bubble without a separate status row.
@@ -104,12 +110,14 @@ picker and Wake/Reference tokens. Sending adds an optimistic message, then local
 simulates Thinking, Working, and a short template reply for each addressed Agent.
 One in-memory request drives the transcript and sidebar state. Human mentions and
 Reference tokens do not start replies. The attachment button is disabled.
-Reloading clears all edits.
+Reloading clears conversation edits. The Center Agent avatar choice lasts for
+the browser tab and updates messages, member panels, and sidebar previews together.
 
 The artifact CSP has `connect-src 'none'` and `form-action 'none'`. It has no
 credentials or live execution transport. The iframe permits scripts and same
 origin; this is trusted authored code, not a security boundary for untrusted
-content. Do not add account/session providers or storage reads. Recheck imports
+content. Do not add account/session providers or product storage reads. The only
+storage is the dedicated demo avatar key described above. Recheck imports
 and inspect browser network/console output after updating product components.
 
 The hero loads eagerly. Create Agent, Center Agent, and Usage use lazy iframes whose own content

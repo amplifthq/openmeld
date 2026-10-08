@@ -432,9 +432,10 @@ geometry without defeating the code-splitting boundary.
 
 Welcome Create/Join actions reuse Fluid Card shared-layout hover with disabled
 items excluded from highlighting. Radio selection uses the same offset-two
-surface recipe as Tabs. Web composers share `PromptInput` and a dedicated
-`styles/composer.css` finish: fixed light/dark backgrounds, one quiet inset edge,
-a small outer shadow, and `rounded-2xl` corners. Shared card token changes must
+surface recipe as Tabs. Web composers share `PromptInput` and the shared UI
+`styles/composer.css` finish, also used by the Website Codex demonstration:
+fixed light/dark backgrounds, one quiet 1px border, no shadow, and 18px corners.
+Shared card token changes must
 not change this finish. Its content retains level-two context so Wake/Reference
 tokens use level three. These changes do not alter access policy or send behavior.
 
@@ -504,7 +505,14 @@ Shared `BotAvatar` composes the public `bot-avatars` simulation and renderer so
 click feedback and pointer following are independent. The shared default is Fabric;
 its `shading` prop also supports Plastic. Both rendering paths use the same palette
 and the library's material-specific lighting defaults. Still-frame cache keys include
-the material so changing it cannot reuse an old finish. Space/sidebar avatars
+the material and palette so changing either cannot reuse an old finish.
+`lib/bot-avatar-palette` owns all eighteen muted Bot colors for Website and Web.
+Appearance offers Soft, Slate, and Sand palettes through the existing browser
+preference store; this is a viewer preference, not a change to saved Profile identity.
+Both preview and saved rendering use the selected colors without extra saturation.
+The regular renderer includes an SVG first frame using the vendor's shape and
+face placement in server HTML, then replaces it with the rendered canvas on mount.
+Space/sidebar avatars
 and profile popovers play one small hop on an explicit click without following
 the pointer; popover opening and navigation still belong to their existing
 controls. The Team Center Agent card has a separate avatar button that also

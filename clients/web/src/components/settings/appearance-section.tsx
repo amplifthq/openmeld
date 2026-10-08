@@ -5,6 +5,7 @@ import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { Switch } from "@openmeld/ui/components/switch";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
+import { BOT_AVATAR_PALETTES } from "@openmeld/ui/lib/bot-avatar-palette";
 import {
 	DEFAULT_ROUNDED_SHAPE_RADIUS_PX,
 	type ShapeVariant,
@@ -429,6 +430,7 @@ export function AppearanceSection() {
 											>
 												<BotAvatar
 													motionEnabled={botAvatar.motionEnabled}
+													palette={botAvatar.palette}
 													shading={choice.value}
 													size={56}
 													type="clover"
@@ -448,6 +450,57 @@ export function AppearanceSection() {
 					}
 					description="Choose a finish for Center Agent Bot avatars across the app. Saved in this browser."
 					label="Bot avatar material"
+					layout="stacked"
+					showDivider
+				/>
+				<SettingsRow
+					control={
+						<RadioGroup
+							aria-label="Bot avatar colors"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? BOT_AVATAR_PALETTES.findIndex(
+											(choice) => choice.value === botAvatar.palette
+										)
+									: -1
+							}
+						>
+							{BOT_AVATAR_PALETTES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex flex-col gap-2">
+											<span>{choice.description}</span>
+											<span
+												aria-hidden="true"
+												className="flex h-16 items-center justify-center gap-2"
+											>
+												{(["clover", "cat", "ghost"] as const).map((type) => (
+													<BotAvatar
+														key={type}
+														motionEnabled={false}
+														palette={choice.value}
+														shading={botAvatar.shading}
+														size={28}
+														type={type}
+													/>
+												))}
+											</span>
+										</span>
+									}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => botAvatar.setPalette(choice.value)}
+									selected={mounted && botAvatar.palette === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
+					description="Choose colors for Bot avatars across the app. Saved in this browser."
+					label="Bot avatar colors"
 					layout="stacked"
 					showDivider
 				/>
