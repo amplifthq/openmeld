@@ -6642,6 +6642,14 @@ Use the scoped owner documents for deeper rules:
   diagnostic path, not internal subsystem vocabulary.
 ## Computer session history
 
+The owner Computer connection menu offers **Disconnect Computer…** when an
+exact device and runtime lane are resolved. It shows a copyable, account-bound
+CLI command to run on that Computer. Copying does not execute the command or
+change connection status. The CLI owns controlled Service shutdown and local
+credential cleanup; the cloud Computer record, Web session, and Desktop session
+remain. Other members' Computers do not expose this action. New Web guidance
+requires publication of the additive CLI options described in `cli.md` first.
+
 Computer owners manage Session history access beside File access. History starts
 off, requires selected connected Projects, and optionally permits selected
 Agents. Settings are acknowledged by the live source Service; offline edits

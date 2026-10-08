@@ -6,7 +6,7 @@
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.249",
       "updatePolicy": "available",
-      "reason": "Existing setup commands and report payloads remain compatible; local discovery can return one controller at a time."
+      "reason": "Local discovery reports controllers progressively; account- and device-checked Computer disconnect is additive. Existing clients remain compatible."
     },
     "service": {
       "bundleHash": "efd1c7d08e54949962dd59a2d6b1f247d978c4172a3c62792f8e5701fdf8d30a",

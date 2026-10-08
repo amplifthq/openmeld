@@ -1,4 +1,3 @@
-import { Popover } from "@base-ui/react/popover";
 import {
 	findOpenMeldToolsUpdateFailureCode,
 	formatLocalSetupActionLabel,
@@ -34,13 +33,23 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@openmeld/ui/components/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { Switch } from "@openmeld/ui/components/switch";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import {
+	FluidDropdownMenuCheckboxItem,
+	FluidDropdownMenuContent,
+	FluidDropdownMenuGroup,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import {
 	resolveStatusToneIndicatorClassName,
 	resolveStatusToneOutlineActionClassName,
@@ -54,11 +63,12 @@ import {
 	DesktopTowerIcon,
 	DotsThreeIcon,
 	InfoIcon,
+	PlugIcon,
 	PulseIcon,
 	WrenchIcon,
 } from "@phosphor-icons/react";
 import type { QueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	type ReactNode,
 	type Ref,
@@ -107,6 +117,7 @@ import {
 } from "./agents-page-formatters";
 import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
 import { ComputerConnectionHistory } from "./computer-connection-history";
+import { DisconnectComputerDialog } from "./disconnect-computer-dialog";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
@@ -637,6 +648,10 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 						input.currentLocalRuntimeReplyReadiness?.localComponents.maintenance
 							?.automaticUpdatesEnabled
 					}
+					computerName={input.computer.deviceDisplayName}
+					disconnectTarget={
+						input.currentLocalRuntimeReplyReadiness?.currentTarget
+					}
 					isCheckingStatus={isCheckingStatus}
 					isSavingAutomaticUpdates={isSavingAutomaticUpdates}
 					onAutomaticUpdatesChange={setAutomaticUpdates}
@@ -793,94 +808,114 @@ function OpenMeldServiceMoreMenu(input: {
 	setupLabel?: string;
 	setupPath: string;
 	showCheckStatus?: boolean;
+	disconnectTarget?: CurrentLocalRuntimeReplyReadinessResponse["currentTarget"];
+	computerName?: string;
 }) {
 	const [isOpen, setIsOpen] = useState(false);
+	const [showDisconnect, setShowDisconnect] = useState(false);
+	const navigate = useNavigate();
+	const disconnectTarget =
+		input.disconnectTarget?.availability === "resolved"
+			? input.disconnectTarget
+			: undefined;
 	const showCheckStatus = input.showCheckStatus ?? true;
 	const setupLabel = input.setupLabel ?? RECONNECT_MANUALLY_LABEL;
-
-	const checkStatus = () => {
-		setIsOpen(false);
-		input.onCheckStatus().catch((error: unknown) => {
-			console.error("Failed to check OpenMeld tools state.", error);
-		});
-	};
-
 	return (
-		<Popover.Root modal={false} onOpenChange={setIsOpen} open={isOpen}>
-			<Popover.Trigger
-				render={
-					<Button
-						aria-label="OpenMeld options"
-						size="icon"
-						type="button"
-						variant="ghost"
-					/>
-				}
-			>
-				<DotsThreeIcon aria-hidden="true" />
-			</Popover.Trigger>
-			<Popover.Portal>
-				<Popover.Positioner
-					align="end"
-					collisionAvoidance={{
-						align: "shift",
-						fallbackAxisSide: "start",
-						side: "flip",
-					}}
-					collisionPadding={12}
-					side="bottom"
-					sideOffset={8}
+		<>
+			<DropdownMenu onOpenChange={setIsOpen} open={isOpen}>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							aria-label="OpenMeld options"
+							size="icon"
+							type="button"
+							variant="ghost"
+						/>
+					}
 				>
-					<Popover.Popup
-						className="z-50 min-w-56 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
-						finalFocus={false}
-					>
-						{canConfigureLocalComputer() &&
-						typeof input.automaticUpdatesEnabled === "boolean" ? (
-							<div className="mb-1 border-b px-2.5 py-3">
-								<div className="flex items-center justify-between gap-6">
-									<span className="text-sm">Automatic updates</span>
-									<Switch
-										aria-label="Automatic updates"
-										checked={input.automaticUpdatesEnabled}
-										disabled={
-											input.isSavingAutomaticUpdates ||
-											!input.onAutomaticUpdatesChange
-										}
-										onCheckedChange={(enabled) => {
-											input.onAutomaticUpdatesChange?.(enabled).catch(() => {
-												toast.error("Setting not saved.");
-											});
-										}}
-									/>
-								</div>
-							</div>
-						) : null}
-						{showCheckStatus ? (
-							<button
-								className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-								disabled={input.isCheckingStatus}
-								onClick={checkStatus}
-								type="button"
+					<DotsThreeIcon aria-hidden="true" />
+				</DropdownMenuTrigger>
+				<FluidDropdownMenuContent align="end">
+					{canConfigureLocalComputer() &&
+					typeof input.automaticUpdatesEnabled === "boolean" ? (
+						<>
+							<FluidDropdownMenuCheckboxItem
+								checked={input.automaticUpdatesEnabled}
+								closeOnClick={false}
+								disabled={
+									input.isSavingAutomaticUpdates ||
+									!input.onAutomaticUpdatesChange
+								}
+								index={0}
+								onCheckedChange={(enabled) => {
+									input
+										.onAutomaticUpdatesChange?.(enabled)
+										.catch(() => toast.error("Setting not saved."));
+								}}
 							>
-								<ArrowsClockwiseIcon aria-hidden="true" className="h-4 w-4" />
+								Automatic updates
+							</FluidDropdownMenuCheckboxItem>
+							<DropdownMenuSeparator />
+						</>
+					) : null}
+					<FluidDropdownMenuGroup>
+						{showCheckStatus ? (
+							<FluidDropdownMenuItem
+								disabled={input.isCheckingStatus}
+								index={0}
+								onClick={() => {
+									input
+										.onCheckStatus()
+										.catch((error: unknown) =>
+											console.error(
+												"Failed to check OpenMeld tools state.",
+												error
+											)
+										);
+								}}
+							>
+								<ArrowsClockwiseIcon aria-hidden="true" />
 								{input.isCheckingStatus ? "Checking..." : "Check status"}
-							</button>
+							</FluidDropdownMenuItem>
 						) : null}
 						{canConfigureLocalComputer() ? (
-							<Link
-								className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-								onClick={() => setIsOpen(false)}
-								to={input.setupPath}
+							<FluidDropdownMenuItem
+								index={1}
+								onClick={() => {
+									navigate({ to: input.setupPath }).catch((error: Error) =>
+										toast.error(error.message)
+									);
+								}}
 							>
-								<WrenchIcon aria-hidden="true" className="h-4 w-4" />
+								<WrenchIcon aria-hidden="true" />
 								{setupLabel}
-							</Link>
+							</FluidDropdownMenuItem>
 						) : null}
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
+					</FluidDropdownMenuGroup>
+					{canConfigureLocalComputer() && disconnectTarget ? (
+						<>
+							<DropdownMenuSeparator />
+							<FluidDropdownMenuGroup>
+								<FluidDropdownMenuItem
+									index={0}
+									onClick={() => setShowDisconnect(true)}
+								>
+									<PlugIcon aria-hidden="true" />
+									Disconnect Computer…
+								</FluidDropdownMenuItem>
+							</FluidDropdownMenuGroup>
+						</>
+					) : null}
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+			{showDisconnect && disconnectTarget ? (
+				<DisconnectComputerDialog
+					computerName={input.computerName ?? "Computer"}
+					onClose={() => setShowDisconnect(false)}
+					target={disconnectTarget}
+				/>
+			) : null}
+		</>
 	);
 }
 
