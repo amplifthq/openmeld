@@ -1055,6 +1055,16 @@ housekeeping work. The alarm orchestration for those RuntimeCoordinator phases
 has been extracted into application processors, but the authority writers
 remain in `RuntimeTransportHub`.
 
+Unexpected background-phase failures persist a per-owner retry deadline in
+the Durable Object. Retries back off from five seconds to five minutes and
+reset after success. Alarm deadline selection and phase admission both honor
+that deadline, including after hibernation; an overdue work record must not
+override it. Healthy phases continue independently. Work-budget continuations
+retain their normal one-second cadence. A failure outside an individual phase
+uses the same durable backoff for the alarm as a whole. These records control
+background retry timing only: they do not fail a running Wake, change
+Wakeability, replace execution authority, or discard pending work.
+
 Do not infer that RuntimeCoordinator has been physically split because files are
 named `runtime-coordinator-*`. Those files are in-process orchestration and
 authority helpers. Do not casually move RuntimeCoordinator HTTP handlers,

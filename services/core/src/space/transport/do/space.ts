@@ -384,6 +384,7 @@ import { reserveFileCopyRequest } from "../../../files/file-copy-request";
 import { FileUploadSessions } from "../../../files/file-upload-sessions";
 import { purgeFileObjectPrefix } from "../../../files/purge-file-objects";
 import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbox-agent-owner-access";
+import { AlarmFailureBackoff } from "../../../lib/alarm-failure-backoff";
 import type { CoreBindings } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
 import {
@@ -1131,18 +1132,6 @@ function resolveRpcInputSpacePassword(input: {
 }
 function createSpaceDiagnosticReportId(): string {
   return `diag_${crypto.randomUUID()}`;
-}
-function minNullableTimestamp(
-  left: number | null,
-  right: number | null
-): number | null {
-  if (left === null) {
-    return right;
-  }
-  if (right === null) {
-    return left;
-  }
-  return Math.min(left, right);
 }
 async function authorizeRpcSignalWrite(input: {
   authorizeSpacePasswordAccess: Space["authorizeSpacePasswordAccess"];
@@ -2701,46 +2690,46 @@ export class Space extends DurableObject<CoreBindings> {
         // that failed mid-flight may have skipped its own scheduling call, and if
         // the re-sync itself fails the platform alarm retry is the only thing
         // keeping the chain alive.
-        await this.runIsolatedAlarmStep("space_index_projection_outbox", () =>
+        await this.runBackgroundAlarmStep("space_index_projection_outbox", () =>
           this.flushPendingSpaceIndexProjectionOutbox()
         );
-        await this.runIsolatedAlarmStep("space_inbox_projection_outbox", () =>
+        await this.runBackgroundAlarmStep("space_inbox_projection_outbox", () =>
           this.flushPendingSpaceInboxProjectionOutbox()
         );
-        await this.runIsolatedAlarmStep("space_file_update_outbox", () =>
+        await this.runBackgroundAlarmStep("space_file_update_outbox", () =>
           this.flushFileUpdateNotifications()
         );
-        await this.runIsolatedAlarmStep("space_task_delivery_outbox", () =>
+        await this.runBackgroundAlarmStep("space_task_delivery_outbox", () =>
           this.flushPendingSpaceTaskDeliveries()
         );
-        await this.runIsolatedAlarmStep("dispatch_outbox_queue", () =>
+        await this.runBackgroundAlarmStep("dispatch_outbox_queue", () =>
           this.flushPendingDispatchOutbox()
         );
-        await this.runIsolatedAlarmStep("pending_native_wake_stops", () =>
+        await this.runBackgroundAlarmStep("pending_native_wake_stops", () =>
           this.reconcilePendingHostedWakeStops()
         );
-        await this.runIsolatedAlarmStep("early_wake_stop_outcomes", () =>
+        await this.runBackgroundAlarmStep("early_wake_stop_outcomes", () =>
           this.flushPendingWakeStopOutcomes()
         );
-        await this.runIsolatedAlarmStep("execution_input_outbox", () =>
+        await this.runBackgroundAlarmStep("execution_input_outbox", () =>
           this.flushPendingExecutionInputs()
         );
-        await this.runIsolatedAlarmStep("queued_space_inputs", () =>
+        await this.runBackgroundAlarmStep("queued_space_inputs", () =>
           this.flushQueuedSpaceInputs()
         );
-        await this.runIsolatedAlarmStep("deleted_member_liveness", () =>
+        await this.runBackgroundAlarmStep("deleted_member_liveness", () =>
           this.reconcileDeletedAgentProfileMemberLiveness()
         );
-        await this.runIsolatedAlarmStep("dirty_member_projection", () =>
+        await this.runBackgroundAlarmStep("dirty_member_projection", () =>
           this.flushDirtyMemberProjection()
         );
-        await this.runIsolatedAlarmStep("agent_stream_cleanup", async () => {
+        await this.runBackgroundAlarmStep("agent_stream_cleanup", async () => {
           await cleanupExpiredAgentStreamProjections({
             storage: this.agentStreamProjectionStorage,
             nowMs: Date.now(),
           });
         });
-        await this.runIsolatedAlarmStep("file_upload_cleanup", async () => {
+        await this.runBackgroundAlarmStep("file_upload_cleanup", async () => {
           if (this.env.OPENMELD_SPACE_ATTACHMENTS) {
             await new FileUploadSessions(
               this.ctx.storage.sql,
@@ -2752,6 +2741,36 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
   }
+  private async runBackgroundAlarmStep(
+    step: string,
+    run: () => Promise<void>
+  ): Promise<void> {
+    if (!(await this.getAlarmFailureBackoff().canRun(step, Date.now()))) {
+      return;
+    }
+    try {
+      await run();
+      await this.getAlarmFailureBackoff().succeeded(step);
+    } catch (error) {
+      const retryAtMs = await this.getAlarmFailureBackoff().failed(
+        step,
+        Date.now()
+      );
+      console.error("[core.openmeld.space.alarm_step_failed]", {
+        error: formatUnknownErrorMessage(error),
+        spaceId: this.spaceId,
+        step,
+        retryAtMs,
+      });
+    }
+  }
+
+  private alarmFailureBackoff: AlarmFailureBackoff | undefined;
+  private getAlarmFailureBackoff(): AlarmFailureBackoff {
+    this.alarmFailureBackoff ??= new AlarmFailureBackoff(this.ctx.storage);
+    return this.alarmFailureBackoff;
+  }
+
   private async runIsolatedAlarmStep(
     step: string,
     run: () => Promise<void>
@@ -7276,43 +7295,28 @@ export class Space extends DurableObject<CoreBindings> {
       readNextSpaceInboxProjectionOutboxAlarmAtMs(this.ctx.storage.sql, {
         nowMs: Date.now(),
       });
-    const nextDispatchAlarmAtMs = minNullableTimestamp(
-      this.resolveNextDispatchOutboxAlarmAtMs(),
-      minNullableTimestamp(
-        new SpaceFileUpdateRepository(this.ctx.storage.sql).nextAttempt(),
-        new SpaceTaskDeliveryRepository(this.ctx.storage.sql).nextAttempt()
-      )
-    );
+    const nextDispatchAlarmAtMs = this.resolveNextDispatchOutboxAlarmAtMs();
     const nextMemberLivenessAlarmAtMs = readNextMemberProfileLivenessAlarmAtMs(
       this.ctx.storage.sql,
       { minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS }
     );
-    const nextStopPublicationAlarmAtMs =
-      listPendingNativeWakeStops(this.ctx.storage.sql, 1).length ||
-      listPendingWakeStopOutcomes(this.ctx.storage.sql, 1).length
-        ? Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
-        : null;
+    const nextStopPublicationAlarmAtMs = listPendingNativeWakeStops(
+      this.ctx.storage.sql,
+      1
+    ).length
+      ? Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
+      : null;
+    const nextEarlyStopPublicationAlarmAtMs = listPendingWakeStopOutcomes(
+      this.ctx.storage.sql,
+      1
+    ).length
+      ? Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
+      : null;
     const nextDirtyProjectionAlarmAtMs = isSpaceMemberProjectionDirty(
       this.ctx.storage.sql
     )
       ? Date.now()
       : null;
-    const nextNonStreamAlarmAtMs = minNullableTimestamp(
-      minNullableTimestamp(
-        minNullableTimestamp(
-          nextProjectionAlarmAtMs,
-          nextInboxProjectionAlarmAtMs
-        ),
-        nextDirtyProjectionAlarmAtMs
-      ),
-      minNullableTimestamp(
-        minNullableTimestamp(
-          nextDispatchAlarmAtMs,
-          nextStopPublicationAlarmAtMs
-        ),
-        nextMemberLivenessAlarmAtMs
-      )
-    );
     const nextAgentStreamAlarmAtMs =
       await readNextAgentStreamProjectionAlarmAtMs(
         this.agentStreamProjectionStorage,
@@ -7321,26 +7325,34 @@ export class Space extends DurableObject<CoreBindings> {
             this.logQuarantinedAgentStreamProjection(record),
         }
       );
-    const nextAlarmAtMs = minNullableTimestamp(
-      minNullableTimestamp(
-        nextNonStreamAlarmAtMs,
-        minNullableTimestamp(
-          readNextSpaceExecutionInputAlarm(this.ctx.storage.sql),
-          listReadySpaceInputIds(this.ctx.storage.sql).length
-            ? Date.now()
-            : null
-        )
+    const nextAlarmAtMs = await this.getAlarmFailureBackoff().nextAlarmAt({
+      space_index_projection_outbox: nextProjectionAlarmAtMs,
+      space_inbox_projection_outbox: nextInboxProjectionAlarmAtMs,
+      space_file_update_outbox: new SpaceFileUpdateRepository(
+        this.ctx.storage.sql
+      ).nextAttempt(),
+      space_task_delivery_outbox: new SpaceTaskDeliveryRepository(
+        this.ctx.storage.sql
+      ).nextAttempt(),
+      dispatch_outbox_queue: nextDispatchAlarmAtMs,
+      pending_native_wake_stops: nextStopPublicationAlarmAtMs,
+      early_wake_stop_outcomes: nextEarlyStopPublicationAlarmAtMs,
+      deleted_member_liveness: nextMemberLivenessAlarmAtMs,
+      dirty_member_projection: nextDirtyProjectionAlarmAtMs,
+      execution_input_outbox: readNextSpaceExecutionInputAlarm(
+        this.ctx.storage.sql
       ),
-      minNullableTimestamp(
-        nextAgentStreamAlarmAtMs,
-        this.env.OPENMELD_SPACE_ATTACHMENTS
-          ? new FileUploadSessions(
-              this.ctx.storage.sql,
-              this.env.OPENMELD_SPACE_ATTACHMENTS
-            ).nextExpiry()
-          : null
-      )
-    );
+      queued_space_inputs: listReadySpaceInputIds(this.ctx.storage.sql).length
+        ? Date.now()
+        : null,
+      agent_stream_cleanup: nextAgentStreamAlarmAtMs,
+      file_upload_cleanup: this.env.OPENMELD_SPACE_ATTACHMENTS
+        ? new FileUploadSessions(
+            this.ctx.storage.sql,
+            this.env.OPENMELD_SPACE_ATTACHMENTS
+          ).nextExpiry()
+        : null,
+    });
     const alarmOwnerDeadlines = {
       nextAgentStreamAlarmAtMs,
       nextAlarmAtMs,
