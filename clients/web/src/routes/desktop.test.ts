@@ -1,23 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { Route } from "./desktop";
 
-describe("Desktop download page selection", () => {
+describe("legacy Desktop download entry", () => {
 	it.each([
-		"../update.json",
 		"",
-		"A".repeat(64),
-		["a".repeat(64), "a".repeat(64)],
-	])("rejects invalid or repeated candidates: %j", (candidate) => {
-		const validate = Route.options.validateSearch;
-		if (typeof validate !== "function") {
-			throw new Error("Search validator missing");
+		"?platform=windows-x64",
+		`?candidate=${"a".repeat(64)}&platform=macos-arm64`,
+		"?candidate=invalid&candidate=invalid",
+	])("redirects to the single website page without changing selectors: %s", (searchStr) => {
+		const beforeLoad = Route.options.beforeLoad;
+		if (!beforeLoad) {
+			throw new Error("Download redirect is missing.");
 		}
-		expect(() => validate({ candidate })).toThrow();
-	});
-	it("keeps the selected candidate in loader dependencies", () => {
-		const candidate = "a".repeat(64);
-		expect(
-			Route.options.loaderDeps?.({ search: { candidate } } as never)
-		).toEqual({ candidate });
+		try {
+			beforeLoad({
+				location: { pathname: "/desktop", searchStr, hash: "" },
+			} as never);
+			throw new Error("Expected a redirect.");
+		} catch (error) {
+			expect(error).toMatchObject({
+				options: {
+					href: `${import.meta.env.VITE_WEBSITE_URL}/downloads${searchStr}`,
+				},
+			});
+		}
 	});
 });

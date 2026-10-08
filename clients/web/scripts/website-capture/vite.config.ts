@@ -130,7 +130,7 @@ const captureConfig = mergeConfig(
 						return `import {useState} from 'react'; export const useSidebarDisclosure = () => {const [choices,setChoices]=useState({}); return {isOpen:id=>choices[id]??true,setOpen:(id,open)=>setChoices(c=>({...c,[id]:open}))}};`;
 					}
 					if (id === "\0website-demo:preference") {
-						return `import {useState} from 'react'; export const useBrowserPreference = () => useState(null);`;
+						return `import {useState} from 'react'; export const useBrowserPreference = (key) => useState(key === 'openmeld.appearance.bot-palette' ? 'original' : null);`;
 					}
 					if (id === "\0website-demo:geometry") {
 						return `

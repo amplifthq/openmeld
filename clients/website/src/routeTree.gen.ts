@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChangelogRouteImport } from './routes/changelog'
+import { Route as DownloadsRouteImport } from './routes/downloads'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as GuidesLocalAgentsRouteImport } from './routes/guides/local-agents'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const ChangelogRoute = ChangelogRouteImport.update({
   id: '/changelog',
   path: '/changelog',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DownloadsRoute = DownloadsRouteImport.update({
+  id: '/downloads',
+  path: '/downloads',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -51,6 +57,7 @@ const GuidesLocalAgentsAgentIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/changelog': typeof ChangelogRoute
+  '/downloads': typeof DownloadsRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
@@ -59,6 +66,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/changelog': typeof ChangelogRoute
+  '/downloads': typeof DownloadsRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
@@ -68,6 +76,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/changelog': typeof ChangelogRoute
+  '/downloads': typeof DownloadsRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/changelog'
+    | '/downloads'
     | '/privacy'
     | '/terms'
     | '/guides/local-agents'
@@ -86,6 +96,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/changelog'
+    | '/downloads'
     | '/privacy'
     | '/terms'
     | '/guides/local-agents'
@@ -94,6 +105,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/changelog'
+    | '/downloads'
     | '/privacy'
     | '/terms'
     | '/guides/local-agents'
@@ -103,6 +115,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChangelogRoute: typeof ChangelogRoute
+  DownloadsRoute: typeof DownloadsRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
   GuidesLocalAgentsRoute: typeof GuidesLocalAgentsRouteWithChildren
@@ -122,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/changelog'
       fullPath: '/changelog'
       preLoaderRoute: typeof ChangelogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/downloads': {
+      id: '/downloads'
+      path: '/downloads'
+      fullPath: '/downloads'
+      preLoaderRoute: typeof DownloadsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -169,6 +189,7 @@ const GuidesLocalAgentsRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChangelogRoute: ChangelogRoute,
+  DownloadsRoute: DownloadsRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
   GuidesLocalAgentsRoute: GuidesLocalAgentsRouteWithChildren,

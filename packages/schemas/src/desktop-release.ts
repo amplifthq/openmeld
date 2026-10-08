@@ -15,6 +15,28 @@ export const desktopReleasePlatformSchema = z.enum([
 export type DesktopReleasePlatform = z.infer<
   typeof desktopReleasePlatformSchema
 >;
+export const desktopDownloadQuerySchema = z.strictObject({
+  candidate: desktopCandidateIdSchema.optional(),
+  platform: desktopReleasePlatformSchema.optional(),
+});
+export const desktopDownloadReleaseSchema = z.strictObject({
+  platform: desktopReleasePlatformSchema,
+  version: desktopVersionSchema,
+  sizeBytes: z.number().int().positive().nullable(),
+  downloadPath: z
+    .string()
+    .regex(
+      /^\/desktop\/download(?:\?(?:candidate=[a-f0-9]{64}|platform=windows-(?:x64|arm64)))?$/u
+    ),
+  message: z.string().nullable(),
+});
+export type DesktopDownloadRelease = z.infer<
+  typeof desktopDownloadReleaseSchema
+>;
+export const desktopDownloadsSchema = z.strictObject({
+  releases: z.array(desktopDownloadReleaseSchema).max(3),
+});
+export type DesktopDownloads = z.infer<typeof desktopDownloadsSchema>;
 export const desktopWindowsBuildSchema = z.strictObject({
   platform: z.enum(["windows-x64", "windows-arm64"]),
   publisherName: windowsPublisherNameSchema,

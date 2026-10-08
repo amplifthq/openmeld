@@ -38,7 +38,7 @@ export function DemoUserFooter() {
 				menu={
 					<div className="px-3 py-2">
 						<p className="font-medium text-sm">Maya Chen</p>
-						<p className="text-muted-foreground text-xs">Amplift</p>
+						<p className="text-muted-foreground text-xs">OpenMeld</p>
 					</div>
 				}
 				name="Maya Chen"

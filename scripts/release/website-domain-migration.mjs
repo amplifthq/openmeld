@@ -355,12 +355,16 @@ export async function checkWebsiteDomainEndpoints(names, fetchImpl = fetch) {
     const metadata = await response.json();
     if (
       metadata.client_id !== url ||
+      ![
+        "https://openmeld.ai/icon-512.png",
+        "https://openmeld.ai/brand/openmeld-letter-o-dark-1024.png",
+      ].includes(metadata.logo_uri) ||
       !metadata.redirect_uris?.includes(
         "https://connectors.openmeld.ai/oauth/callback"
       )
     ) {
       throw new Error(
-        "PostHog OAuth client identity or callback changed during domain migration."
+        "PostHog OAuth client identity, logo, or callback changed outside the reviewed domain migration."
       );
     }
   }

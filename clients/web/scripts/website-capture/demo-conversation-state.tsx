@@ -27,6 +27,7 @@ const WORD_BOUNDARY = /\s+/u;
 export type DemoConversationTurn = {
 	id: string;
 	spaceId: string;
+	threadId?: string;
 	text: string;
 	createdAtMs: number;
 	wakeTargetProfileIds: string[];
@@ -45,6 +46,7 @@ type DemoConversationState = {
 	>;
 	send: (input: {
 		spaceId: string;
+		threadId?: string;
 		text: string;
 		authoredMentions: readonly ComposerDraftAuthoredMention[];
 	}) => string;
@@ -98,6 +100,7 @@ export function DemoConversationProvider({
 				{
 					id,
 					spaceId: input.spaceId,
+					threadId: input.threadId,
 					text: submission.text,
 					createdAtMs: Date.now(),
 					wakeTargetProfileIds,
