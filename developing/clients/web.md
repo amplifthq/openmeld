@@ -4507,6 +4507,14 @@ or composer. Submitting creates the chat and Task directly, then stays on Tasks;
 it does not send a message or start an Agent. Opening Tasks alone creates no chat.
 The Messages composer separately supports a Task in its first-message handoff.
 
+Agent mention menus keep execution settings separate from Tasks. **Files** offers
+**Use agent settings** and **No project files**. A readable configured Project
+adds its name and the supported **Edit a separate copy**, **Read files only**, and
+**Edit project files** modes. Without a resolved Project, Web does not guess a
+local folder or offer project operations. Each choice has a short shared Tooltip
+on hover and keyboard focus; the separate-copy hint explains that uncommitted
+changes are not included. These choices retain the existing execution contracts.
+
 Every retained text message in an eligible Space has a secondary **Add to
 Tasks** action. The created Task preserves that Signal as its source, inherits
 the source Thread, and assigns the sole Woken Agent when the message addressed

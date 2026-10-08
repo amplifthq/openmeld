@@ -5,12 +5,14 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuSub,
 } from "@openmeld/ui/components/dropdown-menu";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	FluidDropdownMenuGroup,
 	FluidDropdownMenuRadioItem,
 	FluidDropdownMenuSubContent,
 	FluidDropdownMenuSubTrigger,
 } from "@openmeld/ui/fluid/dropdown-menu";
+import { InfoIcon } from "@phosphor-icons/react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 
 export type SpaceTaskSource = {
@@ -54,6 +56,7 @@ export function buildSpaceTaskSources(
 export function SpaceComposerAgentOptions(input: {
 	targetProfileId: string;
 	supportsCurrentFolder: boolean;
+	projectName?: string | null;
 	sources: readonly SpaceTaskSource[];
 	choice?: SpaceComposerTaskChoice;
 	onChange: (choice: SpaceComposerTaskChoice | undefined) => void;
@@ -76,13 +79,45 @@ export function SpaceComposerAgentOptions(input: {
 		selection && selection.mode !== "resume" && selection.access
 			? `${selection.access}:${selection.workspace ?? "isolated"}`
 			: "defaults";
-	const accessLabels: Record<string, string> = {
-		defaults: "Agent defaults",
-		"space_context:isolated": "Space only",
-		"workspace:isolated": "Isolated worktree",
-		"read_only:current": "Read current folder",
-		"workspace:current": "Current folder",
-	};
+	const accessOptions = [
+		{
+			key: "defaults",
+			label: "Use agent settings",
+			hint: "Use this agent’s saved file access and working folder.",
+		},
+		{
+			key: "space_context:isolated",
+			label: "No project files",
+			hint: "Work without access to your local project files.",
+		},
+		...(input.projectName
+			? [
+					{
+						key: "workspace:isolated",
+						label: "Edit a separate copy",
+						hint: "Edit a copy of committed code. Uncommitted changes stay behind.",
+					},
+					...(input.supportsCurrentFolder
+						? [
+								{
+									key: "read_only:current",
+									label: "Read files only",
+									hint: "Read the project, including uncommitted changes, without editing files.",
+								},
+								{
+									key: "workspace:current",
+									label: "Edit project files",
+									hint: "Edit the project directly, alongside your existing changes.",
+								},
+							]
+						: []),
+				]
+			: []),
+	];
+	const selectedAccess = accessOptions.find(
+		(option) => option.key === accessValue
+	);
+
 	return (
 		<>
 			<DropdownMenuSeparator />
@@ -157,14 +192,22 @@ export function SpaceComposerAgentOptions(input: {
 						disabled={selection?.mode === "resume"}
 						index={1}
 					>
-						<span className="min-w-0 flex-1">Access &amp; workspace</span>
+						<span className="min-w-0 flex-1">Files</span>
 						<span className="text-muted-foreground">
 							{selection?.mode === "resume"
 								? "From session"
-								: accessLabels[accessValue]}
+								: (selectedAccess?.label ?? "Custom")}
 						</span>
 					</FluidDropdownMenuSubTrigger>
-					<FluidDropdownMenuSubContent className="w-56">
+					<FluidDropdownMenuSubContent className="w-64">
+						{input.projectName && (
+							<div
+								className="truncate px-2 py-1.5 text-muted-foreground text-xs"
+								title={input.projectName}
+							>
+								{input.projectName}
+							</div>
+						)}
 						<DropdownMenuRadioGroup
 							onValueChange={(value) => {
 								if (selection?.mode === "resume") {
@@ -191,21 +234,21 @@ export function SpaceComposerAgentOptions(input: {
 							}}
 							value={accessValue}
 						>
-							{Object.entries(accessLabels)
-								.filter(
-									([key]) =>
-										input.supportsCurrentFolder || !key.endsWith(":current")
-								)
-								.map(([key, label], index) => (
+							{accessOptions.map((option, index) => (
+								<TooltipHint content={option.hint} key={option.key}>
 									<FluidDropdownMenuRadioItem
 										closeOnClick
 										index={index}
-										key={key}
-										value={key}
+										value={option.key}
 									>
-										{label}
+										<span>{option.label}</span>
+										<InfoIcon
+											aria-hidden="true"
+											className="size-3.5 text-muted-foreground"
+										/>
 									</FluidDropdownMenuRadioItem>
-								))}
+								</TooltipHint>
+							))}
 						</DropdownMenuRadioGroup>
 					</FluidDropdownMenuSubContent>
 				</DropdownMenuSub>

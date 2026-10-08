@@ -26,7 +26,52 @@ import {
 import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
 
 afterEach(cleanup);
-const ACCESS_WORKSPACE_MENU = /^Access & workspace/;
+// The interaction harness supplies a known project; directory reads have their own owner.
+vi.mock("./space-composer-agent-options", () => ({
+	SpaceComposerAgentOptionsWithProject: (
+		props: Parameters<typeof SpaceComposerAgentOptions>[0]
+	) => <SpaceComposerAgentOptions {...props} projectName="OpenMeld" />,
+}));
+const ACCESS_WORKSPACE_MENU = /^Files/;
+
+it.each([
+	{
+		projectName: undefined,
+		supportsCurrentFolder: true,
+		labels: ["Use agent settings", "No project files"],
+	},
+	{
+		projectName: "OpenMeld",
+		supportsCurrentFolder: false,
+		labels: ["Use agent settings", "No project files", "Edit a separate copy"],
+	},
+])("only offers file modes supported by the project and agent: $projectName / $supportsCurrentFolder", async ({
+	labels,
+	...capabilities
+}) => {
+	render(
+		<DropdownMenu>
+			<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+			<FluidDropdownMenuContent>
+				<SpaceComposerAgentOptions
+					{...capabilities}
+					onChange={vi.fn()}
+					sources={[]}
+					targetProfileId="agent"
+				/>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: ACCESS_WORKSPACE_MENU })
+	);
+	expect(
+		(await screen.findAllByRole("menuitemradio")).map(
+			(item) => item.textContent
+		)
+	).toEqual(labels);
+});
 
 it("keeps two agents' session choices independent and sends without a task by default", async () => {
 	const onSubmit = vi.fn<(options?: SpaceComposerSendOptions) => void>();
@@ -43,7 +88,7 @@ it("keeps two agents' session choices independent and sends without a task by de
 	fireEvent.click(
 		await screen.findByRole("menuitem", { name: ACCESS_WORKSPACE_MENU })
 	);
-	fireEvent.click(await screen.findByText("Read current folder"));
+	fireEvent.click(await screen.findByText("Read files only"));
 	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 	expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
 		contextSelections: {
@@ -133,6 +178,7 @@ it("keeps access restrictions when starting a new session", async () => {
 						},
 					}}
 					onChange={onChange}
+					projectName="OpenMeld"
 					sources={[]}
 					supportsCurrentFolder={true}
 					targetProfileId="agent"

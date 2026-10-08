@@ -22,6 +22,7 @@ import {
 } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import { isQuotaWakeFailure } from "#/lib/spaces/wake-failure-display";
+import { SpaceComposerAgentOptionsWithProject } from "./space-composer-agent-options";
 import {
 	SpaceComposerAddMenu,
 	SpaceComposerAttachmentRecovery,
@@ -45,10 +46,9 @@ import {
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { SpaceComposerEditorBoundary } from "./space-composer-editor-boundary";
-import {
-	SpaceComposerAgentOptions,
-	type SpaceComposerTaskChoice,
-	type SpaceTaskSource,
+import type {
+	SpaceComposerTaskChoice,
+	SpaceTaskSource,
 } from "./space-composer-task-menu";
 import {
 	type SpaceTaskDraft,
@@ -219,7 +219,7 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 				return null;
 			}
 			return (
-				<SpaceComposerAgentOptions
+				<SpaceComposerAgentOptionsWithProject
 					choice={choices[profileId]}
 					onChange={(choice) =>
 						setChoices((current) => ({ ...current, [profileId]: choice }))
