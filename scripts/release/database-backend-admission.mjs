@@ -40,12 +40,12 @@ async function runCutoverDataCommand(args) {
   return owner.runCutoverDataCommand(args);
 }
 
-/** Legacy D1 and shared-staging commands cannot deploy this PostgreSQL candidate. */
+/** Legacy D1 commands cannot deploy the PostgreSQL product database. */
 export function assertProductDatabaseReleaseSupported(root = process.cwd()) {
   const manifest = readBackendManifest(root);
   if (manifest.backend === "postgresql") {
     throw new Error(
-      "Legacy D1 and shared-staging commands do not release the PostgreSQL product database. Use pnpm release:plan -- --scope db and the guarded local production release. Routine releases do not require a frozen D1 import."
+      "Legacy D1 commands do not release the PostgreSQL product database. Use pnpm release:plan -- --scope db for production or pnpm staging:deploy for staging. Routine releases do not require a frozen D1 import."
     );
   }
   throw new Error(

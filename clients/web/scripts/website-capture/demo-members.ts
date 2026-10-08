@@ -50,7 +50,7 @@ export function buildDemoSpaceMembers(
 			createSpaceMemberAgentSnapshot({
 				profileId: DEMO_CENTER_PROFILE_ID,
 				profileName: "Center Agent",
-				ownerName: "Amplift",
+				ownerName: "OpenMeld",
 				ownerUserId: null,
 				agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
 				avatarStyle,

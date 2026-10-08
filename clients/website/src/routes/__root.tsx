@@ -1,4 +1,5 @@
 import { buildPublicPageHead } from "@openmeld/product-catalog/site";
+import { FAVICON_ICO_URL } from "@openmeld/ui/lib/favicon";
 import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { ThemeProvider } from "next-themes";
 import { PublicPageHeader } from "#/components/public-page-header";
@@ -14,7 +15,7 @@ export const Route = createRootRoute({
 	head: () => ({
 		links: [
 			{ rel: "stylesheet", href: css },
-			{ rel: "icon", href: "/favicon.ico" },
+			{ rel: "icon", href: FAVICON_ICO_URL },
 		],
 		meta: [
 			{ name: "openmeld-source-sha", content: __OPENMELD_WEBSITE_BUILD__.sha },

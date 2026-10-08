@@ -28,6 +28,7 @@ const invalidPosthogMetadata = /PostHog OAuth/u;
 // Public fields captured from the production CIMD document on 2026-10-03.
 const posthogMetadata = {
   client_id: "https://openmeld.ai/.well-known/posthog-client.json",
+  logo_uri: "https://openmeld.ai/icon-512.png",
   redirect_uris: ["https://connectors.openmeld.ai/oauth/callback"],
 };
 function healthyEndpoint(url) {
@@ -38,7 +39,20 @@ function healthyEndpoint(url) {
 
 test("domain health preserves the existing PostHog client URL and rejects HTML, redirects, or changed callbacks", async () => {
   await checkWebsiteDomainEndpoints(names, healthyEndpoint);
+  await checkWebsiteDomainEndpoints(names, (url) =>
+    url.endsWith("/.well-known/posthog-client.json")
+      ? Response.json({
+          ...posthogMetadata,
+          logo_uri: "https://openmeld.ai/brand/openmeld-letter-o-dark-1024.png",
+        })
+      : healthyEndpoint(url)
+  );
   for (const invalid of [
+    () =>
+      Response.json({
+        ...posthogMetadata,
+        logo_uri: "https://example.test/unreviewed.png",
+      }),
     () =>
       new Response("<html>Website</html>", {
         headers: { "Content-Type": "text/html" },
@@ -66,7 +80,7 @@ test("domain health preserves the existing PostHog client URL and rejects HTML, 
 });
 
 // Domain/deployment shapes captured from the isolated Cloudflare domain trial.
-function fixture() {
+function fixture(names = websiteDomainNames()) {
   const domains = [
     {
       id: "root-domain",
@@ -130,6 +144,34 @@ function fixture() {
   };
   return { client, domains, writes, versions };
 }
+
+test("only a complete staging refresh can replace the old domain layout without session continuity", async () => {
+  const staging = fixture(websiteDomainNames("stg"));
+  const scopes = ["auth", "core", "gateway", "web", "website"];
+  const input = {
+    client: staging.client,
+    sourceSha,
+    scopes,
+    environment: "stg",
+  };
+  assert.ok(await admitWebsiteDomainRelease(input));
+  assert.equal(staging.writes.length, 0);
+  for (const missing of scopes) {
+    await assert.rejects(
+      admitWebsiteDomainRelease({
+        ...input,
+        scopes: scopes.filter((scope) => scope !== missing),
+      }),
+      needsPreparation
+    );
+  }
+  await assert.rejects(
+    admitWebsiteDomainRelease({ client: fixture().client, sourceSha, scopes }),
+    needsPreparation
+  );
+  staging.domains[0].service = "unrelated-worker";
+  await assert.rejects(admitWebsiteDomainRelease(input), unexpectedOwner);
+});
 
 test("preparation preserves the existing deployment and is resumable; cutover requires current App evidence", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "website-domains-"));

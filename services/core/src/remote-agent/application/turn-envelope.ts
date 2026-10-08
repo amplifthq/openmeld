@@ -3,6 +3,7 @@ import {
   buildMessageChannelConversationId,
   buildOpenMeldOrganizationWebUrl,
   deriveCenterAgentDirectMessageSpaceProjection,
+  resolveUserTimeContext,
 } from "@openmeld/schemas";
 import type {
   AgentDelegationSnapshot,
@@ -26,6 +27,7 @@ import {
   toWorkingLanguageGuidance,
 } from "../../organizations/organization-working-language-repository";
 import { readCenterAgentDirectMessageProjectionCandidateBySpaceId } from "../../space-index/space-index-repository";
+import { readUserTimeContext } from "../../user-time-context/user-time-context-repository";
 import { parseCoreOwnedRemoteAgentTurnEnvelope } from "./center-agent-context-scope";
 
 type OrganizationEnvelopeFacts = {
@@ -55,6 +57,7 @@ type SpaceEnvelopeFacts = {
   name: string;
 };
 type RemoteAgentTurnEnvelopeFacts = {
+  requestTimeContext?: RemoteAgentTurnEnvelope["requestTimeContext"];
   centerAgent: CenterAgentProfileIdentity;
   centerAgentInteractionSource?: RemoteAgentTurnEnvelope["centerAgentInteractionSource"];
   organization: OrganizationEnvelopeFacts;
@@ -113,6 +116,14 @@ export async function resolveRemoteAgentTurnEnvelope(input: {
     }),
   ]);
   return buildRemoteAgentTurnEnvelope({
+    requestTimeContext: input.message.sourceSignalSnapshot
+      ?.requestTimeContext ?? {
+      submittedAtMs: input.message.enqueuedAtMs,
+      userTime:
+        sender.verified && sender.kind === "member" && sender.ownerUserId
+          ? await readUserTimeContext(input.db, sender.ownerUserId)
+          : resolveUserTimeContext(null),
+    },
     centerAgent,
     centerAgentInteractionSource:
       input.message.sourceSignalSnapshot?.centerAgentInteractionSource,
@@ -638,6 +649,9 @@ export function buildRemoteAgentTurnEnvelope(
   input: RemoteAgentTurnEnvelopeFacts
 ): RemoteAgentTurnEnvelope {
   return parseCoreOwnedRemoteAgentTurnEnvelope({
+    ...(input.requestTimeContext
+      ? { requestTimeContext: input.requestTimeContext }
+      : {}),
     ...(input.centerAgentInteractionSource
       ? { centerAgentInteractionSource: input.centerAgentInteractionSource }
       : {}),

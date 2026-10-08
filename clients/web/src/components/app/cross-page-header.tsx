@@ -1,9 +1,8 @@
 import {
 	AppBrandStatusLabel,
 	type AppBrandStatusLabelValue,
-	OPENMELD_APP_STATUS_LABEL,
 } from "@openmeld/ui/components/app-brand-status-label";
-import { OpenMeldWordmark } from "@openmeld/ui/components/openmeld-wordmark";
+import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
 import { APP_PAGE_FRAME_PADDING_CLASS_NAME } from "@openmeld/ui/lib/page-frame";
 import { cn } from "@openmeld/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
@@ -27,7 +26,7 @@ type CrossPageHeaderProps = {
 
 export function CrossPageHeader({
 	brandLinkClassName,
-	brandStatusLabel = OPENMELD_APP_STATUS_LABEL,
+	brandStatusLabel = null,
 	className,
 	currentSection = null,
 	frameSection,
@@ -61,12 +60,12 @@ export function CrossPageHeader({
 				<Link
 					aria-label="Go to OpenMeld homepage"
 					className={cn(
-						"inline-flex min-w-0 touch-manipulation items-center gap-2 max-lg:min-h-11",
+						"inline-flex min-h-9 min-w-0 touch-manipulation items-center gap-2 max-lg:min-h-11",
 						brandLinkClassName
 					)}
 					to="/"
 				>
-					<OpenMeldWordmark className="transition-colors duration-200 hover:text-foreground" />
+					<OpenMeldLogoStrong ariaLabel="OpenMeld" size={4} />
 					<AppBrandStatusLabel label={brandStatusLabel} />
 				</Link>
 

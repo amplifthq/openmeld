@@ -21,6 +21,7 @@ export function LandingFooter({ repositoryUrl }: { repositoryUrl: string }) {
 					<p>Built in the open.</p>
 				</div>
 				<nav aria-label="Footer">
+					<a href="/downloads">Downloads</a>
 					<a href="https://docs.openmeld.ai">Docs</a>
 					<a href="/changelog">Changelog</a>
 					<a href={repositoryUrl}>GitHub</a>

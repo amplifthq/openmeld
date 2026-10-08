@@ -30,7 +30,6 @@ export function HeroDescription() {
 							className="meld-hero-copy-bot"
 							key={agent}
 							palette="original"
-							preview
 							size={28}
 							type={agent}
 						/>

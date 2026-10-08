@@ -1,0 +1,94 @@
+/* Static, broad fades, measured against Linear's feature stages. Each scene
+   keeps a clear subject and some frame edges; peripheral UI recedes over an
+   area instead of losing only its border. Never key masks to interaction. */
+.meld-demo-blend {
+	mask-image:
+		linear-gradient(115deg, #000 58%, transparent 100%),
+		linear-gradient(to top, transparent, #000 45%);
+	mask-composite: intersect;
+}
+.meld-files-plane {
+	/* Background planes: readable upper-left edge, broad right/bottom falloff. */
+	mask-image:
+		linear-gradient(105deg, #000 48%, transparent 94%),
+		linear-gradient(to top, transparent, #000 52%);
+	mask-composite: intersect;
+}
+.meld-routines-plane {
+	/* The timeline reference fades both sides, unlike the Files/diff scene. */
+	mask-image:
+		linear-gradient(to right, transparent, #000 20%),
+		linear-gradient(to left, transparent, #000 42%),
+		linear-gradient(to top, transparent, #000 52%);
+	mask-composite: intersect;
+}
+.meld-skill-plane,
+.meld-report-plane {
+	/* Foreground planes keep their top and left edges, like Linear's diff. */
+	mask-image:
+		linear-gradient(110deg, #000 58%, transparent 100%),
+		linear-gradient(to top, transparent, #000 48%);
+	mask-composite: intersect;
+}
+.meld-agent-canvas {
+	/* The heading and first choice stay clear. Fade the opposite corner and
+    lower configuration, rather than outlining both cards with a vignette. */
+	mask-image:
+		linear-gradient(110deg, #000 54%, transparent 97%),
+		linear-gradient(35deg, transparent, #000 27%);
+	mask-composite: intersect;
+}
+.meld-centeragent-stage {
+	mask-image:
+		linear-gradient(115deg, #000 56%, transparent 100%),
+		linear-gradient(to top, transparent, #000 42%);
+	mask-composite: intersect;
+}
+.meld-usage-stage {
+	/* Start below the AI usage heading; the chart's lower/right area dissolves. */
+	mask-image:
+		linear-gradient(125deg, #000 48%, transparent 96%),
+		linear-gradient(to top, transparent, #000 48%);
+	mask-composite: intersect;
+}
+.meld-codex-demo {
+	/* Linear's agent panels fade through ~30% of their sides and ~48% of their
+    bottom. Keep Codex's central transcript clear and its control outside. */
+	mask-image:
+		linear-gradient(90deg, transparent, #000 12%, #000 73%, transparent),
+		linear-gradient(transparent, #000 3%, #000 57%, transparent);
+	mask-composite: intersect;
+}
+/* Compact layouts have less peripheral UI. Preserve the same directions,
+   with a shorter fade so the main choice and message remain legible. */
+@media (max-width: 600px) {
+	.meld-demo-blend {
+		mask-image:
+			linear-gradient(110deg, #000 76%, transparent),
+			linear-gradient(to top, transparent, #000 24%);
+	}
+	.meld-agent-canvas,
+	.meld-centeragent-stage,
+	.meld-usage-stage {
+		mask-image:
+			linear-gradient(125deg, #000 80%, transparent),
+			linear-gradient(to top, transparent, #000 18%);
+	}
+	.meld-codex-demo {
+		mask-image:
+			linear-gradient(90deg, transparent, #000 5%, #000 91%, transparent),
+			linear-gradient(transparent, #000 5%, #000 78%, transparent);
+	}
+}
+.meld-computer-ambient {
+	position: absolute;
+	inset: -40px -7%;
+	z-index: -1;
+	pointer-events: none;
+	background: radial-gradient(
+		ellipse at 60% 50%,
+		#a39e8920,
+		#8376660a 40%,
+		transparent 70%
+	);
+}
