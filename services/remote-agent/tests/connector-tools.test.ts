@@ -24,6 +24,7 @@ import {
   createSubmitTurnRequest,
   TEST_NOW_MS,
 } from "./fixtures";
+import { linearIssueCreateInputSchema } from "./fixtures/linear-issue-action";
 import openConnectorRuntimeActions from "./fixtures/openconnector-runtime-actions.json";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -1512,6 +1513,7 @@ describe("Remote Agent generic App tools", () => {
             ...capturedExecutableOpenConnectorAction,
             id: "linear.create_linear_issue",
             service: "linear",
+            inputSchema: linearIssueCreateInputSchema,
             effect: "write",
             operationType: "write",
           },

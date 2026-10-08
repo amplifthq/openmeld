@@ -12,6 +12,7 @@ import { readLinearIssueDestination } from "../agent-core/project-issue-routing"
 import { attachCreatedLinearIssueToSourceTask } from "../agent-core/space-task-linear-binding";
 import { buildRemoteAgentToolContext } from "../agent-core/tool-context";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import { linearIssueCreateInputSchema } from "./fixtures/linear-issue-action";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const teamId = "a86813e7-c458-4af2-8cfa-73a796d81201";
@@ -26,6 +27,47 @@ const issue = {
 const providerData = issue;
 
 describe("Linear issue Task association", () => {
+  it.each([
+    "project_id",
+    "team_id",
+  ] as const)("rejects a renamed catalog target %s before mapping any issue write", (field) => {
+    const { [field]: renamed, ...properties } =
+      linearIssueCreateInputSchema.properties;
+    expect(() =>
+      readLinearIssueDestination({
+        actionId: "linear.create_linear_issue",
+        service: "linear",
+        actionInput: {
+          team_id: teamId,
+          projectId: "ef7c6509-3077-4d49-999e-0ee1c41eaef1",
+        },
+        inputSchema: {
+          ...linearIssueCreateInputSchema,
+          properties: { ...properties, [field.replace("_id", "Id")]: renamed },
+        },
+      })
+    ).toThrow("linear.issue_action_contract_changed");
+  });
+  it("keeps the exact optional Linear project and rejects undeclared target aliases", () => {
+    const projectId = "ef7c6509-3077-4d49-999e-0ee1c41eaef1";
+    const request = {
+      actionId: "linear.create_linear_issue",
+      service: "linear",
+      inputSchema: linearIssueCreateInputSchema,
+    };
+    expect(
+      readLinearIssueDestination({
+        ...request,
+        actionInput: { team_id: teamId, project_id: projectId },
+      })
+    ).toEqual({ provider: "linear", teamId, projectId });
+    expect(() =>
+      readLinearIssueDestination({
+        ...request,
+        actionInput: { team_id: teamId, projectId },
+      })
+    ).toThrow("linear.issue_action_contract_changed");
+  });
   it("recognizes the OpenConnector action and snake_case target input", () => {
     expect(isLinearIssueCreateAction("linear.create_linear_issue")).toBe(true);
     expect(isLinearIssueCreateAction("linear.create_issue")).toBe(false);
@@ -34,6 +76,7 @@ describe("Linear issue Task association", () => {
         actionId: "linear.create_linear_issue",
         actionInput: { team_id: teamId },
         service: "linear",
+        inputSchema: linearIssueCreateInputSchema,
       })
     ).toEqual({ provider: "linear", teamId });
   });

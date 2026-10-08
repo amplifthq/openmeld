@@ -2126,6 +2126,7 @@ export {
   projectRouteParamsSchema,
   projectSchema,
   projectSlugSchema,
+  readLinearIssueActionDestination,
   readLinearIssueReference,
   readProjectCommonAgentsResponseSchema,
   readProjectCommonAgentsRpcInputSchema,

@@ -2436,28 +2436,42 @@ remain separate associations. Neither a repository association nor Common
 Agent membership authorizes file, provider, Space, or Agent execution access.
 
 For an OpenMeld-controlled new issue action, the action owner sends its exact
-proposed provider target to Core. Core verifies the active delivery, reads the
-admitted request and current Project/Task facts, and returns the resolved
-target, basis, Project ID when known, and configuration revision when a default
-was used. The action owner rejects a provider or target mismatch before its
-operation claim. A default-based claim carries that Project revision and exact
-destination into the connector-operation owner. The PostgreSQL transaction
+proposed provider target to Core. Core verifies the active delivery and current
+Task associations, returning either `project_default` or `confirmation_required`.
+Message text and object references are never parsed into write authority.
+The operation claim carries a complete structured `issueDestination`; Core
+recomputes its routing decision rather than accepting a caller-authored default
+revision. New GitHub, Linear and batch creation claims without this target and
+the correct write effect fail closed. A default-based claim uses the verified
+Project revision and exact destination. The PostgreSQL transaction
 locks and checks the active Project row before inserting the operation and its
 attempted audit receipt. A stale claim writes neither an operation nor false
 attempted evidence. GitHub batches claim one frozen batch
-operation before writing their durable manifest. GitHub PR background context
-does not create an explicit
-GitHub override. A replay reads its already accepted operation and retains its
+operation before writing their durable manifest. Other new issue claims reuse
+`plugin_action_requests` and the private Inbox approval flow. The existing
+request digest binds the actor, operation, connection, complete target and action
+input identity. Only its Human recipient can approve; the claim's SQL guard
+rechecks approval state, expiry, membership, connection generation and access
+revision before writing operation/audit evidence. The internal request intent
+records `purpose: issue_destination` and its exact Agent consumer; retained
+intents without `consumer` preserve their existing Local Agent meaning. This
+adds no second consent table or automatic provider retry. A replay reads its
+already accepted operation and retains its
 frozen provider, account, target, and idempotency key rather than re-resolving
 from a later Project edit. The Project rule never substitutes for current
 connection and actor authorization. Local Plugin calls use their verified
-dispatch source Signal and the same resolver; direct third-party tools outside
+dispatch source Task or the same exact-action Inbox confirmation; direct third-party tools outside
 OpenMeld are not covered by this boundary.
 
 Apply PostgreSQL migration `0027_project_workflow` before the Core readers and
 writers. Historical D1 migrations remain unchanged. The
-Core issue-resolution receiver must be available before Remote Agent callers;
-an older Core fails closed on the new RPC. The local Service still resolves its
+Core issue-resolution and operation receivers must be available before Remote
+Agent callers. Earlier draft callers that send `issueRoutingDecision` instead
+of `issueDestination` are rejected before new issue writes; new callers reject
+the earlier text-derived resolution bases. The existing Inbox view/command
+shape remains unchanged. Linear target mapping requires the supported catalog's
+`team_id` and `project_id` fields and rejects target-field drift before execution.
+The local Service still resolves its
 existing route observation, then uses a frozen per-Context Project repository
 selection when one is present. An older Service is rejected at Context
 admission for this selection. Local Project Control accepts an optional

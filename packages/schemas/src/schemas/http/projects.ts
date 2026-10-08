@@ -10,6 +10,7 @@ export const PROJECT_RECENT_TASK_LIMIT = 20;
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
 const LINEAR_ISSUE_CREATE_ACTION_ID = "linear.create_linear_issue";
+const LINEAR_TARGET_FIELD_PATTERN = /team|project/iu;
 
 export const repositoryFingerprintSchema = z
   .string()
@@ -145,7 +146,7 @@ export const resolveProjectIssueActionRpcInputSchema = z.strictObject({
 });
 
 export const resolveProjectIssueActionResponseSchema = z.strictObject({
-  basis: z.enum(["explicit_request", "project_default", "object_context"]),
+  basis: z.enum(["project_default", "confirmation_required"]),
   destination: projectIssueDestinationSchema,
   projectId: boundedIdentifierSchema.nullable(),
   projectRevision: z.number().int().nonnegative().nullable(),
@@ -241,6 +242,57 @@ export const updateProjectCommonAgentsRpcInputSchema = z.strictObject({
 
 export function isLinearIssueCreateAction(actionId: string): boolean {
   return actionId === LINEAR_ISSUE_CREATE_ACTION_ID;
+}
+
+const linearIssueTargetCatalogSchema = z.object({
+  type: z.literal("object"),
+  properties: z
+    .object({
+      team_id: z.object({ type: z.literal("string") }),
+      project_id: z.object({ type: z.literal("string") }),
+    })
+    .catchall(z.unknown()),
+  required: z.array(z.string()).refine((fields) => fields.includes("team_id")),
+});
+
+// This is a provider adapter contract, not a language-based routing decision.
+// Stop on catalog drift before mapping a provider input into a confirmed target.
+export function readLinearIssueActionDestination(input: {
+  actionId: string;
+  service: string;
+  actionInput: Record<string, unknown>;
+  inputSchema: unknown;
+}): z.infer<typeof projectIssueDestinationSchema> | null {
+  if (
+    input.service !== "linear" ||
+    !isLinearIssueCreateAction(input.actionId)
+  ) {
+    return null;
+  }
+  const catalog = linearIssueTargetCatalogSchema.safeParse(input.inputSchema);
+  if (
+    !catalog.success ||
+    Object.keys(catalog.data.properties).some(
+      (field) =>
+        LINEAR_TARGET_FIELD_PATTERN.test(field) &&
+        field !== "team_id" &&
+        field !== "project_id"
+    ) ||
+    Object.keys(input.actionInput).some(
+      (field) => !(field in catalog.data.properties)
+    )
+  ) {
+    throw new Error(
+      "linear.issue_action_contract_changed: The Linear issue action target schema changed. Refresh its supported contract before creating an issue."
+    );
+  }
+  return projectIssueDestinationSchema.parse({
+    provider: "linear",
+    teamId: input.actionInput.team_id,
+    ...(input.actionInput.project_id === undefined
+      ? {}
+      : { projectId: input.actionInput.project_id }),
+  });
 }
 
 export function readLinearIssueReference(input: {

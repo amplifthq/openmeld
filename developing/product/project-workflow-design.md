@@ -187,30 +187,34 @@ continues to follow its own completeness, stale-data, and retention rules.
 
 ### Routing an external issue
 
-Resolve the work object and any Project scope needed to apply a default, then choose the destination in this order. A request that already names an exact authorized destination can proceed without a Project association; do not require or automatically create a Project or Task merely to route it.
+The October 8 review sharpens how the confirmed explicit-target precedence is
+represented. The Agent may interpret a request and discover provider objects,
+but Core does not infer consent from words, URLs, quotes or relative position
+in a thread.
 
-1. The user's explicit provider or exact target in the current request. Resolve any missing target detail from a compatible verified Project rule; do not let an incompatible rule override the explicit choice.
-2. The current, verified default issue destination of the Project relevant to this action.
-3. A sufficiently clear, object-specific target from trusted context when no applicable rule exists.
-4. One short clarification when the remaining targets conflict or cannot be established.
+1. A recorded Human confirmation of the exact operation's account and complete
+   destination can choose a one-time override without changing Project settings.
+2. A complete, unique source Task Project association can select its current
+   exact default. The default revision is checked again at operation claim.
+3. Other object references and natural-language choices supply proposals for
+   the existing private Plugin action request in Inbox. They never grant a
+   provider write by themselves.
+4. Missing or ambiguous scope uses the same concrete-target confirmation;
+   no Project or Task must be created solely to route an issue.
 
-An Agent's choice of a provider tool and its exact input arguments is not proof
-that the requester chose that destination. In particular, a GitHub PR cited as
-background must not become an explicit GitHub override merely because the Agent
-called a GitHub issue tool. A supported OpenMeld action resolves the target from
-the verified current request, an explicit user selection when present, and the
-Project rule before invoking a provider. The resolution carries its basis and
-the Project configuration revision when a default was used. The action owner
-checks the eventual provider and target against that decision and rejects a
-mismatch. A model-supplied `explicit` flag or quoted fragment is evidence for
-interpretation, not independent user authority. Natural-language destination
-intent can require interpretation; if the request does not clearly identify a
-real override, ask about the concrete target instead of claiming mechanical
-certainty. A clear request such as “create it in this GitHub repository” follows
-that explicit target through normal authorization without another generic
-confirmation step.
+The operation owner validates the structured destination before claiming it.
+GitHub compares owner/repository case-insensitively. Linear preserves both the
+team and optional project exactly, including the absence of a project. The
+requester approves the discovered target rather than typing UUIDs in prose.
+A confirmation is bound to actor, requester, Organization, account, operation
+and input identity; a changed target or input needs another decision. Current
+membership, connection and permission revisions remain checked at admission.
+An unresolved unattended request must wait for an eligible Human decision.
 
-A PR or issue cited as background identifies the work being discussed. For a new issue, that reference alone does not select a destination or conflict with a Project's configured tracker. If a Project's default issue destination is Linear, a request to file an issue about its GitHub PR creates the Linear issue and links the PR without another destination question. An explicit instruction to create the issue in that GitHub repository overrides the Project default. Updating or commenting on an existing issue still targets that exact existing object.
+A PR or issue cited as background identifies the work being discussed. It does
+not override a verified Project default. A different provider or target goes
+through the concrete-target confirmation. Updating or commenting on an existing
+issue continues to use that existing object's normal authorization contract.
 
 A configured destination is not write permission. Before writing, recheck the requester, current Project and target, provider connection and actor identity, provider capability, and the action's authorization. An unavailable connection blocks that destination; it never causes an automatic switch to another provider or account. Report the actual provider, target, and created link after a successful write. Preserve `outcome_unknown` when the provider effect cannot be determined, and do not blindly retry it.
 

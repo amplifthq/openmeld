@@ -1,12 +1,9 @@
 import {
-  isLinearIssueCreateAction,
   projectIssueDestinationSchema,
+  readLinearIssueActionDestination,
   resolveProjectIssueActionResponseSchema,
 } from "@openmeld/schemas";
-import type {
-  ProjectIssueDestination,
-  ResolveProjectIssueActionResponse,
-} from "@openmeld/schemas/types";
+import type { ProjectIssueDestination } from "@openmeld/schemas/types";
 import type { RemoteAgentCoreWorkerBinding } from "./callback-context";
 import { callCoreRpc } from "./core-rpc";
 import type { buildRemoteAgentToolContext } from "./tool-context";
@@ -62,22 +59,6 @@ function sameIssueDestination(
   );
 }
 
-export function issueRoutingDecisionForClaim(
-  resolved: ResolveProjectIssueActionResponse | null
-) {
-  if (resolved?.basis !== "project_default") {
-    return undefined;
-  }
-  if (resolved.projectId === null || resolved.projectRevision === null) {
-    throw new Error("project.issue_default_revision_unavailable");
-  }
-  return {
-    projectId: resolved.projectId,
-    revision: resolved.projectRevision,
-    destination: resolved.destination,
-  };
-}
-
 export function readGitHubIssueDestination(
   actionInput: Record<string, unknown>
 ): ProjectIssueDestination {
@@ -92,18 +73,7 @@ export function readLinearIssueDestination(input: {
   actionId: string;
   actionInput: Record<string, unknown>;
   service: string;
+  inputSchema: unknown;
 }): ProjectIssueDestination | null {
-  if (
-    input.service !== "linear" ||
-    !isLinearIssueCreateAction(input.actionId)
-  ) {
-    return null;
-  }
-  return projectIssueDestinationSchema.parse({
-    provider: "linear",
-    teamId: input.actionInput.team_id,
-    ...(input.actionInput.project_id === undefined
-      ? {}
-      : { projectId: input.actionInput.project_id }),
-  });
+  return readLinearIssueActionDestination(input);
 }

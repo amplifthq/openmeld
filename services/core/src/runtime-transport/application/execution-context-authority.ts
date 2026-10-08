@@ -691,6 +691,18 @@ function createContext(
   > =
     selection.mode === "resume" ? {} : { ...implicitPreferences, ...selection };
   const forkSource = forkCheckpoint(request, source);
+  if (
+    selection.mode === "fork" &&
+    preferences.projectWork &&
+    !sameProjectWork(
+      preferences.projectWork,
+      source?.context.assignment.projectWork
+    )
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_changed_requires_new_task"
+    );
+  }
   const projectWork =
     preferences.projectWork ?? source?.context.assignment.projectWork;
   return {
@@ -726,6 +738,16 @@ function supportsContextAccess(
     agentControllerRef === "builtin:codex" ||
     (agentControllerRef === "builtin:claude-code" &&
       (access === "space_context" || access === "workspace"))
+  );
+}
+
+function sameProjectWork(
+  left: ExecutionContextAssignment["projectWork"],
+  right: ExecutionContextAssignment["projectWork"]
+): boolean {
+  return (
+    left?.projectId === right?.projectId &&
+    left?.repositoryFingerprint === right?.repositoryFingerprint
   );
 }
 
@@ -779,9 +801,7 @@ function assertContextPreferences(
   }
   if (
     selection.projectWork &&
-    (selection.projectWork.projectId !== assignment.projectWork?.projectId ||
-      selection.projectWork.repositoryFingerprint !==
-        assignment.projectWork?.repositoryFingerprint)
+    !sameProjectWork(selection.projectWork, assignment.projectWork)
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.project_work_changed_requires_new_task"

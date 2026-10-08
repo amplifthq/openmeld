@@ -1089,6 +1089,7 @@ import {
   buildCanonicalLocalProjectDiscoveryRequest,
   createLocalProjectControlRpc,
 } from "../projects/local-project-control-rpc";
+import { prepareProjectIssueActionAdmission } from "../projects/project-issue-action-admission";
 import { readActiveProjectIds } from "../projects/project-repository";
 import { prepareExpectedHumanProjectRequest } from "../projects/project-request-preparation";
 import {
@@ -15958,7 +15959,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     outcome: input.outcome,
     providerExecutionId: input.providerExecutionId,
     requestSignature: input.requestSignature,
-    issueRoutingDecision: input.issueRoutingDecision,
+    issueDestination: input.issueDestination,
     linearIssueReceipt: input.linearIssueReceipt,
     service: input.service,
     speakerMember: input.speakerMember,
@@ -16079,6 +16080,20 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     connection: executionConnection,
     connectionUpdatedAtMs,
   });
+  const issueAdmission = await prepareProjectIssueActionAdmission({
+    env,
+    context: requireRpcContext(input.context),
+    db: authorization.db,
+    organizationId: authorization.activeOrganization.organizationId,
+    actorProfileId: authorization.actorProfileId,
+    userId: member.userId,
+    operation: parsed.data,
+    existingOperation: Boolean(existing),
+    sourceRequestKey,
+    connection: executionConnection,
+    connectionUpdatedAtMs,
+    personalExecution: "personalExecution" in authorization,
+  });
   const result = await recordCenterAgentConnectorActionOperation({
     actionId: parsed.data.actionId,
     actorProfileId: authorization.actorProfileId,
@@ -16095,11 +16110,12 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     providerExecutionId: parsed.data.providerExecutionId,
     requester,
     requestSignature: parsed.data.requestSignature,
-    issueRoutingDecision: parsed.data.issueRoutingDecision,
+    issueRoutingDecision: issueAdmission.issueRoutingDecision,
+    executionGuard: issueAdmission.executionGuard,
     service: parsed.data.service,
     sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     sourceSpaceId: member.sourceSpaceId,
-    sourceRequestKey,
+    sourceRequestKey: issueAdmission.sourceRequestKey,
     effectSignature: parsed.data.requestSignature,
     effect: parsed.data.effect,
     allowReplay: parsed.data.includeExecutionPermit === true,

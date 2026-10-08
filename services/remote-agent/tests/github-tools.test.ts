@@ -224,7 +224,7 @@ function getRemoteAgentGitHubToolDefinitions(
         coreWorker.resolveProjectIssueAction ??
         vi.fn(({ proposedDestination }) =>
           Promise.resolve({
-            basis: "explicit_request" as const,
+            basis: "confirmation_required" as const,
             destination: proposedDestination,
             projectId: null,
             projectRevision: null,
@@ -3164,7 +3164,7 @@ describe("Remote Agent GitHub tools", () => {
           proposedDestination: ProjectIssueDestination;
         }) =>
           Promise.resolve({
-            basis: "explicit_request" as const,
+            basis: "confirmation_required" as const,
             destination: proposedDestination,
             projectId: null,
             projectRevision: null,

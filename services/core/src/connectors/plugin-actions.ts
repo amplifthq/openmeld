@@ -6,6 +6,7 @@ import {
   pluginConnectionGrantSchema,
   pluginRuntimeResponseSchema,
   projectIssueDestinationSchema,
+  readLinearIssueActionDestination,
   readLinearIssueReference,
 } from "@openmeld/schemas";
 import type {
@@ -13,6 +14,7 @@ import type {
   PluginActionResponse,
   PluginActionRpcInput,
   PluginRuntimeRequest,
+  ResolveProjectIssueActionResponse,
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { requireDelegatedPluginAction } from "../center-agent/application/delegated-plugin-authorization";
@@ -27,7 +29,8 @@ import { ensurePersonalComputer } from "../computer/personal-computer";
 import type { CoreBindings } from "../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../organizations/organization-context";
 import {
-  readLocalProjectIssueRequest,
+  projectIssueRoutingDecisionForClaim,
+  readLocalIssueTaskProjects,
   resolveProjectIssueAction,
 } from "../projects/project-issue-action-routing";
 import { listProjectIssueRoutingCandidates } from "../projects/project-repository";
@@ -145,6 +148,12 @@ export async function rpcPluginAction(
       404
     );
   }
+  readLinearIssueActionDestination({
+    actionId: action.actionId,
+    service: action.service,
+    actionInput: action.input,
+    inputSchema: metadata.inputSchema,
+  });
   return await executeSelectedAction(
     env,
     input,
@@ -335,7 +344,7 @@ async function executeSelectedAction(
       "This connection allows read-only access for Local Agents."
     );
   }
-  const issueRoutingDecision = await resolveLocalPluginIssueRoutingDecision({
+  const issueResolution = await resolveLocalPluginIssueRoutingDecision({
     action,
     actionId: action.actionId,
     caller,
@@ -349,6 +358,12 @@ async function executeSelectedAction(
     connection.connectionName
   );
   let requestRoot = caller.authorizedRequestRoot;
+  const issueConfirmationRequired =
+    issueResolution?.basis === "confirmation_required";
+  const purpose = issueConfirmationRequired
+    ? ("issue_destination" as const)
+    : undefined;
+  const needsHumanApproval = !requestRoot || issueConfirmationRequired;
   let executionGuard: PluginRequestExecutionGuard | undefined;
   if (effect !== "read") {
     const current = await requireConnectorConnectionForExecution({
@@ -370,12 +385,13 @@ async function executeSelectedAction(
         connectionUpdatedAtMs: current.updatedAtMs,
       });
     }
-    if (!requestRoot) {
+    if (needsHumanApproval) {
       const { permission: _permission, ...executionConnection } = connection;
       const authorization = await preparePluginActionRequest({
         db: caller.db,
         requestId: action.authorizationRequestId,
         intent: {
+          purpose,
           organizationId: caller.organizationId,
           userId: caller.representedUserId,
           actorProfileId: caller.actorProfileId,
@@ -407,29 +423,15 @@ async function executeSelectedAction(
       executionGuard = authorization.executionGuard;
     }
   }
-  if (effect === "destructive" || effect === "unspecified") {
-    const { revision } = await readPluginAccess({
-      ...caller,
-      connectionName: connection.connectionName,
-    });
-    const confirmation = await preparePluginActionConfirmation({
-      ...caller,
-      accessRevision: revision,
-      requestSignature: signature,
-      token: action.confirmationToken,
-    });
-    if (confirmation) {
-      return {
-        kind: "confirmation_required",
-        actionId: action.actionId,
-        operationId: action.operationId,
-        connection,
-        confirmationToken: confirmation.token,
-        expiresAtMs: confirmation.expiresAtMs,
-        message:
-          "Review this exact action, input, and account with the requester before repeating it with the confirmation token.",
-      };
-    }
+  const confirmation = await prepareLocalDestructiveConfirmation({
+    caller,
+    action,
+    connection,
+    effect,
+    signature,
+  });
+  if (confirmation) {
+    return confirmation;
   }
   return await executeAction(
     env,
@@ -441,10 +443,48 @@ async function executeSelectedAction(
     connection,
     signature,
     effect,
-    issueRoutingDecision,
+    projectIssueRoutingDecisionForClaim(issueResolution),
     input.request.includeRecoveryReceipt === true,
     executionGuard
   );
+}
+
+async function prepareLocalDestructiveConfirmation(input: {
+  caller: Caller;
+  action: Execution;
+  connection: Connection;
+  effect: "read" | "write" | "destructive" | "unspecified";
+  signature: string;
+}): Promise<Extract<
+  PluginActionResponse,
+  { kind: "confirmation_required" }
+> | null> {
+  const { caller, action, connection, effect, signature } = input;
+  if (effect !== "destructive" && effect !== "unspecified") {
+    return null;
+  }
+  const { revision } = await readPluginAccess({
+    ...caller,
+    connectionName: connection.connectionName,
+  });
+  const confirmation = await preparePluginActionConfirmation({
+    ...caller,
+    accessRevision: revision,
+    requestSignature: signature,
+    token: action.confirmationToken,
+  });
+  return confirmation
+    ? {
+        kind: "confirmation_required",
+        actionId: action.actionId,
+        operationId: action.operationId,
+        connection,
+        confirmationToken: confirmation.token,
+        expiresAtMs: confirmation.expiresAtMs,
+        message:
+          "Review this exact action, input, and account with the requester before repeating it with the confirmation token.",
+      }
+    : null;
 }
 
 function assertDelegatedEffect(
@@ -488,11 +528,7 @@ async function resolveLocalPluginIssueRoutingDecision(input: {
   context: PluginActionRpcInput["context"];
   dispatchId: string | null;
   env: CoreBindings;
-}): Promise<
-  Parameters<
-    typeof recordCenterAgentConnectorActionOperation
-  >[0]["issueRoutingDecision"]
-> {
+}): Promise<ResolveProjectIssueActionResponse | null> {
   const { action, actionId, caller, context, dispatchId, env } = input;
   if (
     !(
@@ -500,7 +536,7 @@ async function resolveLocalPluginIssueRoutingDecision(input: {
       (action.service === "linear" && isLinearIssueCreateAction(actionId))
     )
   ) {
-    return undefined;
+    return null;
   }
   const proposedDestination = projectIssueDestinationSchema.parse(
     action.service === "github"
@@ -517,7 +553,7 @@ async function resolveLocalPluginIssueRoutingDecision(input: {
             : { projectId: action.input.project_id }),
         }
   );
-  const request = await readLocalProjectIssueRequest({
+  const taskProjectIds = await readLocalIssueTaskProjects({
     context,
     dispatchId,
     env,
@@ -525,24 +561,14 @@ async function resolveLocalPluginIssueRoutingDecision(input: {
     sourceSpaceId: caller.sourceSpaceId,
     targetProfileId: caller.actorProfileId,
   });
-  const resolution = resolveProjectIssueAction({
+  return resolveProjectIssueAction({
     projects: await listProjectIssueRoutingCandidates({
       db: caller.db,
       organizationId: caller.organizationId,
     }),
     proposedDestination,
-    requestText: request.text,
-    requesterCanOverride: request.requesterCanOverride,
+    taskProjectIds,
   });
-  return resolution.basis === "project_default" &&
-    resolution.projectId !== null &&
-    resolution.projectRevision !== null
-    ? {
-        projectId: resolution.projectId,
-        revision: resolution.projectRevision,
-        destination: resolution.destination,
-      }
-    : undefined;
 }
 
 async function readLocalContinuationBinding(

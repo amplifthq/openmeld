@@ -286,6 +286,23 @@ export async function rpcResolveProjectIssueAction(
     submissionId,
     effect: "write",
   });
+  return await resolveAdmittedProjectIssueAction(env, request);
+}
+
+// The operation owner has already verified the current caller and connection.
+// Reuse its admitted delivery for scope; this helper grants no execution.
+export async function resolveAdmittedProjectIssueAction(
+  env: CoreBindings,
+  request: ResolveProjectIssueActionRpcInput
+): Promise<ResolveProjectIssueActionResponse> {
+  const submissionId = request.context.agentControllerConversationId;
+  if (!submissionId) {
+    throw createCoreRpcHttpError({
+      code: "project.issue_request_unavailable",
+      status: 403,
+      reason: "An active Agent request is required to route this issue.",
+    });
+  }
   const db = getPostgresDatabase(env);
   const deliveryDb = db;
   if (!(deliveryDb && db)) {
@@ -310,22 +327,6 @@ export async function rpcResolveProjectIssueAction(
       status: 403,
     });
   }
-  const sourceText =
-    delivery.triggerText ??
-    (delivery.routineRunId !== null
-      ? (delivery.workerSubmitRequest?.messages[0]?.content ?? null)
-      : null);
-  const turnEnvelope =
-    delivery.executionRecoverySubmitRequest?.turnEnvelope ??
-    delivery.workerSubmitRequest?.turnEnvelope;
-  const requesterCanOverride =
-    (turnEnvelope?.sender.kind === "member" &&
-      ["web_dm", "space_wake", "slack", "message_channel"].includes(
-        turnEnvelope.trigger.source
-      )) ||
-    (turnEnvelope?.sender.kind === "routine" &&
-      turnEnvelope.trigger.source === "routine" &&
-      !turnEnvelope.trigger.continuation);
   return parseProjectResponse(
     resolveProjectIssueActionResponseSchema,
     resolveProjectIssueAction({
@@ -334,8 +335,6 @@ export async function rpcResolveProjectIssueAction(
         organizationId: delivery.organizationId,
       }),
       proposedDestination: request.proposedDestination,
-      requestText: sourceText ?? "",
-      requesterCanOverride,
       taskProjectIds: await readSourceTaskProjectIds({
         context: request.context,
         delivery,
@@ -381,15 +380,9 @@ async function readSourceTaskProjectIds(input: {
   const matching = listed.tasks.filter(
     (task) => task.sourceSignalId === input.delivery.triggerMessageId
   );
-  if (matching.length > 1 || (listed.truncated && matching.length === 0)) {
-    throw createCoreRpcHttpError({
-      code: "project.issue_task_context_ambiguous",
-      reason:
-        "The source Task could not be identified uniquely. Choose the Project and exact issue destination.",
-      status: 409,
-    });
-  }
-  return matching[0]?.projectIds ?? [];
+  return !listed.truncated && matching.length === 1
+    ? (matching[0]?.projectIds ?? [])
+    : [];
 }
 
 export async function rpcUpdateProjectIssueRouting(

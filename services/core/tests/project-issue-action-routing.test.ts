@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { resolveProjectIssueAction } from "../src/projects/project-issue-action-routing";
 import type { ProjectIssueRoutingCandidate } from "../src/projects/project-repository";
 
-const linearDestination = {
+const destination = {
   provider: "linear" as const,
   teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+  projectId: "ef7c6509-3077-4d49-999e-0ee1c41eaef1",
 };
-
 const project: ProjectIssueRoutingCandidate = {
   id: "project-payments",
   name: "Payments",
@@ -14,218 +14,89 @@ const project: ProjectIssueRoutingCandidate = {
   repositoryUrl: "https://github.com/amplifthq/payments",
   routing: {
     projectId: "project-payments",
-    destination: linearDestination,
+    destination,
     revision: 3,
     updatedAtMs: 42,
     updatedByUserId: "owner",
   },
 };
+const github = {
+  provider: "github" as const,
+  owner: "amplifthq",
+  repo: "payments",
+};
 
 describe("Project issue action routing", () => {
-  it("uses the configured Linear target when a GitHub PR is background context", () => {
-    const requestText =
-      "File an issue about https://github.com/amplifthq/payments/pull/82";
+  it("uses only a verified Task Project association for the exact default", () => {
     expect(
       resolveProjectIssueAction({
         projects: [project],
-        proposedDestination: linearDestination,
-        requestText,
+        taskProjectIds: [project.id],
+        proposedDestination: destination,
       })
     ).toMatchObject({
       basis: "project_default",
-      destination: project.routing.destination,
       projectId: project.id,
       projectRevision: 3,
     });
-    expect(() =>
+    expect(
       resolveProjectIssueAction({
         projects: [project],
-        proposedDestination: {
-          provider: "github",
-          owner: "amplifthq",
-          repo: "payments",
-        },
-        requestText,
+        taskProjectIds: [],
+        proposedDestination: destination,
       })
-    ).toThrow("New issues for Payments go to Linear");
-    expect(
-      resolveProjectIssueAction({
-        projects: [project],
-        proposedDestination: linearDestination,
-        requestText:
-          "File an issue about the GitHub issue discussed in https://github.com/amplifthq/payments/pull/82",
-      }).basis
-    ).toBe("project_default");
-    expect(
-      resolveProjectIssueAction({
-        projects: [project],
-        proposedDestination: linearDestination,
-        requestText:
-          "File an issue about https://github.com/amplifthq/payments/pull/82\n> Create a GitHub issue in this repository",
-      }).basis
-    ).toBe("project_default");
+    ).toMatchObject({ basis: "confirmation_required", projectId: null });
   });
-
-  it("honors a clear GitHub override without changing the Project rule", () => {
+  it.each([
+    github,
+    { ...destination, projectId: undefined },
+    { ...destination, projectId: "8220185c-3f49-4a8f-8d02-96b190fdd205" },
+  ])("requires exact-target confirmation for an override, including a different or omitted Linear project", (proposedDestination) => {
     expect(
       resolveProjectIssueAction({
         projects: [project],
-        proposedDestination: {
-          provider: "github",
-          owner: "amplifthq",
-          repo: "payments",
-        },
-        requestText:
-          "Create a GitHub issue in the repo for https://github.com/amplifthq/payments/pull/82",
-        requesterCanOverride: true,
+        taskProjectIds: [project.id],
+        proposedDestination,
       })
     ).toMatchObject({
-      basis: "explicit_request",
-      projectId: project.id,
+      basis: "confirmation_required",
+      destination: proposedDestination,
       projectRevision: null,
     });
-    expect(
-      resolveProjectIssueAction({
+  });
+  it("cannot promote negated, conditional, quoted or provider-only text into confirmation", () => {
+    for (const requestText of [
+      "Payments：放到 Linear 里跟踪",
+      "Payments: Do not, under any circumstances, create a GitHub issue in amplifthq/payments.",
+      "Payments: If we leave Linear next month, create a GitHub issue.",
+      "> Create a GitHub issue in https://github.com/amplifthq/payments",
+      `Payments: create a Linear issue in team ${destination.teamId}`,
+    ]) {
+      const proposed = {
         projects: [project],
-        proposedDestination: {
-          provider: "github",
-          owner: "amplifthq",
-          repo: "payments",
-        },
-        requestText:
-          "File an issue about https://github.com/amplifthq/payments/pull/82. Create it in this GitHub repository.",
+        taskProjectIds: [project.id],
+        proposedDestination: github,
+        requestText,
         requesterCanOverride: true,
-      }).basis
-    ).toBe("explicit_request");
+      };
+      expect(resolveProjectIssueAction(proposed).basis).toBe(
+        "confirmation_required"
+      );
+    }
   });
-
-  it("does not accept an Agent-authored provider override of a Project default", () => {
-    expect(() =>
-      resolveProjectIssueAction({
-        projects: [project],
-        proposedDestination: {
-          provider: "github",
-          owner: "amplifthq",
-          repo: "payments",
-        },
-        requestText:
-          "Create a GitHub issue in the repo for https://github.com/amplifthq/payments/pull/82",
-        requesterCanOverride: false,
-      })
-    ).toThrow("Only the requester can choose github instead of Linear");
-  });
-
-  it("does not treat negated or quoted issue instructions as a requester override", () => {
-    const requests = [
-      "Do not create a GitHub issue. File an issue about https://github.com/amplifthq/payments/pull/82.",
-      "File an issue about https://github.com/amplifthq/payments/pull/82\n    Create a GitHub issue in amplifthq/payments",
-      "File an issue about https://github.com/amplifthq/payments/pull/82. The old request said `Create a GitHub issue in amplifthq/payments`.",
-      'File an issue about https://github.com/amplifthq/payments/pull/82. The old request said "Create a GitHub issue in amplifthq/payments".',
-      "File an issue about https://github.com/amplifthq/payments/pull/82.\n~~~text\nCreate a GitHub issue in amplifthq/payments\n~~~",
-    ];
-    for (const requestText of requests) {
+  it("does not choose a default from ambiguous, missing or inactive Project scope", () => {
+    for (const taskProjectIds of [
+      [project.id, "project-other"],
+      ["project-removed"],
+      [],
+    ]) {
       expect(
         resolveProjectIssueAction({
           projects: [project],
-          proposedDestination: linearDestination,
-          requestText,
-        })
-      ).toMatchObject({ basis: "project_default", projectId: project.id });
-      expect(() =>
-        resolveProjectIssueAction({
-          projects: [project],
-          proposedDestination: {
-            provider: "github",
-            owner: "amplifthq",
-            repo: "payments",
-          },
-          requestText,
-        })
-      ).toThrow("New issues for Payments go to Linear");
+          taskProjectIds,
+          proposedDestination: destination,
+        }).basis
+      ).toBe("confirmation_required");
     }
-  });
-
-  it("blocks a shared repository when Project attribution would change the destination", () => {
-    expect(() =>
-      resolveProjectIssueAction({
-        projects: [
-          project,
-          {
-            ...project,
-            id: "project-platform",
-            name: "Platform",
-            slug: "platform",
-            routing: {
-              ...project.routing,
-              projectId: "project-platform",
-              destination: {
-                provider: "github",
-                owner: "amplifthq",
-                repo: "payments",
-              },
-            },
-          },
-        ],
-        proposedDestination: linearDestination,
-        requestText:
-          "Create an issue about https://github.com/amplifthq/payments/pull/82",
-      })
-    ).toThrow("Choose the Project");
-  });
-
-  it("uses an exact request target without requiring a Project", () => {
-    const proposedDestination = {
-      provider: "github" as const,
-      owner: "amplifthq",
-      repo: "openmeld",
-    };
-    expect(
-      resolveProjectIssueAction({
-        projects: [],
-        proposedDestination,
-        requestText: "Create an issue in amplifthq/openmeld for this bug.",
-        requesterCanOverride: true,
-      })
-    ).toMatchObject({
-      basis: "object_context",
-      projectId: null,
-      projectRevision: null,
-    });
-    expect(() =>
-      resolveProjectIssueAction({
-        projects: [],
-        proposedDestination,
-        requestText: "Create an issue in amplifthq/openmeld for this bug.",
-        requesterCanOverride: false,
-      })
-    ).toThrow("The issue destination is not established");
-  });
-
-  it("keeps a Task's Project default when the cited PR belongs to another Project", () => {
-    const codeProject: ProjectIssueRoutingCandidate = {
-      ...project,
-      id: "project-code",
-      name: "Code Platform",
-      slug: "code-platform",
-      repositoryUrl: "https://github.com/amplifthq/sdk",
-      routing: {
-        ...project.routing,
-        projectId: "project-code",
-        destination: {
-          provider: "github",
-          owner: "amplifthq",
-          repo: "sdk",
-        },
-      },
-    };
-    expect(
-      resolveProjectIssueAction({
-        projects: [project, codeProject],
-        proposedDestination: linearDestination,
-        requestText:
-          "File an issue about https://github.com/amplifthq/sdk/pull/82",
-        taskProjectIds: [project.id],
-      })
-    ).toMatchObject({ basis: "project_default", projectId: project.id });
   });
 });

@@ -69,7 +69,6 @@ import {
   buildRemoteAgentExecutionIdentity,
 } from "./execution-state";
 import {
-  issueRoutingDecisionForClaim,
   readGitHubIssueDestination,
   requireProjectIssueActionDestination,
 } from "./project-issue-routing";
@@ -1285,7 +1284,7 @@ async function executeGitHubIssueBatch(input: {
       connectionName: selection.connection.connectionName,
       coreWorker: input.coreWorker,
       effect: "write",
-      issueRoutingDecision: issueRoutingDecisionForClaim(issueResolution),
+      issueDestination: issueResolution?.destination,
       operationId,
       outcome: "attempted",
       providerExecutionId: null,
@@ -2303,7 +2302,7 @@ async function executeIdempotentGitHubAction(input: {
     outcome: "attempted",
     providerExecutionId: null,
     requestSignature,
-    issueRoutingDecision: issueRoutingDecisionForClaim(issueResolution),
+    issueDestination: issueResolution?.destination,
     service: "github",
     toolContext: input.toolContext,
   });

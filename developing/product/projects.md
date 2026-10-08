@@ -78,18 +78,22 @@ before its repository association list can be changed.
 
 One optional Project default names an exact GitHub repository or Linear team
 and optional Linear project. Supported OpenMeld-controlled issue-creation
-actions re-read the admitted request and current Project configuration before
-claiming a new provider operation. An explicit destination in a verified
-requester message or original Routine instruction wins; Agent-authored text
-cannot override the Project default. Quoted instructions and negated actions
-do not establish an override. When the source cannot prove who made the
-choice, request confirmation before a conflicting provider write;
-a GitHub PR cited as background does not override a Linear default. A Task's
-verified Project set may narrow the work scope, but multiple plausible Projects
-with different targets require a choice. No Task is required merely to create
-an issue. Provider connection, actor, target, and write permission are checked
-by their existing owners. Accepted retries keep their frozen exact target and
-operation identity rather than consulting a later Project default.
+actions re-read the admitted operation and current Project configuration before
+claiming a new provider operation. One complete, verified source Task Project
+association can select its exact configured default. Free text, repository URLs,
+provider names, and model arguments do not establish an override or select a
+Project for write authority. Missing, ambiguous or incomplete Task scope, and a
+different proposed destination, require an exact-target confirmation through
+the existing private Plugin request in the requester's Inbox. The confirmation
+binds the actor, operation, account, complete target and input identity; it does
+not change the Project default. A later chat message is not that confirmation.
+Users do not need to type Linear UUIDs into their request. The Agent discovers
+the target and the requester reviews the concrete account and identifiers.
+No Task is required merely to create an issue: the same confirmation path works
+without one. A Routine without a verified interactive requester cannot invent
+consent for an unresolved target. Connection, actor and write permission remain
+checked by their existing owners. Accepted retries keep their frozen exact
+target and operation identity rather than consulting a later Project default.
 
 ### Local Project Connection
 

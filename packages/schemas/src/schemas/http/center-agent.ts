@@ -347,13 +347,7 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     providerExecutionId: nullableTrimmedStringSchema,
     linearIssueReceipt: linearExternalWorkItemSchema.optional(),
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
-    issueRoutingDecision: z
-      .strictObject({
-        projectId: trimmedNonEmptyStringSchema.max(256),
-        revision: z.number().int().nonnegative(),
-        destination: projectIssueDestinationSchema,
-      })
-      .optional(),
+    issueDestination: projectIssueDestinationSchema.optional(),
     service: connectorServiceSchema,
     speakerMember: centerAgentToolSpeakerSchema,
   })
@@ -366,12 +360,11 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
         path: ["providerExecutionId"],
       });
     }
-    if (value.outcome !== "attempted" && value.issueRoutingDecision) {
+    if (value.outcome !== "attempted" && value.issueDestination) {
       context.addIssue({
         code: "custom",
-        message:
-          "issueRoutingDecision is only accepted with a new operation claim.",
-        path: ["issueRoutingDecision"],
+        message: "issueDestination is only accepted with an operation claim.",
+        path: ["issueDestination"],
       });
     }
     if (

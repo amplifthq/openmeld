@@ -63,7 +63,6 @@ import {
 } from "./destructive-authorization";
 import { readRemoteAgentExecutionAccess } from "./execution-access";
 import {
-  issueRoutingDecisionForClaim,
   readLinearIssueDestination,
   requireProjectIssueActionDestination,
 } from "./project-issue-routing";
@@ -628,6 +627,7 @@ async function resolveNewLinearIssueRouting(input: {
 }) {
   const destination = readLinearIssueDestination({
     actionId: input.action.id,
+    inputSchema: input.action.inputSchema,
     actionInput: input.request.input,
     service: input.request.service,
   });
@@ -801,7 +801,7 @@ async function prepareConnectorActionOperation(input: {
     outcome: "attempted",
     providerExecutionId: null,
     requestSignature,
-    issueRoutingDecision: issueRoutingDecisionForClaim(input.issueResolution),
+    issueDestination: input.issueResolution?.destination,
     service: input.request.service,
     toolContext: input.toolContext,
   });
@@ -1361,7 +1361,7 @@ export async function recordConnectorActionOperation(input: {
   outcome: "attempted" | "completed" | "failed" | "outcome_unknown";
   providerExecutionId: string | null;
   requestSignature: string;
-  issueRoutingDecision?: CenterAgentRecordConnectorActionOperationBody["issueRoutingDecision"];
+  issueDestination?: CenterAgentRecordConnectorActionOperationBody["issueDestination"];
   linearIssueReceipt?: CenterAgentRecordConnectorActionOperationBody["linearIssueReceipt"];
   service: ConnectorService;
   toolContext: ConnectorToolContext;
@@ -1385,8 +1385,8 @@ export async function recordConnectorActionOperation(input: {
           outcome: input.outcome,
           providerExecutionId: input.providerExecutionId,
           requestSignature: input.requestSignature,
-          ...(input.issueRoutingDecision
-            ? { issueRoutingDecision: input.issueRoutingDecision }
+          ...(input.issueDestination
+            ? { issueDestination: input.issueDestination }
             : {}),
           ...(input.linearIssueReceipt
             ? { linearIssueReceipt: input.linearIssueReceipt }
