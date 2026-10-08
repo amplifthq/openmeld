@@ -22,9 +22,11 @@ import { CopyIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { PersonalWorkspaceOrganizationGuidance } from "#/components/organizations/personal-workspace-organization-guidance";
 import { env } from "#/env";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { INVITE_PEOPLE_INTENT } from "#/lib/organizations/organization-entry-intent";
 import { spaceMembersQueryOptions } from "#/query/spaces/members";
 import {
 	SpaceAccessEditor,
@@ -286,7 +288,8 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 								changing link sharing.
 							</p>
 						) : null}
-						{resolveSpaceLinkJoining(controller.baseline) !== "invite_only" ? (
+						{resolveSpaceLinkJoining(controller.baseline) ===
+						"invite_only" ? null : (
 							<div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs">
 								<span>
 									{describeSavedJoining(
@@ -305,7 +308,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 									</Button>
 								) : null}
 							</div>
-						) : null}
+						)}
 						{copyFailed ? (
 							<div className="block space-y-1">
 								<span className="text-muted-foreground text-xs">
@@ -514,6 +517,20 @@ function InviteView(input: {
 	spaceId: string;
 	submitButtonTarget?: HTMLElement | null;
 }) {
+	const organization = useOptionalAppOrganization()?.currentOrganization;
+	if (organization?.isPersonal) {
+		return (
+			<div className="space-y-4">
+				<h3 className="font-medium text-base">
+					Invite teammates in an organization
+				</h3>
+				<PersonalWorkspaceOrganizationGuidance
+					description="Invite teammates to a Space in an organization. This Personal Space stays in your Personal Workspace."
+					intent={INVITE_PEOPLE_INTENT}
+				/>
+			</div>
+		);
+	}
 	return (
 		<div className="space-y-4">
 			<div>

@@ -13,7 +13,6 @@ import {
 import { resolveMessageChannelErrorMessage } from "#/lib/organizations/message-channels";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
-import { buildOrganizationNewOrganizationPath } from "#/lib/organizations/organization-routes";
 import { resolveVisibleChannelsSlackOAuthResult } from "#/lib/organizations/slack-oauth-result";
 import {
 	centerAgentDesignationQueryOptions,
@@ -98,9 +97,6 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 				result={slackOAuthResult}
 			/>
 			<PersonalWorkspaceChannelsGuidance
-				createOrganizationPath={buildOrganizationNewOrganizationPath(
-					input.organizationSlug
-				)}
 				hasExistingSlackConnection={hasExistingSlackConnection}
 			/>
 			{channelsQuery.isPending ? <ChannelsSkeleton /> : null}
