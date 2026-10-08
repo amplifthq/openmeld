@@ -1,4 +1,4 @@
-import { InvitationForm } from "#/components/directory/directory-members-overview";
+import { OrganizationInvitationForm } from "./organization-invitation-form";
 import { OrganizationInvitationRequestForm } from "./organization-invitation-request-form";
 import { OrganizationInviteLink } from "./organization-invite-link";
 
@@ -8,7 +8,7 @@ export function OrganizationInviteControls(input: {
 }) {
 	return input.canManage ? (
 		<div className="space-y-4">
-			<InvitationForm organizationId={input.organizationId} />
+			<OrganizationInvitationForm organizationId={input.organizationId} />
 			<OrganizationInviteLink organizationId={input.organizationId} />
 		</div>
 	) : (
