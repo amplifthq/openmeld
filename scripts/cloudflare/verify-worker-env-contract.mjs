@@ -15,7 +15,7 @@ const hasCoreAccountDeletion = existsSync(
   path.join(repoRoot, "services/core/src/organizations/account-deletion.ts")
 );
 const verificationProfile = parseVerificationProfile(process.argv.slice(2));
-verifyPostgresqlEnvironment(repoRoot);
+verifyPostgresqlEnvironment(repoRoot, { profile: verificationProfile });
 const verifiesStaging = verificationProfile === "all";
 const DEV_VAR_KEY_PATTERN = /^([A-Z0-9_]+)=/u;
 const CONFIG_ENV_LABEL_PREFIX_PATTERN = /^env\./u;
