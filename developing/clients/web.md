@@ -4501,9 +4501,11 @@ the current profile can plausibly use. Completing or canceling a Task that
 still has an open GitHub issue prompts the person to close that issue in
 GitHub. Core remains authoritative and rejects stale or unauthorized
 mutations. Private conversations reuse this board, message cards, and creation
-flow. Center Agent navigation places Tasks after Messages. New-chat drafts can
-capture a Task before a conversation exists; only submission creates the chat
-and publishes the message and Task. Opening Tasks alone creates no chat.
+flow. Center Agent navigation places Tasks after Messages. Before a chat exists,
+Tasks uses the same board empty state and creation dialog, without a transcript
+or composer. Submitting creates the chat and Task directly, then stays on Tasks;
+it does not send a message or start an Agent. Opening Tasks alone creates no chat.
+The Messages composer separately supports a Task in its first-message handoff.
 
 Every retained text message in an eligible Space has a secondary **Add to
 Tasks** action. The created Task preserves that Signal as its source, inherits

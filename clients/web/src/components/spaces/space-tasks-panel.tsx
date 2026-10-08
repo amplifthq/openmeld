@@ -2,13 +2,6 @@
 
 import type { SpaceTask, SpaceTaskPhase } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogFooter,
-	DialogTitle,
-} from "@openmeld/ui/components/dialog";
-import { Textarea } from "@openmeld/ui/components/textarea";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -30,11 +23,8 @@ import { buildSpaceMessageFocusHref } from "#/lib/spaces/thread-navigation";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { SpaceTasksSkeleton } from "./space-panel-skeletons";
 import { SpaceTaskCard } from "./space-task-card";
+import { SpaceTaskCreateDialog } from "./space-task-create-dialog";
 import { SpaceTaskDetailDrawer } from "./space-task-detail-drawer";
-import {
-	type SpaceTaskDraft,
-	SpaceTaskDraftFields,
-} from "./space-task-draft-fields";
 import { formatSpaceTaskPhase } from "./space-task-presentation";
 import {
 	type SpaceTasksPanelProps,
@@ -86,7 +76,7 @@ function TasksRefreshNotice(input: {
 	);
 }
 
-function EmptyTasksBoard(input: { phase?: SpaceTaskPhase }) {
+export function EmptyTasksBoard(input: { phase?: SpaceTaskPhase }) {
 	return (
 		<div className="flex min-h-80 items-center justify-center rounded-lg border border-border border-dashed px-6 text-center">
 			<div className="max-w-md">
@@ -154,17 +144,9 @@ function shouldBlockTasksRead(input: {
 }
 
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
-	const [draft, setDraft] = useState<SpaceTaskDraft | null>(null);
-	const [description, setDescription] = useState("");
-	const [creating, setCreating] = useState(false);
-	const [operationId, setOperationId] = useState(() => crypto.randomUUID());
+	const [creatingTask, setCreatingTask] = useState(false);
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 	const [phase, setPhase] = useState<SpaceTaskPhase | undefined>();
-	const closeDraft = () => {
-		setDraft(null);
-		setDescription("");
-		setOperationId(crypto.randomUUID());
-	};
 	const {
 		createTask,
 		detailQuery,
@@ -217,7 +199,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				/>
 				<TaskBoardHeader
 					onCreateTask={
-						input.openMeldProfileId ? () => setDraft({ title: "" }) : undefined
+						input.openMeldProfileId ? () => setCreatingTask(true) : undefined
 					}
 					onPhaseChange={setPhase}
 					phase={phase}
@@ -232,86 +214,20 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 					</p>
 				) : null}
 
-				<Dialog
-					onOpenChange={(open) => {
-						if (!(open || creating)) {
-							closeDraft();
-						}
-					}}
-					open={draft !== null}
-				>
-					{draft ? (
-						<DialogContent
-							aria-describedby={undefined}
-							className="sm:max-w-lg"
-							showCloseButton={!creating}
-						>
-							<DialogTitle>New task</DialogTitle>
-							<form
-								className="space-y-5"
-								onSubmit={async (event) => {
-									event.preventDefault();
-									if (creating || !draft.title.trim()) {
-										return;
-									}
-									setCreating(true);
-									const task = await createTask({
-										...draft,
-										operationId,
-										description: description.trim() || null,
-									});
-									setCreating(false);
-									if (task) {
-										closeDraft();
-										setSelectedTaskId(task.taskId);
-									}
-								}}
-							>
-								<SpaceTaskDraftFields
-									disabled={creating}
-									draft={draft}
-									members={members}
-									onChange={setDraft}
-								>
-									<div>
-										<label
-											className="text-muted-foreground text-xs"
-											htmlFor="task-description"
-										>
-											Description
-										</label>
-										<Textarea
-											className="mt-1"
-											disabled={creating}
-											id="task-description"
-											maxLength={8000}
-											onChange={(event) => setDescription(event.target.value)}
-											value={description}
-										/>
-									</div>
-								</SpaceTaskDraftFields>
-								<DialogFooter>
-									<Button
-										disabled={creating}
-										onClick={closeDraft}
-										size="sm"
-										type="button"
-										variant="ghost"
-									>
-										Cancel
-									</Button>
-									<Button
-										disabled={creating || !draft.title.trim()}
-										size="sm"
-										type="submit"
-									>
-										Create task
-									</Button>
-								</DialogFooter>
-							</form>
-						</DialogContent>
-					) : null}
-				</Dialog>
+				{creatingTask && (
+					<SpaceTaskCreateDialog
+						members={members}
+						onClose={() => setCreatingTask(false)}
+						onCreate={async (body) => {
+							const task = await createTask(body);
+							if (!task) {
+								return false;
+							}
+							setSelectedTaskId(task.taskId);
+							return true;
+						}}
+					/>
+				)}
 				<TaskBoardContent
 					onOpenTask={setSelectedTaskId}
 					phase={phase}
@@ -361,7 +277,7 @@ function resolveSelectedTask(
 	return detailTask ?? tasks.find((task) => task.taskId === taskId) ?? null;
 }
 
-function TaskBoardHeader(input: {
+export function TaskBoardHeader(input: {
 	onCreateTask?: () => void;
 	onPhaseChange: (phase: SpaceTaskPhase | undefined) => void;
 	phase?: SpaceTaskPhase;

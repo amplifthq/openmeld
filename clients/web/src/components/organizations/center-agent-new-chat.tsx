@@ -2,7 +2,6 @@ import {
 	createCenterAgentApi,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
-import { Button } from "@openmeld/ui/components/button";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -43,6 +42,7 @@ import { useCenterAgentAvatarProfile } from "#/query/profiles/agent-avatar-conte
 import { postWebSpaceWakeStop } from "#/query/spaces/wake-stop";
 import { CenterAgentChatHistory } from "./center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
+import { CenterAgentNewChatTasks } from "./center-agent-new-chat-tasks";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
 
@@ -320,6 +320,70 @@ export function CenterAgentNewChat({
 			),
 		[attachments.files.length, isSending]
 	);
+	const header = (
+		<SpaceWindowHeader
+			navigation={
+				<CenterAgentHeaderTabs
+					activeSectionId="chat"
+					activeSpaceView={view}
+					idPrefix="new-chat-view"
+					onSpaceViewChange={(nextView) => {
+						navigate({
+							to: buildOrganizationCenterAgentChatPath(organization.slug, {
+								draft: "new",
+								group,
+								view: nextView,
+							}),
+						});
+					}}
+					organizationSlug={organization.slug}
+				/>
+			}
+			secondaryContentClassName="overflow-x-auto"
+			title={titleDraft.content.text || "New chat"}
+			titleControl={
+				<CenterAgentChatHistory
+					disabled={isSending}
+					title={titleDraft.content.text || "New chat"}
+					titleAction={
+						<ChatTitleEditor
+							disabled={isSending}
+							onSave={(title) => {
+								titleDraft.setContent((current) => ({
+									...current,
+									text: title,
+								}));
+							}}
+							title={titleDraft.content.text || "New chat"}
+						/>
+					}
+				/>
+			}
+		/>
+	);
+	const taskMembers = [
+		...(defaultHumanProfile
+			? [
+					{
+						profileId: defaultHumanProfile.openMeldProfileId,
+						profileName: defaultHumanProfile.profileName,
+					},
+				]
+			: []),
+		...(centerAgentProfile ? [centerAgentProfile] : []),
+	];
+	if (view === "tasks") {
+		return (
+			<div className="flex min-h-0 w-full flex-1 flex-col">
+				{header}
+				<CenterAgentNewChatTasks
+					members={taskMembers}
+					profileId={defaultHumanProfile?.openMeldProfileId}
+				/>
+			</div>
+		);
+	}
+
 	return (
 		<div className="flex min-h-0 w-full flex-1 flex-col">
 			{error && (
@@ -333,21 +397,6 @@ export function CenterAgentNewChat({
 				empty
 				emptyContent={
 					<>
-						{view === "tasks" && (
-							<div className="m-auto space-y-3 p-6 text-center">
-								<p className="text-muted-foreground text-sm">No tasks yet</p>
-								<Button
-									onClick={() =>
-										setTaskDraft({
-											title: draft.content.text.trim().slice(0, 200),
-										})
-									}
-									size="sm"
-								>
-									New task
-								</Button>
-							</div>
-						)}
 						{view === "messages" && (
 							<CenterAgentDirectMessageIntro
 								disabled={isSending}
@@ -374,46 +423,7 @@ export function CenterAgentNewChat({
 						)}
 					</>
 				}
-				header={
-					<SpaceWindowHeader
-						navigation={
-							<CenterAgentHeaderTabs
-								activeSectionId="chat"
-								activeSpaceView={view}
-								idPrefix="new-chat-view"
-								onSpaceViewChange={(nextView) => {
-									navigate({
-										to: buildOrganizationCenterAgentChatPath(
-											organization.slug,
-											{ draft: "new", group, view: nextView }
-										),
-									});
-								}}
-								organizationSlug={organization.slug}
-							/>
-						}
-						secondaryContentClassName="overflow-x-auto"
-						title={titleDraft.content.text || "New chat"}
-						titleControl={
-							<CenterAgentChatHistory
-								disabled={isSending}
-								title={titleDraft.content.text || "New chat"}
-								titleAction={
-									<ChatTitleEditor
-										disabled={isSending}
-										onSave={(title) => {
-											titleDraft.setContent((current) => ({
-												...current,
-												text: title,
-											}));
-										}}
-										title={titleDraft.content.text || "New chat"}
-									/>
-								}
-							/>
-						}
-					/>
-				}
+				header={header}
 				onComposerChange={(text) => {
 					if (!isSending) {
 						setMessage(null);
@@ -439,17 +449,7 @@ export function CenterAgentNewChat({
 				selfProfile={defaultHumanProfile}
 				stopStatus={stopStatus}
 				taskDraft={taskDraft}
-				taskMembers={[
-					...(defaultHumanProfile
-						? [
-								{
-									profileId: defaultHumanProfile.openMeldProfileId,
-									profileName: defaultHumanProfile.profileName,
-								},
-							]
-						: []),
-					...(centerAgentProfile ? [centerAgentProfile] : []),
-				]}
+				taskMembers={taskMembers}
 			/>
 		</div>
 	);

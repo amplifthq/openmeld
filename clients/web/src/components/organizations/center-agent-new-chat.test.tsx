@@ -50,8 +50,9 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	saveComposerFileDraftUpload: async () => undefined,
 }));
 
-const { createSession, navigate, save } = vi.hoisted(() => ({
+const { createSession, createBoardTask, navigate, save } = vi.hoisted(() => ({
 	createSession: vi.fn(),
+	createBoardTask: vi.fn().mockResolvedValue({}),
 	navigate: vi.fn(),
 	save: vi.fn(),
 }));
@@ -67,6 +68,9 @@ vi.mock("@tanstack/react-router", async (original) => ({
 vi.mock("@openmeld/api-client", async (original) => ({
 	...(await original<typeof import("@openmeld/api-client")>()),
 	createCenterAgentApi: () => ({ createSession }),
+}));
+vi.mock("#/lib/spaces/api", () => ({
+	createOrganizationScopedWebSpaceApi: () => ({ createTask: createBoardTask }),
 }));
 vi.mock("#/lib/openmeld-api/client", () => ({
 	createOrganizationScopedWebOpenMeldApiFoundation: () => ({}),
@@ -135,11 +139,12 @@ it("keeps a title-only task draft local, then includes it in the first-message h
 	});
 	render(
 		<QueryClientProvider client={client}>
-			<CenterAgentNewChat view="tasks" />
+			<CenterAgentNewChat />
 		</QueryClientProvider>
 	);
 	expect(createSession).not.toHaveBeenCalled();
-	fireEvent.click(screen.getByRole("button", { name: "New task" }));
+	fireEvent.click(screen.getByRole("button", { name: "Add" }));
+	fireEvent.click(screen.getByRole("menuitem", { name: "Create task" }));
 	expect(screen.getByRole("button", { name: "Create task" })).toHaveProperty(
 		"disabled",
 		true
@@ -161,6 +166,41 @@ it("keeps a title-only task draft local, then includes it in the first-message h
 		text: "Review private work",
 		taskDraft: { title: "Review private work" },
 	});
+});
+it("creates a task from the new-chat board without a composer or message handoff", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	render(
+		<QueryClientProvider client={client}>
+			<CenterAgentNewChat view="tasks" />
+		</QueryClientProvider>
+	);
+	expect(
+		screen.queryByRole("textbox", { name: "Message Center Agent" })
+	).toBeNull();
+	expect(screen.queryByRole("log")).toBeNull();
+	expect(createSession).not.toHaveBeenCalled();
+	fireEvent.click(screen.getByRole("button", { name: "New task" }));
+	fireEvent.change(screen.getByRole("textbox", { name: "Title" }), {
+		target: { value: "Board task" },
+	});
+	expect(createSession).not.toHaveBeenCalled();
+	fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+	await waitFor(() => expect(createBoardTask).toHaveBeenCalledOnce());
+	await waitFor(() =>
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ to: expect.stringContaining("view=tasks") })
+		)
+	);
+	expect(screen.queryByRole("log")).toBeNull();
+	expect(
+		readCenterAgentPendingMessage(client, {
+			organizationId: "org-1",
+			organizationSlug: "acme",
+			sessionId: "chat-1",
+		})
+	).toBeFalsy();
 });
 function mount() {
 	return render(
