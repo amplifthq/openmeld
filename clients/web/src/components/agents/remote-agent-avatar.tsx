@@ -25,6 +25,7 @@ import { useRef } from "react";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
 import { useBotAvatarPreference } from "#/lib/appearance/bot-avatar-preference";
 import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
+import { AGENT_AVATAR_COLORS } from "./agent-avatar-colors";
 import { resolveAgentAvatarIdentity } from "./agent-avatar-identity";
 
 export const CENTER_AGENT_BOT_TYPES =
@@ -37,6 +38,7 @@ type AgentAvatarProps = Omit<FluidAvatarProps, "seed" | "fallback" | "size"> & {
 	profileName: string;
 	profileId?: string;
 	avatarStyle?: AgentAvatarStyle | null;
+	avatarOptions?: AuthProfileView["avatarOptions"];
 	avatarImageUrl?: string | null;
 	modelId?: string | null;
 	agentControllerRef?: string | null;
@@ -65,6 +67,7 @@ export function RemoteAgentAvatar(input: AgentAvatarProps) {
 			{...(profile
 				? {
 						avatarStyle: profile.avatarStyle,
+						avatarOptions: profile.avatarOptions,
 						modelId:
 							profile.avatarModelId === undefined
 								? input.modelId
@@ -81,6 +84,7 @@ function AgentAvatarPresentation({
 	profileName,
 	profileId,
 	avatarStyle,
+	avatarOptions,
 	avatarImageUrl,
 	modelId,
 	agentControllerRef,
@@ -98,7 +102,7 @@ function AgentAvatarPresentation({
 	...props
 }: AgentAvatarProps) {
 	const botCanvas = useRef<HTMLCanvasElement>(null);
-	const { motionEnabled, shading } = useBotAvatarPreference();
+	const { motionEnabled, shading, palette } = useBotAvatarPreference();
 	const identity = resolveAgentAvatarIdentity({
 		agentControllerRef,
 		avatarStyle,
@@ -112,12 +116,13 @@ function AgentAvatarPresentation({
 		"data-avatar-shape": shape,
 		"data-avatar-icon": identity.icon,
 	};
-	if (avatarImageUrl) {
+	const imageUrl = avatarOptions?.imageUrl ?? avatarImageUrl;
+	if (imageUrl) {
 		return (
 			<AgentAvatarImage
 				{...props}
 				{...identityAttributes}
-				avatarImageUrl={avatarImageUrl}
+				avatarImageUrl={imageUrl}
 				className={className}
 				shape={shape}
 				size={size}
@@ -134,18 +139,19 @@ function AgentAvatarPresentation({
 				aria-hidden="true"
 				className={className}
 				fallback={<RobotIcon className="h-1/2 w-1/2 text-white/80" />}
-				seed={profileId ?? profileName}
+				seed={avatarColorSeed(avatarOptions, profileId, profileName)}
 				shape={shape}
 				size={size}
 			/>
 		);
 	}
-	if (selectedStyle !== "automatic") {
+	if (selectedStyle !== "automatic" && selectedStyle !== "custom") {
 		const bot = (
 			<BotAvatar
 				aria-hidden="true"
 				followPointer={followPointer}
 				motionEnabled={motionEnabled}
+				palette={avatarOptions?.palette ?? palette}
 				preview={clickable && followPointer === undefined}
 				ref={botCanvas}
 				shading={shading}
@@ -262,7 +268,7 @@ function AgentAvatarImage({
 			{...props}
 			aria-hidden="true"
 			className={cn(
-				"overflow-hidden after:border-0",
+				"inline-flex overflow-hidden after:border-0",
 				shape === "circle" ? "rounded-full" : "rounded-[22%]",
 				className
 			)}
@@ -280,4 +286,14 @@ function AgentAvatarImage({
 			</AvatarFallback>
 		</Avatar>
 	);
+}
+
+function avatarColorSeed(
+	options: AuthProfileView["avatarOptions"],
+	profileId: string | undefined,
+	profileName: string
+) {
+	return options?.color
+		? AGENT_AVATAR_COLORS[options.color].seed
+		: (profileId ?? profileName);
 }

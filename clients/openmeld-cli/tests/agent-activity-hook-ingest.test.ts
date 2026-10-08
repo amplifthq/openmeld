@@ -10,6 +10,7 @@ import { readRecentAgentActivityHookStatus } from "../src/agent-activity/hook-pr
 import { readDueAgentActivityOutbox } from "../src/agent-activity/local-event-store";
 import { bindProject } from "../src/agent-activity/project-bindings";
 import { registerAgentActivityRoute } from "../src/agent-activity/route-registry";
+import { recordOpenMeldCreatedLocalAgentSession } from "../src/agent-activity/session-inventory-origin-store";
 
 let root: string | null = null;
 
@@ -21,6 +22,92 @@ afterEach(async () => {
 });
 
 describe("Agent Activity hook ingestion", () => {
+  it("uses accepted Project work attribution for a shared folder and leaves native ambiguity unbound", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-shared-activity-hook-"));
+    const repositoryPath = join(root, "repository");
+    const openMeldRoot = join(root, "openmeld-home");
+    const fingerprint = `sha256:${"a".repeat(64)}`;
+    await mkdir(repositoryPath);
+    await bindProject({
+      organizationId: "org-1",
+      projectId: "project-a",
+      projectSlug: "payments",
+      ownerUserId: "user-1",
+      repositoryFingerprint: fingerprint,
+      repositoryPath,
+      rootDir: openMeldRoot,
+    });
+    let shareConfirmationToken: string | undefined;
+    try {
+      await bindProject({
+        organizationId: "org-1",
+        projectId: "project-b",
+        projectSlug: "platform",
+        ownerUserId: "user-1",
+        repositoryFingerprint: fingerprint,
+        repositoryPath,
+        rootDir: openMeldRoot,
+      });
+    } catch (error) {
+      shareConfirmationToken = (
+        error as { pathConflict?: { shareConfirmationToken?: string } }
+      ).pathConflict?.shareConfirmationToken;
+    }
+    await bindProject({
+      organizationId: "org-1",
+      projectId: "project-b",
+      projectSlug: "platform",
+      ownerUserId: "user-1",
+      repositoryFingerprint: fingerprint,
+      repositoryPath,
+      rootDir: openMeldRoot,
+      shareConfirmationToken,
+    });
+    await recordOpenMeldCreatedLocalAgentSession({
+      agentControllerRef: "builtin:codex",
+      nativeSessionId: "native-project-b",
+      projectAttribution: {
+        organizationId: "org-1",
+        projectId: "project-b",
+        repositoryFingerprint: fingerprint,
+      },
+      rootDir: openMeldRoot,
+    });
+    const hook = (sessionId: string) =>
+      ingestAgentActivityHook({
+        nowMs: 1000,
+        payload: {
+          cwd: repositoryPath,
+          hook_event_name: "SessionStart",
+          session_id: sessionId,
+        },
+        provider: "codex",
+        ownerUserId: "user-1",
+        rootDir: openMeldRoot,
+      });
+    await expect(hook("native-project-b")).resolves.toBe("queued");
+    await expect(hook("native-unknown")).resolves.toBe("unbound");
+    await expect(
+      ingestAgentActivityHook({
+        nowMs: 1001,
+        ownerUserId: "user-2",
+        payload: {
+          cwd: repositoryPath,
+          hook_event_name: "SessionStart",
+          session_id: "native-project-b",
+        },
+        provider: "codex",
+        rootDir: openMeldRoot,
+      })
+    ).resolves.toBe("unbound");
+    await drainAgentActivityHookInbox({ nowMs: 1000, rootDir: openMeldRoot });
+    expect(
+      (
+        await readDueAgentActivityOutbox({ nowMs: 1000, rootDir: openMeldRoot })
+      ).map((record) => record.event.projectId)
+    ).toEqual(["project-b"]);
+  });
+
   it("durably queues exact provider task completion without copying private content", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-activity-hook-"));
     const repositoryPath = join(root, "repository");

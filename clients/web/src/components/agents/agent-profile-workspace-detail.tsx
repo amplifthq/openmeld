@@ -61,6 +61,7 @@ import {
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
 export function AgentProfileWorkspaceDetail(input: {
+	directMessageEnabled?: boolean;
 	activityNavigation: AgentProfileActivityNavigation | null;
 	agentControllerRef: string | null;
 	canEdit: boolean;
@@ -233,19 +234,21 @@ export function AgentProfileWorkspaceDetail(input: {
 						</div>
 						<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
 							<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
-								<Button
-									disabled={input.isDirectMessagePending}
-									onClick={input.onOpenDirectMessage}
-									size="sm"
-									type="button"
-									variant="default"
-								>
-									<ChatCircleTextIcon
-										aria-hidden="true"
-										data-icon="inline-start"
-									/>
-									Chat with {input.profile.profileName}
-								</Button>
+								{input.directMessageEnabled !== false && (
+									<Button
+										disabled={input.isDirectMessagePending}
+										onClick={input.onOpenDirectMessage}
+										size="sm"
+										type="button"
+										variant="default"
+									>
+										<ChatCircleTextIcon
+											aria-hidden="true"
+											data-icon="inline-start"
+										/>
+										Chat with {input.profile.profileName}
+									</Button>
+								)}
 								{input.overflowActions}
 							</div>
 						</div>

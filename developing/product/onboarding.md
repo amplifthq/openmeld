@@ -31,8 +31,11 @@ uses existing Personal Workspace, Organization creation, invitation acceptance,
 and join-request flows. The former Setup Studio and demonstrations remain in
 source for rollback but have no route, navigation, or Help entry.
 
-Users create a real Space, add their Center Agent, send a prepared greeting,
-and read its reply. Computer setup and further configuration remain optional.
+Users create a real Space, add their Center Agent, and send a prepared greeting.
+While it replies, they can connect a local agent through Members, Add people or
+agents, and the existing New Agent flow. Computer setup remains optional.
+After adding their local agent, they can send it a prepared greeting, then read
+the Center Agent's reply and choose further configuration.
 Starting prepares the designated Center Agent through its existing Core owner,
 then reserves a run and Space identity. Only the user's normal Create action
 creates that Space. Retries keep its identity. The suggested name is Welcome
@@ -53,10 +56,23 @@ must not lock the user out of the product; the explicit tutorial offers a retry.
 The existing picker preselects the designated Center Agent; only Add changes
 membership. The shared welcome draft builder fills an editable greeting with a
 real Wake mention. Existing text, attachments, replies, and sent messages prevent
-insertion. Only Send publishes it. Progress waits for this person's sent Wake and
-its correlated Center Agent final reply. Unrelated messages and progress updates
-do not complete the step. Optional local Agent membership requires that person's
-local controller, not a hosted Agent, and claims no readiness or execution success.
+insertion. Only Send publishes it. The accepted Center Agent message advances
+to the optional local-agent choice without waiting for a reply. Replies do not
+interrupt that choice or local setup. Connect an agent opens Members directly.
+The picker preselects an existing local agent owned by the person; otherwise New
+Agent is the primary action. Tutorial additions keep the picker open until the
+observed membership advances saved progress, so the old Members instruction
+does not flash during handoff. Members guidance remains until the person acts;
+it is not a timed slide. Composer guidance highlights the editable draft
+and Send control. Adding that person's local controller enables a prepared
+local greeting; another person's or a hosted Agent does not satisfy this step.
+Membership alone claims no readiness or execution success.
+
+Reply review recognizes only a published final reply correlated to this person's
+sent Wake. Streaming, failed, stopped, and unpublished streams do not count.
+The existing conversation displays actual progress and failures. The person
+chooses when to move on, including while a request is pending. No cached answer
+or simulated reply substitutes for a real request.
 
 Help exposes one Tutorial row below Documentation and the changelog. Continue
 and Replay use accessible icon buttons, tooltips, and shared Fluid Hover.
@@ -81,8 +97,8 @@ policy for members. It preserves memory choices, protection rules, and connectio
 
 React Joyride owns the spotlight and tooltip; native controls retain their focus
 and modal behavior. Shared Fluid components own hover and reduced motion.
-One footer uses visible secondary buttons. Optional computer setup has Skip this
-step and Connect agent; optional choices have Finish tutorial. No guide action
+One footer uses visible buttons. Optional computer setup has Not now and Connect
+an agent; optional choices have Finish tutorial. No guide action
 auto-sends a message, adds members, or changes shared configuration.
 
 The additive `/v1/organizations/current/first-work` GET/POST contract is shared
@@ -91,6 +107,14 @@ migrations, then deploy Core and Gateway before Web. Roll Web back before removi
 the receiver. Older Web, CLI, Service, and Skills do not call it; setup, Wake,
 and runtime epochs remain unchanged. Historical D1 imports leave this
 PostgreSQL-only presentation table empty.
+
+The local greeting and reply-review steps add `local-task` and
+`review-replies` to the shared progress contract. Core and Gateway must accept
+these values before the updated Web writes them. The text column needs no
+migration. Earlier Web builds cannot parse these new saved values: refresh old
+tabs, and retain these schema readers when rolling back presentation changes.
+Do not roll Core/Gateway back to readers that reject existing progress records.
+CLI, Service, Skills, setup, and Wake contracts are unchanged.
 
 ## Product Role
 

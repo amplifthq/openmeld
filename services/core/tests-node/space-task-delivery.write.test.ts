@@ -9,7 +9,12 @@ import {
   isSpaceTaskStopSuperseded,
   resolveSpaceTaskHumanDecisionTarget,
 } from "../src/space/application/space-task-delivery";
+import {
+  createSpaceTaskForMessage,
+  withSpaceTaskDispatchContext,
+} from "../src/space/application/space-task-message";
 import { SpaceTaskService } from "../src/space/application/space-task-service";
+import { createDispatchOutboxRecord } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { SpaceTaskDeliveryRepository } from "../src/space/infrastructure/sql/space-task-delivery-repo";
 import {
   ensureSpaceTaskTables,
@@ -102,12 +107,195 @@ function createSqlHarness(previousOutboxSchema = false) {
         }
       },
     });
-  return { close: () => database.close(), deliveries, service, sql, tasks };
+  return {
+    close: () => database.close(),
+    deliveries,
+    service,
+    sql,
+    tasks,
+    runTransaction,
+  };
 }
 
 afterEach(() => vi.useRealTimers());
 
 describe("Space Task durable delivery", () => {
+  it("retains Project link projection for creation and association removal", () => {
+    const harness = createSqlHarness();
+    try {
+      const context = {
+        actor: requester,
+        requestedBy: requester,
+        isSpaceOwner: true,
+        resolveMember: () => null,
+      };
+      const created = harness.service().create(
+        {
+          operationId: "create-project-linked-task",
+          title: "Project work",
+          projectIds: ["project-1"],
+        },
+        context
+      );
+      expect(harness.deliveries.pending(Date.now())).toMatchObject([
+        {
+          kind: "project_projection",
+          receipt: { task: { projectIds: ["project-1"] } },
+        },
+      ]);
+      harness.deliveries.complete(
+        harness.deliveries.pending(Date.now())[0]?.id ?? ""
+      );
+      harness.service().mutate(
+        created.task.taskId,
+        {
+          action: "set_projects",
+          expectedRevision: created.task.revision,
+          operationId: "remove-project-link",
+          projectIds: [],
+        },
+        context
+      );
+      expect(harness.deliveries.pending(Date.now())).toMatchObject([
+        { kind: "project_projection", receipt: { task: { projectIds: [] } } },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+  it("commits one task and its Wake references with its message, and rolls back failed dispatch insertion", () => {
+    const harness = createSqlHarness();
+    const members = new Map(
+      [requester, assignee, reviewer].map((member) => [
+        member.profileId,
+        member,
+      ])
+    );
+    const context = {
+      actor: requester,
+      isSpaceOwner: true,
+      resolveMember: (id: string) => members.get(id) ?? null,
+    };
+    const signal = {
+      v: 1 as const,
+      id: "message-1",
+      spaceId: "space-1",
+      ts: 1,
+      profile: {
+        kind: "human" as const,
+        profileId: requester.profileId,
+        profileName: requester.profileName,
+      },
+      type: "signal.text" as const,
+      data: {
+        text: "Check upload states",
+        taskDraft: {
+          title: "Fix uploads",
+          assigneeProfileId: assignee.profileId,
+          reviewerProfileId: reviewer.profileId,
+        },
+        messageEnvelope: {
+          text: "Check upload states",
+          activationTargets: [assignee.profileId, reviewer.profileId],
+          referenceTargets: [],
+        },
+      },
+    };
+    try {
+      harness.sql.exec("CREATE TABLE sent_messages (id TEXT PRIMARY KEY)");
+      const publish = () => {
+        harness.sql.exec("INSERT INTO sent_messages VALUES (?)", signal.id);
+        return createSpaceTaskForMessage({
+          sql: harness.sql,
+          signal,
+          context,
+          threadId: null,
+        });
+      };
+      expect(() =>
+        harness.runTransaction(() => {
+          publish();
+          throw new Error("dispatch insertion failed");
+        })
+      ).toThrow("dispatch insertion failed");
+      expect(harness.tasks.listTasks()).toHaveLength(0);
+      expect(
+        harness.sql.exec("SELECT * FROM sent_messages").toArray()
+      ).toHaveLength(0);
+      const receipt = harness.runTransaction(publish);
+      expect(receipt?.task.sourceSignalId).toBe(signal.id);
+      expect(receipt?.task.reviewer?.profileId).toBe(reviewer.profileId);
+      if (!receipt) {
+        throw new Error("Expected a created task");
+      }
+      const prepared = createDispatchOutboxRecord({
+        bindingEnabled: true,
+        bindingState: "bound",
+        dispatchPolicy: "mention_only",
+        spaceId: signal.spaceId,
+        sourceEventId: signal.id,
+        senderProfileId: requester.profileId,
+        targetProfileId: assignee.profileId,
+        sourceSignalSnapshot: {
+          text: signal.data.text,
+          profileId: requester.profileId,
+          profileKind: "human",
+        },
+        ruleSource: "registry",
+        ruleId: "registry.default.all_members.v1",
+        ruleReason: "Explicit Wake",
+        nowMs: 1,
+      });
+      const [dispatch] = withSpaceTaskDispatchContext(receipt.task, [prepared]);
+      expect(dispatch?.sourceSignalSnapshot?.text).toContain(
+        receipt.task.taskId
+      );
+      expect(dispatch?.sourceSignalSnapshot?.text).toContain(
+        assignee.profileId
+      );
+      expect(
+        JSON.parse(dispatch?.payloadJson ?? "{}").sourceSignalSnapshot.text
+      ).toContain(receipt.task.taskId);
+      expect(prepared.sourceSignalSnapshot?.text).toBe(signal.data.text);
+      expect(dispatch?.dispatchId).toBe(prepared.dispatchId);
+      const replay = harness.runTransaction(() =>
+        createSpaceTaskForMessage({
+          sql: harness.sql,
+          signal,
+          context,
+          threadId: null,
+        })
+      );
+      expect(replay?.task.taskId).toBe(receipt?.task.taskId);
+      expect(harness.tasks.listTasks()).toHaveLength(1);
+      expect(
+        harness.deliveries.wakeRefs(receipt?.task.taskId ?? "")
+      ).toHaveLength(2);
+      expect(() =>
+        harness.runTransaction(() =>
+          createSpaceTaskForMessage({
+            sql: harness.sql,
+            signal: {
+              ...signal,
+              id: "message-2",
+              data: {
+                ...signal.data,
+                taskDraft: {
+                  title: "Invalid assignment",
+                  assigneeProfileId: "not-a-member",
+                },
+              },
+            },
+            context,
+            threadId: null,
+          })
+        )
+      ).toThrow();
+      expect(harness.tasks.listTasks()).toHaveLength(1);
+    } finally {
+      harness.close();
+    }
+  });
   it("adds delivery retention metadata without dropping a previous outbox row", () => {
     const harness = createSqlHarness(true);
     try {

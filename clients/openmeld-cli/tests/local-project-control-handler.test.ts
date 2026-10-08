@@ -233,6 +233,74 @@ describe("local Project control daemon handler", () => {
     expect(JSON.stringify(result)).not.toContain("Organization name");
   });
 
+  it("keeps both same-Organization Project uses after an explicit share confirmation", async () => {
+    const rootDir = await tempRoot();
+    const repositoryPath = join(rootDir, "shared-repository");
+    await mkdir(repositoryPath);
+    await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "payments",
+      ownerUserId: "user-1",
+      repositoryFingerprint: FINGERPRINT,
+      repositoryPath,
+      rootDir,
+    });
+    const request = {
+      clientGeneration: 1,
+      declaredPath: repositoryPath,
+      expectedOrganizationId: "org-1",
+      projectId: "project-2",
+      projectSlug: "platform",
+      repositoryFingerprint: FINGERPRINT,
+    };
+    const validate = () =>
+      Promise.resolve({
+        canonicalPath: repositoryPath,
+        normalizedFrom: null,
+        repositoryFingerprint: FINGERPRINT,
+      });
+    const first = await handleLocalProjectControlFrame(
+      {
+        deviceId: "device-1",
+        ownerUserId: "user-1",
+        frame: requestFrame("connect_declared_path", {
+          ...request,
+          idempotencyKey: "share-first",
+        }),
+        rootDir,
+      },
+      { validate }
+    );
+    if (
+      first.code !==
+        "daemon.local_project_control.connect_declared_path_result" ||
+      first.payload.result.status !== "rejected" ||
+      first.payload.result.code !== "path_conflict" ||
+      !("shareConfirmationToken" in first.payload.result) ||
+      !first.payload.result.shareConfirmationToken
+    ) {
+      throw new Error("Expected an exact share confirmation challenge.");
+    }
+    const confirmed = await handleLocalProjectControlFrame(
+      {
+        deviceId: "device-1",
+        ownerUserId: "user-1",
+        frame: requestFrame("connect_declared_path", {
+          ...request,
+          idempotencyKey: "share-confirmed",
+          shareConfirmationToken: first.payload.result.shareConfirmationToken,
+        }),
+        rootDir,
+      },
+      { validate }
+    );
+    expect(confirmed).toMatchObject({
+      payload: { result: { status: "connected" } },
+    });
+    expect(await listProjectBindings({ rootDir })).toHaveLength(2);
+  });
+
   it.each([
     ["command_line_tools_missing", "command_line_tools_missing"],
     ["timed_out", "timeout"],

@@ -2,16 +2,19 @@ import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { buildRepositoryFingerprint } from "@openmeld/projects";
-import type { AgentActivityEvent } from "@openmeld/schemas/types";
+import type { AgentActivityEvent, SpaceTask } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptAgentActivityEventRecord } from "../src/agent-activity/activity-event-repository";
 import type { CoreBindings } from "../src/lib/bindings";
+import { readActiveProjectIds } from "../src/projects/project-repository";
+import { rpcReadProjectRecentTasks } from "../src/projects/project-rpc";
 import { createProjectService } from "../src/projects/project-service";
 import {
   rpcCreateProject,
   rpcListProjects,
   rpcUpdateAgentProfileDefaultProject,
 } from "../src/rpc/methods";
+import { projectSpaceTaskProjectLinks } from "../src/space/infrastructure/postgresql/space-task-project-link-repo";
 
 const ownedOrganizationIds = new Set<string>();
 const ownedUserIds = new Set<string>();
@@ -122,6 +125,213 @@ afterEach(async () => {
   ownedExecutionIds.clear();
 });
 describe("Core Projects", () => {
+  it("shows only current Tasks in Spaces the human can access, and ignores stale projection replay", async () => {
+    const actor = await seedOrganizationActor("member");
+    const project = await createProjectService({
+      db: getPostgresDatabase(env),
+    }).create(
+      authority({
+        organizationId: actor.organizationId,
+        role: "member",
+        userId: actor.userId,
+      }),
+      { name: "Payments" }
+    );
+    const context = {
+      activeOrganizationId: actor.organizationId,
+      actorContext: {
+        callerPrincipalId: actor.userId,
+        profileKind: "human" as const,
+        requestId: `request_${crypto.randomUUID()}`,
+        openMeldProfileId: actor.profileId,
+      },
+    };
+    const actorSnapshot: SpaceTask["createdBy"] = {
+      ownerUserId: actor.userId,
+      profileId: actor.profileId,
+      profileKind: "human",
+      profileName: "Member",
+    };
+    const task = (spaceId: string, title: string, day: number): SpaceTask => ({
+      assignee: null,
+      automaticReworkRounds: 0,
+      completionConditions: [],
+      createdAt: `2026-09-${day}T00:00:00.000Z`,
+      createdBy: actorSnapshot,
+      description: null,
+      externalWorkItems: [],
+      needsHumanDecision: false,
+      phase: "to_do",
+      projectIds: [project.id],
+      requestedBy: actorSnapshot,
+      result: null,
+      review: null,
+      reviewer: null,
+      revision: 1,
+      sourceSignalId: null,
+      spaceId,
+      taskId: `tsk_${crypto.randomUUID()}`,
+      threadId: null,
+      title,
+      updatedAt: `2026-09-${day}T00:00:00.000Z`,
+    });
+    const privateTask = task("a".repeat(64), "Private Task", 29);
+    const staleTask = task("b".repeat(64), "Stale Task", 28);
+    const visibleTask = task("c".repeat(64), "Visible Task", 27);
+    for (const current of [privateTask, staleTask, visibleTask]) {
+      await projectSpaceTaskProjectLinks({
+        db: getPostgresDatabase(env),
+        organizationId: actor.organizationId,
+        task: current,
+      });
+    }
+    const taskBySpace = new Map<string, SpaceTask>([
+      [privateTask.spaceId, privateTask],
+      [staleTask.spaceId, { ...staleTask, projectIds: [] }],
+      [visibleTask.spaceId, visibleTask],
+    ]);
+    const spaces = {
+      idFromString: (spaceId: string) => spaceId,
+      get: (spaceId: string) => ({
+        rpcGetTask: () => {
+          if (spaceId === privateTask.spaceId) {
+            return Promise.reject(
+              new Error("HTTP 401: Space password required")
+            );
+          }
+          return Promise.resolve({
+            task: taskBySpace.get(spaceId),
+            events: [],
+          });
+        },
+      }),
+    } as unknown as CoreBindings["OPENMELD_SPACES"];
+    const coreEnv = { ...env, OPENMELD_SPACES: spaces } as CoreBindings;
+    await expect(
+      rpcReadProjectRecentTasks(coreEnv, { context, projectId: project.id })
+    ).resolves.toEqual({
+      tasks: [expect.objectContaining({ title: "Visible Task" })],
+    });
+
+    const removed = { ...visibleTask, projectIds: [], revision: 2 };
+    taskBySpace.set(visibleTask.spaceId, removed);
+    await projectSpaceTaskProjectLinks({
+      db: getPostgresDatabase(env),
+      organizationId: actor.organizationId,
+      task: removed,
+    });
+    await projectSpaceTaskProjectLinks({
+      db: getPostgresDatabase(env),
+      organizationId: actor.organizationId,
+      task: visibleTask,
+    });
+    await expect(
+      rpcReadProjectRecentTasks(coreEnv, { context, projectId: project.id })
+    ).resolves.toEqual({ tasks: [] });
+  });
+  it("configures shared repository associations and a versioned code default", async () => {
+    const organizationId = await seedOrganization();
+    const service = createProjectService({ db: getPostgresDatabase(env) });
+    const owner = authority({
+      organizationId,
+      role: "owner",
+      userId: "owner-1",
+    });
+    const project = await service.create(owner, {
+      name: "Payments",
+      repositoryUrl: "https://github.com/acme/payments",
+    });
+    const initial = await service.readRepositorySettings(owner, project.id);
+    expect(initial.repositories).toMatchObject([
+      { repositoryUrl: "https://github.com/acme/payments", isDefault: true },
+    ]);
+    const updated = await service.updateRepositorySettings(owner, project.id, {
+      defaultRepositoryUrl: "https://github.com/acme/sdk",
+      expectedRevision: initial.revision,
+      repositoryUrls: [
+        "https://github.com/acme/payments",
+        "https://github.com/acme/sdk",
+      ],
+    });
+    expect(updated.repositories).toMatchObject([
+      { repositoryUrl: "https://github.com/acme/sdk", isDefault: true },
+      { repositoryUrl: "https://github.com/acme/payments", isDefault: false },
+    ]);
+    expect((await service.read(owner, project.id)).repositoryUrl).toBe(
+      "https://github.com/acme/sdk"
+    );
+    await expect(
+      service.updateRepositorySettings(owner, project.id, {
+        defaultRepositoryUrl: null,
+        expectedRevision: initial.revision,
+        repositoryUrls: [],
+      })
+    ).rejects.toThrow("project.conflict");
+  });
+
+  it("keeps Common Agents independent of work history and Project edit authority", async () => {
+    const actor = await seedOrganizationActor("member");
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    await getPostgresDatabase(env).query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles" (
+        profile_id, profile_name, profile_handle, profile_kind, is_default,
+        status, organization_id, owner_user_id, created_by_user_id, source,
+        created_at, updated_at
+      ) VALUES ($1, 'Project Agent', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1, 1)`,
+      values: [
+        agentProfileId,
+        `project-agent-${crypto.randomUUID()}`,
+        actor.organizationId,
+        actor.userId,
+        actor.userId,
+      ],
+    });
+    const service = createProjectService({ db: getPostgresDatabase(env) });
+    const manager = authority({
+      organizationId: actor.organizationId,
+      role: "member",
+      userId: actor.userId,
+    });
+    const project = await service.create(manager, { name: "Payments" });
+    const configured = await service.updateCommonAgents(manager, project.id, {
+      agentProfileIds: [agentProfileId],
+      expectedRevision: 0,
+    });
+    expect(configured.agentProfileIds).toEqual([agentProfileId]);
+    await expect(
+      service.updateCommonAgents(
+        { ...manager, userId: "other-member" },
+        project.id,
+        { agentProfileIds: [], expectedRevision: configured.revision }
+      )
+    ).rejects.toThrow("project.forbidden");
+  });
+
+  it("limits Task Project choices to active Projects in the owning Organization", async () => {
+    const organizationId = await seedOrganization();
+    const otherOrganizationId = await seedOrganization();
+    const service = createProjectService({ db: getPostgresDatabase(env) });
+    const ownProject = await service.create(
+      authority({ organizationId, role: "owner", userId: "owner-1" }),
+      { name: "Own work" }
+    );
+    const otherProject = await service.create(
+      authority({
+        organizationId: otherOrganizationId,
+        role: "owner",
+        userId: "owner-1",
+      }),
+      { name: "Other work" }
+    );
+    expect(
+      await readActiveProjectIds({
+        db: getPostgresDatabase(env),
+        organizationId,
+        projectIds: [ownProject.id, otherProject.id],
+      })
+    ).toEqual([ownProject.id]);
+  });
+
   it("replays concurrent creation retries and rejects changed input after later edits", async () => {
     const organizationId = await seedOrganization();
     const service = createProjectService({ db: getPostgresDatabase(env) });
@@ -143,7 +353,8 @@ describe("Core Projects", () => {
       service.create(owner, { ...request, name: "Different project" })
     ).rejects.toThrow("project.operation_conflict");
   });
-  it("prevents contextual creation from duplicating a repository across members", async () => {
+
+  it("allows one repository to belong to Projects created by different members", async () => {
     const organizationId = await seedOrganization();
     const service = createProjectService({ db: getPostgresDatabase(env) });
     const owner = authority({
@@ -169,14 +380,8 @@ describe("Core Projects", () => {
         operationId: "member-create",
       }),
     ]);
-    expect(
-      results.filter((result) => result.status === "fulfilled")
-    ).toHaveLength(1);
-    expect((await service.list(owner)).projects).toHaveLength(1);
-    const rejected = results.find((result) => result.status === "rejected");
-    expect(
-      rejected?.status === "rejected" && String(rejected.reason)
-    ).toContain("project.repository_exists");
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    expect((await service.list(owner)).projects).toHaveLength(2);
   });
   it("stores one safe repository URL with its matching fingerprint", async () => {
     const organizationId = await seedOrganization();
@@ -272,6 +477,79 @@ describe("Core Projects", () => {
       organizationId,
       projects: [expect.objectContaining({ id: ownerProject.id })],
     });
+  });
+
+  it("keeps issue routing under Project management and rejects stale competing changes", async () => {
+    const organizationId = await seedOrganization();
+    const service = createProjectService({ db: getPostgresDatabase(env) });
+    const owner = authority({
+      organizationId,
+      role: "owner",
+      userId: "owner-1",
+    });
+    const member = authority({
+      organizationId,
+      role: "member",
+      userId: "member-1",
+    });
+    const project = await service.create(owner, { name: "Payments" });
+    await expect(service.readIssueRouting(member, project.id)).resolves.toEqual(
+      {
+        destination: null,
+        projectId: project.id,
+        revision: 0,
+        updatedAtMs: null,
+        updatedByUserId: null,
+      }
+    );
+    await expect(
+      service.updateIssueRouting(member, project.id, {
+        destination: { provider: "github", owner: "acme", repo: "payments" },
+        expectedRevision: 0,
+      })
+    ).rejects.toThrow("project.forbidden");
+
+    const saved = await service.updateIssueRouting(owner, project.id, {
+      destination: { provider: "github", owner: "acme", repo: "payments" },
+      expectedRevision: 0,
+    });
+    expect(saved).toMatchObject({
+      destination: { provider: "github", owner: "acme", repo: "payments" },
+      revision: 1,
+      updatedByUserId: owner.userId,
+      updatedAtMs: expect.any(Number),
+    });
+    const competing = await Promise.allSettled([
+      service.updateIssueRouting(owner, project.id, {
+        destination: {
+          provider: "linear",
+          teamId: "11111111-1111-4111-8111-111111111111",
+        },
+        expectedRevision: 1,
+      }),
+      service.updateIssueRouting(owner, project.id, {
+        destination: null,
+        expectedRevision: 1,
+      }),
+    ]);
+    expect(
+      competing.filter((item) => item.status === "fulfilled")
+    ).toHaveLength(1);
+    expect(
+      competing.filter((item) => item.status === "rejected")
+    ).toMatchObject([
+      {
+        reason: expect.objectContaining({
+          message: expect.stringContaining("project.conflict"),
+        }),
+      },
+    ]);
+    expect((await service.readIssueRouting(owner, project.id)).revision).toBe(
+      2
+    );
+    expect((await service.list(owner)).projects[0]).not.toHaveProperty(
+      "issueDestination"
+    );
   });
   it("scopes every Project read and mutation to the actor organization", async () => {
     const firstOrganizationId = await seedOrganization();

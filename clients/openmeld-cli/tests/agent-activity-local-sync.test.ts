@@ -41,7 +41,10 @@ vi.mock("@openmeld/api-client", () => ({
 }));
 vi.mock("../src/config/auth-session", () => ({
   getAuthSessionState: vi.fn(() =>
-    Promise.resolve({ session: { accessToken: "test" }, state: "valid" })
+    Promise.resolve({
+      session: { accessToken: "test", user: { id: "user-1" } },
+      state: "valid",
+    })
   ),
 }));
 vi.mock("../src/config/daemon-service-contract", () => ({
@@ -121,6 +124,25 @@ afterEach(async () => {
 });
 
 describe("Agent Activity local delivery", () => {
+  it("withholds a Project's queued Activity after the signed-in account changes", async () => {
+    const { repositoryPath } = await seedLocalEvent();
+    await bindProject({
+      organizationId: "org-1",
+      ownerUserId: "user-2",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: requireRoot(),
+    });
+    await expect(runSync()).resolves.toMatchObject({
+      reason: "binding_owner_mismatch",
+      status: "unavailable",
+      submittedCount: 0,
+    });
+    expect(mocks.submitAgentActivityEvents).not.toHaveBeenCalled();
+  });
+
   it("orders a task registration before its same-turn completion", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-activity-sync-"));
     const shared = {

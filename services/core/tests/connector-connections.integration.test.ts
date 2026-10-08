@@ -373,7 +373,337 @@ async function seedHumanPluginRequestFixture(
   };
 }
 
+describe("Project issue destination confirmation", () => {
+  it("uses the existing human approval flow for a Local issue without a Task or raw target text", async () => {
+    const f = await seedHumanPluginRequestFixture();
+    const connectionName = await seedSharedConnectorConnection(f, "github");
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = $2',
+      values: [
+        JSON.stringify({
+          local_agent: "write",
+          center_agent: "none",
+          remote_agent: "none",
+        }),
+        connectionName,
+      ],
+    });
+    f.metadata.id = "github.create_issue";
+    f.metadata.service = "github";
+    const action = {
+      ...f.action,
+      service: "github" as const,
+      actionId: "github.create_issue",
+      input: { owner: "acme", repo: "payments", title: "Track a bug" },
+    };
+    f.input.request.action = action;
+    const pending = await f.pending();
+    expect(f.executions()).toHaveLength(0);
+    expect(pending.targets).toEqual(
+      expect.arrayContaining([
+        { label: "owner", value: "acme" },
+        { label: "repo", value: "payments" },
+      ])
+    );
+    await f.decide(pending.requestId, "approve");
+    f.input.request.action = {
+      ...action,
+      input: { ...action.input, repo: "other" },
+    };
+    await expect(rpcPluginAction(f.core, f.input)).rejects.toMatchObject({
+      code: "plugin.request_changed",
+    });
+    expect(f.executions()).toHaveLength(0);
+    f.input.request.action = action;
+    await expect(rpcPluginAction(f.core, f.input)).resolves.toMatchObject({
+      kind: "execution",
+      status: "completed",
+    });
+    expect(f.executions()).toHaveLength(1);
+  });
+  it.each([
+    "github",
+    "linear",
+  ] as const)("requires the requester to confirm the full %s target before a new operation", async (service) => {
+    const f = await seedConnectorFixture();
+    const center = await seedDesignatedCenterAgent(f);
+    const connectionName = await seedSharedConnectorConnection(f, service);
+    const db = getPostgresDatabase(env);
+    await db.query({
+      text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1, access_revision = 1 WHERE connection_name = $2',
+      values: [
+        JSON.stringify({
+          center_agent: "write",
+          remote_agent: "none",
+          local_agent: "none",
+        }),
+        connectionName,
+      ],
+    });
+    const member = (
+      await db.query<{ id: string }>({
+        text: 'SELECT id FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [f.organizationA, f.ownerA],
+      })
+    ).rows[0];
+    if (!member) {
+      throw new Error("Missing requester member");
+    }
+    const issueDestination =
+      service === "github"
+        ? { provider: "github" as const, owner: "acme", repo: "payments" }
+        : {
+            provider: "linear" as const,
+            teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+            projectId: "ef7c6509-3077-4d49-999e-0ee1c41eaef1",
+          };
+    const proposal = {
+      actionId:
+        service === "github"
+          ? "github.create_issue"
+          : "linear.create_linear_issue",
+      service,
+      connectionName,
+      context: center.context,
+      effect: "write" as const,
+      operationId: crypto.randomUUID(),
+      includeExecutionPermit: true as const,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requestSignature: "a".repeat(64),
+      speakerMember: { memberId: member.id, userId: f.ownerA },
+    };
+    const core = connectorCoreEnv();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, proposal)
+    ).rejects.toMatchObject({ code: "project.issue_target_required" });
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, {
+        ...proposal,
+        issueDestination,
+      })
+    ).rejects.toMatchObject({ code: "project.issue_confirmation_required" });
+    expect(
+      (
+        await db.query({
+          text: 'SELECT id FROM "openmeld"."center_agent_connector_action_operations" WHERE operation_id = $1',
+          values: [proposal.operationId],
+        })
+      ).rows
+    ).toEqual([]);
+    const requestId = (
+      await db.query<{ id: string }>({
+        text: 'SELECT id FROM "openmeld"."plugin_action_requests" WHERE operation_id = $1',
+        values: [proposal.operationId],
+      })
+    ).rows[0]?.id;
+    if (!requestId) {
+      throw new Error("Missing issue confirmation request");
+    }
+    const confirmation = {
+      expectedOrganizationId: f.organizationA,
+      context: connectorRequestContext({
+        organizationId: f.organizationA,
+        userId: f.ownerA,
+        profileId: f.ownerProfileId,
+      }),
+      command: { operation: "approve" as const, requestId },
+    };
+    await expect(
+      rpcPluginActionRequest(core, {
+        ...confirmation,
+        context: connectorRequestContext({
+          organizationId: f.organizationA,
+          userId: f.memberA,
+        }),
+      })
+    ).rejects.toMatchObject({ code: "plugin.request_not_found" });
+    const approved = await rpcPluginActionRequest(core, confirmation);
+    expect(approved.state).toBe("approved");
+    expect(approved.targets).toEqual(
+      expect.arrayContaining(
+        issueDestination.provider === "github"
+          ? [
+              { label: "owner", value: "acme" },
+              { label: "repo", value: "payments" },
+            ]
+          : [
+              { label: "teamId", value: issueDestination.teamId },
+              { label: "projectId", value: issueDestination.projectId },
+            ]
+      )
+    );
+    const changed =
+      issueDestination.provider === "github"
+        ? {
+            ...issueDestination,
+            provider: "github" as const,
+            owner: "acme",
+            repo: "other",
+          }
+        : {
+            ...issueDestination,
+            provider: "linear" as const,
+            teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+            projectId: "8220185c-3f49-4a8f-8d02-96b190fdd205",
+          };
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, {
+        ...proposal,
+        issueDestination: changed,
+      })
+    ).rejects.toMatchObject({ code: "plugin.request_changed" });
+    expect(
+      (
+        await db.query({
+          text: 'SELECT id FROM "openmeld"."center_agent_connector_action_operations" WHERE operation_id = $1',
+          values: [proposal.operationId],
+        })
+      ).rows
+    ).toEqual([]);
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, {
+        ...proposal,
+        issueDestination,
+      })
+    ).resolves.toMatchObject({
+      executionAllowed: true,
+      status: "pending",
+      replayed: false,
+    });
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, {
+        ...proposal,
+        issueDestination,
+        effect: "read",
+      })
+    ).rejects.toMatchObject({ code: "project.issue_target_required" });
+    await rpcCenterAgentRecordConnectorActionOperation(core, {
+      ...proposal,
+      outcome: "completed",
+      providerExecutionId: "confirmed-provider-effect",
+    });
+    // Earlier accepted receipts may predate stored connection generations.
+    // Reading their terminal result must not require a new target approval.
+    await db.query({
+      text: 'UPDATE "openmeld"."center_agent_connector_action_operations" SET connection_updated_at_ms = NULL WHERE operation_id = $1',
+      values: [proposal.operationId],
+    });
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, proposal)
+    ).resolves.toMatchObject({
+      status: "completed",
+      executionAllowed: false,
+      providerExecutionId: "confirmed-provider-effect",
+    });
+  });
+});
+
 describe("Local Agent plugin admission", () => {
+  it("fences a Project issue default change in the connector operation claim", async () => {
+    const fixture = await seedConnectorFixture();
+    const projectId = `project_${crypto.randomUUID()}`;
+    const destination = {
+      provider: "github" as const,
+      owner: "acme",
+      repo: "payments",
+    };
+    await getPostgresDatabase(env).query({
+      text: `INSERT INTO "openmeld"."projects" (
+        id, organization_id, name, slug, repository_fingerprint,
+        created_by_user_id, created_at_ms, updated_at_ms, archived_at_ms,
+        issue_destination_json, issue_destination_revision
+      ) VALUES ($1, $2, 'Payments', $3, NULL, $4, 1, 1, NULL, $5, 1)`,
+      values: [
+        projectId,
+        fixture.organizationA,
+        `payments-${crypto.randomUUID()}`,
+        fixture.ownerA,
+        JSON.stringify(destination),
+      ],
+    });
+    const baseInput = {
+      actionId: "github.create_issue",
+      actorProfileId: fixture.ownerProfileId,
+      attribution: {
+        actorProfileId: fixture.ownerProfileId,
+        onBehalfOf: {
+          displayName: "Connector owner",
+          profileId: fixture.ownerProfileId,
+          userId: fixture.ownerA,
+        },
+      },
+      connectionName: fixture.connectionA,
+      db: getPostgresDatabase(env),
+      executionConnection: {
+        connectionName: fixture.connectionA,
+        ownerDisplayName: fixture.memberA,
+        ownerUserId: fixture.memberA,
+        scope: "member" as const,
+        service: "github",
+      },
+      issueRoutingDecision: { projectId, revision: 1, destination },
+      organizationId: fixture.organizationA,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requester: {
+        kind: "represented_member" as const,
+        representedUserId: fixture.ownerA,
+      },
+      requestSignature: "a".repeat(64),
+      service: "github",
+    } as const;
+    const acceptedOperationId = `accepted-${crypto.randomUUID()}`;
+    await expect(
+      recordCenterAgentConnectorActionOperation({
+        ...baseInput,
+        operationId: acceptedOperationId,
+        nowMs: Date.now(),
+      })
+    ).resolves.toMatchObject({ replayed: false });
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."projects" SET issue_destination_revision = 2, issue_destination_json = $1 WHERE id = $2',
+      values: [
+        JSON.stringify({ provider: "github", owner: "acme", repo: "other" }),
+        projectId,
+      ],
+    });
+    const staleOperationId = `stale-${crypto.randomUUID()}`;
+    await expect(
+      recordCenterAgentConnectorActionOperation({
+        ...baseInput,
+        operationId: staleOperationId,
+        nowMs: Date.now(),
+      })
+    ).rejects.toMatchObject({
+      code: "project.issue_destination_changed",
+      status: 409,
+    });
+    const staleRows = await getPostgresDatabase(env)
+      .query<{ count: number }>({
+        text: `SELECT COUNT(*) AS count FROM "openmeld"."center_agent_connector_action_operations"
+       WHERE organization_id = $1 AND operation_id = $2`,
+        values: [fixture.organizationA, staleOperationId],
+      })
+      .then((result) => result.rows[0] ?? null);
+    expect(staleRows?.count).toBe(0);
+    const staleAudit = await getPostgresDatabase(env)
+      .query<{ count: number }>({
+        text: `SELECT COUNT(*) AS count FROM "openmeld"."center_agent_audit_journal"
+       WHERE resource_id = $1`,
+        values: [`github:github.create_issue:${staleOperationId}`],
+      })
+      .then((result) => result.rows[0] ?? null);
+    expect(staleAudit?.count).toBe(0);
+    await expect(
+      recordCenterAgentConnectorActionOperation({
+        ...baseInput,
+        operationId: acceptedOperationId,
+        nowMs: Date.now(),
+      })
+    ).resolves.toMatchObject({ replayed: true });
+  });
+
   it.each([
     "read_failure",
     "missing_submission",
@@ -2239,6 +2569,84 @@ describe("Core connector connection ownership", () => {
       raceAuditRows.rows[1]?.action
     );
   });
+
+  it("retains the exact Linear issue receipt for association-only replay", async () => {
+    const fixture = await seedConnectorFixture();
+    const receipt = {
+      id: "73c7947f-5bba-4e67-a668-9392b70cd424",
+      identifier: "PAY-82",
+      teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+      provider: "linear" as const,
+      url: "https://linear.app/acme/issue/PAY-82/fix-payment-retry",
+      lastObservedAt: null,
+      lastObservedState: null,
+    };
+    const command = {
+      actionId: "linear.create_linear_issue",
+      actorProfileId: fixture.ownerProfileId,
+      attribution: {
+        actorProfileId: fixture.ownerProfileId,
+        onBehalfOf: {
+          displayName: "Connector owner",
+          profileId: fixture.ownerProfileId,
+          userId: fixture.ownerA,
+        },
+      },
+      connectionName: "linear-test",
+      db: getPostgresDatabase(env),
+      executionConnection: {
+        connectionName: "linear-test",
+        ownerDisplayName: fixture.memberA,
+        ownerUserId: fixture.memberA,
+        scope: "member" as const,
+        service: "linear" as const,
+      },
+      operationId: `linear-issue-${crypto.randomUUID()}`,
+      organizationId: fixture.organizationA,
+      providerExecutionId: null,
+      requester: {
+        kind: "represented_member" as const,
+        representedUserId: fixture.ownerA,
+      },
+      requestSignature: "c".repeat(64),
+      service: "linear",
+    };
+    await recordCenterAgentConnectorActionOperation({
+      ...command,
+      nowMs: Date.now(),
+      outcome: "attempted",
+    });
+    const completed = await recordCenterAgentConnectorActionOperation({
+      ...command,
+      linearIssueReceipt: receipt,
+      nowMs: Date.now() + 1,
+      outcome: "completed",
+      providerExecutionId: "provider-linear-1",
+    });
+    expect(completed.operation.linearIssueReceipt).toEqual(receipt);
+    const replay = await recordCenterAgentConnectorActionOperation({
+      ...command,
+      linearIssueReceipt: receipt,
+      nowMs: Date.now() + 2,
+      outcome: "completed",
+      providerExecutionId: "provider-linear-1",
+    });
+    expect(replay).toMatchObject({
+      operation: { linearIssueReceipt: receipt },
+      replayed: true,
+    });
+    await expect(
+      recordCenterAgentConnectorActionOperation({
+        ...command,
+        linearIssueReceipt: { ...receipt, identifier: "PAY-83" },
+        nowMs: Date.now() + 3,
+        outcome: "completed",
+        providerExecutionId: "provider-linear-1",
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.connector_action_operation_conflict",
+    });
+  });
   it("uses the native delivery as the only requester for a connected Message Channel member", async () => {
     const fixture = await seedConnectorFixture();
     const sharedConnection = await seedSharedConnectorConnection(
@@ -2392,7 +2800,7 @@ describe("Core connector connection ownership", () => {
     };
     const operationId = `connector-rpc-${crypto.randomUUID()}`;
     const body = {
-      actionId: "github.create_issue",
+      actionId: "github.create_issue_comment",
       connectionName: fixture.connectionA,
       context,
       operationId,

@@ -18,6 +18,10 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
   app.get(collectionRoute, (c) => {
     const query = listSpaceTasksQuerySchema.safeParse({
       phase: c.req.query("phase"),
+      taskContractVersion:
+        c.req.query("taskContractVersion") === undefined
+          ? undefined
+          : Number(c.req.query("taskContractVersion")),
     });
     if (!query.success) {
       return c.json({ message: "Invalid Task filter." }, 400);
@@ -39,6 +43,10 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
     });
   });
   app.post(collectionRoute, async (c) => {
+    const taskContractVersion = c.req.query("taskContractVersion");
+    if (taskContractVersion !== undefined && taskContractVersion !== "2") {
+      return c.json({ message: "Unsupported Task contract version." }, 400);
+    }
     const body = createSpaceTaskBodySchema.safeParse(
       await c.req.json().catch(() => null)
     );
@@ -57,6 +65,9 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
           password: readSpacePasswordHeader(c.req.raw.headers),
           context: buildCoreRpcContext(c),
           body: body.data,
+          ...(taskContractVersion === "2"
+            ? { taskContractVersion: 2 as const }
+            : {}),
         }),
     });
   });
@@ -69,6 +80,10 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
     }
     const spaceId = c.req.param("spaceId");
     const affordances = c.req.query("includeAffordances");
+    const taskContractVersion = c.req.query("taskContractVersion");
+    if (taskContractVersion !== undefined && taskContractVersion !== "2") {
+      return c.json({ message: "Unsupported Task contract version." }, 400);
+    }
     if (affordances !== undefined && affordances !== "1") {
       return c.json({ message: "Invalid Task detail option." }, 400);
     }
@@ -85,10 +100,17 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
           password: readSpacePasswordHeader(c.req.raw.headers),
           context: buildCoreRpcContext(c),
           includeAffordances: affordances === "1",
+          ...(taskContractVersion === "2"
+            ? { taskContractVersion: 2 as const }
+            : {}),
         }),
     });
   });
   app.patch(itemRoute, async (c) => {
+    const taskContractVersion = c.req.query("taskContractVersion");
+    if (taskContractVersion !== undefined && taskContractVersion !== "2") {
+      return c.json({ message: "Unsupported Task contract version." }, 400);
+    }
     const taskId = spaceTaskIdSchema.safeParse(c.req.param("taskId"));
     const body = mutateSpaceTaskBodySchema.safeParse(
       await c.req.json().catch(() => null)
@@ -109,6 +131,9 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
           password: readSpacePasswordHeader(c.req.raw.headers),
           context: buildCoreRpcContext(c),
           body: body.data,
+          ...(taskContractVersion === "2"
+            ? { taskContractVersion: 2 as const }
+            : {}),
         }),
     });
   });

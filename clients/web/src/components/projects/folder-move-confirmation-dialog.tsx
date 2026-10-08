@@ -16,6 +16,7 @@ export function FolderMoveConfirmationDialog(input: {
 	conflict: LocalProjectControlPathConflictResponse | null;
 	errorMessage: string | null;
 	onConfirm: () => void;
+	onShare?: () => void;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 	pending: boolean;
@@ -29,16 +30,38 @@ export function FolderMoveConfirmationDialog(input: {
 			? "another Organization"
 			: "this Organization";
 	const description = `This folder is currently connected to the “${input.conflict.conflictingProjectSlug}” Project in ${currentScope}. Moving it here disconnects it there.`;
+	const canShare = Boolean(
+		input.conflict.conflictScope === "same_organization" &&
+			input.conflict.shareConfirmationToken &&
+			input.onShare
+	);
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Move this folder to {input.projectName}?</DialogTitle>
+					<DialogTitle>
+						{canShare
+							? `Use this folder for ${input.projectName}?`
+							: `Move this folder to ${input.projectName}?`}
+					</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
 				<p className="rounded-md border p-3 text-sm leading-6">
 					{resolveFolderMoveImpactMessage(input.conflict.moveImpact)}
 				</p>
+				{canShare ? (
+					<p className="text-muted-foreground text-sm leading-6">
+						You can also keep both Project connections. Work in this folder
+						shares one local write boundary. Session Activity needs a clear
+						Project attribution and may require attention when it is ambiguous.
+					</p>
+				) : null}
+				{!canShare && input.conflict.conflictScope === "same_organization" ? (
+					<p className="text-muted-foreground text-sm leading-6">
+						To keep both Project connections, reconnect the original Project's
+						folder under this OpenMeld account first, then try again.
+					</p>
+				) : null}
 				{input.errorMessage ? (
 					<p
 						className={resolveStatusToneStrongTextClassName("danger")}
@@ -58,6 +81,11 @@ export function FolderMoveConfirmationDialog(input: {
 					<Button disabled={input.pending} onClick={input.onConfirm}>
 						Move folder
 					</Button>
+					{canShare ? (
+						<Button disabled={input.pending} onClick={input.onShare}>
+							Connect to both Projects
+						</Button>
+					) : null}
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>

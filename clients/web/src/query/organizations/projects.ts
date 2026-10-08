@@ -1,8 +1,16 @@
-import type { ListProjectsResponse } from "@openmeld/schemas/types";
+import type {
+	ListProjectsResponse,
+	ReadProjectIssueRoutingResponse,
+	ReadProjectRecentTasksResponse,
+} from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
 import {
 	listCurrentProjects,
 	type ProjectFailure,
+	readCurrentProjectCommonAgents,
+	readCurrentProjectIssueRouting,
+	readCurrentProjectRecentTasks,
+	readCurrentProjectRepositorySettings,
 } from "#/lib/organizations/projects";
 import { baseQueryOptions } from "#/query/query-config";
 
@@ -10,6 +18,30 @@ export const projectQueryKeys = {
 	all: ["projects"] as const,
 	organization: (organizationId: string) =>
 		[...projectQueryKeys.all, organizationId] as const,
+	issueRouting: (organizationId: string, projectId: string) =>
+		[
+			...projectQueryKeys.organization(organizationId),
+			"issue-routing",
+			projectId,
+		] as const,
+	repositories: (organizationId: string, projectId: string) =>
+		[
+			...projectQueryKeys.organization(organizationId),
+			"repositories",
+			projectId,
+		] as const,
+	commonAgents: (organizationId: string, projectId: string) =>
+		[
+			...projectQueryKeys.organization(organizationId),
+			"common-agents",
+			projectId,
+		] as const,
+	recentTasks: (organizationId: string, projectId: string) =>
+		[
+			...projectQueryKeys.organization(organizationId),
+			"recent-tasks",
+			projectId,
+		] as const,
 };
 
 export function projectsQueryOptions(input: {
@@ -28,5 +60,68 @@ export function projectsQueryOptions(input: {
 		refetchOnWindowFocus: false,
 		retry: baseQueryOptions.retry,
 		staleTime: 10_000,
+	});
+}
+
+export function projectIssueRoutingQueryOptions(input: {
+	organizationId: string;
+	projectId: string;
+}) {
+	return queryOptions<ReadProjectIssueRoutingResponse, ProjectFailure>({
+		gcTime: baseQueryOptions.gcTime,
+		queryFn: async ({ signal }) =>
+			await readCurrentProjectIssueRouting({ ...input, signal }),
+		queryKey: projectQueryKeys.issueRouting(
+			input.organizationId,
+			input.projectId
+		),
+		refetchOnWindowFocus: false,
+		retry: baseQueryOptions.retry,
+		staleTime: 10_000,
+	});
+}
+
+export function projectRepositorySettingsQueryOptions(input: {
+	organizationId: string;
+	projectId: string;
+}) {
+	return queryOptions({
+		queryKey: projectQueryKeys.repositories(
+			input.organizationId,
+			input.projectId
+		),
+		queryFn: async ({ signal }) =>
+			await readCurrentProjectRepositorySettings({ ...input, signal }),
+		staleTime: 10_000,
+	});
+}
+
+export function projectCommonAgentsQueryOptions(input: {
+	organizationId: string;
+	projectId: string;
+}) {
+	return queryOptions({
+		queryKey: projectQueryKeys.commonAgents(
+			input.organizationId,
+			input.projectId
+		),
+		queryFn: async ({ signal }) =>
+			await readCurrentProjectCommonAgents({ ...input, signal }),
+		staleTime: 10_000,
+	});
+}
+
+export function projectRecentTasksQueryOptions(input: {
+	organizationId: string;
+	projectId: string;
+}) {
+	return queryOptions<ReadProjectRecentTasksResponse, ProjectFailure>({
+		queryKey: projectQueryKeys.recentTasks(
+			input.organizationId,
+			input.projectId
+		),
+		queryFn: async ({ signal }) =>
+			await readCurrentProjectRecentTasks({ ...input, signal }),
+		staleTime: 0,
 	});
 }

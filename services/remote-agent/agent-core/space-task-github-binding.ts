@@ -5,6 +5,7 @@ import {
   listSpaceTasksResponseSchema,
   SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
   SPACE_TASK_LIST_MAX_ITEMS,
+  SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
   spaceTaskExternalWorkItemIdentityKey,
   spaceTaskGitHubIssueOperationId,
   spaceTaskMutationReceiptSchema,
@@ -27,6 +28,10 @@ export type GitHubIssueSpaceTaskIdentity = {
   repo: string;
   url: string;
 };
+type GitHubWorkItem = Extract<
+  SpaceTaskExternalWorkItem,
+  { provider: "github" }
+>;
 
 export type SpaceTaskGitHubBindingPorts = {
   createSpaceTask?: (input: unknown) => Promise<unknown>;
@@ -306,7 +311,7 @@ async function associateCreatedGitHubIssue(input: {
 
 async function createLinkedSpaceTask(input: {
   actionInput: Record<string, unknown>;
-  item: SpaceTaskExternalWorkItem;
+  item: GitHubWorkItem;
   ports: Required<SpaceTaskGitHubBindingPorts>;
   spaceId: string;
   toolContext: {
@@ -331,12 +336,13 @@ async function createLinkedSpaceTask(input: {
       body,
       context: input.toolContext.context,
       spaceId: input.spaceId,
+      taskContractVersion: SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
     })
   );
 }
 
 async function ensureGitHubIssueAttached(input: {
-  item: SpaceTaskExternalWorkItem;
+  item: GitHubWorkItem;
   ports: Required<SpaceTaskGitHubBindingPorts>;
   spaceId: string;
   task: SpaceTask;
@@ -465,6 +471,7 @@ async function mutateLinkedTask(input: {
         context: input.toolContext.context,
         spaceId: input.spaceId,
         taskId: input.taskId,
+        taskContractVersion: SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
       }),
     readCurrentRevision: async () =>
       spaceTaskSchema.parse(
@@ -473,6 +480,7 @@ async function mutateLinkedTask(input: {
             context: input.toolContext.context,
             spaceId: input.spaceId,
             taskId: input.taskId,
+            taskContractVersion: SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
           })
         ).task
       ).revision,
@@ -490,6 +498,7 @@ async function listLinkedSpaceTasksForGitHubIssue(input: {
     await input.listSpaceTasks({
       context: input.context,
       spaceId: input.spaceId,
+      taskContractVersion: SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
     })
   );
   const matching = listed.tasks.filter(
@@ -510,7 +519,7 @@ async function listLinkedSpaceTasksForGitHubIssue(input: {
 function buildGitHubWorkItem(
   identity: GitHubIssueSpaceTaskIdentity,
   now: string
-): SpaceTaskExternalWorkItem {
+): GitHubWorkItem {
   return {
     lastObservedAt: now,
     lastObservedState: "open",

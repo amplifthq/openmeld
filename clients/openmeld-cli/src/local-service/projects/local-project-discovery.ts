@@ -70,6 +70,7 @@ export async function discoverLocalProjects(
     deviceId: string;
     expectedOrganizationId: string;
     homeDir?: string;
+    ownerUserId?: string;
     projects: CanonicalLocalProject[];
     requestId: string;
     rootDir?: string;
@@ -84,6 +85,7 @@ export async function discoverLocalProjects(
   const localState = await readLocalDiscoveryState({
     deadlineMs,
     expectedOrganizationId: input.expectedOrganizationId,
+    ownerUserId: input.ownerUserId,
     now,
     onDiagnostic: dependencies.onDiagnostic,
     rootDir: input.rootDir,
@@ -164,6 +166,7 @@ export async function discoverLocalProjects(
 async function readLocalDiscoveryState(input: {
   deadlineMs: number;
   expectedOrganizationId: string;
+  ownerUserId?: string;
   now: () => number;
   onDiagnostic?: DiscoveryDependencies["onDiagnostic"];
   rootDir?: string;
@@ -178,7 +181,7 @@ async function readLocalDiscoveryState(input: {
   | { status: "timed_out" }
 > {
   try {
-    const bindings = await runWithinDeadline(
+    const allBindings = await runWithinDeadline(
       () =>
         listProjectBindings({
           organizationId: input.expectedOrganizationId,
@@ -186,6 +189,10 @@ async function readLocalDiscoveryState(input: {
         }),
       input.deadlineMs,
       input.now
+    );
+    const bindings = allBindings.filter(
+      (binding) =>
+        !binding.ownerUserId || binding.ownerUserId === input.ownerUserId
     );
     const connectionsByProject = await runWithinDeadline(
       () =>

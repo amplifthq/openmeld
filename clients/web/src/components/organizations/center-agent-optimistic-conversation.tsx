@@ -43,6 +43,11 @@ import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-pro
 import { SpaceMessageProgressRow } from "#/components/spaces/space-message-progress-row";
 import { SpaceMessageSurface } from "#/components/spaces/space-message-surface";
 import { SpaceRequestElapsedTime } from "#/components/spaces/space-request-elapsed-time";
+import {
+	type SpaceTaskDraft,
+	SpaceTaskDraftFields,
+	type TaskDraftMember,
+} from "#/components/spaces/space-task-draft-fields";
 import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent-pending-message";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
@@ -104,6 +109,9 @@ export function CenterAgentOptimisticConversation(input: {
 	composerErrorMessage?: string | null;
 	onComposerChange: (value: string) => void;
 	onSend: () => void;
+	taskDraft?: SpaceTaskDraft | null;
+	onTaskDraftChange?: (draft: SpaceTaskDraft | null) => void;
+	taskMembers?: readonly TaskDraftMember[];
 	onStop?: () => void;
 	stopStatus?: "stopping" | "stopped" | "unconfirmed";
 	pendingMessage: PendingCenterAgentMessage | null;
@@ -114,6 +122,7 @@ export function CenterAgentOptimisticConversation(input: {
 	const organization = useOptionalAppOrganization()?.currentOrganization;
 	const organizationSlug = input.organizationSlug ?? organization?.slug;
 	const selfAvatarImageUrl = resolveSelfAvatarImageUrl(input);
+	const submitLabel = input.taskDraft ? "Create task" : "Send message";
 	const fileInput = useSpaceComposerFileInput({
 		disabled: isSending || !input.attachments,
 		onAddFiles: async (files) => {
@@ -245,6 +254,7 @@ export function CenterAgentOptimisticConversation(input: {
 							onSubmit={input.onSend}
 							value={input.composerText}
 						>
+							<NewChatTaskFields disabled={isSending} input={input} />
 							<CenterAgentAttachmentState
 								attachments={input.attachments}
 								isSending={isSending}
@@ -276,21 +286,16 @@ export function CenterAgentOptimisticConversation(input: {
 											addFiles={fileInput.addFiles}
 											disabled={isSending}
 											limitReached={input.attachments.isAtLimit}
+											onCreateTask={newChatTaskAction(input)}
 										/>
 									)}
 								</div>
 								<PromptInputAction
-									tooltip={isSending ? "Sending…" : "Send message"}
+									tooltip={isSending ? "Sending…" : submitLabel}
 								>
 									<Button
-										aria-label={isSending ? "Sending…" : "Send message"}
-										disabled={
-											isSending ||
-											!(
-												input.composerText.trim() ||
-												input.attachments?.files.length
-											)
-										}
+										aria-label={isSending ? "Sending…" : submitLabel}
+										disabled={isSending || !canSendNewChat(input)}
 										onClick={input.onSend}
 										size="icon-sm"
 										type="button"
@@ -451,4 +456,43 @@ function resolveSelfAvatarImageUrl(input: {
 	return input.selfAvatarImageUrl === undefined
 		? input.selfProfile?.avatarUrl
 		: input.selfAvatarImageUrl;
+}
+
+type NewChatComposerInput = Parameters<
+	typeof CenterAgentOptimisticConversation
+>[0];
+function NewChatTaskFields({
+	input,
+	disabled,
+}: {
+	input: NewChatComposerInput;
+	disabled: boolean;
+}) {
+	if (!(input.taskDraft && input.onTaskDraftChange)) {
+		return null;
+	}
+	return (
+		<SpaceTaskDraftFields
+			disabled={disabled}
+			draft={input.taskDraft}
+			members={input.taskMembers ?? []}
+			onChange={input.onTaskDraftChange}
+			onClose={() => input.onTaskDraftChange?.(null)}
+		/>
+	);
+}
+function newChatTaskAction(input: NewChatComposerInput) {
+	if (input.taskDraft || !input.onTaskDraftChange) {
+		return undefined;
+	}
+	return () =>
+		input.onTaskDraftChange?.({
+			title: input.composerText.trim().slice(0, 200),
+		});
+}
+function canSendNewChat(input: NewChatComposerInput) {
+	if (input.taskDraft) {
+		return Boolean(input.taskDraft.title.trim());
+	}
+	return Boolean(input.composerText.trim() || input.attachments?.files.length);
 }

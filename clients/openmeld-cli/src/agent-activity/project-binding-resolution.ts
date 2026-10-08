@@ -26,6 +26,7 @@ export function resolveCanonicalLocalProjectConnection<
   connections: readonly Connection[]
 ): Connection | null {
   let longestMatch: Connection | null = null;
+  let ambiguous = false;
   for (const connection of connections) {
     if (
       isPathWithin(canonicalPath, connection.repositoryPath) &&
@@ -33,9 +34,18 @@ export function resolveCanonicalLocalProjectConnection<
         connection.repositoryPath.length > longestMatch.repositoryPath.length)
     ) {
       longestMatch = connection;
+      ambiguous = false;
+    } else if (
+      longestMatch &&
+      isPathWithin(canonicalPath, connection.repositoryPath) &&
+      connection.repositoryPath.length === longestMatch.repositoryPath.length &&
+      (connection.organizationId !== longestMatch.organizationId ||
+        connection.projectId !== longestMatch.projectId)
+    ) {
+      ambiguous = true;
     }
   }
-  return longestMatch;
+  return ambiguous ? null : longestMatch;
 }
 
 export async function resolveLocalProjectConnectionForPath<

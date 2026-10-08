@@ -192,6 +192,8 @@ export const {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceTaskGitHubIssueLinks,
+  spaceTaskProjectLinks,
+  spaceTaskProjectProjectionStates,
   githubAppWebhookDeliveries,
 } = coreSchema;
 

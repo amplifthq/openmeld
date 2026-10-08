@@ -117,6 +117,25 @@ it("tells a Space-only parallel task when repository review is unavailable", () 
   );
 });
 
+it("passes the accepted Project to Task association guidance without granting access", () => {
+  const plan = buildDispatchPromptPlan({
+    dispatchTriggerSource: "activation_targets",
+    projectWork: {
+      projectId: "project-payments",
+      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+    },
+    prompt: "Update the SDK",
+    shouldInjectBootstrap: false,
+    spaceId: "space",
+    targetProfileId: "agt-target-a",
+  });
+  expect(plan.userPrompt).toContain(
+    "Selected OpenMeld Project for this execution: project-payments."
+  );
+  expect(plan.userPrompt).toContain("include this Project ID in projectIds");
+  expect(plan.userPrompt).toContain("does not grant additional Space");
+});
+
 function createDeliverRequest(input: {
   activationTargets?: string[];
   attachments?: SpaceMessageAttachment[];

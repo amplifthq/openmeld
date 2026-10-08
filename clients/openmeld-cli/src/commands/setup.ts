@@ -993,12 +993,10 @@ function emitSetupHumanCompletion(input: {
   selectedLocalAgentIds: readonly string[];
 }): void {
   const openMeldWebUrl = new URL(
-    resolveGatewayWebOrigin(input.gatewayUrl)
+    process.env.OPENMELD_SETUP_WEB_URL ||
+      resolveGatewayWebOrigin(input.gatewayUrl)
   ).toString();
-  const returnLine = `Open OpenMeld Web: ${formatTerminalHyperlink({
-    label: "OpenMeld Web",
-    url: openMeldWebUrl,
-  })}.`;
+  const returnLine = `Continue in OpenMeld: ${openMeldWebUrl}`;
   const sections =
     input.bootstrap.status === "completed"
       ? [

@@ -58,6 +58,42 @@ afterEach(async () => {
 });
 
 describe("Execution Context local authority", () => {
+  it("rejects a Project fork in a folder that differs from its frozen source before native execution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-project-fork-"));
+    roots.push(root);
+    const folder = await realpath(root);
+    await expect(
+      prepareExecutionContextConversation({
+        context: {
+          ...context,
+          access: "workspace",
+          workspace: "current",
+          projectWork: {
+            projectId: "project-payments",
+            repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+          },
+          forkSource: {
+            contextId: "33333333-3333-4333-8333-333333333333",
+            sourceWakeId: "wake-source",
+            nativeConversationId: "parent-thread",
+            completedHistoryId: "turn-1",
+            workspace: "current",
+            runtimeWorkspaceFingerprint: buildRuntimeWorkspaceFingerprint(
+              join(folder, "different-repository")
+            ),
+          },
+        },
+        unscopedNativeConversationId: null,
+        currentWorkingDirectory: folder,
+        workingDirectory: folder,
+        existingNativeConversationId: null,
+        ledgerRootPath: root,
+        agentControllerRef: "builtin:codex",
+        launchContract,
+      })
+    ).rejects.toThrow("fork_source_workspace_changed");
+    expect(forkCodexAppServerThread).not.toHaveBeenCalled();
+  });
   it("passes the workspace owner's Git metadata facts to the native boundary", () => {
     const gitMetadata = {
       commonDirectoryPointerPath:

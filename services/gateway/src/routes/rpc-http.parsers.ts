@@ -178,6 +178,8 @@ export function parsePostSignalBody(body: unknown): ParseResult<{
   text: string;
   deviceWait?: SignalText["data"]["deviceWait"];
   contextSelection?: SignalText["data"]["contextSelection"];
+  contextSelections?: SignalText["data"]["contextSelections"];
+  taskDraft?: SignalText["data"]["taskDraft"];
   attachments?: SignalText["data"]["attachments"];
   files?: SignalText["data"]["files"];
   messageEnvelope?: SignalText["data"]["messageEnvelope"];
@@ -200,6 +202,10 @@ export function parsePostSignalBody(body: unknown): ParseResult<{
       ...(parsed.data.contextSelection
         ? { contextSelection: parsed.data.contextSelection }
         : {}),
+      ...(parsed.data.contextSelections
+        ? { contextSelections: parsed.data.contextSelections }
+        : {}),
+      ...(parsed.data.taskDraft ? { taskDraft: parsed.data.taskDraft } : {}),
       ...(parsed.data.attachments
         ? { attachments: parsed.data.attachments }
         : {}),

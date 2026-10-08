@@ -32,13 +32,15 @@ export function agentCreationRecoveryFixture(input: {
 	deviceId: string | null;
 	onSelect: Recovery["selectComputer"];
 }): Recovery {
-	// Only the computer projection and selection callback are consumed by this
-	// hook. Full page/query ownership is tested by create-profile-dialog integration.
+	// This presentation fixture includes only the projection, selection and refresh
+	// controls consumed by the hook. Full queries belong to the dialog integration.
 	return {
 		deviceId: input.deviceId,
 		selectComputer: input.onSelect,
 		localRuntimesQuery: {
 			data: { peopleComputers: { computers: input.computers } },
+			refetch: async () => undefined,
 		},
-	} as Recovery;
+		currentLocalRuntimeReplyReadinessQuery: { refetch: async () => undefined },
+	} as unknown as Recovery;
 }

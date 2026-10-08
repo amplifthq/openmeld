@@ -29,8 +29,10 @@ export function SpaceAttachmentStrip(input: {
 		if (!textSurface) {
 			return;
 		}
-		const measure = () =>
-			setTextWidth(textSurface.getBoundingClientRect().width);
+		const measure = () => {
+			const width = textSurface.getBoundingClientRect().width;
+			setTextWidth(width > 0 ? width : null);
+		};
 		measure();
 		const observer = new ResizeObserver(measure);
 		observer.observe(textSurface);

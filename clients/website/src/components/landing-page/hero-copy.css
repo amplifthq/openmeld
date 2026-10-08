@@ -1,0 +1,60 @@
+.meld-hero h1.meld-hero-title {
+	max-width: 1040px;
+	margin-inline: auto;
+}
+
+.meld-hero-description.meld-hero-copy {
+	max-width: 870px;
+}
+
+.meld-hero-copy-participant {
+	display: inline-block;
+	white-space: nowrap;
+}
+
+.meld-hero-copy-cloud-agents {
+	display: inline-flex;
+	align-items: center;
+	gap: 0;
+	margin-inline: 0.3em;
+	vertical-align: -7px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.meld-hero-copy-bot {
+	cursor: pointer;
+	border-radius: 50%;
+}
+
+.meld-hero-copy-agent-decoration {
+	display: inline-block;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.meld-hero-copy-agent-marks {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-inline: 0.45em;
+	vertical-align: -4px;
+	white-space: nowrap;
+}
+
+.meld-hero-copy-agent-marks .meld-hero-copy-agent-mark {
+	width: 20px;
+	height: 20px;
+	color: #eeeeef;
+}
+
+@media (max-width: 360px) {
+	.meld-hero-copy-participant:last-child {
+		white-space: normal;
+	}
+
+	.meld-hero-copy-agent-marks {
+		gap: 2px;
+		margin-inline: 0.3em;
+	}
+}

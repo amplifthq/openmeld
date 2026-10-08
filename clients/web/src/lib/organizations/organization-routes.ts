@@ -264,7 +264,7 @@ export function buildOrganizationCenterAgentChatPath(
 		session?: string;
 		focusSignalId?: string;
 		focusThreadRootSignalId?: string;
-		view?: "files" | "graph" | "messages";
+		view?: "files" | "graph" | "messages" | "tasks";
 	}
 ): string {
 	const path = `${buildOrganizationRootPath(orgSlug)}/chats/center-agent`;

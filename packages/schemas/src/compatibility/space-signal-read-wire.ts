@@ -63,15 +63,26 @@ function projectSignalTextRead(
   record: Record<string, unknown>,
   supportsAgentWorkOutcomes: boolean
 ) {
-  const { deviceWait, contextSelection, ...data } = record.data as Record<
-    string,
-    unknown
-  >;
+  const {
+    deviceWait,
+    contextSelection,
+    contextSelections,
+    taskDraft,
+    ...data
+  } = record.data as Record<string, unknown>;
   const meta = data.meta as Record<string, unknown> | undefined;
   const projectedMeta = supportsAgentWorkOutcomes
     ? meta
     : projectLegacyAgentWorkMetadata(meta);
-  if (!(deviceWait || contextSelection || projectedMeta !== meta)) {
+  if (
+    !(
+      deviceWait ||
+      contextSelection ||
+      contextSelections ||
+      taskDraft ||
+      projectedMeta !== meta
+    )
+  ) {
     return record;
   }
   return {
