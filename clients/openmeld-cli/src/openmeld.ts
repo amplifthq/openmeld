@@ -1633,28 +1633,61 @@ computerCmd
   .description(
     "Disconnect this computer from its reviewed account without forgetting its record."
   )
-  .requiredOption(
+  .option(
     "--connection-intent <json>",
     "Account and exact Computer session reviewed for disconnection"
   )
-  .action(async (opts: { connectionIntent: string }) => {
-    const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
-      routeTokens: ["computer", "disconnect"],
-      view,
-      run: async () => {
-        const { runComputerDisconnect } = await import(
-          "./commands/computer-disconnect"
-        );
-        await runComputerDisconnect(
-          computerConnectionIntentSchema.parse(
-            JSON.parse(opts.connectionIntent)
-          ),
-          view
-        );
-      },
-    });
-  });
+  .option("--expected-account <id>", "Account shown in OpenMeld Web")
+  .option("--device <id>", "Computer device shown in OpenMeld Web")
+  .option(
+    "--runtime-lane <lane>",
+    "Computer runtime lane shown in OpenMeld Web"
+  )
+  .action(
+    async (opts: {
+      connectionIntent?: string;
+      expectedAccount?: string;
+      device?: string;
+      runtimeLane?: string;
+    }) => {
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["computer", "disconnect"],
+        view,
+        run: async () => {
+          const { runComputerDisconnect, runComputerDisconnectTarget } =
+            await import("./commands/computer-disconnect");
+          if (!opts.connectionIntent) {
+            const { desktopComputerDisconnectRequestSchema } = await import(
+              "@openmeld/schemas"
+            );
+            await runComputerDisconnectTarget(
+              desktopComputerDisconnectRequestSchema.parse({
+                expectedAccount: opts.expectedAccount,
+                expectedConnection: {
+                  deviceId: opts.device,
+                  runtimeLane: opts.runtimeLane,
+                },
+              }),
+              view
+            );
+            return;
+          }
+          if (opts.expectedAccount || opts.device || opts.runtimeLane) {
+            throw new Error(
+              "Use either a connection intent or an explicit Computer target."
+            );
+          }
+          await runComputerDisconnect(
+            computerConnectionIntentSchema.parse(
+              JSON.parse(opts.connectionIntent)
+            ),
+            view
+          );
+        },
+      });
+    }
+  );
 
 computerCmd.addHelpText(
   "after",

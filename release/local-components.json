@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T18:27:26.898Z",
+  "updatedAt": "2026-10-08T06:14:50.944Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.248",
+      "packageVersion": "0.3.249",
       "updatePolicy": "available",
-      "reason": "Existing commands remain compatible; new conversation readers are optional and their cloud receivers deploy before CLI publication."
+      "reason": "Add an account- and device-checked Computer disconnect command for Web; existing setup and Wake contracts remain compatible."
     },
     "service": {
       "bundleHash": "a24cc02a780dae13075b1a3b091235d8676286f5de115033330ebc8ad04ea25f",

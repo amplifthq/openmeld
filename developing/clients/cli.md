@@ -1356,6 +1356,16 @@ remains a compatibility receiver for commands generated before this contract
 changed and uses the same fail-atomic Prepare handoff; it is not the
 Web-recommended handoff.
 
+`computer disconnect --expected-account <id> --device <id> --runtime-lane <lane>`
+is the Web Computer menu's terminal handoff. It snapshots the local session and
+checks the account, device, and lane under the existing Service lifecycle lock
+before using the same Disconnect operation. A mismatched target fails without
+stopping a Service or clearing credentials. Publish this additive CLI command
+before Web exposes the handoff; older CLI versions reject the new options.
+Existing setup, Wake, Space actions, diagnostics, and Desktop's reviewed-intent
+command remain compatible, so this addition does not raise a runtime contract
+floor. Roll back the Web caller before rolling back the CLI.
+
 `computer disconnect --connection-intent <json>` ends the explicitly reviewed
 local account connection while retaining its cloud Computer record. The intent
 uses the same expected account and stable previous-session identity as setup.
