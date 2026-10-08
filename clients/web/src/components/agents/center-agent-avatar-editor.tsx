@@ -50,7 +50,14 @@ import {
 } from "./remote-agent-avatar";
 
 type Selection = NonNullable<CenterAgentUpdateProfileBody["avatar"]>;
-type Draft = Selection | { kind: "saved" };
+type Draft =
+	| Selection
+	| {
+			kind: "bot";
+			type: Extract<Selection, { kind: "bot" }>["type"];
+			palette: null;
+	  }
+	| { kind: "saved" };
 type Palette = "original" | "balanced" | "soft";
 const palettes: Palette[] = ["original", "balanced", "soft"];
 const label = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
@@ -93,9 +100,15 @@ export function CenterAgentAvatarEditor(input: {
 	);
 	const small = useMediaQuery("(max-width: 640px)");
 	const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-	const { motionEnabled, shading } = useBotAvatarPreference();
-	const palette =
-		draft.kind === "bot" ? draft.palette : (options?.palette ?? "original");
+	const {
+		motionEnabled,
+		shading,
+		palette: appearancePalette,
+	} = useBotAvatarPreference();
+	const chosenPalette =
+		draft.kind === "bot" ? draft.palette : (options?.palette ?? null);
+	const palette = chosenPalette ?? appearancePalette;
+	const selection = explicitSelection(draft);
 	const closeCrop = () => {
 		if (cropDraft) {
 			releaseIdentityImageCropDraft(cropDraft);
@@ -271,7 +284,12 @@ export function CenterAgentAvatarEditor(input: {
 													type={type}
 												/>
 											),
-											onSelect: () => setDraft({ kind: "bot", type, palette }),
+											onSelect: () =>
+												setDraft({
+													kind: "bot",
+													type,
+													palette: chosenPalette,
+												}),
 										}))}
 										key={page}
 										label="Bots"
@@ -370,13 +388,11 @@ export function CenterAgentAvatarEditor(input: {
 									}))}
 									label="Bot colors"
 									paletteGroup
-									selected={draft.palette}
+									selected={draft.palette ?? ""}
 								/>
 							) : null}
 							<p className="mt-4 mb-5 text-center text-muted-foreground text-xs">
-								{draft.kind === "bot" && motionEnabled && !reducedMotion
-									? "Move your pointer. Click to animate."
-									: "Preview your avatar before saving."}
+								{previewHint(draft, motionEnabled && !reducedMotion)}
 							</p>
 							{error && !cropDraft ? (
 								<p className="mb-3 text-destructive text-xs" role="alert">
@@ -385,16 +401,14 @@ export function CenterAgentAvatarEditor(input: {
 							) : null}
 							<Button
 								className="w-full"
-								disabled={
-									input.saving || draft.kind === "saved" || same(draft, current)
-								}
+								disabled={input.saving || !selection || same(draft, current)}
 								onClick={async () => {
-									if (draft.kind === "saved") {
+									if (!selection) {
 										return;
 									}
 									setError(null);
 									try {
-										await input.onSave(draft);
+										await input.onSave(selection);
 										setOpen(false);
 									} catch {
 										setError("This avatar could not be saved. Try again.");
@@ -428,6 +442,25 @@ export function CenterAgentAvatarEditor(input: {
 			/>
 		</>
 	);
+}
+
+function explicitSelection(draft: Draft): Selection | null {
+	if (
+		draft.kind === "saved" ||
+		(draft.kind === "bot" && draft.palette === null)
+	) {
+		return null;
+	}
+	return draft;
+}
+
+function previewHint(draft: Draft, motionEnabled: boolean) {
+	if (draft.kind === "bot" && draft.palette === null) {
+		return "Uses Appearance colors until you choose a color here.";
+	}
+	return draft.kind === "bot" && motionEnabled
+		? "Move your pointer. Click to animate."
+		: "Preview your avatar before saving.";
 }
 
 function DraftPreview({
@@ -533,17 +566,18 @@ function currentDraft(
 	return {
 		kind: "bot",
 		type: !style || style === "automatic" ? "clover" : style,
-		palette: options?.palette ?? "original",
+		palette: options?.palette ?? null,
 	};
 }
-function draftAppearance(draft: Selection): {
+function draftAppearance(draft: Exclude<Draft, { kind: "saved" }>): {
 	avatarStyle: AgentAvatarStyle;
 	avatarOptions: AuthProfileView["avatarOptions"];
 } {
 	if (draft.kind === "bot") {
 		return {
 			avatarStyle: draft.type,
-			avatarOptions: { palette: draft.palette },
+			avatarOptions:
+				draft.palette === null ? undefined : { palette: draft.palette },
 		};
 	}
 	if (draft.kind === "color") {

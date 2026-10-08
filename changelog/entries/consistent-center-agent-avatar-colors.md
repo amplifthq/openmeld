@@ -1,0 +1,12 @@
+---
+id: consistent-center-agent-avatar-colors
+title: Consistent Center Agent avatar colors
+kind: fixed
+areas: ["center-agent", "settings", "spaces"]
+audiences: ["users", "admins"]
+---
+
+The Center Agent avatar preview now matches its colors in Spaces. Avatars that
+use Appearance colors no longer show Original as a saved choice. Selecting
+Original saves that color choice for the Agent. Appearance also retains its
+Original and Balanced color selections.
