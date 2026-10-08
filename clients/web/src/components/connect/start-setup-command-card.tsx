@@ -160,12 +160,7 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 						orientation="horizontal"
 					>
 						<button
-							className={cn(
-								"w-full min-w-0 touch-manipulation select-all rounded-md px-3 py-2 text-left font-mono text-xs transition-colors hover:bg-muted/30 max-lg:min-h-11",
-								platform === "posix"
-									? "whitespace-normal break-words"
-									: "whitespace-nowrap"
-							)}
+							className="w-full min-w-0 touch-manipulation select-all whitespace-nowrap rounded-md px-3 py-2 text-left font-mono text-xs transition-colors hover:bg-muted/30 max-lg:min-h-11"
 							onClick={input.onCopyCommand}
 							type="button"
 						>

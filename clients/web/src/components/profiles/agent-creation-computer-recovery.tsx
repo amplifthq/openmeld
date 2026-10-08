@@ -2,7 +2,7 @@
 
 import { LOCAL_AGENTS_GUIDE_PATH } from "@openmeld/product-catalog/local-agent-install-guides";
 import { Button } from "@openmeld/ui/components/button";
-import { DesktopTowerIcon } from "@phosphor-icons/react";
+import { CircleNotchIcon, DesktopTowerIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
 export type AgentCreationComputerRecovery = {
@@ -34,15 +34,18 @@ export function agentCreationComputerActionLabel(
 
 export function AgentCreationComputerRecoveryPanel(input: {
 	recovery: AgentCreationComputerRecovery;
+	waitingForAgents?: boolean;
 }) {
 	const recovery = input.recovery;
 	const copy = recoveryCopy(recovery);
+	const waitingForAgents = input.waitingForAgents === true;
+	const StatusIcon = waitingForAgents ? CircleNotchIcon : DesktopTowerIcon;
 	return (
 		<section aria-label="Computer connection" className="grid gap-4 py-2">
 			<div className="flex items-start gap-3">
-				<DesktopTowerIcon
+				<StatusIcon
 					aria-hidden="true"
-					className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+					className={`mt-0.5 size-5 shrink-0 text-muted-foreground ${waitingForAgents ? "animate-spin motion-reduce:animate-none" : ""}`}
 				/>
 				<div className="grid gap-2">
 					<h2 aria-live="polite" className="font-medium text-base">
@@ -54,7 +57,7 @@ export function AgentCreationComputerRecoveryPanel(input: {
 				</div>
 			</div>
 			{recovery.computerChoices}
-			{recovery.state === "local_agents" ? (
+			{recovery.state === "local_agents" && !waitingForAgents ? (
 				<div className="space-y-1 text-muted-foreground text-sm">
 					<p>
 						If you haven’t installed a local agent, choose one from the install
@@ -120,9 +123,9 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 			};
 		case "local_agents":
 			return {
-				title: "Local agent details aren’t available",
+				title: "Computer connected",
 				description:
-					"Your computer is connected, but OpenMeld hasn’t received usable local agent details. Check again to refresh the list.",
+					"Waiting for your computer to send its local agent list. This page updates automatically.",
 			};
 		default:
 			return {

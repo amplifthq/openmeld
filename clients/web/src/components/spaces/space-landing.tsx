@@ -47,6 +47,7 @@ import {
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
 import { useWalkthroughSpaceProgress } from "#/components/onboarding/walkthrough/use-walkthrough-space-progress";
 import { useWalkthrough } from "#/components/onboarding/walkthrough/walkthrough-context";
+import { WalkthroughGuide } from "#/components/onboarding/walkthrough/walkthrough-guide";
 import { CenterAgentChatHistory } from "#/components/organizations/center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
@@ -1460,7 +1461,10 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 	});
 	const state = useSpaceLandingState(input);
 	const { controller } = state;
-	useWalkthroughSpaceProgress(input.spaceId, controller);
+	const tutorialProgress = useWalkthroughSpaceProgress(
+		input.spaceId,
+		controller
+	);
 	useSpaceOpenPaint(input.spaceId, spaceOpenFailureMilestone(controller.mode));
 	if (controller.mode === "loading" && input.loadingFallback) {
 		return typeof input.loadingFallback === "function"
@@ -1495,11 +1499,18 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 	}
 
 	return (
-		<SpaceLandingConversationShell
-			controller={controller}
-			input={input}
-			state={state}
-		/>
+		<>
+			<SpaceLandingConversationShell
+				controller={controller}
+				input={input}
+				state={state}
+			/>
+			<WalkthroughGuide
+				onAddAgents={state.handleAddAgentsFromBanner}
+				onConnectAgent={() => state.handleMembersOpenChange(true)}
+				spaceProgress={tutorialProgress}
+			/>
+		</>
 	);
 }
 

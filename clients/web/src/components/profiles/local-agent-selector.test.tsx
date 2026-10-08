@@ -29,6 +29,35 @@ const CHOICES = [
 afterEach(cleanup);
 
 describe("LocalAgentSelector", () => {
+	it("keeps connected discovery visible across background refreshes", () => {
+		const props = {
+			choices: CHOICES,
+			disabled: false,
+			isResolving: false,
+			onChange: vi.fn(),
+			value: "codex",
+			computerRecovery: { state: "local_agents" as const, onStart: vi.fn() },
+			selectionState: {
+				agentId: "codex",
+				displayName: "Codex",
+				blocksCreation: true,
+				kind: "checking" as const,
+			},
+		};
+		const { rerender } = render(<LocalAgentSelector {...props} />);
+		const panel = screen.getByRole("region", { name: "Computer connection" });
+		expect(screen.getByText("Computer connected")).toBeTruthy();
+		expect(screen.queryByRole("link")).toBeNull();
+		rerender(<LocalAgentSelector {...props} isResolving />);
+		expect(screen.getByRole("region", { name: "Computer connection" })).toBe(
+			panel
+		);
+		expect(screen.queryByLabelText("Checking Codex")).toBeNull();
+		rerender(<LocalAgentSelector {...props} />);
+		expect(screen.getByRole("region", { name: "Computer connection" })).toBe(
+			panel
+		);
+	});
 	it("keeps a reported check in progress distinct from failed or missing setup", () => {
 		render(
 			<LocalAgentSelector

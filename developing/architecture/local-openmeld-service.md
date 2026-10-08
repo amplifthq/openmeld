@@ -286,6 +286,18 @@ continue as non-blocking background work. An explicit terminal-side Agent
 selection still prepares and reports the selected controllers before that
 explicit request completes.
 
+Background controller discovery submits each completed controller check without
+waiting for unrelated controllers to finish. Submission uses the existing
+per-controller report contract; it does not imply that unchecked controllers are
+ready. Background probes remain sequential to limit process-launch load.
+
+Installation discovery, registration reconciliation, native checks, and reporting
+form one per-controller pass. A scan must not wait for all installation probes
+before publishing its first completed controller. Explicit controller requests
+scan only their requested IDs. A newly committed registration may reuse that
+pass's verified launch resolution only while its launch contract is unchanged;
+a changed selection must be resolved again. Disabled registrations stay disabled.
+
 The Prepare owner must persist the successful Service-alignment step, including
 the connected device and Runtime lane evidence, before it can complete the
 session. An empty Agent Controller selection is not Service evidence and must
