@@ -1,5 +1,7 @@
 import {
   ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER,
+  ORGANIZATION_DIRECTORY_CENTER_AGENT_ONLY_QUERY_PARAMETER,
+  ORGANIZATION_DIRECTORY_INCLUDE_AGENT_AVATARS_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER,
@@ -312,6 +314,10 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
   });
 
   app.get(CURRENT_ORGANIZATION_DIRECTORY_ROUTE, (c) => {
+    const includeAgentAvatars =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_INCLUDE_AGENT_AVATARS_QUERY_PARAMETER
+      ) === "true";
     const includeHumanProfileLastUsedAt =
       c.req.query(
         ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER
@@ -334,12 +340,18 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       responseSchema: organizationDirectoryResponseSchema,
       resolveSuccessPayload: (result) =>
         projectOrganizationDirectoryResponse({
+          includeAgentAvatars,
           includeHumanProfileLastUsedAt,
           includeMemberLastActiveAt,
           result,
         }),
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationDirectory({
+          ...(c.req.query(
+            ORGANIZATION_DIRECTORY_CENTER_AGENT_ONLY_QUERY_PARAMETER
+          ) === "true"
+            ? { centerAgentOnly: true }
+            : {}),
           ...(agentProfileWorkRecoveryVersion
             ? { agentProfileWorkRecoveryVersion }
             : {}),
@@ -352,6 +364,10 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
   });
 
   app.get(CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE, (c) => {
+    const includeAgentAvatars =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_INCLUDE_AGENT_AVATARS_QUERY_PARAMETER
+      ) === "true";
     const includeModelSelection =
       c.req.query(
         ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER
@@ -383,6 +399,7 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       resolveSuccessPayload: (result) =>
         projectOrganizationProfileDirectoryResponse({
+          includeAgentAvatars,
           includeModelSelection,
           includeHumanProfileLastUsedAt,
           includeMemberLastActiveAt,
@@ -404,6 +421,9 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationAgentRuntimeOverview({
+          ...(c.req.query("workloadProfileId")
+            ? { workloadProfileId: c.req.query("workloadProfileId") }
+            : {}),
           ...(c.req.query("includeUsageLimits") === "true"
             ? { includeUsageLimits: true }
             : {}),
@@ -831,6 +851,7 @@ function executeCreationRequestMutation(input: {
 }
 
 function projectOrganizationDirectoryResponse(input: {
+  includeAgentAvatars: boolean;
   includeHumanProfileLastUsedAt: boolean;
   includeMemberLastActiveAt: boolean;
   result: unknown;
@@ -842,6 +863,12 @@ function projectOrganizationDirectoryResponse(input: {
 
   return {
     ...parsed.data,
+    agentProfiles: parsed.data.agentProfiles.map(
+      ({ avatarModelId, avatarStyle, ...profile }) => ({
+        ...profile,
+        ...(input.includeAgentAvatars ? { avatarModelId, avatarStyle } : {}),
+      })
+    ),
     members: parsed.data.members.map((member) =>
       projectOrganizationDirectoryMember({ ...input, member })
     ),
@@ -849,6 +876,7 @@ function projectOrganizationDirectoryResponse(input: {
 }
 
 function projectOrganizationProfileDirectoryResponse(input: {
+  includeAgentAvatars: boolean;
   includeModelSelection: boolean;
   includeHumanProfileLastUsedAt: boolean;
   includeMemberLastActiveAt: boolean;
@@ -863,8 +891,9 @@ function projectOrganizationProfileDirectoryResponse(input: {
   return {
     ...parsed.data,
     agentProfiles: parsed.data.agentProfiles.map(
-      ({ modelSelection, ...profile }) => ({
+      ({ avatarModelId, avatarStyle, modelSelection, ...profile }) => ({
         ...profile,
+        ...(input.includeAgentAvatars ? { avatarModelId, avatarStyle } : {}),
         ...(input.includeModelSelection && modelSelection !== undefined
           ? { modelSelection }
           : {}),

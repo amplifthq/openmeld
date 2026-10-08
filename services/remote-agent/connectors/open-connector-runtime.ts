@@ -9,6 +9,7 @@ import type {
   OpenConnectorRuntimeAction,
   OpenConnectorRuntimeActionEffect,
 } from "@openmeld/schemas/types";
+import { withholdGitHubDownloadCredentials } from "./github-result-credentials";
 export type ConnectorExecutionConfig = {
   baseUrl?: string;
   fetch?: typeof fetch;
@@ -17,12 +18,17 @@ export type ConnectorExecutionConfig = {
 const TRAILING_SLASH_PATTERN = /\/+$/u;
 const OPENCONNECTOR_ACTION_SEARCH_LIMIT = 50;
 export async function listOpenConnectorActions(input: {
+  actionId?: string;
   connectorExecution?: ConnectorExecutionConfig;
   service: ConnectorService;
 }): Promise<OpenConnectorRuntimeAction[]> {
   const runtime = requireConnectorRuntime(input.connectorExecution);
+  const query = new URLSearchParams({ service: input.service });
+  if (input.actionId) {
+    query.set("actionId", input.actionId);
+  }
   const response = await runtime.fetch(
-    `${runtime.baseUrl}/v1/actions?service=${encodeURIComponent(input.service)}`,
+    `${runtime.baseUrl}/v1/actions?${query}`,
     {
       headers: { authorization: `Bearer ${runtime.runtimeToken}` },
       method: "GET",
@@ -55,7 +61,12 @@ export async function listOpenConnectorActions(input: {
           `OpenConnector returned action ${action.id} for an unexpected service.`
         );
       }
-      return action.execution.locallyExecutable;
+      // Older producers ignore the additive filter. Preserve exact selection
+      // locally without caching policy-dependent action metadata.
+      return (
+        action.execution.locallyExecutable &&
+        (!input.actionId || action.id === input.actionId)
+      );
     });
 }
 
@@ -177,8 +188,6 @@ export async function runOpenConnectorAction(input: {
     if (envelope.errorCode === "idempotency_request_in_progress") {
       throw new OpenConnectorOperationPendingError({
         actionId: input.actionId,
-        operationId: input.idempotencyKey,
-        providerExecutionId: null,
       });
     }
     const operationMeta = readActionOperationMeta({
@@ -199,12 +208,19 @@ export async function runOpenConnectorAction(input: {
     envelope,
   });
   return {
-    data: successEnvelope.data,
+    data: input.actionId.startsWith("github.")
+      ? withholdGitHubDownloadCredentials(successEnvelope.data)
+      : successEnvelope.data,
+    ...(successEnvelope.outputSchema
+      ? { outputSchema: successEnvelope.outputSchema }
+      : {}),
     providerExecutionId: successEnvelope.meta.executionId,
   };
 }
 
-function requireConnectorRuntime(input: ConnectorExecutionConfig | undefined): {
+export function requireConnectorRuntime(
+  input: ConnectorExecutionConfig | undefined
+): {
   baseUrl: string;
   fetch: typeof fetch;
   runtimeToken: string;
@@ -239,13 +255,9 @@ export class OpenConnectorActionError extends Error {
 }
 
 export class OpenConnectorOperationPendingError extends Error {
-  constructor(input: {
-    actionId: string;
-    operationId: string;
-    providerExecutionId: string | null;
-  }) {
+  constructor(input: { actionId: string }) {
     super(
-      `OpenConnector action ${input.actionId} is still running${input.providerExecutionId ? ` as provider execution ${input.providerExecutionId}` : ""}. Retry this exact action later with operationId ${input.operationId}.`
+      `OpenConnector action ${input.actionId} is still processing the original request. Its result is not confirmed.`
     );
     this.name = "OpenConnectorOperationPendingError";
   }
@@ -288,6 +300,7 @@ async function readRuntimeEnvelope(response: Response): Promise<{
 
 export type OpenConnectorActionRun = {
   data: unknown;
+  outputSchema?: Record<string, unknown>;
   providerExecutionId: string;
 };
 

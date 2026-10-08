@@ -24,6 +24,74 @@
   document, this document wins; if the implementation is right, amend this
   document in the same PR.
 
+## Web Tutorial
+
+The default first-run entry is `/o/:orgSlug/onboarding`. The centered chooser
+uses existing Personal Workspace, Organization creation, invitation acceptance,
+and join-request flows. The former Setup Studio and demonstrations remain in
+source for rollback but have no route, navigation, or Help entry.
+
+Users create a real Space, add their Center Agent, send a prepared greeting,
+and read its reply. Computer setup and further configuration remain optional.
+Starting prepares the designated Center Agent through its existing Core owner,
+then reserves a run and Space identity. Only the user's normal Create action
+creates that Space. Retries keep its identity. The suggested name is Welcome
+to OpenMeld; Replay checks visible names and suggests a numbered suffix.
+Continue resumes the saved Space. Earlier Spaces and messages remain intact.
+Transitional entry and creation pages replace history to prevent accidental
+recreation on Back. A restart URL never resets a run.
+
+Core owns one presentation-progress record per person and Organization.
+Account admission checks whether the person has started any run, so switching
+Organizations does not force another tutorial. Existing and new users without a
+new tutorial record receive this entry once, even if they completed the former
+flow. Former browser completion markers remain untouched but do not suppress
+the new tutorial. Explicit Space and message destinations preserve
+their invitation continuation and normal authorization. A progress-service error
+must not lock the user out of the product; the explicit tutorial offers a retry.
+
+The existing picker preselects the designated Center Agent; only Add changes
+membership. The shared welcome draft builder fills an editable greeting with a
+real Wake mention. Existing text, attachments, replies, and sent messages prevent
+insertion. Only Send publishes it. Progress waits for this person's sent Wake and
+its correlated Center Agent final reply. Unrelated messages and progress updates
+do not complete the step. Optional local Agent membership requires that person's
+local controller, not a hosted Agent, and claims no readiness or execution success.
+
+Help exposes one Tutorial row below Documentation and the changelog. Continue
+and Replay use accessible icon buttons, tooltips, and shared Fluid Hover.
+Continue appears for an unfinished run. Pause saves the step; the first pause
+briefly points to the bottom-left user menu and Help. Its close button dismisses
+only the reminder and preserves saved progress. Configuration-page reminders
+use the same location. Missing controls during loading are not a paused run.
+Run identity and revision protect newer progress from stale tabs. Failed saves
+offer Try again.
+
+Tutorial dialogs have a top-right Close control. Closing pauses at the current
+step; it does not complete or reset the run. Finish tutorial records completion.
+
+Optional choices use responsive horizontal Fluid cards and stacked product logos:
+Channels (Slack and Lark), Plugins (GitHub, Google Drive, Gmail), and Routines.
+Personal Workspaces and ordinary members omit Channels. Members see only their
+own Plugins and Routines. Owner/Admin also see a compact For your team section:
+Invite people and Team context. These open existing invitation and Center Agent
+settings pages. There is no separate admin tutorial. Role queries fail closed.
+The guide never fetches restricted invitations, Information Protection, or team
+policy for members. It preserves memory choices, protection rules, and connections.
+
+React Joyride owns the spotlight and tooltip; native controls retain their focus
+and modal behavior. Shared Fluid components own hover and reduced motion.
+One footer uses visible secondary buttons. Optional computer setup has Skip this
+step and Connect agent; optional choices have Finish tutorial. No guide action
+auto-sends a message, adds members, or changes shared configuration.
+
+The additive `/v1/organizations/current/first-work` GET/POST contract is shared
+through `packages/schemas` and `packages/api-client`. Apply native PostgreSQL
+migrations, then deploy Core and Gateway before Web. Roll Web back before removing
+the receiver. Older Web, CLI, Service, and Skills do not call it; setup, Wake,
+and runtime epochs remain unchanged. Historical D1 imports leave this
+PostgreSQL-only presentation table empty.
+
 ## Product Role
 
 The standalone Connect Computer page remains available even when the account has
@@ -36,21 +104,11 @@ explain user actions, never simulate connection or Agent readiness.
 
 OpenMeld has two complementary onboarding layers:
 
-1. **Account Setup Studio** is the full-screen, low-friction first product
-   entry for every account that has not completed the current onboarding
-   version. It helps the user explicitly choose a Personal Workspace or an
-   Organization, then optionally connect the real infrastructure that makes
-   OpenMeld useful in that scope.
-2. **Contextual setup guidance** remains a permanent, fact-driven answer to
-   "what is the most useful next action on this surface right now?" The
-   in-Space empty-state cards, in-Space banner, and CLI setup/doctor surfaces
-   consume the existing pure planner and do not depend on Setup Studio
-   completion.
-
-Setup Studio is not a tutorial simulation. Every action reads or writes the
-same owning data used by the rest of the product. Its right-hand demonstrations
-explain the outcome without asking a beginner to invent a prompt or understand
-OpenMeld's internal architecture first.
+1. **Tutorial** is the Web first-run entry: choose a workspace and complete
+   one small real Space interaction before optional configuration.
+2. **Contextual guidance** offers the next useful action on the current surface.
+   Space empty states, in-Space banners, and CLI setup/doctor consume the existing
+   pure planner independently of tutorial progress.
 
 A connected Message Channel member has two deliberately different setup
 affordances. Neither is another onboarding planner or a reusable Organization
@@ -95,10 +153,10 @@ channel even when it differs from the onboarding language.
 The two layers deliberately have different state:
 
 ```text
-Account Setup Studio:
-versioned account-local presentation progress
+Tutorial:
+Core-owned per-person, per-Organization presentation progress
   + Auth/Core/Gateway real facts
-  -> full-screen Web flow
+  -> workspace chooser and guided real Space
 
 Contextual guidance:
 auth/profile/membership/device facts
@@ -106,15 +164,9 @@ auth/profile/membership/device facts
   -> Web banner, openmeld setup / doctor, agent-view JSON
 ```
 
-Local Setup Studio progress records only the current presentation step,
-selected Workspace id, completion timestamp, and intended return route. It
-is never a source of Organization membership, connection, policy, Agent
-Profile, Service, or readiness truth.
-
-Setup flow presentation copy for the shared CLI/Prepare experience remains in
-`packages/start` (`presentation/setup-flow-copy.ts`). Setup Studio embeds that
-production Web setup surface for the optional computer step rather than
-forking its command, PrepareSession, or live-status behavior.
+Progress cannot grant membership or assert connection, identity, policy,
+execution, or readiness. The shared CLI/Prepare renderer and copy remain in
+their existing owners, including `packages/start/presentation/setup-flow-copy.ts`.
 
 ## Welcome Space Tutorial
 
@@ -142,22 +194,17 @@ changes membership or deletes messages. Legacy paused progress resumes.
 
 ## Product Invariants
 
-1. **Configured value before abstract teaching.** Setup Studio first helps the
-   user establish the environment that gives Center Agent leverage. It does not
-   begin by asking the user to understand or chat with Center Agent. Concepts
-   such as multi-Agent collaboration, Activity, Routines, Skills, and
-   Playbooks belong to later tutorials and contextual discovery. When the Web
-   first-run Space choice offers computer setup, **Connect Computer** is the
-   primary full-card action. The sentence below may offer **Center Agent** as an
-   underlined inline link for optional guidance; it must not promote that
-   navigation into a separate button that competes with computer setup.
+1. **A real result before more configuration.** Start with a small Space task
+   and a real Center Agent reply. Optional computer, Plugin, Channel, Routine,
+   and team settings keep their existing product homes.
+
 2. **Low friction is a product requirement.** Every step after Workspace
    selection is optional. The user may skip the whole flow, continue while
    computer setup runs, and move backward without losing completed work. No
    optional integration failure may trap the user.
 3. **Real facts, never onboarding copies.** A valid invitation-request link
    identifies an Organization; it does not prove membership or permission to
-   join. Setup Studio submits the existing invitation request, shows its pending
+   join. Tutorial submits the existing invitation request, shows its pending
    outcome and status link, and keeps workspace selection available. It never
    optimistically adds membership for an approval request. Direct administrator
    links instead show Join and use Auth's membership writer before advancing.
@@ -166,19 +213,16 @@ changes membership or deletes messages. Legacy paused progress resumes.
    membership, Channels,
    Apps, App requests, local runtime inventory, Organization memory, Wake
    access, Organization documents, Information Protection, and invitations
-   remain owned by their existing Auth/Core/Gateway contracts. Setup Studio
+   remain owned by their existing Auth/Core/Gateway contracts. Tutorial
    reads and mutates those same facts.
 4. **Presentation progress is allowed; product truth is not duplicated.**
-   Versioned, account-scoped local storage may remember the current Setup Studio
-   step and completion. Re-entering or restarting the flow must reconcile every
-   control against live owning data. It must never create a second connection,
-   policy, or readiness state. This allowance applies to Setup Studio and the
-   explicit Welcome Space tutorial described above.
-   Contextual guidance stores no current step or completion token and recomputes
-   its presentation from current facts on every render.
+   Core owns tutorial progress. Legacy local completion is read-only. Resume
+   reconciles current membership, replies, and permissions. Contextual guidance
+   stores no tutorial step and recomputes from current facts.
+
 5. **Permissions shape the flow.** An owner/admin may connect shared
    Organization capabilities, invite members, edit the Organization brief, and
-   edit Information Protection. A member sees existing shared status, may use
+   edit Information Protection. A member sees only their own guidance, may use
    supported personal connections, and never mounts unauthorized read or write
    requests.
 6. **Every mutation is optimistic where a truthful provisional state exists.**
@@ -186,22 +230,23 @@ changes membership or deletes messages. Legacy paused progress resumes.
    value on failure. When a server-generated secret is unknowable in advance
    (for example a new invite-link token), show an immediate pending outcome
    while retaining the last confirmed value; never invent a token or success.
-7. **Defaults are visible, not interrogative.** Untouched Workspace memory
-   defaults on. Setup Studio tells the user it is enabled and allows an
-   authorized user to turn it off. Agent Profile Organization ownership is an
-   invariant, not a preference or onboarding question.
+7. **Preserve defaults and explicit choices.** Untouched Workspace memory
+   defaults on; an existing off choice remains off. Authorized people manage
+   these preferences in Center Agent settings. The tutorial never resets them.
+   Agent Profile Organization ownership is not an onboarding question.
+
 8. **Separate membership, Service, and wakeability.** Joining an Organization
    or Space, connecting this computer, detecting Codex, and proving an Agent
-   Profile can currently be woken are separate facts. Setup Studio may summarize
+   Profile can currently be woken are separate facts. Tutorial may summarize
    only the facts it actually reads; it never derives Wakeability from a
    connected Service.
-9. **One management home after onboarding.** Setup Studio is a guided entry to
+9. **One management home after onboarding.** Tutorial is a guided entry to
    existing mutations. Channels, Apps, People, Agents, Settings, Computers, and
    Documents remain their ongoing management homes. The old Organization-entry
    onboarding dialog is retired; two onboarding surfaces must not compete.
-10. **Concrete language and visual demonstration.** User copy says Slack,
+10. **Concrete language.** User copy says Slack,
     Lark, GitHub, Codex, Claude Code, or Antigravity instead of internal
-    categories such as "coding agents." Each recommendation has a concise visual demonstration.
+    categories such as "coding agents." Each recommendation names a real action.
     Copy stays short enough to scan; the UI must not rely on paragraphs to
     explain the product.
 11. **Membership is never gated by machine setup.** Joining an Organization or
@@ -223,10 +268,10 @@ changes membership or deletes messages. Legacy paused progress resumes.
     it uses the same planner, prints the plan, and changes nothing. Adding
     another human-facing setup or repair verb requires amending this document
     and `developing/clients/cli.md`.
-15. **One setup workflow, adapted to its host.** Setup Studio, the centralized
+15. **One setup workflow, adapted to its host.** Tutorial, the centralized
     Connect page, and the Center Agent Direct Message reuse the same command,
     expiry, Prepare Session, update verification, and completion owner. Setup
-    Studio embeds it without its own completion actions. A generic Space banner
+    Tutorial opens it without its own completion actions. A generic Space banner
     links to the Connect page; a first-party Center Agent Direct Message may
     host the workflow inline; Slack and Lark receive the authoritative
     Connect-page action. Different hosts may change presentation, never setup
@@ -249,10 +294,10 @@ changes membership or deletes messages. Legacy paused progress resumes.
 ## The Start Planner (`packages/start`)
 
 This planner owns contextual setup decisions after product entry. It does not
-sequence Account Setup Studio, because Organization/Channel/App/invitation
+sequence Web tutorial, because Organization/Channel/App/invitation
 choices are Web orchestration over their own live owners rather than
 cross-client setup decisions. A rule used by both contextual Web guidance and
-CLI setup still belongs in this planner; a Setup Studio-only presentation step
+CLI setup still belongs in this planner; a Tutorial-only presentation step
 does not.
 
 Ownership and purity:
@@ -344,173 +389,27 @@ current facts — progressive disclosure, never a disabled action):
 - Pinned by the Complete/Honest property tests above: the zero-agent fact
   fixture must not yield `bring_agents`; the has-agents fixture must.
 
-## Web: Account Setup Studio
+## Web: Tutorial Entry
 
-### Entry and completion
+The stable onboarding route opens the workspace chooser. Legacy
+`experience=first-work` and `restart=1` links do not reset a run.
+Workspace choice resumes saved progress; Help > Tutorial > Replay explicitly
+reserves another run. Create and join use existing Auth mutations, truthful
+optimistic scope updates, and exact rollback. A join request never proves
+membership before approval.
 
-Every authenticated account with no completion record for the current Setup
-Studio version is redirected from the app shell to
-`/o/:orgSlug/onboarding`. This intentionally includes existing internal users
-when the feature first ships; the migration is the absence of the new
-versioned local record.
+Explicit invitations retain the requested Space and subsequent app navigation.
+Notification permission remains a separate non-blocking introduction after
+normal product entry and requires the person's explicit gesture.
 
-An explicit Space destination is the exception: opening a Space or a message
-link, including continuation after accepting a Space invitation, keeps that
-destination. Space access is still authorized normally; the in-Space setup
-guidance remains available. This does not mark Setup Studio complete or change
-membership. Navigation within that same signed-in App journey stays in the
-product, including the Spaces directory; it must not reopen Studio immediately
-after accepting an invitation. A later ordinary entry may still offer the
-account-level Studio, and opening Studio explicitly still works.
-Email verification and magic-link sign-in preserve the invitation route before
-Space entry, so first-time recipients are not sent to workspace selection in
-the middle of accepting an invitation.
-
-Completion is account-scoped, not Organization-scoped. A person should not be
-forced through the entire Studio for every Organization. The selected
-Organization is stored only to preserve navigation intent. Every
-Organization-specific control still loads its current live value.
-
-`Skip setup` completes the current version and returns to the originally
-requested feature, retargeted to the Organization selected in the Studio.
-`Open OpenMeld` on the final screen does the same. Before it records completion,
-Web opens the canonical Center Agent Direct Message once so Core can materialize
-the selected Workspace's designated Center Agent through its existing owner
-path. A failed initialization keeps the person on Ready with one retry action;
-it must not expose Home with an unavailable Center Agent or add another writer.
-When there is no valid originally requested feature, completion opens the
-selected Workspace's Home. The user can always open the stable onboarding route
-directly to run the Studio again. Direct re-entry clears only presentation
-completion and starts at Workspace selection; it does not reset any product
-data. `?restart=1` provides the same deterministic presentation reset for local
-development and smoke.
-
-The browser-notification introduction is a separate, browser-local capability
-prompt, not a Setup Studio step or readiness fact. Web may present it only
-after the entry gate admits the normal app shell. Rendering it never requests
-native permission; the member's explicit **Enable notifications** gesture owns
-that request, and **Not now** remains non-blocking.
-
-### Layout and interaction
-
-Setup Studio is full-screen and split into two areas on desktop:
-
-- left: one concise decision or real configuration surface;
-- right: a dark, programmatic demonstration of the outcome.
-
-Small screens show the left interaction surface without making the demo a
-prerequisite. The header has OpenMeld identity, compact progress, Back after
-the first step, and a persistent `Skip setup` action until the result screen.
-Completed mutations survive Back/Forward because the next mount reads the
-owning query again. Inline errors preserve context and never erase a successful
-sibling mutation.
-
-### Step order
-
-1. **Workspace — "Choose your workspace"**
-   - Always show `Personal Workspace` first as an explicit real choice with
-     `For you only. Create an organization to connect Slack or invite
-teammates.`; `Skip setup` is never a substitute for choosing it.
-   - Show existing non-personal Organizations under a separate
-     `Organizations` label.
-   - Show pending email invitations from Better Auth and let the user join in
-     place.
-   - Offer Create Organization and Join with invite link.
-   - Create, invitation acceptance, and join-link acceptance update the
-     Organization scope cache optimistically and roll back exactly on failure.
-   - The demonstration uses up to three real Directory first names for an
-     Organization and only the current user's real first name for Personal
-     Workspace. It never invents people or renders unexplained initials.
-   - Personal Workspace explains that it is for the current user only and that
-     Slack or teammate collaboration requires an Organization; an Organization
-     shows `Shared with your team`.
-2. **Channels — "Bring OpenMeld into the conversation" (Organization only)**
-   - Show Slack and Lark/Feishu with their real connected state.
-   - A connected Channel keeps its check and `Connected` label together beside
-     the Channel name. Do not repeat a second generic `Connected` action label.
-   - Owners/admins receive the existing Organization connection actions.
-     Members see shared status and only actions their role permits.
-   - Slack success comes only from the Core-owned designation after OAuth;
-     popup state is not success. Lark/Feishu reuse the shipped registration
-     owner.
-3. **Apps — "Connect your team's context" / "Connect your context"**
-   - Search the live OpenConnector provider catalog. Recommended Apps appear
-     first; search reaches the entire catalog.
-   - Apps with an OpenMeld-ready auth path use the existing connection UI.
-   - Other catalog Apps show `Request`; a free-form request covers providers
-     not found in the catalog.
-   - Requests write the internal connector-request ledger with requester
-     identity and lifecycle fields so later availability notifications can be
-     backfilled. App-release notification is a later enhancement.
-   - Personal connections say that only the current user can use them. Shared
-     connections identify the Organization or Workspace scope and the member
-     who authorized them. A shared GitHub connection is presented specifically
-     as the OpenMeld GitHub App, including who installed it and that
-     Organization work runs as the OpenMeld bot.
-   - A cached connection remains visible while its owner is refreshed, but
-     Connect and Disconnect show an explicit checking state and remain disabled
-     until the current read succeeds. A failed refresh keeps the last visible
-     fact, shows a retry action, and never enables a stale mutation.
-4. **This computer — "Use your local agents with OpenMeld"**
-   - Show Codex, Claude Code, Grok Build, Cursor, and OpenCode by name and logo.
-   - Their compact cards use the shared sharp-corner Card primitive. Logos are
-     visually primary and do not sit inside another bordered or padded frame.
-   - Embed the production setup/Prepare surface: one-time command, expiry,
-     Terminal progress, and current local runtime projection.
-   - Once authentication and OpenMeld Service alignment succeed, present the
-     primary outcome as **Computer connected**. Local-agent discovery, sign-in
-     attention, Skills, diagnostics, updates, and Project discovery refresh
-     progressively and do not keep the user on this page.
-   - On re-entry or restart, first reconcile the current computer's real
-     Service fact. If it is already connected, show that connected computer and
-     do not create a new Prepare Session unless the user explicitly chooses
-     `Set up again`.
-     This reuse requires the browser's completed, account-matching setup
-     handoff and a fresh read for that exact device and lane. An account routing
-     preference or its only connected Service is not a browser setup handoff.
-     A handoff identifies the connected computer, not physical co-location
-     with the browser; Service connection alone does not prove agent readiness.
-   - The step is optional. The user may continue while setup runs or install a
-     supported local agent later. Copy never asks about a generic "coding
-     agent."
-5. **Defaults — "Built into your OpenMeld setup" (Organization only)**
-   - Untouched Organization memory defaults on and is presented as enabled.
-     Existing explicit choices are preserved.
-   - Organization brief is optional and explains that it gives Center Agent
-     stable goals and operating context.
-   - Information Protection is optional and visible only to an owner/admin.
-     Ordinary members do not issue its read request.
-6. **Invite — "Bring your teammates in" (Organization only)**
-   - Owners/admins can send multiple member invitations and generate the
-     Organization's reusable join link.
-   - Email rows appear immediately as sending; partial failure rolls back only
-     the failed row. A server-generated join-link token is never fabricated.
-   - Members see concise read-only guidance and continue without friction.
-7. **Ready**
-   - Build a concise outcome list only from current confirmed facts: enabled
-     Workspace memory, Channels, active Apps, this computer and enabled detected
-     local agents, and pending invitations.
-   - If nothing optional was connected, say setup is saved and name the next
-     capabilities the user can add later. Never paint skipped work as
-     connected.
-   - Organization selection follows Workspace → Channels → Apps → This
-     computer → Defaults → Invite → Ready.
-   - Personal Workspace follows Workspace → Apps → This computer → Ready. Ready
-     makes the default-on Workspace memory fact visible without adding another
-     question. The progress indicator uses only those steps and never mounts
-     team Channels, Organization policy, or invitation requests.
-   - The Personal Workspace still exposes **Center Agent → Channels** after
-     onboarding as a discoverable destination with one `Create organization`
-     action. Providers stay read-only unless a pre-launch Lark/Feishu
-     connection needs the bounded Disconnect cleanup. Setup Studio does not
-     duplicate that guide.
-   - Organization and Personal copy remain distinct; neither path uses
-     unexplained phrases such as `One shared loop`.
+The chooser is centered. The guide operates on real Space controls and existing
+configuration pages. Keyboard focus, native dismissal, small screens, and reduced
+motion remain usable without simulated data or demonstration pages.
 
 ### Explicit New Space entry
 
 `/o/:orgSlug/new-space` remains the explicit New Space entry from navigation
-and empty states. It is not part of Setup Studio and does not gate product
+and empty states. It is not part of Tutorial and does not gate product
 entry. It continues to reuse the existing create/join Space paths and the
 single membership owner.
 
@@ -691,16 +590,13 @@ review bar the Members panel rework received.
 ## Web Implementation Constraints
 
 - Reuse shared `@openmeld/ui`, Fluid, and shipped OpenMeld product components
-  before adding a primitive. Setup Studio owns orchestration and layout, not a
+  before adding a primitive. Tutorial owns orchestration and layout, not a
   parallel Slack, App, invitation, Organization policy, or Prepare
   implementation.
 - The visual language is restrained and high-contrast: quiet borders, compact
   type, limited accent color, containers that follow the shared interface-shape
-  token, and generous whitespace. The right side may be richer, but animation
-  must explain a real relationship rather than decorate an idle screen.
-- Motion must support `prefers-reduced-motion`. Repeating SVG motion uses a
-  small number of slow path indicators; it must not create layout work or
-  prevent interaction. No autoplay video or animation is required to continue.
+  token, and generous whitespace. Animation must explain a real relationship rather than decorate an idle screen.
+- Motion must support `prefers-reduced-motion`. Motion must not create layout work or prevent interaction. No autoplay video or animation is required to continue.
 - Product copy and code use one stable term per concept: Organization, Channel,
   App, OpenMeld Service, Center Agent, Agent Profile, Codex, and Claude Code.
   Internal implementation words stay out of beginner copy unless they are the
@@ -709,35 +605,20 @@ review bar the Members panel rework received.
   Optimistic Organization scope writes must never match invitation, App,
   Channel, or setup caches by prefix.
 - The old `OrganizationEntryOnboardingDialog` and its hook/steps/tests are
-  retired after Setup Studio lands. Reintroducing it would create a second
+  retired after Tutorial lands. Reintroducing it would create a second
   onboarding state and is prohibited.
 
 ## First Release Boundary
 
-Required for the first public release:
+The replacement requires the native progress migration, receiver-first rollout,
+default-entry cutover, legacy admission, fresh Organization Center Agent bootstrap,
+idempotent creation, saved pause/resume/replay, stale-tab protection, role filtering,
+and a correlated first reply. Validate Owner, Admin, member, and Personal states;
+fresh and existing Organizations; Back/refresh; and explicit invitation entry.
 
-- account-wide first-entry gate and versioned resumable progress;
-- existing/pending/create/join Organization paths;
-- real Slack and Lark/Feishu connection status and actions;
-- live OpenConnector catalog, OpenMeld-ready connections, and durable App
-  requests with requester identity;
-- embedded optional computer setup for Codex/Claude Code/Grok Build/Cursor/OpenCode;
-- visible defaults, optional Organization brief, admin-only Information
-  Protection;
-- multi-email invitations, reusable join link, and a real fact-derived result;
-- deterministic direct re-entry and local restart;
-- optimistic writes with exact rollback, role branches, reduced motion,
-  keyboard access, focused tests, build, and local browser smoke.
-
-Deferred until after the first release:
-
-- automatic requester notification when a requested App becomes available;
-- onboarding analytics funnels, experimentation infrastructure, and remote
-  configuration;
-- videos, personalized generated demos, tutorial tours, templates, Playbooks,
-  Routines, Skills, and advanced multi-Agent teaching;
-- a server-synced completion record across browsers. Local account-scoped
-  versioning is accepted while the product has only internal test users.
+Configuration keeps the existing permission owners and product pages.
+The contextual CLI planner is unchanged. Analytics, generated demonstrations,
+and a separate admin tutorial are outside this release.
 
 ## CLI Surfaces
 
@@ -880,7 +761,7 @@ agent`, repeat until `setup.complete` reports summary `nothing_to_do`.
 
 ## Retired Surfaces
 
-The Account Setup Studio supersedes earlier first-entry experiments while
+The Web tutorial supersedes earlier first-entry experiments while
 keeping explicit New Space entry at `/o/:orgSlug/new-space` and contextual
 guidance in the Space conversation. The legacy `/app/start/*` corridor has
 been deleted. The temporary `/app/start*` redirect shim has also been removed;
@@ -918,19 +799,19 @@ every old child route — `with-agents`, `choose-space`, `create-space`, `join-s
   banner; per-agent recovery remains scoped to member rows/details or the Agents
   page (Invariant 8).
 - The temporary blocking Organization-entry onboarding dialog, its
-  preference/connection steps, local transition state, and tests. Setup Studio
+  preference/connection steps, local transition state, and tests. Tutorial
   now presents the same real settings in the account flow; Settings remains the
   ongoing management home.
 - Corridor-only `clients/web/src/lib/start/*` helpers.
 
 ## State Machine Boundary
 
-Account Setup Studio, the contextual planner, Web guidance, and CLI setup must
+Web tutorial, the contextual planner, Web guidance, and CLI setup must
 never recompute, own, write, or re-derive any runtime/readiness state-machine fact. That
 system (cross-cloud + cross-local, heartbeat-driven, multi-layer) is hard
 won and stable, and is owned entirely by Core and the daemon:
 
-- Profile identity is owned by Auth; Binding by Core (D1 bindings);
+- Profile identity is owned by Auth; Binding by Core (relational Binding records);
   ServiceRuntime / lease / heartbeat (200s TTL) and route registration by the
   Core RuntimeTransportHub DO; in-flight Wake execution by RuntimeCoordinator;
   per-Agent-Profile readiness by Core's `AgentExecutionReadiness` (computed
@@ -957,11 +838,11 @@ won and stable, and is owned entirely by Core and the daemon:
 
 ## Out of Scope
 
-- Post-Studio tutorials, React tours, videos, templates, Playbooks, Routines,
+- Videos, templates, Playbooks, Routines,
   Skills, and advanced multi-Agent education.
 - Automatic App-request availability notification. The request ledger retains
   enough requester and lifecycle data for a later backfill.
-- Desktop Setup Studio. Desktop remains a future renderer and local management
+- Desktop Tutorial. Desktop remains a future renderer and local management
   surface; it must reuse owning facts and the settled Web setup model.
 - Organization/Space membership write semantics, Wake/readiness truth, and
   daemon lifecycle. This document owns their onboarding presentation, not
@@ -969,103 +850,29 @@ won and stable, and is owned entirely by Core and the daemon:
 
 ## Acceptance
 
-The reviewer validates against this document. Verification gates (all must
-pass; use the correct entries — `test` alone is a false green for
-integration files in both openmeld-cli and clients/web):
+Use focused affected-package type, lint, behavior, and integration checks;
+real browser smoke proves only the paths actually exercised.
 
-| Gate                   | Command                                                                                                                |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Planner unit tests     | `pnpm --filter @openmeld/start test`                                                                                   |
-| Web unit               | `pnpm -C clients/web exec vitest run --config vitest.config.ts`                                                        |
-| Web integration        | `pnpm -C clients/web exec vitest run --config vitest.integration.config.ts` (inherited red baseline only; no new reds) |
-| CLI unit + integration | `pnpm --filter ./clients/openmeld-cli test` and `test:integration`                                                     |
-| Typecheck / lint       | affected packages `tsc --noEmit`, `biome check`                                                                        |
-
-Behavioral acceptance scenarios (each needs an automated test or a recorded
-manual verification):
-
-1. Fresh or existing account with no current-version completion opens any
-   authenticated app route and enters Setup Studio. A completed account enters
-   the requested product route without a flash of the Studio.
-2. Organization choice covers an existing Organization, pending email
-   invitation, new Organization, and reusable invite link. Each success
-   continues in the resolved Organization; failure stays inline and restores
-   the exact prior cache.
-3. Owner/admin sees shared Slack/Lark and App actions. A member never mounts
-   admin-only Information Protection or invitation reads and can continue
-   through read-only status.
-4. Slack and Lark/Feishu status is read from their existing owners. Closing an
-   OAuth popup, a timeout, or an error cannot paint a connected outcome.
-5. OpenConnector search reaches the live provider catalog. OpenMeld-ready Apps
-   connect through their existing owner; other providers and free-form names
-   create one durable requester-attributed request and remain requested after
-   refresh.
-6. This-computer setup shows Codex, Claude Code, Grok Build, Cursor, and OpenCode, emits a
-   real one-time CLI command when setup is needed, follows Prepare progress, and
-   may be skipped or left running without blocking Continue. Re-entry with an
-   already connected Service shows the connected computer without issuing a new
-   command.
-7. Untouched memory becomes enabled. Existing explicit off choices remain off.
-   Organization brief is optional; Information
-   Protection is owner/admin-only and an empty value clears it.
-8. Multiple invitation emails appear immediately. A partial server failure
-   removes only failed optimistic rows and keeps successes. A reusable
-   join-link URL appears only after Auth returns its real token.
-9. Back, forward, refresh, and browser restart preserve presentation progress.
-   Every returned control reconciles with current owning data instead of
-   replaying old optimistic state.
-10. `Skip setup` from every optional step completes the current version and
-    returns to the originally requested feature in the selected Workspace, or
-    to Center Agent chat when no valid feature return exists.
-11. Direct onboarding re-entry and `?restart=1` reset only progress. Existing
-    Organizations, Channels, Apps, requests, policies, documents,
-    invitations, and local runtimes remain unchanged and visible.
-12. The final screen uses Organization or Personal copy, shows only confirmed
-    outcomes, and stays concise. A fully skipped flow says setup is saved rather
-    than claiming integrations are connected.
-13. Desktop-width UI is split left/right; small screens remain usable without
-    the demo. Every control is keyboard reachable, progress is labeled, and
-    reduced motion removes repeating SVG travel.
-14. Contextual onboarding remains independent: Space membership never gates on
-    local readiness; in-Space guidance and CLI setup continue to consume the
-    pure planner; Setup Studio never writes RuntimeCoordinator, Binding,
-    Service lease, or AgentExecutionReadiness truth.
-15. CLI human and agent paths retain their existing contract:
-    `openmeld setup` reaches all-set, `openmeld doctor --view agent` is
-    read-only, and agent-view decisions remain deterministic and snake_case.
-16. A user joins a Space on a computer without OpenMeld Service. Membership
-    succeeds and remains visibly distinct from the non-blocking computer setup
-    action; nothing presents the joined state as a failure.
-17. Browser notification permission remains outside Setup Studio. The
-    introduction appears only after the normal app shell is admitted, does not
-    request native permission before an explicit user gesture, and never blocks
-    product entry.
-18. The same account opens a second computer. Organization and Space membership
-    remain intact while contextual guidance independently offers setup for that
-    computer.
-19. `bring_agents` opens the existing Members panel and its Add members dialog.
-    No parallel agent selector exists in onboarding.
-20. The centralized Connect page and Center Agent Direct Message render the
-    same setup command and live timeline owner. The page stays a page; the
-    Direct Message stays inline; both reach the same verified completion state.
-21. A human-only Space can dismiss all setup guidance to reach a clean
-    conversation, retain the choice after refresh or browser restart, and
-    explicitly recall it from the header. Another account or Space does not
-    inherit that choice.
-22. Completed `bring_agents` copy states membership only. If the Members drawer
-    reports an agent Offline, no onboarding surface claims that agent can be
-    woken.
-23. Ordinary Space banners and external Message Channels route computer setup
-    to the Connect page. The first-party Center Agent Direct Message and the
-    Create Agent form can host the shared workflow inline. Creation keeps its
-    parent form mounted, including a Space-originated member dialog, so setup
-    completion resumes that same creation context. Computers remains the fleet
-    management home.
-24. Setup Studio and contextual Web onboarding follow the shared interface-shape
-    token. Setup Studio cards, inputs, buttons, demo frames, icon containers,
-    and contextual-banner controls use semantic radius utilities so Rounded uses
-    the configured radius and Square resolves to `0px`. The contextual banner's
-    progressive-blur overlay and borderless action rows are not card surfaces;
-    tiny semantic status dots remain circular.
-25. For a fixed planner fact fixture, the in-Space renderer, `openmeld setup`
-    human output, and agent-view decision ids remain the same ordered list.
+1. First entry opens the centered workspace chooser. Legacy completed users
+   and accounts with a run in another Organization enter the requested product.
+2. Explicit Space invitations retain their destination and access gate.
+3. A fresh Organization can add its designated Center Agent without first
+   opening a Direct Message.
+4. Center Agent is preselected, but membership changes only on Add.
+5. The draft has a real Wake mention. Only Send publishes it; only a correlated
+   final Center Agent reply advances it.
+6. Back, refresh, retries, stale tabs, Continue, and Replay preserve their
+   declared Space identities and saved progress.
+7. Ordinary members see no Channels or team administration guidance, and mount
+   no restricted policy or invitation reads. Owner/Admin see existing team
+   configuration entries. Personal Workspaces omit Channels.
+8. Optional Agent setup uses the existing computer and Prepare owners.
+   Local membership is distinct from connection, Wakeability, and execution.
+9. Pause, Help Continue/Replay, error retry, keyboard operation, and small-screen
+   layout remain usable. Shared Fluid components preserve reduced motion.
+10. Optional configuration never claims success from navigation or clicks.
+    Memory preferences and existing shared settings remain unchanged.
+11. Contextual Web guidance and CLI setup/doctor retain the pure planner and
+    their existing contract. No tutorial derives or writes runtime state.
+12. Native migrations and additive receivers precede the Web caller. Production
+    release and final-candidate checks remain separate from local screenshots.

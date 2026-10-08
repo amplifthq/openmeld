@@ -15,6 +15,7 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@openmeld/ui/components/popover";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon, PlusIcon, SmileyIcon } from "@phosphor-icons/react";
@@ -67,7 +68,8 @@ export function resolveMessageReactionInput(
 		item.signalType !== "signal.text" ||
 		item.deliveryState !== "sent" ||
 		item.actorProfileKind === "system" ||
-		item.agentStreamState
+		item.agentStreamState ||
+		item.activeWakeProgress
 	) {
 		return undefined;
 	}
@@ -190,6 +192,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 	const inFlight = useRef(new Set<string>());
 	const [error, setError] = useState<string | null>(null);
 	const [viewerOpen, setViewerOpen] = useState(false);
+	const [pickerOpen, setPickerOpen] = useState(false);
 	const groups = reactions.groups
 		.map((group) => {
 			const change = pending[group.emoji];
@@ -273,6 +276,8 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		},
 		viewerOpen,
 		setViewerOpen,
+		pickerOpen,
+		setPickerOpen,
 		snapshot: reactions,
 	};
 }
@@ -296,8 +301,9 @@ export function MessageReactionPicker({
 	state: MessageReactionsState;
 	buttonClassName: string;
 }) {
-	const [open, setOpen] = useState(false),
-		[expanded, setExpanded] = useState(false);
+	const open = state.pickerOpen;
+	const setOpen = state.setPickerOpen;
+	const [expanded, setExpanded] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		if (!open) {
@@ -316,7 +322,7 @@ export function MessageReactionPicker({
 		document.addEventListener("scroll", closeOnMessageScroll, true);
 		return () =>
 			document.removeEventListener("scroll", closeOnMessageScroll, true);
-	}, [open]);
+	}, [open, setOpen]);
 	return (
 		<Popover
 			onOpenChange={(value) => {
@@ -606,7 +612,7 @@ export function MessageReactionViewer({
 						</Button>
 					))}
 				</div>
-				<div className="max-h-64 space-y-3 overflow-y-auto">
+				<ScrollArea className="max-h-64" contentClassName="space-y-3">
 					{query.data?.pages
 						.flatMap((page) => page.actors ?? [])
 						.map((actor) => (
@@ -651,7 +657,7 @@ export function MessageReactionViewer({
 							Show more
 						</Button>
 					) : null}
-				</div>
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

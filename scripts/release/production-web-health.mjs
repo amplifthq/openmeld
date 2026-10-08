@@ -6,6 +6,9 @@ import { parseArgs } from "node:util";
 const BODY = /<body[\s>]/iu;
 const SCRIPT = /<script[\s>]/iu;
 const SOURCE_SHA = /^[a-f0-9]{40}$/u;
+const SSR_ROUTES = ["/login", "/forgot-password", "/check-email"];
+const DOCS_SSR_ROUTES = ["/", "/docs"];
+const WEBSITE_SSR_ROUTES = ["/", "/privacy", "/terms", "/guides/local-agents"];
 const BUILD_META =
   /<meta\s+[^>]*name="(openmeld-[a-z-]+)"[^>]*content="([^"]*)"[^>]*>/gu;
 
@@ -53,6 +56,7 @@ export function validateSsrPage({
 }
 
 export async function checkProductionWeb({
+  scope = "web",
   url,
   sourceSha,
   expectedBuildId,
@@ -62,21 +66,57 @@ export async function checkProductionWeb({
   if (!SOURCE_SHA.test(sourceSha)) {
     throw new Error("An exact Web source SHA is required.");
   }
-  const target = new URL("/", url);
-  target.searchParams.set("release-health", sourceSha);
-  const response = await fetchImpl(target, {
-    redirect: "error",
-    signal: AbortSignal.timeout(30_000),
-    headers: { accept: "text/html", "cache-control": "no-cache" },
-  });
-  return validateSsrPage({
-    status: response.status,
-    contentType: response.headers.get("content-type"),
-    html: await response.text(),
-    sourceSha,
-    expectedBuildId,
-    allowDirty,
-  });
+  if (!["web", "website", "docs"].includes(scope)) {
+    throw new Error("Unknown renderer health scope.");
+  }
+  if (scope === "web") {
+    const response = await fetchImpl(new URL("/", url), {
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+      headers: { accept: "text/html", "cache-control": "no-cache" },
+    });
+    const location = response.headers.get("location");
+    if (
+      !([302, 303, 307].includes(response.status) && location) ||
+      new URL(location, url).href !== new URL("/login", url).href
+    ) {
+      throw new Error(
+        "Anonymous App root must redirect to its own login page."
+      );
+    }
+    await response.body?.cancel();
+  }
+  let rootPage;
+  const routes = {
+    web: SSR_ROUTES,
+    website: WEBSITE_SSR_ROUTES,
+    docs: DOCS_SSR_ROUTES,
+  }[scope];
+  for (const route of routes) {
+    const target = new URL(route, url);
+    target.searchParams.set("release-health", sourceSha);
+    const response = await fetchImpl(target, {
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+      headers: { accept: "text/html", "cache-control": "no-cache" },
+    });
+    const html = await response.text();
+    if (html.includes("Server function info not found")) {
+      throw new Error(`Web SSR ${route} has an unresolved server function.`);
+    }
+    const page = validateSsrPage({
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      html,
+      sourceSha,
+      expectedBuildId,
+      allowDirty,
+    });
+    if (!rootPage) {
+      rootPage = page;
+    }
+  }
+  return rootPage;
 }
 
 export async function waitForProductionWeb({
@@ -114,6 +154,7 @@ if (
   const { values } = parseArgs({
     options: {
       url: { type: "string" },
+      scope: { type: "string", default: "web" },
       "source-sha": { type: "string" },
       "artifact-receipt": { type: "string" },
     },
@@ -124,7 +165,7 @@ if (
       await readFile(values["artifact-receipt"], "utf8")
     );
     if (
-      receipt.scope !== "web" ||
+      receipt.scope !== values.scope ||
       receipt.sourceSha !== values["source-sha"] ||
       receipt.allowDirty !== false ||
       !receipt.ssr?.buildId
@@ -138,6 +179,7 @@ if (
   console.log(
     JSON.stringify(
       await waitForProductionWeb({
+        scope: values.scope,
         url: values.url,
         sourceSha: values["source-sha"],
         expectedBuildId,

@@ -7,7 +7,10 @@ import {
 } from "@earendil-works/pi-ai";
 import { defineTool, init, observe, useModel, useTool } from "@flue/runtime";
 import { start } from "@flue/runtime/node";
-import type { RemoteAgentStreamDeltaCallbackBody } from "@openmeld/schemas/types";
+import type {
+  RemoteAgentStreamDeltaCallbackBody,
+  RemoteAgentStreamPartCallbackBody,
+} from "@openmeld/schemas/types";
 import { object } from "valibot";
 import { expect, it } from "vitest";
 import {
@@ -15,6 +18,8 @@ import {
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import { initializeRemoteAgentExecutionState } from "../agent-core/execution-state";
+import { CENTER_AGENT_MODEL_RETRY } from "../flue-adapter/center-agent-durability";
+import { extractFlueModelRecovery } from "../flue-adapter/observation";
 import { createCenterAgentObservationDispatcher } from "../flue-adapter/observation-dispatcher";
 import { handleCenterAgentObservation } from "../flue-adapter/stream-observer";
 import { createRemoteAgentStreamPublisher } from "../flue-adapter/streaming";
@@ -32,12 +37,13 @@ it.each([
 }) => {
   const provider = fauxProvider({
     provider: "retry-display",
+    tokenSize: { min: 64, max: 64 },
     tokensPerSecond: Number.POSITIVE_INFINITY,
   });
   const model = provider.getModel();
   const gate = Promise.withResolvers<ReturnType<typeof fauxAssistantMessage>>();
-  // Exceed the real publisher's chunk threshold so the failed attempt is
-  // already visible before the retry, not merely present in its buffer.
+  // The first vendor chunk contains a recognizable failed answer, even when
+  // later deltas are coalesced before a fast retry replaces them.
   const failed = fauxAssistantMessage("Wrong partial answer. ".repeat(20), {
     stopReason: "error",
     errorMessage: "Connection error.",
@@ -75,10 +81,19 @@ it.each([
   Center.agentName = "center-agent-v2";
   Center.joinQueuedDeliveries = false;
   Center.durability = { maxAttempts: 5, timeoutMs: 0 };
+  Center.modelRetry = CENTER_AGENT_MODEL_RETRY;
   const storage = new InMemoryDurableObjectStorage();
   const publisher = createRemoteAgentStreamPublisher();
   const frames: RemoteAgentStreamDeltaCallbackBody[] = [];
+  const parts: RemoteAgentStreamPartCallbackBody[] = [];
   const coreWorker = {
+    submitRemoteAgentStreamPart: (body: RemoteAgentStreamPartCallbackBody) => {
+      parts.push(body);
+      return Promise.resolve({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      });
+    },
     submitRemoteAgentStreamDelta: (
       body: RemoteAgentStreamDeltaCallbackBody
     ) => {
@@ -117,7 +132,12 @@ it.each([
         replacementPrefixes.push(prefix);
       }
     }
-    if (event.type === "text_delta" || event.type === "thinking_delta") {
+    if (
+      event.type === "text_delta" ||
+      event.type === "thinking_delta" ||
+      extractFlueModelRecovery(event) ||
+      event.type === "message_end"
+    ) {
       return dispatchObservation(event);
     }
   });
@@ -156,19 +176,29 @@ it.each([
     gate.resolve(withNarration ? narration : failed);
     const answer = await agent.read(receipt);
     await Promise.all([...pending]);
-    await publisher.flush({
-      context,
-      coreWorker,
-      storage,
-      observedAtMs: Date.now() + 1000,
-    });
     expect(errors).toEqual([]);
-    const snapshots = frames.map((frame) =>
-      "snapshot" in frame ? frame.snapshot : frame.textSnapshot
-    );
     expect(
-      snapshots.some((text) => text.includes("Wrong partial answer."))
+      parts.map((frame) =>
+        frame.part.type === "recovery" ? frame.part.state : frame.part.type
+      )
+    ).toEqual(["waiting", "recovered"]);
+    expect(
+      parts.every(
+        (frame) =>
+          frame.submissionId === receipt.submissionId &&
+          frame.source === "flue.model_recovery"
+      )
     ).toBe(true);
+    const snapshots = frames
+      .filter((frame) => !("kind" in frame) || frame.kind === "text")
+      .map((frame) =>
+        "snapshot" in frame ? frame.snapshot : frame.textSnapshot
+      );
+    if (!withNarration) {
+      expect(
+        snapshots.some((text) => text.includes("Wrong partial answer."))
+      ).toBe(true);
+    }
     expect(snapshots.at(-1)).toBe(answer.text);
     expect(snapshots.at(-1)).not.toContain("Wrong partial");
     expect(snapshots.at(-1)).toContain("Correct complete answer.");

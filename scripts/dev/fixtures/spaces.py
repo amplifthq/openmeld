@@ -112,13 +112,47 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
                         "INSERT OR REPLACE INTO inbox_conversation_notification_preferences (user_id,organization_id,space_id,mode) VALUES (?,?,?,?)",
                         (viewer["id"], org["id"], sid, notification_mode),
                     )
+        if i == 0:
+            seed_unread_navigation(context, sid, preview_members[0])
         if i in (1, 2, 3, 8, 9, 10):
             agent_id = "agt_"+ident(f"agent:{i}")
             agent_name = db.execute("SELECT profile_name FROM openmeld_profiles WHERE profile_id=?", (agent_id,)).fetchone()[0]
             runtime_states.append({"spaceId":sid,"profileId":"agt_"+ident(f"agent:{i}"),
                                    "profileName":agent_name,
                                    "sourceSignalId":str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:0")),
-                                   "scenario":"plan_review" if i == 3 else "permission" if i == 10 else "question" if i == 9 else "conversation_wait" if i == 2 else "working",
+                                   "scenario":"plan_review" if i == 3 else "permission" if i == 10 else "question" if i == 9 else "conversation_wait" if i == 2 else "recovery" if i == 1 else "working",
                                    "needsInput":i in (3,9,10)})
 
     return runtime_states
+
+
+def seed_unread_navigation(context, sid, speaker):
+    """Mixed historical main/Thread updates through the canonical Inbox rows."""
+    import sqlite3
+    path = context.state / "do/openmeld-core-Space" / f"{sid}.sqlite"
+    profile = context.db.execute("SELECT profile_name,profile_kind FROM openmeld_profiles WHERE profile_id=?", (speaker,)).fetchone()
+    threads = {}
+    for index in (100, 200, 400):
+        root_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:{index}"))
+        result = context.request("gateway", f"/v1/spaces/{sid}/threads", {"rootSignalId": root_id, "clientMutationId": context.ident(f"unread-navigation-thread:{sid}:{index}")})
+        threads[index] = result.get("data", result)["thread"]["threadId"]
+    with sqlite3.connect(path, timeout=30) as conversation:
+        for index in (100, 200, 400):
+            root_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:{index}"))
+            root_ts = conversation.execute("SELECT ts FROM space_signals WHERE id=?", (root_id,)).fetchone()[0]
+            for reply in range(4):
+                signal_id = root_id if reply == 0 else context.ident(f"unread-navigation:{sid}:{index}:{reply}")
+                ts = root_ts + reply * 60_000
+                source = {"kind": "space", "spaceId": sid, "signalId": signal_id}
+                if reply:
+                    text = f"Unread navigation review {index}, reply {reply}.\n\n" + "Please review the proposed change in the complete workflow before recording the decision.\n\n" * 8
+                    data = {"text": text, "messageEnvelope": {"activationTargets": [], "referenceTargets": [], "replyToSignalId": root_id, "text": text}}
+                    envelope = {"v": 1, "id": signal_id, "spaceId": sid, "ts": ts, "profile": {"kind": profile[1], "profileId": speaker, "profileName": profile[0]}, "type": "signal.text", "data": data}
+                    conversation.execute("INSERT OR REPLACE INTO space_signals (id,ts,type,profile_id,profile_kind,client_message_id,payload_json) VALUES (?,?,?,?,?,?,?)", (signal_id, ts, "signal.text", speaker, profile[1], signal_id, json.dumps(envelope)))
+                    conversation.execute("INSERT OR REPLACE INTO space_thread_signal_placements (signal_id,thread_id,placement,created_at_ms) VALUES (?,?,?,?)", (signal_id, threads[index], "thread", ts))
+                    source["threadRootSignalId"] = root_id
+                values = dict(organization_id=context.org["id"], recipient_user_id=context.viewer["id"], kind="space_message", attention="update", importance="normal", title="Unread navigation review", preview="Read the next update or mark this Space as read.", context_label="Product planning", source_kind="space_signal", source_key=f"fixture-unread-navigation:{signal_id}", source_target_json=json.dumps(source), resolution_status="not_applicable", occurred_at_ms=ts, created_at_ms=context.now, updated_at_ms=context.now, read_at_ms=None, cleared_at_ms=None)
+                item_id = context.ident(f"unread-navigation-item:{signal_id}")
+                context.insert("inbox_items", id=item_id, **values)
+                context.db.execute("UPDATE inbox_items SET " + ",".join(f'"{column}"=?' for column in values) + " WHERE id=?", (*values.values(), item_id))
+    context.db.commit()

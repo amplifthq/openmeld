@@ -8,6 +8,7 @@ import {
   createDaemonRouteObservationSummary,
   DB_FACT_SCHEMA_VERSION,
   type DbDiagnosticsPayload,
+  organizationProfileDirectoryResponseSchema,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas";
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
@@ -1623,6 +1624,22 @@ describe("gateway http forwarding", () => {
     });
   });
 
+  it("forwards the opt-in Center Agent directory scope to Core", async () => {
+    const { env, rpc } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/directory?centerAgentOnly=true"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(rpc.getCurrentOrganizationDirectory).toHaveBeenCalledWith({
+      centerAgentOnly: true,
+      context: EXPECTED_CORE_CONTEXT,
+    });
+  });
+
   it("forwards the lightweight Profile Directory options without requesting runtime state", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(
@@ -1698,6 +1715,62 @@ describe("gateway http forwarding", () => {
     expect(
       rpc.getCurrentOrganizationAgentRuntimeOverview
     ).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("returns Agent avatar fields only with opt-in=%s", async (includeAgentAvatars) => {
+    const { env, rpc } = makeEnv();
+    const profile = {
+      organizationId: "org-1",
+      profileId: "agt_11111111-1111-4111-8111-111111111111",
+      profileName: "Agent",
+      profileHandle: "agent",
+      profileKind: "agent",
+      isDefault: false,
+      status: "active",
+      ownerUserId: "user-1",
+      source: "cli_create",
+      managedRole: null,
+      createdByUserId: "user-1",
+      creatorProfileId: null,
+      lastUsedAt: null,
+      createdAt: "2026-09-10T00:00:00.000Z",
+      updatedAt: "2026-09-10T00:00:00.000Z",
+      avatarStyle: "fluid",
+      avatarModelId: "claude-opus-5-5",
+      agentControllerRef: "builtin:codex",
+    };
+    rpc.getCurrentOrganizationProfileDirectory.mockResolvedValue({
+      organizationId: "org-1",
+      generatedAt: profile.createdAt,
+      members: [],
+      agentProfiles: [profile],
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/organizations/current/profile-directory?includeAgentAvatars=${includeAgentAvatars}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    const { avatarStyle, avatarModelId, ...legacyProfile } = profile;
+    const body = organizationProfileDirectoryResponseSchema.parse(
+      await response.json()
+    );
+    expect(body).toMatchObject({
+      agentProfiles: [
+        includeAgentAvatars
+          ? { ...legacyProfile, avatarStyle, avatarModelId }
+          : legacyProfile,
+      ],
+    });
+    if (!includeAgentAvatars) {
+      expect(body).not.toHaveProperty("agentProfiles.0.avatarStyle");
+      expect(body).not.toHaveProperty("agentProfiles.0.avatarModelId");
+    }
   });
 
   it("forwards only dynamic Agent runtime options to the runtime overview", async () => {
@@ -2436,6 +2509,58 @@ describe("gateway http forwarding", () => {
     expect(bootstrapTimingPoint?.doubles?.[1]).toBe(42);
   });
 
+  it.each([
+    false,
+    true,
+  ])("only exposes model recovery to an opted-in bootstrap reader: %s", async (supported) => {
+    const { env, rpc } = makeEnv();
+    const original = await rpc.getSpaceBootstrapWithTiming();
+    const recovery = {
+      type: "recovery",
+      state: "waiting",
+      attempt: 2,
+      maxAttempts: 5,
+      nextRetryAtMs: 7000,
+    } as const;
+    rpc.getSpaceBootstrapWithTiming.mockResolvedValue({
+      ...original,
+      payload: {
+        ...original.payload,
+        activeAgentStreamPresences: [
+          {
+            v: 1,
+            spaceId: "demo",
+            streamId: "stream:sub_1",
+            sequence: 2,
+            profileId: "agt_11111111-1111-4111-8111-111111111111",
+            triggerMessageId: "signal_1",
+            dispatchId: "dispatch_1",
+            state: "streaming",
+            gapDetected: false,
+            createdAtMs: 1000,
+            updatedAtMs: 2000,
+            expiresAtMs: 60_000,
+            recovery,
+          },
+        ],
+      },
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/demo/bootstrap?includeAgentStreamPresence=true${supported ? "&includeAgentStreamRecovery=true" : ""}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      activeAgentStreamPresences: { recovery?: unknown }[];
+    };
+    expect(body.activeAgentStreamPresences[0]?.recovery).toEqual(
+      supported ? recovery : undefined
+    );
+  });
+
   it("forwards GET /v1/spaces/:spaceId/dispatches/:dispatchId/trace to core RPC", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(
@@ -2494,6 +2619,7 @@ describe("gateway http forwarding", () => {
     "3",
     "4",
     "5",
+    "6",
   ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
@@ -2546,7 +2672,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "6",
+          "x-openmeld-space-dispatch-trace-response-version": "7",
         },
       }),
       env,
@@ -5914,7 +6040,7 @@ describe("gateway http forwarding", () => {
     });
   });
 
-  it("forwards PATCH /contract to core RPC", async () => {
+  it("narrows legacy status permissions before forwarding PATCH /contract", async () => {
     const { env, rpc } = makeEnv();
     const contractPatch = {
       publicationMode: "raw_context_sharing",
@@ -5948,7 +6074,7 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.patchSpaceContract).toHaveBeenCalledWith({
       spaceId: "demo",
-      contractPatch,
+      contractPatch: { ...contractPatch, allowedActions: ["stay_silent"] },
       password: "secret-contract",
       context: EXPECTED_CORE_CONTEXT,
     });
@@ -6101,7 +6227,7 @@ describe("gateway http forwarding", () => {
     expect(rpc.getSpaceDispatchResult).not.toHaveBeenCalled();
   });
 
-  it("forwards PUT /contract to core RPC", async () => {
+  it("narrows legacy status permissions before forwarding PUT /contract", async () => {
     const { env, rpc } = makeEnv();
     const contract = {
       dispatchPolicy: { mode: "mention_only" },
@@ -6131,7 +6257,10 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.putSpaceContract).toHaveBeenCalledWith({
       spaceId: "demo",
-      contract,
+      contract: {
+        ...contract,
+        allowedActions: ["post_message", "stay_silent"],
+      },
       context: EXPECTED_CORE_CONTEXT,
     });
   });

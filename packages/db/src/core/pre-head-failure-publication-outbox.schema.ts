@@ -1,11 +1,7 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
+import { integerBoolean } from "../postgresql/schema-types.ts";
 
 /**
  * Core-owned operational recovery state for terminal failures discovered before
@@ -13,34 +9,33 @@ import {
  * time-decaying Wake evidence domain: pending publication commands must survive
  * observability retention until their visible Space receipt is durable.
  */
-export const openMeldDaemonPreHeadFailurePublicationOutbox = sqliteTable(
+export const openMeldDaemonPreHeadFailurePublicationOutbox = applicationTable(
   "openMeldDaemon_pre_head_failure_publication_outbox",
   {
     dispatchId: text("dispatch_id").primaryKey(),
     idempotencyKey: text("idempotency_key").notNull(),
     attemptId: text("attempt_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
     modelVersion: text("model_version").notNull(),
     failureContext: text("failure_context").notNull(),
     finalStatus: text("final_status").notNull(),
     errorCode: text("error_code").notNull(),
     errorMessage: text("error_message"),
-    recordProfileNotFoundObservation: integer(
-      "record_profile_not_found_observation",
-      { mode: "boolean" }
+    recordProfileNotFoundObservation: integerBoolean(
+      "record_profile_not_found_observation"
     )
       .notNull()
-      .default(false),
+      .default(sql`0`),
     publicationCommandJson: text("publication_command_json").notNull(),
     redriveMessageJson: text("redrive_message_json").notNull(),
     status: text("status").notNull(),
-    attemptCount: integer("attempt_count").notNull(),
-    nextAttemptAtMs: integer("next_attempt_at_ms").notNull(),
+    attemptCount: bigint("attempt_count", { mode: "number" }).notNull(),
+    nextAttemptAtMs: bigint("next_attempt_at_ms", { mode: "number" }).notNull(),
     claimId: text("claim_id"),
-    claimExpiresAtMs: integer("claim_expires_at_ms"),
-    stateVersion: integer("state_version").notNull(),
-    completedAtMs: integer("completed_at_ms"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
+    stateVersion: bigint("state_version", { mode: "number" }).notNull(),
+    completedAtMs: bigint("completed_at_ms", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     check(

@@ -1,14 +1,21 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it, vi } from "vitest";
 import { listRemoteAgentMessageChannelConnectionProjections } from "../src/remote-agent/application/message-channel-connection-projection";
-import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../src/remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
+import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 
 describe("Remote Agent Message Channel connection projection", () => {
   it("projects Slack, Lark, and Feishu independently for one Organization", async () => {
     const result = await listRemoteAgentMessageChannelConnectionProjections(
       {
-        identityDb: {} as D1Database,
+        identityDb: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         organizationId: "org_1",
-        stateDb: {} as D1Database,
+        stateDb: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
       },
       {
         readSlackToken: vi.fn(async () => null),
@@ -109,9 +116,15 @@ describe("Remote Agent Message Channel connection projection", () => {
     await expect(
       listRemoteAgentMessageChannelConnectionProjections(
         {
-          identityDb: {} as D1Database,
+          identityDb: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           organizationId: "org_1",
-          stateDb: {} as D1Database,
+          stateDb: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
         },
         {
           listLarkPlatformConnections: vi.fn(async () => [

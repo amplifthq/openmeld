@@ -59,7 +59,7 @@ export function SidebarSearchInput(input: {
 				</SidebarDestinationAction>
 			)}
 			{revealed && (
-				<div className="fade-in slide-in-from-top-1 relative min-w-0 flex-1 animate-in duration-150 motion-reduce:animate-none">
+				<div className="relative min-w-0 flex-1">
 					<MagnifyingGlassIcon
 						aria-hidden="true"
 						className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"

@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 
 import { Command as CommandPrimitive } from "cmdk";
@@ -46,17 +47,19 @@ function CommandInput({
 
 function CommandList({
 	className,
+	children,
 	...props
 }: React.ComponentProps<typeof CommandPrimitive.List>) {
 	return (
-		<CommandPrimitive.List
-			className={cn(
-				"max-h-[300px] scroll-py-1 overflow-y-auto overflow-x-hidden",
-				className
-			)}
-			data-slot="command-list"
-			{...props}
-		/>
+		<ScrollArea
+			className={cn("max-h-[300px]", className)}
+			viewportClassName="scroll-py-1"
+			viewportProps={{
+				render: <CommandPrimitive.List {...props} data-slot="command-list" />,
+			}}
+		>
+			{children}
+		</ScrollArea>
 	);
 }
 

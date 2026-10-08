@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,6 +23,25 @@ const owner = await acquireExecutionHostOwnership({
   bootIdentity: await readExecutionHostBootIdentity(),
 });
 owner.observeLocalQuiescence(false);
+let providerPid: number | null = null;
+if (process.argv[3] === "with-provider") {
+  const provider = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => undefined, 1000)"],
+    {
+      detached: process.platform !== "win32",
+      stdio: "ignore",
+      windowsHide: true,
+    }
+  );
+  providerPid = provider.pid ?? null;
+  provider.unref();
+  owner.observeOwnedProcess({
+    phase: "process_spawned",
+    processId: providerPid,
+    signalTarget: process.platform === "win32" ? "process" : "process_group",
+  });
+}
 writeFileSync(join(stateRoot, "execution-started"), "once", { flag: "wx" });
-process.send?.({ ready: true });
+process.send?.({ providerPid, ready: true });
 process.on("message", () => undefined);

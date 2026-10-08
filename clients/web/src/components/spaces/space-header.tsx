@@ -15,7 +15,6 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
-import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
@@ -24,8 +23,8 @@ import {
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
 import { MessageSearchButton } from "#/components/search/message-search";
-import type { SpaceLiveState } from "#/lib/spaces/timeline";
 import { ChatHeaderMenu } from "./chat-header-menu";
+import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
@@ -49,8 +48,6 @@ export function SpaceWindowHeader(input: {
 	subtitleItems?: readonly SpaceWindowHeaderSubtitleItem[];
 	title: string;
 	titleControl?: ReactNode;
-	// Rendered immediately after the title, kept shrink-0 so the live-status
-	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
 }) {
 	const readingHeader = useSpaceReadingHeader();
@@ -67,6 +64,8 @@ export function SpaceWindowHeader(input: {
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			data-has-leading-control={Boolean(input.leadingControl)}
+			data-slot="space-window-header"
 			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl || hasModuleSidebar ? (
@@ -80,10 +79,11 @@ export function SpaceWindowHeader(input: {
 			) : null}
 			<div
 				className={cn(
-					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
+					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden data-[has-title-control=true]:overflow-visible group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
 					!(input.leadingControl || hasModuleSidebar) &&
 						"col-span-2 col-start-1"
 				)}
+				data-has-title-control={Boolean(input.titleControl)}
 				data-slot="space-window-header-title"
 			>
 				{input.titleControl ?? (
@@ -206,17 +206,8 @@ export function SpaceHeader(input: {
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
 	leaveSpaceErrorMessage: string | null;
-	// Realtime stream health for this browser's live connection. Drives the
-	// status dot pinned after the space name; defaults to "connected" so static
-	// surfaces (e.g. the public route) render a plain live dot.
-	liveErrorMessage?: string | null;
-	liveState?: SpaceLiveState;
-	isLoadingMessages?: boolean;
 	managementControl?: ReactNode;
 	showChatSettingsMenu?: boolean;
-	// Forces an immediate live-stream reconnect; wired to the manual retry control
-	// on the degraded status indicator.
-	onReconnectLiveUpdates?: () => void;
 	renderFrame?: boolean;
 	membersControl?: ReactNode;
 	notificationControl?: ReactNode;
@@ -247,10 +238,7 @@ export function SpaceHeader(input: {
 		"main"
 	);
 	const [isConfirmingDraftClose, setIsConfirmingDraftClose] = useState(false);
-	const spaceName = resolveHeaderTitle(
-		input.conversationTitle,
-		input.status.name
-	);
+	const conversationNames = useConversationNames();
 	const sharingDraft = useSpaceSharingDraft({
 		accessMode: input.status.accessMode,
 		allowGuests: input.status.allowGuests,
@@ -263,6 +251,13 @@ export function SpaceHeader(input: {
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
+	const spaceName = resolveHeaderTitle(
+		input.conversationTitle ??
+			(isDirectMessage
+				? conversationNames?.names.get(input.status.spaceId)?.name
+				: undefined),
+		input.status.name
+	);
 	const showChatMenu = input.showChatSettingsMenu || isDirectMessage;
 	const handleDialogOpenChange = (
 		dialog: "settings" | "share",
@@ -448,12 +443,6 @@ export function SpaceHeader(input: {
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
 						: renderSpaceAccessModeHeaderLabel(input.status)}
-					<SpaceLiveStatusIndicator
-						isLoadingMessages={input.isLoadingMessages}
-						liveErrorMessage={input.liveErrorMessage ?? null}
-						liveState={input.liveState ?? "connected"}
-						onReconnectNow={input.onReconnectLiveUpdates}
-					/>
 					{input.directMessageOwnerVisibilityLabel ? (
 						<span className="inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-normal text-[10px] leading-none">
 							{input.directMessageOwnerVisibilityLabel}
@@ -530,109 +519,4 @@ function resolveSpaceAccessModeLabel(status: GetSpaceStatusResponse): string {
 		default:
 			return "Public";
 	}
-}
-
-// Label shown next to the amber dot while the live stream is reconnecting.
-// Exported so tests assert on the same literal the component renders.
-export const SPACE_LIVE_RECONNECTING_LABEL = "Reconnecting…";
-export const SPACE_LIVE_STALE_LABEL = "Syncing…";
-
-function resolveLiveStatusSrLabel(liveState: SpaceLiveState): string {
-	switch (liveState) {
-		case "degraded":
-			return "Live updates paused, reconnecting";
-		case "stale":
-			return "Live updates are syncing missed messages";
-		case "connecting":
-			return "Connecting to live updates";
-		default:
-			return "Live updates active";
-	}
-}
-
-export function SpaceLiveStatusIndicator(input: {
-	isLoadingMessages?: boolean;
-	liveErrorMessage: string | null;
-	liveState: SpaceLiveState;
-	onReconnectNow?: () => void;
-}) {
-	const isDegraded = input.liveState === "degraded";
-	const isStale = input.liveState === "stale";
-	const needsAttention = isDegraded || isStale;
-	const dotClassName = cn(
-		"status-dot",
-		resolveStatusToneIndicatorClassName("warning", "solid")
-	);
-	const srLabel =
-		!needsAttention && input.isLoadingMessages
-			? "Loading messages"
-			: resolveLiveStatusSrLabel(input.liveState);
-	// When degraded we expose a manual retry: don't make the user wait out the
-	// (possibly background-throttled) backoff timer.
-	const canRetry = isDegraded && input.onReconnectNow !== undefined;
-	const degradedTooltip = canRetry
-		? (input.liveErrorMessage ?? "Reconnecting… — click to reconnect now")
-		: (input.liveErrorMessage ?? srLabel);
-	const attentionTooltip = isDegraded
-		? degradedTooltip
-		: (input.liveErrorMessage ?? srLabel);
-
-	const indicatorBody = (
-		<>
-			<span aria-hidden="true" className={dotClassName} />
-			<span
-				aria-hidden="true"
-				className="font-normal text-amber-600 text-xs dark:text-amber-400"
-			>
-				{isDegraded ? SPACE_LIVE_RECONNECTING_LABEL : SPACE_LIVE_STALE_LABEL}
-			</span>
-		</>
-	);
-
-	return (
-		<>
-			{/* Always-present live region so screen readers hear status changes
-			    (e.g. going degraded) regardless of the interactive element below. */}
-			<output aria-live="polite" className="sr-only">
-				{srLabel}
-			</output>
-			{/* A healthy message stream is not Human presence or Agent readiness. */}
-			{needsAttention ? (
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							canRetry ? (
-								<button
-									aria-label="Reconnect live updates now"
-									className="flex shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-inherit"
-									data-testid="space-live-status"
-									onClick={input.onReconnectNow}
-									type="button"
-								>
-									{indicatorBody}
-								</button>
-							) : (
-								<span
-									className="flex shrink-0 items-center gap-1.5"
-									data-testid="space-live-status"
-								>
-									{indicatorBody}
-								</span>
-							)
-						}
-					/>
-					<TooltipContent side="bottom">{attentionTooltip}</TooltipContent>
-				</Tooltip>
-			) : null}
-			{!needsAttention && input.isLoadingMessages ? (
-				<span
-					className="flex shrink-0 items-center gap-1.5 text-muted-foreground text-xs"
-					data-testid="space-message-loading"
-				>
-					<span aria-hidden="true" className="status-dot bg-current" />
-					<span aria-hidden="true">Loading</span>
-				</span>
-			) : null}
-		</>
-	);
 }

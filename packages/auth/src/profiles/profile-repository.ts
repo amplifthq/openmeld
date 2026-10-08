@@ -6,13 +6,12 @@ import {
   type InferSelectModel,
   inArray,
 } from "@openmeld/db/query";
-import type { createD1Db } from "../db";
+import type { createAuthDatabase } from "../db";
 import type {
   OpenMeldProfileManagedRole,
   OpenMeldProfileSource,
 } from "../db/openmeld-profile.schema";
 import { openMeldProfiles } from "../db/openmeld-profile.schema";
-
 export type OpenMeldProfileRecord = InferSelectModel<typeof openMeldProfiles>;
 type OpenMeldProfileFactRecord = Pick<
   OpenMeldProfileRecord,
@@ -25,10 +24,9 @@ type OpenMeldProfileFactRecord = Pick<
   | "organizationId"
   | "defaultProjectId"
   | "managedRole"
+  | "avatarStyle"
 >;
-
 type NewOpenMeldProfileRecord = InferInsertModel<typeof openMeldProfiles>;
-
 type PrimaryHumanProfileInsertInput = {
   profileId: string;
   profileName: string;
@@ -38,7 +36,6 @@ type PrimaryHumanProfileInsertInput = {
   creatorProfileId?: string | null;
   source?: OpenMeldProfileSource;
 };
-
 type AgentProfileInsertInput = {
   profileId: string;
   profileName: string;
@@ -52,7 +49,6 @@ type AgentProfileInsertInput = {
   managedRole?: OpenMeldProfileManagedRole | null;
   source?: OpenMeldProfileSource;
 };
-
 type HumanProfileInsertInput = {
   profileId: string;
   profileName: string;
@@ -62,7 +58,6 @@ type HumanProfileInsertInput = {
   creatorProfileId?: string | null;
   source?: OpenMeldProfileSource;
 };
-
 export type OpenMeldProfileRepository = {
   findFactsByProfileIds: (
     profileIds: string[]
@@ -97,7 +92,21 @@ export type OpenMeldProfileRepository = {
   updateManagedProfileIdentityForOrganization: (
     organizationId: string,
     profileId: string,
-    input: { profileName: string; profileHandle: string }
+    input: {
+      profileName: string;
+      profileHandle: string;
+    }
+  ) => Promise<void>;
+  updateAgentAvatarStyle: (
+    profileId: string,
+    avatarStyle: string,
+    scope:
+      | {
+          organizationId: string;
+        }
+      | {
+          ownerUserId: string;
+        }
   ) => Promise<void>;
   updateProfileIdentityForOwner: (
     ownerUserId: string,
@@ -118,9 +127,7 @@ export type OpenMeldProfileRepository = {
     profileId: string
   ) => Promise<void>;
 };
-
-type OpenMeldProfileDatabase = ReturnType<typeof createD1Db>;
-
+type OpenMeldProfileDatabase = ReturnType<typeof createAuthDatabase>;
 export function createDrizzleOpenMeldProfileRepository(
   db: OpenMeldProfileDatabase
 ): OpenMeldProfileRepository {
@@ -140,6 +147,7 @@ export function createDrizzleOpenMeldProfileRepository(
           organizationId: openMeldProfiles.organizationId,
           defaultProjectId: openMeldProfiles.defaultProjectId,
           managedRole: openMeldProfiles.managedRole,
+          avatarStyle: openMeldProfiles.avatarStyle,
         })
         .from(openMeldProfiles)
         .where(inArray(openMeldProfiles.profileId, profileIds));
@@ -150,7 +158,6 @@ export function createDrizzleOpenMeldProfileRepository(
         .from(openMeldProfiles)
         .where(eq(openMeldProfiles.profileId, profileId))
         .limit(1);
-
       return rows[0] ?? null;
     },
     async findByOwnerAndProfileId(ownerUserId, profileId) {
@@ -164,7 +171,6 @@ export function createDrizzleOpenMeldProfileRepository(
           )
         )
         .limit(1);
-
       return rows[0] ?? null;
     },
     async findAgentByOwnerAndCreationIdempotencyKey(
@@ -182,7 +188,6 @@ export function createDrizzleOpenMeldProfileRepository(
           )
         )
         .limit(1);
-
       return rows[0] ?? null;
     },
     async findDefaultHumanByOwner(ownerUserId) {
@@ -269,7 +274,6 @@ export function createDrizzleOpenMeldProfileRepository(
         createdAt: now,
         updatedAt: now,
       };
-
       await db.insert(openMeldProfiles).values(value).onConflictDoNothing();
     },
     async activateProfile(profileId) {
@@ -279,31 +283,32 @@ export function createDrizzleOpenMeldProfileRepository(
         .where(eq(openMeldProfiles.profileId, profileId))
         .limit(1);
       const now = new Date();
-      const [, updatedRows] = await db.batch([
-        db
-          .update(openMeldProfiles)
-          .set({
-            isDefault: false,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(openMeldProfiles.ownerUserId, targetOwnerUserId),
-              eq(openMeldProfiles.profileKind, "human"),
-              eq(openMeldProfiles.isDefault, true)
-            )
-          ),
-        db
-          .update(openMeldProfiles)
-          .set({
-            status: "active",
-            isDefault: true,
-            updatedAt: now,
-          })
-          .where(eq(openMeldProfiles.profileId, profileId))
-          .returning({ profileId: openMeldProfiles.profileId }),
-      ]);
-
+      const [, updatedRows] = await db.transaction((tx) =>
+        Promise.all([
+          tx
+            .update(openMeldProfiles)
+            .set({
+              isDefault: false,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(openMeldProfiles.ownerUserId, targetOwnerUserId),
+                eq(openMeldProfiles.profileKind, "human"),
+                eq(openMeldProfiles.isDefault, true)
+              )
+            ),
+          tx
+            .update(openMeldProfiles)
+            .set({
+              status: "active",
+              isDefault: true,
+              updatedAt: now,
+            })
+            .where(eq(openMeldProfiles.profileId, profileId))
+            .returning({ profileId: openMeldProfiles.profileId }),
+        ])
+      );
       return updatedRows.length > 0;
     },
     async insertAgentProfile(input) {
@@ -326,7 +331,6 @@ export function createDrizzleOpenMeldProfileRepository(
         createdAt: now,
         updatedAt: now,
       };
-
       await db.insert(openMeldProfiles).values(value).onConflictDoNothing();
     },
     async insertHumanProfile(input) {
@@ -345,7 +349,6 @@ export function createDrizzleOpenMeldProfileRepository(
         createdAt: now,
         updatedAt: now,
       };
-
       await db.insert(openMeldProfiles).values(value).onConflictDoNothing();
     },
     async updateManagedProfileIdentityForOrganization(
@@ -365,6 +368,20 @@ export function createDrizzleOpenMeldProfileRepository(
             eq(openMeldProfiles.organizationId, organizationId),
             eq(openMeldProfiles.profileId, profileId),
             eq(openMeldProfiles.managedRole, "center_agent")
+          )
+        );
+    },
+    async updateAgentAvatarStyle(profileId, avatarStyle, scope) {
+      await db
+        .update(openMeldProfiles)
+        .set({ avatarStyle, updatedAt: new Date() })
+        .where(
+          and(
+            eq(openMeldProfiles.profileId, profileId),
+            eq(openMeldProfiles.profileKind, "agent"),
+            "organizationId" in scope
+              ? eq(openMeldProfiles.organizationId, scope.organizationId)
+              : eq(openMeldProfiles.ownerUserId, scope.ownerUserId)
           )
         );
     },

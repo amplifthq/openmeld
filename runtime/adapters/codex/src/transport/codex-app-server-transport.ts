@@ -10,6 +10,8 @@ import type {
   AdapterInstructionPrompt,
   AdapterInteractionCallback,
   AdapterInteractionRequest,
+  AdapterPermissionModeUpdateRequest,
+  AdapterPermissionModeUpdateResult,
   AdapterPreviewCallback,
   AdapterProviderAccessEvidence,
   AdapterRuntimeEvent,
@@ -17,6 +19,8 @@ import type {
   AdapterRuntimeProcessCallback,
   AdapterStreamingMode,
   AgentControllerPermissionMode,
+  AgentExecutionSteerRequest,
+  AgentExecutionSteerResponse,
   ConversationPolicy,
   RuntimeAgentControllerLaunchContract,
   SpawnedAgentControllerProcess,
@@ -30,8 +34,10 @@ import {
   resolveDispatchSpaceActionMcpServer,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
+import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
 import { extractCodexToolActivityEvent } from "../output/codex-tool-activity.js";
+import { projectCodexUsageLimits } from "../usage/codex-usage-limits.js";
 import {
   type CodexAppServerControlOperation,
   resolveCodexAppServerControlRequestTimeoutMs,
@@ -76,7 +82,13 @@ export type CodexAppServerTransportResult = {
 };
 
 export type CodexAppServerActiveTurnRegistration = {
+  updatePermissionMode: (
+    input: AdapterPermissionModeUpdateRequest
+  ) => Promise<AdapterPermissionModeUpdateResult>;
   interrupt: () => Promise<void>;
+  steer: (
+    input: Omit<AgentExecutionSteerRequest, "taskId">
+  ) => Promise<AgentExecutionSteerResponse>;
   taskId: string;
   threadId: string;
   turnId: string;
@@ -92,6 +104,7 @@ export type CodexAppServerThreadProofResult = {
 
 export type CodexAppServerAccountProbeResult = {
   authStatus: "authenticated" | "unauthenticated" | "unknown";
+  email?: string;
   version: string | null;
 };
 
@@ -122,6 +135,7 @@ type JsonRpcRequestTimeout = {
   code: string;
   operation: CodexAppServerControlOperation;
   timeoutMs: number;
+  terminateSession?: boolean;
 };
 
 type CodexAppServerInteractionFailure = {
@@ -313,6 +327,9 @@ export async function probeCodexAppServerAccount(input: {
       const account = toRecord(response?.account);
       return {
         authStatus: resolveCodexAppServerAuthStatus({ account, response }),
+        ...(typeof account?.email === "string" && account.email.trim()
+          ? { email: account.email.trim() }
+          : {}),
         version: parseCodexAppServerVersion(initialized),
       };
     }
@@ -411,7 +428,10 @@ export async function invokeCodexAppServerTransport(input: {
         input.codexWorkdir,
         permissionExecutionMode
       );
-      await session.verifyScopedMcp(threadContext.threadId);
+      await session.verifyScopedMcp(
+        threadContext.threadId,
+        parseCodexAppServerVersion(initialized)
+      );
       const collaborationMode =
         await resolveCodexAppServerTurnCollaborationMode({
           conversationPolicy: input.conversationPolicy,
@@ -431,8 +451,16 @@ export async function invokeCodexAppServerTransport(input: {
       });
       session.emitProviderConversationObserved(continuityThreadId);
       session.observeReasoningForThread(executionThreadId);
+      session.observeUsageForThread(executionThreadId, threadContext.model);
       throwIfCodexDispatchCancelled(input.cancellationSignal);
       const completedTurn = await startAndAwaitAppServerTurn({
+        supportsLiveReviewer: supportsAgentControllerVersion(
+          parseCodexAppServerVersion(initialized),
+          ">=0.153.0-alpha.4"
+        ),
+        permissionMode: resolveCodexAgentControllerPermissionMode(
+          input.agentControllerPermissionMode
+        ),
         cancellationSignal: input.cancellationSignal,
         collaborationMode,
         conversationPolicyParams,
@@ -489,6 +517,8 @@ export async function invokeCodexAppServerTransport(input: {
 }
 
 async function startAndAwaitAppServerTurn(input: {
+  supportsLiveReviewer: boolean;
+  permissionMode: AgentControllerPermissionMode;
   cancellationSignal?: AbortSignal;
   collaborationMode?: CodexAppServerCollaborationMode | null;
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
@@ -506,6 +536,7 @@ async function startAndAwaitAppServerTurn(input: {
 }): Promise<AppServerTurn> {
   const { session, executionThreadId } = input;
   let activeTurnId: string | null = null;
+  let turnSettled = false;
   let interruptRequested = false;
   let interruptSent = false;
   const sendInterruptIfActive = async (targetTurnId: string) => {
@@ -524,6 +555,153 @@ async function startAndAwaitAppServerTurn(input: {
   };
 
   const unregisterActiveTurn = session.registerActiveTurn({
+    updatePermissionMode: async (update) => {
+      const next = update.agentControllerPermissionMode;
+      const taskId = input.taskId;
+      if (!next.startsWith("codex:")) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.permission_mode_incompatible",
+        };
+      }
+      if (
+        !activeTurnId ||
+        turnSettled ||
+        interruptRequested ||
+        input.cancellationSignal?.aborted
+      ) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.task_not_active",
+        };
+      }
+      const reviewerMode = (mode: AgentControllerPermissionMode) =>
+        mode === "codex:askForApproval" || mode === "codex:approveForMe";
+      if (
+        !input.supportsLiveReviewer ||
+        input.executionMode === "repair" ||
+        !reviewerMode(input.permissionMode) ||
+        !reviewerMode(next)
+      ) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.permission_mode_update_unsupported",
+        };
+      }
+      const result = toRecord(
+        await session.requestControl(
+          "turn/settings/update",
+          {
+            threadId: executionThreadId,
+            turnId: activeTurnId,
+            approvalsReviewer:
+              next === "codex:approveForMe" ? "auto_review" : "user",
+          },
+          {
+            code: "runtime.permission_mode_update_timeout",
+            operation: "turn/settings/update",
+            terminateSession: false,
+          }
+        )
+      );
+      if (result?.status !== "applied" || turnSettled || interruptRequested) {
+        return {
+          status: "not_applied",
+          taskId,
+          reasonCode: "adapter.task_not_active",
+        };
+      }
+      return {
+        status: "applied",
+        effectiveFrom: "subsequent_tool_requests",
+        taskId,
+      };
+    },
+    steer: async (steeringInput) => {
+      const targetTurnId = activeTurnId;
+      if (
+        !targetTurnId ||
+        turnSettled ||
+        interruptRequested ||
+        input.cancellationSignal?.aborted
+      ) {
+        return {
+          status: "not_applied",
+          taskId: input.taskId,
+          reasonCode: "execution_input.target_unavailable",
+        };
+      }
+      try {
+        // clientUserMessageId correlates native history; it does not dedupe.
+        // Send once: an absent or mismatched receipt cannot authorize a later
+        // Queue execution.
+        const result = toRecord(
+          await session.requestControl(
+            "turn/steer",
+            {
+              threadId: executionThreadId,
+              clientUserMessageId: steeringInput.inputId,
+              expectedTurnId: targetTurnId,
+              input: [
+                { type: "text", text: steeringInput.text, text_elements: [] },
+              ],
+            },
+            {
+              code: "runtime.turn_steer_timeout",
+              operation: "turn/steer",
+              terminateSession: false,
+            }
+          )
+        );
+        if (result?.turnId === targetTurnId) {
+          return {
+            status: "applied",
+            taskId: input.taskId,
+            threadId: executionThreadId,
+            turnId: targetTurnId,
+          };
+        }
+      } catch (error) {
+        const transportError =
+          error instanceof CodexAppServerTransportError ? error : null;
+        if (transportError?.rpcErrorCode === -32_601) {
+          return {
+            status: "not_applied",
+            taskId: input.taskId,
+            reasonCode: "execution_input.unsupported",
+          };
+        }
+        // Codex rejects turn/steer preconditions with Invalid Request/Params
+        // before admitting input (including an ended or different active turn).
+        // Internal errors and transport failures do not prove non-application.
+        if (
+          transportError?.rpcErrorCode === -32_600 ||
+          transportError?.rpcErrorCode === -32_602
+        ) {
+          return {
+            status: "not_applied",
+            taskId: input.taskId,
+            reasonCode: "execution_input.rejected",
+          };
+        }
+        return {
+          status: "unconfirmed",
+          taskId: input.taskId,
+          reasonCode: "execution_input.application_unconfirmed",
+          diagnosticCode: transportError?.code ?? "runtime.turn_steer_failed",
+          nativeErrorCode: transportError?.rpcErrorCode,
+        };
+      }
+      return {
+        status: "unconfirmed",
+        taskId: input.taskId,
+        reasonCode: "execution_input.application_unconfirmed",
+        diagnosticCode: "runtime.turn_steer_receipt_mismatch",
+      };
+    },
     interrupt: async () => {
       session.spaceToolInvocation.fence();
       interruptRequested = true;
@@ -591,6 +769,7 @@ async function startAndAwaitAppServerTurn(input: {
           turnId,
         });
   } finally {
+    turnSettled = true;
     session.spaceToolInvocation.fence();
     unregisterActiveTurn?.();
   }
@@ -797,12 +976,41 @@ export async function forkCodexAppServerThread(input: {
         initialized,
         threadId: sourceThreadId,
       });
+      let disableSpaceMcp = false;
+      if (nativeCarrier) {
+        const configuration = await session.requestControl(
+          "config/read",
+          {
+            cwd: input.targetWorkingDirectory ?? input.codexWorkdir,
+            includeLayers: false,
+          },
+          { code: "runtime.control_timeout", operation: "config/read" }
+        );
+        const servers = toRecord(
+          toRecord(toRecord(configuration)?.config)?.mcp_servers
+        );
+        if (!servers) {
+          throw new CodexAppServerTransportError({
+            code: "context.space_tool_carrier_unverified",
+            errorType: "config",
+            message:
+              "The effective Codex MCP configuration could not be verified.",
+          });
+        }
+        // Preparation has no dispatch bridge. A disabled-only override would
+        // create an invalid transport when that server is absent. If present,
+        // disable it while retaining its native transport definition.
+        disableSpaceMcp = Object.hasOwn(
+          servers,
+          OPENMELD_SPACE_ACTION_MCP_SERVER_ID
+        );
+      }
       const response = await session.requestControl(
         "thread/fork",
         {
           excludeTurns: true,
           threadId: sourceThreadId,
-          ...(nativeCarrier
+          ...(disableSpaceMcp
             ? {
                 config: {
                   [`mcp_servers.${OPENMELD_SPACE_ACTION_MCP_SERVER_ID}.enabled`]: false,
@@ -1291,6 +1499,14 @@ class CodexAppServerSession {
   #interactionFailure: CodexAppServerInteractionFailure | null = null;
   #lineBuffer = "";
   #latestTokenUsage: AdapterDispatchTelemetry["tokenUsage"] | null = null;
+  #usageThreadId: string | null = null;
+  #usageModel: string | null = null;
+  #usageTurnId: string | null = null;
+  readonly #usageTotalByThread = new Map<string, number>();
+  readonly #aiUsage = new Map<
+    string,
+    NonNullable<AdapterDispatchTelemetry["aiUsage"]>[number]
+  >();
   #nextRequestId = 1;
   #processTimeout: NodeJS.Timeout | null = null;
   readonly #startupTimeoutMs: number;
@@ -1394,8 +1610,7 @@ class CodexAppServerSession {
       cwd: tmpdir(),
       env: launch.env,
       shell: launch.shell ?? false,
-      ...(this.#computerFileAccessBoundary?.executionContextAccess &&
-      this.#env?.OPENMELD_PROCESS_SUPERVISION_ID
+      ...(this.#env?.OPENMELD_PROCESS_SUPERVISION_ID
         ? { supervisionId: this.#env.OPENMELD_PROCESS_SUPERVISION_ID }
         : {}),
     });
@@ -1638,36 +1853,18 @@ class CodexAppServerSession {
         return;
       }
     }
-    let supported = supportsCodexSpaceDynamicTools(
-      parseCodexAppServerVersion(input.initialized)
-    );
+    const version = parseCodexAppServerVersion(input.initialized);
+    let supported = supportsCodexSpaceDynamicTools(version);
+    if (nativeThread && !supported) {
+      throw new CodexAppServerTransportError({
+        code: "context.space_tool_version_unsupported",
+        errorType: "config",
+        message: `Codex ${version ?? "(unknown version)"} does not meet the native Space tool version requirement (0.150.1 or newer). Select a supported Codex installation and retry. No turn was started.`,
+      });
+    }
     if (supported) {
       try {
-        const configuration = await this.requestControl(
-          "config/read",
-          {
-            cwd: this.#codexWorkdir,
-            includeLayers: false,
-          },
-          { code: "runtime.control_timeout", operation: "config/read" }
-        );
-        supported = canUseCodexSpaceDynamicTools({
-          configuration,
-          permissionMode: this.#permissionMode,
-        });
-        if (supported) {
-          const requirements = await this.requestControl(
-            "configRequirements/read",
-            {},
-            {
-              code: "runtime.control_timeout",
-              operation: "configRequirements/read",
-            }
-          );
-          // Keep managed requirements on their native authorizer until this
-          // carrier has equivalent policy evidence. Missing data is not allow.
-          supported = toRecord(requirements)?.requirements === null;
-        }
+        supported = await this.supportsSpaceToolPolicy();
       } catch (error) {
         if (
           !(error instanceof CodexAppServerTransportError) ||
@@ -1676,6 +1873,14 @@ class CodexAppServerSession {
           throw error;
         }
         supported = false;
+        if (nativeThread) {
+          throw new CodexAppServerTransportError({
+            code: "context.space_tool_capability_unavailable",
+            errorType: "config",
+            message:
+              "Codex could not provide the policy checks required to continue this conversation. Select a supported Codex installation and retry. No turn was started.",
+          });
+        }
       }
     }
     if (nativeThread && !supported) {
@@ -1687,6 +1892,30 @@ class CodexAppServerSession {
       });
     }
     this.spaceToolInvocation.enabled = supported;
+  }
+
+  async supportsSpaceToolPolicy(): Promise<boolean> {
+    const configuration = await this.requestControl(
+      "config/read",
+      { cwd: this.#codexWorkdir, includeLayers: false },
+      { code: "runtime.control_timeout", operation: "config/read" }
+    );
+    if (
+      !canUseCodexSpaceDynamicTools({
+        configuration,
+        permissionMode: this.#permissionMode,
+      })
+    ) {
+      return false;
+    }
+    const requirements = await this.requestControl(
+      "configRequirements/read",
+      {},
+      { code: "runtime.control_timeout", operation: "configRequirements/read" }
+    );
+    // Keep managed requirements on their native authorizer until this
+    // carrier has equivalent policy evidence. Missing data is not allow.
+    return toRecord(requirements)?.requirements === null;
   }
 
   async prepareDeliveryOnlyScope(initialized: unknown): Promise<void> {
@@ -1824,7 +2053,10 @@ class CodexAppServerSession {
     };
   }
 
-  async verifyScopedMcp(threadId: string): Promise<void> {
+  async verifyScopedMcp(
+    threadId: string,
+    nativeVersion: string | null
+  ): Promise<void> {
     const scoped =
       this.#computerFileAccessBoundary?.executionContextAccess !== undefined ||
       this.deliveryOnly;
@@ -1833,7 +2065,21 @@ class CodexAppServerSession {
     }
     const inventory = await this.requestControl(
       "mcpServerStatus/list",
-      { threadId, detail: "full", limit: 100 },
+      {
+        threadId,
+        // Isolation must still inspect all servers, tools and resources. An
+        // ordinary native-tool turn only needs the alternate carrier disabled.
+        detail: scoped ? "full" : "toolsAndAuthOnly",
+        ...(!scoped &&
+        supportsAgentControllerVersion(nativeVersion, ">=0.160.0")
+          ? {
+              // Reuse the thread's published connection state. An unfiltered
+              // query starts discovery for unrelated MCP servers as well.
+              serverName: OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
+            }
+          : {}),
+        limit: 100,
+      },
       {
         code: "execution_context.mcp_inventory_timeout",
         operation: "mcpServerStatus/list",
@@ -1945,6 +2191,17 @@ class CodexAppServerSession {
           if (!this.#pending.has(id)) {
             return;
           }
+          if (timeout.terminateSession === false) {
+            this.#pending.delete(id);
+            pending.reject(
+              new CodexAppServerTransportError({
+                code: timeout.code,
+                errorType: "timeout",
+                message: `${timeout.code}: codex app-server did not acknowledge ${timeout.operation}.`,
+              })
+            );
+            return;
+          }
           const timeoutTriggeredAtMs = Date.now();
           this.#lifecycle.timeoutTriggeredAtMs = timeoutTriggeredAtMs;
           this.#emitRuntimeEvent({
@@ -2054,7 +2311,9 @@ class CodexAppServerSession {
   }
 
   registerActiveTurn(input: {
+    updatePermissionMode: CodexAppServerActiveTurnRegistration["updatePermissionMode"];
     interrupt?: () => Promise<void>;
+    steer: CodexAppServerActiveTurnRegistration["steer"];
     onActiveTurn?: CodexAppServerActiveTurnRegistrar;
     taskId: string;
     threadId: string;
@@ -2064,6 +2323,8 @@ class CodexAppServerSession {
       return null;
     }
     return input.onActiveTurn({
+      updatePermissionMode: input.updatePermissionMode,
+      steer: input.steer,
       taskId: input.taskId,
       threadId: input.threadId,
       turnId: input.turnId ?? "",
@@ -2126,6 +2387,7 @@ class CodexAppServerSession {
         ? {}
         : { timeoutTriggeredAtMs: this.#lifecycle.timeoutTriggeredAtMs }),
       ...(this.#latestTokenUsage ? { tokenUsage: this.#latestTokenUsage } : {}),
+      aiUsage: [...this.#aiUsage.values()],
     };
   }
 
@@ -2212,6 +2474,18 @@ class CodexAppServerSession {
   }
 
   #handleNotification(message: JsonRpcMessage): void {
+    if (message.method === "account/rateLimits/updated") {
+      const tsMs = Date.now();
+      const usageLimits = projectCodexUsageLimits({
+        response: message.params,
+        observedAt: new Date(tsMs).toISOString(),
+      });
+      this.#emitRuntimeEvent({
+        phase: "provider_usage_limits_observed",
+        tsMs,
+        usageLimits,
+      });
+    }
     this.#startupDiagnostics.observeNotification(
       message.method ?? "",
       message.params
@@ -2245,12 +2519,26 @@ class CodexAppServerSession {
   }
 
   #observeContextTelemetry(message: JsonRpcMessage): void {
+    const params = toRecord(message.params);
+    if (
+      message.method === "turn/started" &&
+      params?.threadId === this.#usageThreadId
+    ) {
+      this.#usageTurnId = normalizeOptionalText(toRecord(params.turn)?.id);
+    }
+    if (
+      message.method === "model/rerouted" &&
+      params?.threadId === this.#usageThreadId
+    ) {
+      this.#usageModel = normalizeOptionalText(params.toModel);
+    }
     if (message.method === "thread/tokenUsage/updated") {
       const tokenUsage = readCodexTokenUsage(
         toRecord(message.params)?.tokenUsage
       );
       if (tokenUsage) {
         this.#latestTokenUsage = tokenUsage;
+        this.#observeAiUsage(params, tokenUsage);
       }
       return;
     }
@@ -2261,6 +2549,50 @@ class CodexAppServerSession {
     ) {
       this.#contextCompactionObserved = true;
     }
+  }
+
+  #observeAiUsage(
+    params: Record<string, unknown> | null,
+    tokenUsage: NonNullable<AdapterDispatchTelemetry["tokenUsage"]>
+  ): void {
+    const threadId = normalizeOptionalText(params?.threadId);
+    if (!threadId) {
+      return;
+    }
+    const previousTotal = this.#usageTotalByThread.get(threadId);
+    this.#usageTotalByThread.set(threadId, tokenUsage.total.totalTokens);
+    const turnId = normalizeOptionalText(params?.turnId);
+    if (
+      threadId !== this.#usageThreadId ||
+      !turnId ||
+      turnId !== this.#usageTurnId ||
+      previousTotal === tokenUsage.total.totalTokens
+    ) {
+      return;
+    }
+    // Resume/fork replays and rate-limit-only events carry the previous last
+    // usage. Observe their total cursor, but only count advances in our turn.
+    const eventId = `codex:${threadId}:${turnId}:${tokenUsage.total.totalTokens}`;
+    if (this.#aiUsage.has(eventId)) {
+      return;
+    }
+    const usage = tokenUsage.last;
+    this.#aiUsage.set(eventId, {
+      eventId,
+      provider: "openai",
+      model: this.#usageModel,
+      source: "codex_event",
+      occurredAtMs: Date.now(),
+      tokens: {
+        input: usage.inputTokens,
+        output: usage.outputTokens,
+        cacheRead: usage.cachedInputTokens,
+        cacheWrite: usage.cacheWriteInputTokens ?? null,
+        reasoning: usage.reasoningOutputTokens,
+        total: usage.totalTokens,
+      },
+      cost: null,
+    });
   }
 
   async #handleServerRequest(message: JsonRpcMessage): Promise<void> {
@@ -2463,6 +2795,11 @@ class CodexAppServerSession {
 
   observeReasoningForThread(threadId: string): void {
     this.#reasoningThreadId = threadId;
+  }
+
+  observeUsageForThread(threadId: string, model: string | null): void {
+    this.#usageThreadId = threadId;
+    this.#usageModel = model;
   }
 
   #observeReasoningSummary(payload: unknown): void {
@@ -3368,6 +3705,17 @@ function toJsonRpcTransportError(
   const message =
     normalizeOptionalText(error.message) ?? "codex app-server error";
   const originalError = createProviderOriginalError(message) ?? undefined;
+  // JSON-RPC method absence is capability evidence, not a missing conversation.
+  // Preserve the protocol code before human-message classification sees "not found".
+  if (error.code === -32_601) {
+    return new CodexAppServerTransportError({
+      code: "runtime.method_unsupported",
+      errorType: "adapter",
+      message,
+      originalError,
+      rpcErrorCode: error.code,
+    });
+  }
   const mcpInitializationFailure =
     classifyCodexRequiredMcpInitializationFailure({
       message,
@@ -3425,6 +3773,7 @@ function toJsonRpcTransportError(
       errorType: "config",
       message,
       originalError,
+      ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
     });
   }
   return new CodexAppServerTransportError({

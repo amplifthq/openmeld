@@ -6,7 +6,7 @@
   recovery for OpenMeld production releases without turning every change into
   a fleet rollout.
 - Read this when: You are planning or executing a local or GitHub production
-  deploy, a D1 migration, a CLI publish, or Desktop release assessment.
+  deploy, a relational migration, a CLI publish, or Desktop release assessment.
 - Update this when: Release scopes, workflow inputs, production ordering,
   database gates, CLI publication, Desktop coverage, health checks, or release
   evidence changes.
@@ -25,7 +25,27 @@ used to invent a second merge or evidence contract.
 
 Release only what changed.
 
+Production uses PostgreSQL. Use the guarded local lane for Database, Auth and
+Core, and the GitHub CLI workflow for npm Trusted Publishing. Other hosted
+scopes remain available. The parent workflow rejects unsupported PostgreSQL
+scopes before artifact builds or database jobs. This is a lane restriction, not
+a request to repeat the initial D1 cutover. The database receipt proves the applied schema, journal,
+target and grants. Auth and Core receipts prove their active deployments and
+PostgreSQL bindings. A database migration alone does not require redeploying
+both services. CLI admission checks these facts before publication and Core
+activation.
+
+The CLI workflow records Core activation through the existing component receipt
+owner. If a prior attempt applied this exact source but failed its remaining
+health checks, database admission checks that recorded identity against the live
+deployment and the workflow resumes the original receipt before publication.
+Unknown deployments and different source attempts remain blocked.
+First-cutover capture, import and Cron controls belong to the
+[cutover runbook](postgresql-cutover.md). Routine releases use the normal commands
+below.
+
 - A Web fix releases Web.
+- A public website fix releases Website, without rebuilding or deploying Web.
 - A Gateway fix releases Gateway.
 - A database migration plus Core change releases Database, then Core.
 - A CLI patch publishes CLI and updates its required Core projection. When the
@@ -141,6 +161,21 @@ Read-only GitHub history requests retry a failed page at most twice for HTTP
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
 
+The reader merges validated local receipts before inspecting hosted jobs, using
+the same completion-time source selector for both lanes. A successful,
+non-conflicting receipt can bound job history only when every component has a
+known successful baseline. Completed runs strictly older than that bound need
+no job or checkout-log query. Active runs, missing update times and updates at
+or after the bound remain inspected. A failed, started or applied local record
+can use its most recent verified first-parent receipt only as the history bound;
+the same evidence reader validates its metadata, scope, exact source tree,
+provenance and chronological order. The latest record remains the current
+deployment state and does not become verified. A missing verified baseline,
+conflict or legacy unverified record cannot bound history, and an invalid chain
+blocks admission.
+Workflow-listing failures still block admission, including when local receipts
+are available; this bound does not turn an unreadable newer history into success.
+
 In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
 workflow repository and server identity to read private Git receipt refs.
 The existing trusted HTTPS helper supplies credentials only to those Git
@@ -187,7 +222,15 @@ the guarded `deploy` command only after the prior attempt is resolved; that flag
 cannot override an unresolved attempt. A different-source release or rollback
 still follows ordinary source, channel and lease guards.
 
-Unknown application, missing output, unreadable receipts, mismatched targets and
+Core can retry a failed upload under the same source, operation and attempt when
+the previous verified deployment ID and version still serve 100% of traffic.
+The executor verifies that identity under the Core lease before effects and
+requires fresh command-correlated activation evidence afterward. PostgreSQL
+admission checks that active baseline's bindings; it does not mark the failed
+attempt successful. An intervening deployment, including a rollback to the same
+version, blocks this retry.
+
+Other unknown application, missing output, unreadable receipts, mismatched targets and
 unresolved legacy records block before a new attempt or deployment. They require
 separate evidence-backed reconciliation, not a new UUID or a status override.
 Recovery always runs current-main guarded control against the retained source
@@ -197,6 +240,14 @@ the current contract, use an evidence-backed forward fix or a documented
 component-specific recovery; never run older guards, replace the receipt, or
 bypass admission to force a rollback.
 
+Ordinary local PostgreSQL deployment admission can inspect an applied or failed
+Auth/Core health-resume candidate only when that component is selected and its
+source matches the release. It still verifies the retained active deployment,
+PostgreSQL binding, Hyperdrive target and normal Cron configuration. Before any
+component effects, the receipt executor must match the operation key, target and
+live identity; admission does not promote the failed receipt. Cron restoration
+requires verified receipts and cannot use this health-resume path.
+
 For local recovery after a control-only fix, keep the approved product checkout
 clean and invoke the current-main `scripts/release/production-release.mjs` by
 absolute path with the product checkout as the working directory. The executor
@@ -204,6 +255,12 @@ honors each step's declared control interpreter, Node flags and arguments, and
 sets its verification root to the product source. Worker target resolution loads
 the pinned Wrangler parser from that source's installed dependencies; the
 minimal trusted-control checkout does not own product tool dependencies.
+
+The current environment verifier requires Core Account avatar storage only when
+that product source includes the Core account-deletion owner. Historical sources
+without that feature keep their existing binding contract; sources with the
+feature must declare the exact avatar bucket. Auth and Gateway requirements do
+not change, and this does not waive any deployment or receipt identity check.
 
 Core receiver deployment uses the current trusted control's two-step receipt
 executor. After Cloudflare confirms the newly admitted version at 100% traffic,
@@ -289,17 +346,20 @@ actual job completion times, never workflow creation order. A missing source,
 invalid completion time, ambiguous tie, API failure, or safety-bound truncation
 in the inspected range remains explicit uncertainty; it cannot silently make
 the affected component current. The report does not claim to audit jobs older
-than every scope's selected deployment. Historical planner failures are
-contained in per-component `unknown` results; a genuine current-change planning
+than every scope's selected deployment. Each component's source impact is
+computed independently of whole-train ordering. Unreadable source impact remains
+an explicit per-component `unknown`; a genuine current-change planning
 conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
 independent live-production acceptance check.
 
-For a verified Database release, status can classify later Database schema and
-migration changes independently when unrelated historical Worker contracts no
-longer compose into one plan. The database stage still checks the live pending
-migration list and committed schema before applying anything. Other components
-remain unknown when their historical compatibility plan cannot be established.
+Verified component receipts remain valid when historical Worker contracts no
+longer compose into one deployment plan. Status retains each receipt and its
+source impact, compatibility dependencies, and receiver witnesses; it does not
+grant deployment permission. Plan and stage admission still enforce safe order,
+including a verified compatible Core receiver before Remote. The database stage
+still checks live pending migrations and the committed schema before applying
+anything. Missing, conflicting, or unverified receipts remain unknown.
 
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
@@ -356,6 +416,104 @@ merge must deploy. Missing deployment history blocks the current delivery only
 when it belongs to a current-change scope; the same missing fact remains visible
 under the global backlog without changing the scoped command's exit result.
 
+## Public Docs releases
+
+Docs-only releases use `--scope docs`, an independent artifact receipt and
+snapshot, and the `openmeld-docs-prod` Worker at `docs.openmeld.ai`. The hosted
+job restores only its immutable same-run Docs snapshot. Root and `/docs` HTML
+must match the admitted source and build identity. First publication is pending
+only when the last successful Web source predates `clients/docs`; unexplained
+missing history after that boundary blocks release. Docs needs no App session,
+database migration, or local-component publication. Its custom domain is
+attached by the guarded Worker deployment. See [Public Documentation](../clients/docs.md)
+for content and renderer ownership.
+
+## Website/App origin migration
+
+Normal Website-only releases use `--scope website`, an independent artifact
+receipt and snapshot, the `openmeld-website-prod` Worker, and public-page SSR
+health. Web health checks `app.openmeld.ai`, including anonymous root entry.
+The hosted Website job restores only its immutable same-run Website snapshot;
+it never restores Web bytes into the Website directory. First publication is
+pending only when the last successful Web source predates `clients/website`.
+Missing Website history after that boundary remains unknown and blocks release.
+
+The initial root-domain transfer is an explicit local guarded sequence, not a
+`cloud` or `full` rollout. Use a clean, reviewed main source and the ordinary
+local production credentials. Keep one evidence file for that source/account:
+
+```sh
+pnpm release:deploy:local -- --scope auth,web,website --domain-phase prepare --domain-evidence /absolute/path/domain-evidence.json
+pnpm release:deploy:local -- --scope auth --domain-evidence /absolute/path/domain-evidence.json
+# Complete the real browser checks below and record their exact version IDs.
+pnpm release:deploy:local -- --scope website --domain-evidence /absolute/path/domain-evidence.json
+# Only after root cutover succeeds: publish the reviewed Web/Core/Gateway scopes.
+```
+
+Preparation records the root owner, zone, Cloudflare environment and current
+Web/Auth/Website deployment IDs before mutation. It attaches `app.openmeld.ai`
+to the currently deployed Web Worker without replacing that version, and creates
+only a missing route-free Website placeholder through the existing bootstrap
+owner. A rerun reads current state and never overwrites an existing Worker.
+Auth then admits both exact origins while preserving parent cookie and Passkey
+RP identities. No sibling-origin wildcard is permitted.
+
+Before Website may take the root, the **currently deployed** Web and Auth versions
+must pass real HTTPS App login, existing-session reuse, Space read/write, and
+sign-out. Resolve unsent drafts and old tabs. Record their version IDs, the true
+check results and the evidence location in `appSmoke` using
+`websiteDomainMigrationSchema`. An alias or HTTP 200 is not browser acceptance.
+If the existing Web version fails at the new host, stop and ship a separately
+reviewed compatible receiver; never redirect the root first. Provider dashboard
+registrations, actual consent, existing Passkeys and installed native clients
+have their own acceptance rows and must not be inferred from localhost smoke.
+
+The guarded domain phase and evidence-bearing stages acquire the existing
+Auth/Web/Website cross-machine leases. Unexpected owners stop. Normal first Web,
+Core or Gateway publication is rejected while Web still owns the root. Website
+cutover reads bindings and endpoint responses back; it retains the actual
+observed deployment even after a later health failure. Component release
+receipts remain the deployment authority. Domain evidence describes ownership
+and rollback context, not a parallel component publication ledger.
+
+For rollback, keep the same source and evidence file:
+
+```sh
+pnpm release:deploy:local -- --scope auth,web,website --domain-phase rollback --domain-evidence /absolute/path/domain-evidence.json
+```
+
+The guard refuses an intervening unrecorded Web version, restores the recorded
+previous Web version first, then restores root ownership while retaining the
+App alias. Both exact Auth origins stay admitted until App traffic is retired;
+Auth contraction is a later explicit change. Rollback checks source/environment
+contracts but does not require rebuilding a broken candidate renderer. It
+verifies ownership and endpoint responses after restoration.
+
+Cloudflare Domains PUT can attach an unbound host but returns 409 for an existing
+Worker owner. Takeover uses Wrangler's public deploy/`triggers deploy` behavior,
+not copied private Cloudflare endpoints. The triggers command changes routing
+without uploading Worker code. Isolated HTTPS transfer and reverse-transfer
+checks prove the observed states, not an atomic zero-interruption guarantee.
+Keep `307`/`no-store` redirects and the bounded legacy browser forwarding window
+from [Website](../clients/website.md) until acceptance completes.
+
+Before preparation, record a direct `200 application/json` read of
+`https://openmeld.ai/.well-known/posthog-client.json` and its unchanged client ID
+and Connector redirect. The recorded previous Web version still contains this
+public file. The new Web source removes it only after Website has taken the root;
+the guard above forbids publishing that new Web while Web still owns the root.
+Rollback restores the exact recorded previous Web version before transferring
+the root back. Cutover and rollback endpoint checks reject a redirect, HTML, or
+changed PostHog client identity/callback. Never restore the new App-only Web
+version at the root or assume a successful homepage proves this OAuth dependency.
+
+Before replacing old Web assets, save unsent text and attachment drafts, finish
+or restart in-flight authorization, and close old tabs. Verify the old installed
+standalone app shows the migration entry; install the new App from its browser
+origin. Check browser notifications again there. Host-only protected-Space cookies
+may require entering the Space password again. Neither cache forwarding nor a
+parent Auth cookie migrates browser storage, PWA identity, or notification grants.
+
 ## Release Scopes
 
 The local release tool accepts these direct scopes:
@@ -363,6 +521,8 @@ The local release tool accepts these direct scopes:
 ```text
 db
 web
+website
+docs
 gateway
 auth
 core
@@ -372,7 +532,7 @@ cli
 
 It also accepts comma-separated scopes, `cloud`, and `full`.
 
-- `cloud` means Auth, Web, Gateway, Core, then Remote Agent.
+- `cloud` means Auth, Web, Gateway, Core, Remote Agent, Website, then Docs.
 - `full` means Database followed by `cloud`.
 - `full` never publishes CLI. CLI is immutable publication and must always be
   selected explicitly.
@@ -387,8 +547,9 @@ with an explicit scope only when the changed contract and mixed-version behavior
 prove that narrower rollout is safe.
 
 Inbox notification observations add Core -> Gateway -> Web compatibility
-dependencies when the shared Inbox schema and Core observation owner change
-together. The existing dependency scheduler composes these edges with other
+dependencies when the shared Inbox schema and Web observation caller change
+together. A Core observation storage edit does not establish a changed caller
+contract. The existing dependency scheduler composes these edges with other
 contracts, including Remote Agent -> Core, and rejects cycles. Automatic scope
 selection includes all three components; a separate caller stage requires a
 verified receiver receipt. This additive observation API has the opposite
@@ -415,6 +576,76 @@ Core callers and keeps a selected CLI unpublished until every cloud receiver is
 ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
 
+Personal cloud Computer has the opposite capability direction: its Remote
+Agent requires Core's account Computer identity response. The planner selects
+`personal-cloud-computer-receivers-first` only after comparing the actual
+component receipt baseline with the candidate. Existing native request schemas,
+Core request producers and strict Remote receivers must be unchanged; the two
+changed Remote entry owners may contain only the reviewed additive Computer RPC
+and hosted Computer initialization changes. Missing history or any other owner
+change blocks this classification. This proof removes only the misleading
+Remote-first path signal; it is not a release override.
+
+The guarded stages are Database/Auth, Core, Remote Agent/Gateway/Web, then CLI.
+Database must precede Core's new table reads. Remote's stage requires a verified
+Core receiver, and Gateway's new public route waits for Remote's Computer RPC.
+The early Core stage keeps the currently published CLI projection. CLI
+publication waits for Database, Auth, Core, Remote and Gateway receipts; hosted
+CLI also checks the exact PostgreSQL schema/journal contract in Database, Auth
+and Core receipts. Web may share the third stage and does not create a new
+Computer protocol dependency. Declare the same complete train at every stage;
+do not use a different base or a raw deploy to evade a pending receiver.
+
+Remote AI usage adds the opposite dependency: Core's `recordRemoteAiUsage`
+receiver precedes its Remote producer when the shared AI usage schema or Remote
+producer changes. A Core receiver-only edit does not establish that a new Remote
+producer contract exists. Likewise, Center Agent context-manifest ordering uses
+the explicit Core context projection owner, not a filename substring matching its
+private persistence repository. `compatibilityPathSignals` explains these two
+classifications, including matched paths and relevant non-trigger paths. These
+source signals do not certify a deployed receiver or authorize a breaking
+receiver-only change.
+
+The planner composes the metering edge with the
+request dependencies and rejects an unresolved cycle, including a single-stage
+guard that tries to skip a pending receiver. It must not report a safe train by
+choosing only one side of that cycle.
+Selecting Core and Remote together does not satisfy this prerequisite: Remote's
+stage requires a verified Core deployment receipt whose source satisfies the
+receiver contract. Failed/applied, unknown, or merely planned Core is not ready.
+Complete the guarded Core stage first and rerun stage admission before Remote.
+
+The P0 bridge from the actually published `e4454cf165b96c7f918e420f28205c2b2ed3c575`
+receiver is a bounded exception to the request-receiver-first edge. Core probes
+optional task attribution before freezing new requests; existing summary
+capability gates and frozen-request replay remain unchanged. The planner checks
+that exact baseline and the reviewed source digest of all listed request owners
+in `scripts/release/remote-agent-request-compatibility.mjs`. Unknown baselines,
+unreadable source, or any changed owner preserve the dependency and block a
+cycle. Never update the digest merely to pass a gate: repeat the published-schema
+and mixed-version audit. `compatibilityBridges` in plan/status records the exact
+source witness; Core metering and Web/Gateway result-reader edges remain intact.
+
+For this bridge, retain the completed compatible Web readers and additive DB
+migrations, deploy Core and verify its readers/usage receiver, record that exact
+Core deployment as the forward-fix anchor, install the pinned Connector overlay,
+then deploy Remote. Confirm Wake, Stop, final Space publication, and usage outbox
+delivery before continuing the remaining release components. Reverse order is
+unsupported: a missing metering receiver fails before any new model call, with
+the method name and `core.rpc.unavailable` diagnostic. Existing audit receipts
+and real settlements remain available for idempotent backfill. New admissions
+cannot bypass allowance checks, including after a downgrade or for a new owner.
+No production smoke is implied by local bridge tests.
+
+Before Remote upgrades, Core can return to the previous release only if no
+summary recovery intent has been persisted and no other new durable contract
+requires its reader. Once Remote accepts frozen task-attributed requests, retain
+its compatible receiver while those requests can replay; use a forward fix for
+an incompatible runtime failure. Once `summaryRecoveryIntent` exists, never
+return to the old Core or erase/rewrite the intent. Preserve the compatible Core
+anchor and forward-fix. Pending usage settlements and deferred audits survive
+either component's forward repair; never rerun inference to reconstruct them.
+
 When a diff changes the worker schema, native-delivery service, and Center
 Agent receiver together without a recognized directional request owner, the
 planner rejects a combined Core/CLI and Remote Agent release. Review the actual
@@ -433,7 +664,7 @@ Organization Skills catalog RPC in the same release also has a Core receiver,
 so it follows that Core-first order.
 
 The strict version-4 Center Agent conversation contract is such a request-side
-change. Apply its D1 generation-pointer migration first, deploy Remote Agent so
+change. Apply its PostgreSQL generation-pointer migration first, deploy Remote Agent so
 it accepts version 4, and deploy Core last so it begins producing version 4.
 This request-receiver-first requirement takes precedence if the same diff also
 changes the strict worker response union; otherwise Core could deploy first and
@@ -450,6 +681,13 @@ valid new rejection as a protocol error. The schema path alone remains
 non-directional, so request-only changes do not accidentally select this
 profile. This response-reader requirement takes precedence when the same diff
 also contains Center Agent Task or Context Manifest paths.
+
+Space search and evidence receivers compose with this Core-first profile.
+An exact entrypoint-only replacement of the Cloudflare `WorkspaceProxy`
+re-export with the local proxy does not change native request admission and
+does not impose Remote-before-Core ordering. Any other entrypoint edit retains
+the ordinary request dependency. Independent Website and Docs source-impact
+checks do not apply historical App protocol constraints to their publications.
 
 The hosted public-progress bridge is a narrow reviewed exception: if the
 versioned worker schema differs only by its output-limit reason constant and
@@ -596,6 +834,17 @@ ledger. The Connect Computer profile is the explicit opposite direction: Web is
 the producer and CLI is the receiver, so its CLI-owned Core projection completes
 before Web deploys.
 
+The worker-response reader-first profile also uses the current stable CLI
+projection when Core is released alone. This permits a verified Core receiver
+stage before Remote Agent and later CLI publication, including the local
+PostgreSQL release lane.
+
+Local Service receiver changes keep that same current stable CLI projection
+when another compatible contract orders Remote Agent first. Release Remote
+Agent, then use the guarded local Core/Gateway/Web stage, and finish with the
+GitHub CLI workflow. The aggregate deployment-order profile must not replace
+the Service receiver's projection policy.
+
 The planner selects `local-service-runtime-receiver-first` when one diff changes
 the strict Runtime Transport schema, a Core Runtime Transport receiver, and a
 local OpenMeld Service producer together. Within the selected scopes it deploys
@@ -695,6 +944,13 @@ artifacts and updates Core's release projection through the normal guarded path.
 
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
+Its cloud stage, including the combined Remote receiver profile, deploys Core
+through the existing current-published-CLI projection owner. That owner verifies
+the immutable published npm/R2 identity and required floor before activation,
+then verifies Core alignment before completing its receipt. The candidate's
+unpublished CLI manifest is not exposed to installed clients. CLI publication
+can follow as a separate guarded stage; source, artifact, lease, and receipt
+admission still apply to each stage.
 The writer inventory includes Message Channel terminal-delivery projection and
 RuntimeCoordinator Agent Interaction projection. It automatically includes Web,
 Gateway, and Core, and rejects a manually narrowed scope that omits any of those
@@ -716,7 +972,7 @@ producer, the Inbox profile already places Web and Gateway before Core and Core
 before Remote Agent. A compound release never silently discards one
 receiver-first dependency in favor of another profile name.
 
-The strict persisted-row readers are Core's D1-to-Inbox mapper and RPC response,
+The strict persisted-row readers are Core's PostgreSQL-to-Inbox mapper and RPC response,
 Gateway's response boundary, and the Web API client. Core is also the only
 writer. The receiver-first window is therefore safe in both directions: the new
 Web and Gateway continue accepting old Core responses, then the new Core writes
@@ -737,7 +993,7 @@ absent legacy thread locator rather than manufacturing main-timeline identity.
 Rollback is forward-only at the reader boundary. First stop new writes with a
 Core change that retains the new schema. Keep the compatible Core, Gateway, and
 Web readers deployed because already-written rows remain durable. Do not deploy
-an old reader, manually rewrite D1, or delete Inbox rows as a rollback shortcut.
+an old reader, manually rewrite PostgreSQL, or delete Inbox rows as a rollback shortcut.
 A full reader rollback is permitted only after an explicit migration or
 retention process verifies that no persisted `message_channel` target remains.
 The additive nullable migration remains applied during rollback.
@@ -755,7 +1011,7 @@ From the same approved immutable SHA:
 
 1. deploy `web` alone so it accepts the new work-activity keys;
 2. deploy `remote-agent` alone and verify its active production version;
-3. run the normal `full` release so D1 migrations apply before Web, Gateway,
+3. run the normal `full` release so PostgreSQL migrations apply before Web, Gateway,
    Auth, Core, and the idempotent final Remote Agent deploy;
 4. publish `cli` only after the new Core Organization Skills API is active; and
 5. run the authenticated Web, Center Agent, runtime activation, and published
@@ -764,7 +1020,7 @@ From the same approved immutable SHA:
 Do not allow Core to emit Organization Skill selections before step 2 completes.
 Rollback reverses the strict contract boundary: restore the previous Core
 producer first so it stops emitting the field, then restore the previous Remote
-Agent, and only then restore the previous Web. The additive D1 tables and
+Agent, and only then restore the previous Web. The additive PostgreSQL tables and
 immutable R2 release objects remain in place while Web and CLI compatibility is
 assessed; do not delete them as a rollback shortcut.
 
@@ -805,7 +1061,7 @@ or migrate existing invitations into requests. Core reuses existing Auth identit
 and directory RPCs; native invitation delivery remains Auth-owned.
 
 After the additive migrations, the release owner must verify both counts are
-zero through the authorized read-only production D1 diagnostic path:
+zero through the authorized read-only production PostgreSQL diagnostic path:
 
 ```sql
 SELECT count(*) AS join_requests FROM organization_join_requests;
@@ -945,9 +1201,9 @@ OPENMELD_PRODUCTION_TRAIN_SCOPES=core pnpm run release:preflight:local -- --scop
 Every preflight checks the cheap repository release contracts. Core additionally
 fails closed unless the production CLI channel can satisfy the local-component
 version it will project. The CLI publisher still owns the mandatory final
-release-readiness gate before irreversible publication. Database generation,
-migration truth, remote application, physical verification, and optimization
-remain owned by `db:release:prod` itself.
+release-readiness gate before irreversible publication. Native database migration, runtime grants, target and journal verification
+remain owned by the guarded `db` scope described in
+[Production Database Release](#production-database-release).
 
 Whole-train preflight reads every component baseline and proves that all
 pending scopes satisfy their actual receiver/producer compatibility dependencies
@@ -973,7 +1229,7 @@ that is absent from that train. Trusted current-main control verifies a client
 artifact before the stage that publishes it. An independent `db` stage does not
 build Web even when Web is declared for a later stage in the same train.
 
-Artifact admission checks only the CLI, Web, and Desktop artifacts selected for
+Artifact admission checks only the CLI, Web, Website, Docs, and Desktop artifacts selected for
 the current stage. Declaring these components elsewhere in the train does not
 build them before an unrelated Worker or Database deployment. CLI admission
 uses the existing immutable npm probe: an already published package must pass
@@ -1036,7 +1292,9 @@ admitted Web output before its existing preflight, deploy and health gates.
 For a parent handoff, the child uses the same renderer heap budget that the
 parent used to build the snapshot; otherwise build-input identity must reject
 the artifact even when its downloaded bytes are intact.
-Other components do not download Web bytes. Desktop publication and CLI
+Website and Docs follow the same independent snapshot handoff for their own
+renderer directories and public-page health routes. Docs does not require the
+App's runtime session or secrets. Other components do not download Web bytes. Desktop publication and CLI
 publication remain separate paths with their existing checks.
 
 Missing, malformed or mismatched parent evidence, or a missing/corrupt Web
@@ -1071,6 +1329,13 @@ deployment identity. A stage-admission recovery candidate records that a resume
 may be possible; it never authorizes a second deploy or makes an unknown result
 verified. Identity drift keeps the component blocked for evidence-backed
 reconciliation or a legal forward fix.
+
+A native PostgreSQL stage can lose its connection after its transaction commits.
+For the exact retained source and operation, guarded recovery runs only the
+registered target's read-only journal and runtime-grant verification. It retains
+the original attempt and runs under the database lease. Verification failure
+keeps the failed receipt; success completes it without repeating migration or
+grant commands. This recovery does not apply to legacy D1 operations.
 
 Useful examples:
 
@@ -1181,11 +1446,13 @@ dev-tmp/core-startup-admission.json
 dev-tmp/core-startup.cpuprofile
 ```
 
-If Cloudflare rejects the zero-traffic version with `10021`, do not retry the
-unchanged source hoping for a faster Cloudflare machine. Keep the current
-production version active, use the bundle and CPU profile evidence to remove
-eager global initialization, and rerun admission only after a reviewed source
-change. A version above OpenMeld's `500 ms` performance target may continue
+If Cloudflare rejects the zero-traffic version with `10021`, keep the current
+production version active and compare bundle and startup profiles with the last
+accepted source on the same machine. Fix a measured initialization regression
+before another upload. If that comparison shows no regression, one diagnosed
+retry may distinguish a transient admission failure; repeated rejection requires
+startup optimization. Local timings do not prove Cloudflare admission. A version
+above OpenMeld's `500 ms` performance target may continue
 through the guarded release when Cloudflare accepts it, but the warning remains
 actionable optimization evidence. Raising request CPU limits does not change
 the startup limit. Cloudflare's current startup and version upload contracts
@@ -1213,6 +1480,8 @@ auth
 core
 core-current-cli-projection
 remote-agent
+website
+docs
 cloud
 full
 ```
@@ -1225,16 +1494,22 @@ full
 - `database-auth` and `database-core` are the normal migration bundles. They
   keep the database and its owning Worker in one ordered workflow without
   redeploying the fleet.
-- `cloud` deploys only the five cloud components.
-- `full` runs Database, Auth, Web, Gateway, Core, and Remote Agent in order.
+- `cloud` deploys Auth, Web, Gateway, Core, Remote Agent, Website, and Docs.
+- `full` runs Database, then the selected cloud components in that order.
 - CLI publishing is not available in this workflow.
 
 The separate CLI Release workflow also deploys the Core projection required by
-the published CLI channel. Before any CLI or Core mutation, it proves that the
-Production D1 pending migration list is empty. If migrations remain, release
-the exact SHA with the `database` scope first, then rerun CLI Release. This gate
-prevents a new Core writer from reaching an older database constraint or
-schema.
+the published CLI channel. For PostgreSQL it verifies the deployed native
+database contract and immutable import evidence before publication. Core
+startup admission checks the registered target and native migration journal
+before uploading a version or entering its atomic Durable Object migration path. This covers standard, receiver-first, current
+stable CLI projection, and CLI projection deployment in both release lanes.
+The check is at the Core mutation boundary, not whole-train preflight: an
+ordered `database-core` or `full` release completes Database before checking
+and deploying Core. If migrations remain, release the exact SHA with the
+`database` scope first, then resume the guarded Core/CLI release. Non-Core
+scopes and migrations outside that release source are not gated by this check.
+This prevents a new Core writer from reaching an older database constraint or schema.
 
 For a Center Agent bridge release that includes Context Scope Plan, first run
 the `remote-agent` scope from the approved commit and verify it succeeds. Then
@@ -1329,46 +1604,24 @@ Never cancel a running production job.
 
 ## Production Database Release
 
-Production database work has one implementation entrypoint:
+Apply committed PostgreSQL migrations through the scoped release owner:
 
 ```sh
-pnpm run db:release:prod
+pnpm run release:deploy:local -- --scope db
 ```
 
-`pnpm db:sync:prod` is an alias to the same command. Do not maintain another
-sequence in a workflow or service package.
+The executor applies pending migrations, grants runtime access, verifies the
+native journal and target, and records completion under the database lease.
+Select `db,core` or `db,auth` when a service change requires the new schema.
+Unchanged services retain their existing deployments. Migration credentials
+come from the [PostgreSQL owner](postgresql.md); normal Workers use the runtime
+role through Hyperdrive.
 
-The command requires a clean worktree and runs exactly this sequence:
-
-1. build the Auth code-generation dependency;
-2. run `db:generate` against the local tooling target;
-3. stop before production if generation changes any tracked or untracked file;
-4. run `db:check` against the local tooling target so a resumable skip never bypasses committed schema and migration truth;
-5. read the remote pending list and apply production migrations through Wrangler `--remote` only when entries remain;
-6. verify the production physical database contract;
-7. run plain `PRAGMA optimize` once after synchronization.
-
-Local release operators may authenticate Wrangler with its supported OAuth
-login. Automated release lanes provide `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN` instead. `db:release:prod` proves access to the configured
-production D1 target with the read-only remote migration list. It does not require local
-schema generation or `db:check` to use production Drizzle HTTP credentials.
-
-Database release is selected only when committed schema or migration truth
-changed, or when an operator explicitly requests database repair. A normal Web,
-Gateway, Auth, Core, or Remote Agent release does not run migrations and does
-not run `PRAGMA optimize`.
-
-Plain `PRAGMA optimize` is intentional. Cloudflare D1 supports it as the safe
-post-schema synchronization operation, and it may be a no-op when statistics
-are already current. Do not add a scheduled optimize job, run it after every
-Worker deploy, replace it with a long manual `ANALYZE`, or use unsupported
-SQLite-only flag variants. D1 Time Travel is automatic; do not add a routine
-full export before every release.
-
-Never rewrite an applied migration. A failed production migration stops the
-release. Preserve its output, inspect the D1 migration ledger and Time Travel
-state, and decide recovery explicitly instead of continuing to Workers.
+Applied migrations are immutable. A migration failure stops the release before
+dependent services. Inspect the native journal and recover through the same
+owner. D1 is the frozen pre-cutover source; it is not a rollback target after
+PostgreSQL writes. The old `db:release:prod` and `db:sync:prod` commands are D1
+commands and reject the PostgreSQL production manifest.
 
 ## CLI Release
 
@@ -1516,6 +1769,11 @@ immutable package fails closed and requires a corrected new release, not a
 republish or a user reset. This check is distinct from native Windows signed-in
 setup/Wake acceptance after release.
 
+The R2 binary body probe allows 180 seconds because a valid 26.7 MB compressed
+artifact exceeded the previous 60-second download budget. Artifact HEAD probes
+retain 60 seconds and command metadata probes retain 30 seconds; artifact size
+and hash checks still fail closed.
+
 `npm publish` can succeed while npm is still processing the package and exact
 version queries return 404. Submission is not availability. Both release lanes
 publish to and query `https://registry.npmjs.org/`, preferring an online query.
@@ -1603,7 +1861,7 @@ rebuilding or overwriting that version.
 The built-in production order is:
 
 ```text
-production D1 -> CLI/Service channel -> scoped Worker verify/deploy -> R2/npm/Core alignment
+selected database migrations -> CLI/Service channel -> scoped Worker verify/deploy -> R2/npm/Core alignment
 ```
 
 The CLI release creates its required Core projection before other selected
@@ -1616,7 +1874,7 @@ because they are safe, even though they create another Worker version.
 
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |
-| Production D1 migration application | `wrangler d1 migrations list --remote` reports no pending migrations | Remote pending-list truth |
+| Production PostgreSQL migration application | Native journal matches the committed migration prefix; scoped target and runtime grants verify | Native database acceptance under the database lease |
 | CLI binary, signing, notarization, and R2 | The production manifest has the target version and the exact target `minRequiredCliVersion`; the platform record is complete; the raw and gzip artifacts are downloadable with their recorded sizes; the gzip sha256 matches and reconstructs the recorded raw binary | Immutable published-record evidence; any inconclusive or inconsistent target-version record fails closed |
 | npm | The exact version and floor exist; the downloaded tarball matches integrity and source, has portable dependencies and the CLI entrypoint, and has an isolated npm consumer proof | Verified immutable artifact and consumer installation, not version existence alone |
 | Release tag | The target tag resolves to the current release commit both locally and on `origin` | Local and remote Git object identity |
@@ -1695,6 +1953,8 @@ Release automation performs only cheap component health checks:
 | Component    | Automated post-deploy evidence                                                    |
 | ------------ | --------------------------------------------------------------------------------- |
 | Web          | Root SSR returns HTML whose source and build metadata match the exact SHA and preflight artifact receipt |
+| Website      | Public-page SSR source and build metadata match its independent artifact receipt |
+| Docs         | Root and `/docs` SSR source and build metadata match its independent artifact receipt |
 | Gateway      | `https://gateway.openmeld.ai/health` responds successfully                        |
 | Auth         | `https://auth.openmeld.ai/health` responds successfully                           |
 | Core         | Cloudflare reports the production deployment                                      |
@@ -1742,5 +2002,5 @@ Every production handoff must include:
   when CLI was published;
 - failures, recoveries, skipped checks, and remaining work.
 
-Never report a preview, control-plane deployment listing, direct D1 query, or
+Never report a preview, control-plane deployment listing, direct database query, or
 internal RPC call as completed real-user smoke.

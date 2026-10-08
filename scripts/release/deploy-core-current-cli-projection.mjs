@@ -15,6 +15,11 @@ import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-dep
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
+  describeLocalComponentsAvailabilityCatalog,
+  readLocalComponentsAvailabilityCatalog,
+} from "./local-components-availability.mjs";
+import { cutoverConfigArgs } from "./postgresql-cutover-config.mjs";
+import {
   probeCliBinaryStage,
   probeCoreProjectionStage,
 } from "./release-cli-resume.mjs";
@@ -45,7 +50,13 @@ export function resolveCurrentCliProjectionReleaseManifest(input) {
     readTagFile: input.readTagFile,
     tagName,
   });
-  return parseReleaseManifest({ channelVersion, source, tagName });
+  return parseReleaseManifest({
+    channelVersion,
+    source,
+    tagName,
+    serviceVersion:
+      input.channelManifest.channels.stable.service?.version ?? channelVersion,
+  });
 }
 
 export function resolveCurrentCliProjectionTarget(input) {
@@ -70,6 +81,8 @@ export function resolveCurrentCliProjectionTarget(input) {
   });
   const releaseManifest = parseReleaseManifest({
     channelVersion,
+    serviceVersion:
+      input.channelManifest.channels.stable.service?.version ?? channelVersion,
     source: releaseManifestSource,
     tagName,
   });
@@ -97,6 +110,7 @@ export function resolveCurrentCliProjectionTarget(input) {
     );
   }
   return {
+    channelManifest: input.channelManifest,
     channelVersion,
     expectedCoreTag: deriveCoreProjectionTag({
       commitSha: tagCommitSha,
@@ -154,7 +168,7 @@ function parseReleaseManifest(input) {
     );
   }
   const manifestServiceVersion = parsed.data.components.service.bundleVersion;
-  if (manifestServiceVersion !== input.channelVersion) {
+  if (manifestServiceVersion !== input.serviceVersion) {
     throw new Error(
       `Core receiver deploy refused: ${input.tagName}:${RELEASE_MANIFEST_PATH} declares OpenMeld Service ${manifestServiceVersion}, but the production channel is ${input.channelVersion}.`
     );
@@ -183,6 +197,14 @@ export function buildCoreCurrentCliProjectionDryRunStepSpec(input) {
       input.expectedCoreTag,
       "--define",
       `${RELEASE_MANIFEST_DEFINE}:${JSON.stringify(manifestJson)}`,
+      ...(input.availabilityCatalog
+        ? [
+            "--define",
+            describeLocalComponentsAvailabilityCatalog(
+              input.availabilityCatalog
+            ).define,
+          ]
+        : []),
       "--dry-run",
     ],
     command: "pnpm",
@@ -218,6 +240,9 @@ export async function readCurrentCliProjectionTarget(input = {}) {
 
 function createReceiverAdapters(input, cwd, env) {
   return {
+    readAvailabilityCatalog:
+      input.adapters?.readAvailabilityCatalog ??
+      readLocalComponentsAvailabilityCatalog,
     fetchChannelManifest:
       input.adapters?.fetchChannelManifest ?? fetchCliChannelManifest,
     readTagCommit:
@@ -295,6 +320,13 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     write(`${JSON.stringify(result, null, 2)}\n`);
     return result;
   }
+  const availabilityCatalog = await adapters.readAvailabilityCatalog({
+    releaseManifest: target.releaseManifest,
+    stableManifest: target.channelManifest,
+  });
+  const availability =
+    describeLocalComponentsAvailabilityCatalog(availabilityCatalog);
+  write(`availabilityCatalogSha256=${availability.sha256}\n`);
   write(
     [
       "\n[production-release] Resolved immutable stable CLI projection",
@@ -324,6 +356,7 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
       cwd,
       defines: [
         `${RELEASE_MANIFEST_DEFINE}:${JSON.stringify(JSON.stringify(target.releaseManifest))}`,
+        availability.define,
       ],
       env,
       releaseSha: input.releaseSha,
@@ -335,11 +368,13 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
       buildCoreCurrentCliProjectionDryRunStepSpec({
         expectedCoreTag: target.expectedCoreTag,
         releaseManifest: target.releaseManifest,
+        availabilityCatalog,
       })
     );
     return target;
   }
   const releaseSteps = buildCoreVersionReleaseStepSpecs({
+    configArgs: cutoverConfigArgs("core", { cwd, env }),
     trafficPercent: admissionEvidence.trafficPercent,
     versionId: admissionEvidence.versionId,
     wranglerConfigSource: adapters.readCoreWranglerConfig(),

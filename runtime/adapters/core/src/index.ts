@@ -13,16 +13,23 @@
 // - non-trivial parser/codec logic
 // - provider-specific failure/diagnostics mapping
 
-import { openMeldDaemonProviderAccessEvidenceSchema } from "@openmeld/schemas";
+import {
+  aiUsageObservationSchema,
+  openMeldDaemonProviderAccessEvidenceSchema,
+} from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
   AgentControllerPermissionMode,
   AgentControllerSessionTitle,
   AgentControllerUsageLimit,
+  AgentExecutionSteerRequest,
+  AgentExecutionSteerResponse,
   AgentInteractionRequest,
   AgentInteractionResponse,
+  AiUsageObservation,
   ComputerFileAccessPolicy,
   ConversationPolicy,
+  ExecutionContextGitMetadata,
   ExecutionContextTask,
   OpenCodePermissionConfig,
   OpenMeldDaemonProviderAccessEvidence,
@@ -33,6 +40,12 @@ import type {
 import type { AgentControllerProcessSignalTarget } from "./agent-controller-process.js";
 import type { AdapterConversationBridgeSpec } from "./conversation-bridge.js";
 import type { AdapterDispatchSpaceTools } from "./dispatch-space-tools.js";
+
+export { agentExecutionSteerRequestSchema } from "@openmeld/schemas";
+export type {
+  AgentExecutionSteerRequest,
+  AgentExecutionSteerResponse,
+} from "@openmeld/schemas/types";
 
 export {
   type AdapterDispatchSpaceTool,
@@ -187,6 +200,7 @@ export type AdapterComputerFileAccessBoundary = Extract<
   { mode: "block_selected_folders" | "only_selected_folders" }
 > & {
   executionContextAccess?: ExecutionContextTask["access"];
+  gitMetadata?: ExecutionContextGitMetadata;
 } & import("@openmeld/schemas").SpaceWorkingCopyAccess;
 export type AdapterComputerFileAccessVerificationRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -357,6 +371,7 @@ export type AdapterDispatchContextDelta = {
 };
 
 export type AdapterDispatchTelemetry = {
+  aiUsage?: AiUsageObservation[];
   completedAtMs: number;
   contextCompactionObserved?: boolean;
   contextHealed?: boolean;
@@ -376,6 +391,13 @@ export type AdapterDispatchTelemetry = {
   timeoutTriggeredAtMs?: number;
   tokenUsage?: AdapterTokenUsage;
 };
+
+export function readAdapterAiUsageObservation(
+  value: unknown
+): AiUsageObservation | null {
+  const result = aiUsageObservationSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
 
 export type AdapterModelNegotiationDiagnostics = {
   checkAttempt: 1 | 2;
@@ -559,6 +581,10 @@ export type WaitForMs = (delayMs: number) => Promise<void>;
 
 export type RuntimeAdapter = {
   readonly adapterId: string;
+  /** A receipt of unknown outcome must never be retried or queued automatically. */
+  steer?(
+    input: AgentExecutionSteerRequest
+  ): Promise<AgentExecutionSteerResponse>;
   // TODO(adapter-control-e2e): Wire user-triggered control commands (CLI/Space)
   // through RuntimeTransport -> daemon session router -> runtime adapter.
   cancel?(input: AdapterCancelRequest): Promise<AdapterCancelResult>;
@@ -1094,8 +1120,16 @@ const extractDispatchTelemetry = (
       ? { timeoutTriggeredAtMs: telemetry.timeoutTriggeredAtMs }
       : {}),
     ...(tokenUsage ? { tokenUsage } : {}),
+    ...extractAiUsageTelemetry(telemetry.aiUsage),
   };
 };
+
+function extractAiUsageTelemetry(
+  value: unknown
+): Pick<AdapterDispatchTelemetry, "aiUsage"> {
+  const result = aiUsageObservationSchema.array().safeParse(value);
+  return result.success ? { aiUsage: result.data } : {};
+}
 
 function extractAdapterTokenUsage(value: unknown): AdapterTokenUsage | null {
   const usage = toUnknownRecord(value);

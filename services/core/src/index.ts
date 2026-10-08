@@ -1,4 +1,8 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
+import { tracing, WorkerEntrypoint } from "cloudflare:workers";
+import {
+  getPostgresDatabase,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
 import {
   OPENMELD_SPACE_ADDRESSING_VERSION,
   OPENMELD_SPACE_FILES_ORIGIN_VERSION,
@@ -31,6 +35,7 @@ import type {
   BeginOrganizationSkillImportBatchRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
   CenterAgentAddMembersToSpaceResponse,
+  CenterAgentAiUsageRpcInput,
   CenterAgentAttribution,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
@@ -134,6 +139,7 @@ import type {
   CenterAgentUpdateRoutineToolRpcInput,
   CenterAgentUpdateSpaceSettingsResponse,
   CenterAgentWakeAgentProfilesInSpaceResponse,
+  CenterAgentWakeAgentProfilesInSpacesResponse,
   CenterAgentWatchAgentTaskResponse,
   CenterAgentWipeMemberMemoryResponse,
   ChangelogQueryResponse,
@@ -279,6 +285,7 @@ import type {
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
   OrganizationAgentRuntimeOverviewResponse,
+  OrganizationAiUsageRpcInput,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationDocumentPromptContextResponse,
@@ -330,6 +337,7 @@ import type {
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
+  RemoteAiUsageWrite,
   RemoveSpaceMembersResponse,
   RequestCurrentOpenMeldToolsUpdateResponse,
   ResolveSpaceFileContentResponse,
@@ -368,6 +376,7 @@ import type {
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  SpaceInputQueueResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
@@ -439,6 +448,7 @@ import {
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
 import { rpcCenterAgentSearchMemory } from "./center-agent-memory/memory-search-rpc";
+import { personalComputerRpc } from "./computer/computer-rpc";
 import { rpcReportDesktopUpdateObservation } from "./computers/desktop-update-inbox";
 import { readModelCatalog } from "./config/model-catalog";
 import {
@@ -481,16 +491,12 @@ import {
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
   rpcMutateInboxFeed,
+  rpcMutateSpaceInboxRead,
   rpcObserveInboxNotifications,
   rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
-import {
-  agentActivityDb,
-  type CoreBindings,
-  localStateDb,
-  projectionsDb,
-} from "./lib/bindings";
+import type { CoreBindings } from "./lib/bindings";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
   rpcApproveOrganizationDocumentDraft,
@@ -536,6 +542,10 @@ import {
   rpcUpdateOrganizationSkill,
 } from "./organization-skills/organization-skill-rpc";
 import {
+  cleanupDeletedAccount,
+  cleanupDeletedAccountConnection,
+} from "./organizations/account-deletion";
+import {
   rpcCenterAgentCreateOrganizationInviteLink,
   rpcCenterAgentGetOrganizationInviteLink,
 } from "./organizations/center-agent-organization-invite-link-rpc";
@@ -580,6 +590,7 @@ import {
 } from "./projects/project-rpc";
 import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platform-webhook-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
+import { acknowledgeRemoteAgentAdmission } from "./remote-agent/application/native-delivery-admission-acknowledgement";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
 import { authorizeRemoteAgentExecutionAccess } from "./remote-agent/application/remote-agent-execution-access";
@@ -615,6 +626,7 @@ import {
   type BeginCurrentMemberConnectorAuthorizationInput,
   type BeginCurrentOrganizationGitHubAppInstallationInput,
   type BeginCurrentOrganizationSharedConnectorAuthorizationInput,
+  type BeginExistingGitHubAppInstallationVerificationInput,
   type BeginGitHubAppInstallationVerificationInput,
   type BeginLarkPlatformRegistrationInput,
   type CenterAgentAddAgentProfilesToSpaceInput,
@@ -666,10 +678,12 @@ import {
   type CenterAgentSearchSlackMessagesInput,
   type CenterAgentSelectLocalAgentInstallationInput,
   type CenterAgentSetOpenMeldToolsMaintenanceInput,
+  type CenterAgentSpaceInputQueueInput,
   type CenterAgentStopSpaceWakeInput,
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
   type CenterAgentWakeAgentProfilesInSpaceInput,
+  type CenterAgentWakeAgentProfilesInSpacesInput,
   type CenterAgentWatchAgentTaskInput,
   type ClearSpacePasswordInput,
   type CompleteConnectorDisconnectInput,
@@ -833,12 +847,14 @@ import {
   rpcBeginCurrentMemberConnectorAuthorization,
   rpcBeginCurrentOrganizationGitHubAppInstallation,
   rpcBeginCurrentOrganizationSharedConnectorAuthorization,
+  rpcBeginExistingGitHubAppInstallationVerification,
   rpcBeginGitHubAppInstallationVerification,
   rpcBeginLarkPlatformRegistration,
   rpcCenterAgentAddAgentProfilesToSpace,
   rpcCenterAgentAddMembersToSpace,
   rpcCenterAgentCheckAgentProfileReadiness,
   rpcCenterAgentConnectAgentProfileToLocalAgent,
+  rpcCenterAgentContinueTaskSummary,
   rpcCenterAgentCreateAgentProfile,
   rpcCenterAgentCreateSpace,
   rpcCenterAgentEnableAgentProfile,
@@ -849,6 +865,7 @@ import {
   rpcCenterAgentListAgentProfileCreationDefaults,
   rpcCenterAgentListAgentTasks,
   rpcCenterAgentListComputers,
+  rpcCenterAgentListConnectorServices,
   rpcCenterAgentListLocalAgentConnectionCandidates,
   rpcCenterAgentListLocalAgentInstallations,
   rpcCenterAgentListOpportunities,
@@ -889,11 +906,13 @@ import {
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
+  rpcCenterAgentSpaceInputQueue,
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
+  rpcCenterAgentWakeAgentProfilesInSpaces,
   rpcCenterAgentWatchAgentTask,
   rpcClearSpacePassword,
   rpcCommitSpaceFileWrite,
@@ -933,6 +952,7 @@ import {
   rpcEnsureAgentProfilePrimaryBinding,
   rpcExecuteAgentProfileWorkRecovery,
   rpcExecuteExecutionRecovery,
+  rpcFirstWork,
   rpcForgetComputer,
   rpcForgetCurrentComputer,
   rpcGetActiveSpaceWakeProgress,
@@ -1051,6 +1071,8 @@ import {
   rpcRecordSpaceAttachment,
   rpcRefreshCurrentLocalAgentCatalog,
   rpcRefreshPeopleComputerLocalAgentCatalog,
+  rpcRemoteAgentGetOrganizationDirectory,
+  rpcRemoteAgentOpenDirectMessageSpace,
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
@@ -1085,6 +1107,7 @@ import {
   rpcSpaceFilePins,
   rpcSpaceFileUpdateSettings,
   rpcSpaceFileUpload,
+  rpcSpaceInputQueue,
   rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
   rpcStreamSpaceFileContent,
@@ -1132,6 +1155,7 @@ import {
   type SpaceAccessModeStateResult,
   type SpaceFilePinsInput,
   type SpaceFileWriteInput,
+  type SpaceInputQueueInput,
   type SpaceMessagePinsInput,
   type SpacePasswordStateResult,
   type StageSpaceComposerUploadRpcInput,
@@ -1179,7 +1203,11 @@ import {
   rpcProjectSpaceIndexMembershipOverlay,
 } from "./space-index/space-index-overlay-rpc";
 import { listMembershipSpaceIdsForProfilesFromSpaceIndex } from "./space-index/space-index-repository";
-
+import {
+  rpcCenterAgentReadAiUsage,
+  rpcReadOrganizationAiUsage,
+  rpcRecordRemoteAiUsage,
+} from "./usage/ai-usage-rpc";
 // Narrow first-party entrypoint for the auth worker's profile lifecycle
 // fan-out. Kept separate from GatewayRpcEntrypoint so auth only gets the
 // reconcile surface instead of the whole gateway RPC surface.
@@ -1187,30 +1215,46 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
   organizationJoinRequest(
     input: import("@openmeld/schemas").OrganizationJoinRequestRpcInput
   ) {
-    return organizationJoinRequest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      organizationJoinRequest(this.env, input)
+    );
   }
   checkSpaceOwnerDeparture(
     input: import("@openmeld/schemas").SpaceOwnerDepartureInput
   ) {
-    return checkSpaceOwnerDeparture(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      checkSpaceOwnerDeparture(this.env, input)
+    );
+  }
+  cleanupDeletedAccount(
+    input: import("@openmeld/schemas").AccountDeletionCleanupInput
+  ) {
+    return cleanupDeletedAccount(this.env, input);
+  }
+  cleanupDeletedAccountConnection(input: unknown) {
+    return cleanupDeletedAccountConnection(this.env, input);
   }
   spaceInvitation(
     input: import("@openmeld/schemas").SpaceInvitationRpcInput
   ): Promise<import("@openmeld/schemas").SpaceInvitationRpcResult> {
-    return spaceInvitation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      spaceInvitation(this.env, input)
+    );
   }
   reconcileDeletedAgentProfile(
     input: ReconcileDeletedAgentProfileRequest
   ): Promise<ReconcileDeletedAgentProfileResponse> {
-    return reconcileDeletedAgentProfile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      reconcileDeletedAgentProfile(this.env, input)
+    );
   }
-
   projectSpaceIndexMembershipOverlay(
     input: ProjectSpaceIndexMembershipOverlayRpcInput
   ): Promise<ProjectSpaceIndexMembershipOverlayRpcResult> {
-    return rpcProjectSpaceIndexMembershipOverlay(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcProjectSpaceIndexMembershipOverlay(this.env, input)
+    );
   }
-
   async requestAgentActivitySessionInventoryCleanupForOrganizationMember(input: {
     organizationId?: string | null;
     userId?: string | null;
@@ -1225,42 +1269,43 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     ok: boolean;
     pending?: boolean;
   }> {
-    const organizationId = normalizeOptionalRpcText(input.organizationId);
-    const userId = normalizeOptionalRpcText(input.userId);
-    if (!(organizationId && userId)) {
-      return { code: "invalid_payload", ok: false };
-    }
-    const db = agentActivityDb(this.env);
-    if (!db) {
-      return { code: "agent_activity.store_unavailable", ok: false };
-    }
-    const result = await acceptAgentActivitySessionInventoryMemberCleanup({
-      db,
-      nowMs: Date.now(),
-      organizationId,
-      ownerUserId: userId,
-      resolveMembershipState: async (subject) => {
-        const membership = await resolveOrganizationMembershipById({
-          env: this.env,
-          organizationId: subject.organizationId,
-          userId: subject.ownerUserId,
-        });
-        if (membership.ok) {
-          return "active";
-        }
-        return membership.code === "organization.membership_required"
-          ? "removed"
-          : "unavailable";
-      },
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const organizationId = normalizeOptionalRpcText(input.organizationId);
+      const userId = normalizeOptionalRpcText(input.userId);
+      if (!(organizationId && userId)) {
+        return { code: "invalid_payload", ok: false };
+      }
+      const db = getPostgresDatabase(this.env);
+      if (!db) {
+        return { code: "agent_activity.store_unavailable", ok: false };
+      }
+      const result = await acceptAgentActivitySessionInventoryMemberCleanup({
+        db,
+        nowMs: Date.now(),
+        organizationId,
+        ownerUserId: userId,
+        resolveMembershipState: async (subject) => {
+          const membership = await resolveOrganizationMembershipById({
+            env: this.env,
+            organizationId: subject.organizationId,
+            userId: subject.ownerUserId,
+          });
+          if (membership.ok) {
+            return "active";
+          }
+          return membership.code === "organization.membership_required"
+            ? "removed"
+            : "unavailable";
+        },
+      });
+      return {
+        accepted: true,
+        deleted: result.deleted,
+        ok: true,
+        pending: result.pending,
+      };
     });
-    return {
-      accepted: true,
-      deleted: result.deleted,
-      ok: true,
-      pending: result.pending,
-    };
   }
-
   deleteAgentActivitySessionInventoryForOrganizationMember(input: {
     organizationId?: string | null;
     userId?: string | null;
@@ -1269,7 +1314,6 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
       input
     );
   }
-
   async deleteCenterAgentMemberMemory(input: {
     organizationId?: string | null;
     userId?: string | null;
@@ -1278,27 +1322,28 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     ok: boolean;
     status?: "deleted" | "not_found";
   }> {
-    const organizationId = normalizeOptionalRpcText(input.organizationId);
-    const userId = normalizeOptionalRpcText(input.userId);
-    if (!(organizationId && userId)) {
-      return { code: "invalid_payload", ok: false };
-    }
-    const memoryService = createCoreCenterAgentMemoryService(this.env);
-    if (!memoryService) {
-      await clearCoreCenterAgentMemberNativeDeliveryData(
-        this.env,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const organizationId = normalizeOptionalRpcText(input.organizationId);
+      const userId = normalizeOptionalRpcText(input.userId);
+      if (!(organizationId && userId)) {
+        return { code: "invalid_payload", ok: false };
+      }
+      const memoryService = createCoreCenterAgentMemoryService(this.env);
+      if (!memoryService) {
+        await clearCoreCenterAgentMemberNativeDeliveryData(
+          this.env,
+          organizationId,
+          userId
+        );
+        return { code: "center_agent_memory.unavailable", ok: false };
+      }
+      const status = await memoryService.deleteMemberMemory({
         organizationId,
-        userId
-      );
-      return { code: "center_agent_memory.unavailable", ok: false };
-    }
-    const status = await memoryService.deleteMemberMemory({
-      organizationId,
-      userId,
+        userId,
+      });
+      return { ok: true, status };
     });
-    return { ok: true, status };
   }
-
   async deleteCenterAgentOrganizationMemory(input: {
     organizationId?: string | null;
   }): Promise<{
@@ -1306,24 +1351,25 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     ok: boolean;
     status?: "deleted" | "not_found";
   }> {
-    const organizationId = normalizeOptionalRpcText(input.organizationId);
-    if (!organizationId) {
-      return { code: "invalid_payload", ok: false };
-    }
-    const memoryService = createCoreCenterAgentMemoryService(this.env);
-    if (!memoryService) {
-      await clearCoreCenterAgentOrganizationNativeDeliveryData(
-        this.env,
-        organizationId
-      );
-      return { code: "center_agent_memory.unavailable", ok: false };
-    }
-    const status = await memoryService.deleteOrganizationMemory({
-      organizationId,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const organizationId = normalizeOptionalRpcText(input.organizationId);
+      if (!organizationId) {
+        return { code: "invalid_payload", ok: false };
+      }
+      const memoryService = createCoreCenterAgentMemoryService(this.env);
+      if (!memoryService) {
+        await clearCoreCenterAgentOrganizationNativeDeliveryData(
+          this.env,
+          organizationId
+        );
+        return { code: "center_agent_memory.unavailable", ok: false };
+      }
+      const status = await memoryService.deleteOrganizationMemory({
+        organizationId,
+      });
+      return { ok: true, status };
     });
-    return { ok: true, status };
   }
-
   // Space authorization read for the auth worker (Knife 1 split-brain fix).
   // Auth reads the core-owned space_index_memberships projection through this
   // RPC instead of binding the DB directly, so the read always lands on whatever
@@ -1333,7 +1379,7 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     profileIds: readonly string[];
     spaceIds: readonly string[];
   }): Promise<string[]> {
-    const db = projectionsDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       // Fail closed: no membership evidence → auth falls back to history-only.
       return Promise.resolve([]);
@@ -1345,260 +1391,327 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     });
   }
 }
-
 function normalizeOptionalRpcText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
+  firstWork(input: Parameters<typeof rpcFirstWork>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcFirstWork(this.env, input)
+    );
+  }
   // Keep fetch for WebSocket upgrade proxying and internal service calls.
   // In production, openmeld-core is not directly exposed; it should only be called
   // through Gateway service binding. dev localhost access is used for local tests.
   fetch(request: Request): Promise<Response> {
-    return Promise.resolve(app.fetch(request, this.env, this.ctx));
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      app.fetch(request, this.env, this.ctx)
+    );
   }
-
   createSpace(input?: CreateSpaceInput) {
-    return rpcCreateSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateSpace(this.env, input)
+    );
   }
-
   listAccountSpaces(
     input: ListAccountSpacesInput
   ): Promise<AccountSpaceIndexResponse> {
-    return rpcListAccountSpaces(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAccountSpaces(this.env, input)
+    );
   }
-
   listAccountSpaceActiveWakeSummary(
     input: ListAccountSpaceActiveWakeSummaryInput
   ): Promise<AccountSpaceActiveWakeSummaryResponse> {
-    return rpcListAccountSpaceActiveWakeSummary(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAccountSpaceActiveWakeSummary(this.env, input)
+    );
   }
-
   listProjects(input: ListProjectsInput) {
-    return rpcListProjects(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListProjects(this.env, input)
+    );
   }
 
   readProjectIssueRouting(
     input: Parameters<typeof rpcReadProjectIssueRouting>[1]
   ) {
-    return rpcReadProjectIssueRouting(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadProjectIssueRouting(this.env, input)
+    );
   }
 
   readProjectRepositorySettings(
     input: Parameters<typeof rpcReadProjectRepositorySettings>[1]
   ) {
-    return rpcReadProjectRepositorySettings(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadProjectRepositorySettings(this.env, input)
+    );
   }
 
   updateProjectRepositorySettings(
     input: Parameters<typeof rpcUpdateProjectRepositorySettings>[1]
   ) {
-    return rpcUpdateProjectRepositorySettings(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateProjectRepositorySettings(this.env, input)
+    );
   }
 
   readProjectCommonAgents(
     input: Parameters<typeof rpcReadProjectCommonAgents>[1]
   ) {
-    return rpcReadProjectCommonAgents(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadProjectCommonAgents(this.env, input)
+    );
   }
 
   readProjectRecentTasks(
     input: Parameters<typeof rpcReadProjectRecentTasks>[1]
   ) {
-    return rpcReadProjectRecentTasks(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadProjectRecentTasks(this.env, input)
+    );
   }
 
   updateProjectCommonAgents(
     input: Parameters<typeof rpcUpdateProjectCommonAgents>[1]
   ) {
-    return rpcUpdateProjectCommonAgents(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateProjectCommonAgents(this.env, input)
+    );
   }
 
   resolveProjectIssueAction(
     input: Parameters<typeof rpcResolveProjectIssueAction>[1]
   ) {
-    return rpcResolveProjectIssueAction(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcResolveProjectIssueAction(this.env, input)
+    );
   }
 
   updateProjectIssueRouting(
     input: Parameters<typeof rpcUpdateProjectIssueRouting>[1]
   ) {
-    return rpcUpdateProjectIssueRouting(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateProjectIssueRouting(this.env, input)
+    );
   }
-
   createProject(input: CreateProjectInput) {
-    return rpcCreateProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateProject(this.env, input)
+    );
   }
-
   updateProject(input: UpdateProjectInput) {
-    return rpcUpdateProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateProject(this.env, input)
+    );
   }
-
   updateAgentProfileDefaultProject(
     input: UpdateAgentProfileDefaultProjectInput
   ) {
-    return rpcUpdateAgentProfileDefaultProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAgentProfileDefaultProject(this.env, input)
+    );
   }
-
   archiveProject(input: ArchiveProjectInput) {
-    return rpcArchiveProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcArchiveProject(this.env, input)
+    );
   }
-
   discoverProjects(input: DiscoverProjectsInput) {
     return rpcDiscoverProjects(this.env, input);
   }
   discoverPeopleComputerProjects(
     input: Parameters<typeof rpcDiscoverPeopleComputerProjects>[1]
   ) {
-    return rpcDiscoverPeopleComputerProjects(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDiscoverPeopleComputerProjects(this.env, input)
+    );
   }
-
   connectPeopleComputerProjectCandidate(
     input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
   ) {
-    return rpcConnectPeopleComputerProjectCandidate(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcConnectPeopleComputerProjectCandidate(this.env, input)
+    );
   }
   setPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
       import("@openmeld/schemas/types").PeopleComputerTarget
   ) {
     const { deviceId, runtimeLane, ...request } = input;
-    return rpcSetCurrentAgentProfileWorkspace(this.env, request, {
-      deviceId,
-      runtimeLane,
-    });
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetCurrentAgentProfileWorkspace(this.env, request, {
+        deviceId,
+        runtimeLane,
+      })
+    );
   }
   connectPeopleComputerProjectPath(
     input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
   ) {
-    return rpcConnectPeopleComputerProjectPath(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcConnectPeopleComputerProjectPath(this.env, input)
+    );
   }
   setPeopleComputerProjectDefaultConnection(
     input: Parameters<typeof rpcSetPeopleComputerProjectDefaultConnection>[1]
   ) {
-    return rpcSetPeopleComputerProjectDefaultConnection(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetPeopleComputerProjectDefaultConnection(this.env, input)
+    );
   }
-
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return rpcReadComputerFileAccessPolicy(this.env, input);
   }
-
+  agentSessionHistory(input: Parameters<typeof rpcAgentSessionHistory>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAgentSessionHistory(this.env, input)
+    );
+  }
+  computerSessionHistory(
+    input: Parameters<typeof rpcComputerSessionHistory>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcComputerSessionHistory(this.env, input)
+    );
+  }
   readPeopleComputerFileAccessPolicy(
     input: Parameters<typeof rpcReadPeopleComputerFileAccessPolicy>[1]
   ) {
-    return rpcReadPeopleComputerFileAccessPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadPeopleComputerFileAccessPolicy(this.env, input)
+    );
   }
-
   updatePeopleComputerFileAccessPolicy(
     input: Parameters<typeof rpcUpdatePeopleComputerFileAccessPolicy>[1]
   ) {
-    return rpcUpdatePeopleComputerFileAccessPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdatePeopleComputerFileAccessPolicy(this.env, input)
+    );
   }
-
   selectLocalFolders(input: SelectLocalFoldersInput) {
     return rpcSelectLocalFolders(this.env, input);
   }
   selectPeopleComputerFolders(
     input: Parameters<typeof rpcSelectPeopleComputerFolders>[1]
   ) {
-    return rpcSelectPeopleComputerFolders(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSelectPeopleComputerFolders(this.env, input)
+    );
   }
-
   updateComputerFileAccessPolicy(input: UpdateComputerFileAccessPolicyInput) {
     return rpcUpdateComputerFileAccessPolicy(this.env, input);
   }
-
   connectCandidate(input: ConnectCandidateInput) {
     return rpcConnectCandidate(this.env, input);
   }
-
   connectDeclaredPath(input: ConnectDeclaredPathInput) {
     return rpcConnectDeclaredPath(this.env, input);
   }
-
   setDefaultConnection(input: SetDefaultConnectionInput) {
     return rpcSetDefaultConnection(this.env, input);
   }
-
   removeConnection(input: RemoveConnectionInput) {
     return rpcRemoveConnection(this.env, input);
   }
-
   removeMissingConnections(input: RemoveMissingConnectionsInput) {
     return rpcRemoveMissingConnections(this.env, input);
   }
-
   submitAgentActivityEvents(input: SubmitAgentActivityEventsInput) {
-    return rpcSubmitAgentActivityEvents(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitAgentActivityEvents(this.env, input)
+    );
   }
-
   submitAgentActivitySessionReconciliation(
     input: SubmitAgentActivitySessionReconciliationInput
   ) {
-    return rpcSubmitAgentActivitySessionReconciliation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitAgentActivitySessionReconciliation(this.env, input)
+    );
   }
-
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput
   ) {
-    return rpcSubmitAgentControllerTaskLifecycleEvents(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitAgentControllerTaskLifecycleEvents(this.env, input)
+    );
   }
-
   readAgentActivitySnapshot(input: ReadAgentActivitySnapshotInput) {
-    return rpcReadAgentActivitySnapshot(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadAgentActivitySnapshot(this.env, input)
+    );
   }
-
   readAgentActivitySessionInventory(
     input: ReadAgentActivitySessionInventoryInput
   ) {
-    return rpcReadAgentActivitySessionInventory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadAgentActivitySessionInventory(this.env, input)
+    );
   }
-
   readAgentActivityStats(input: ReadAgentActivityStatsInput) {
-    return rpcReadAgentActivityStats(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadAgentActivityStats(this.env, input)
+    );
   }
-
   readOrganizationUsageOverview(input: ReadOrganizationUsageOverviewInput) {
-    return rpcReadOrganizationUsageOverview(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationUsageOverview(this.env, input)
+    );
   }
-
+  readOrganizationAiUsage(input: OrganizationAiUsageRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationAiUsage(this.env, input)
+    );
+  }
   listRoutines(input: ListRoutinesInput) {
-    return rpcListRoutines(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListRoutines(this.env, input)
+    );
   }
-
   listRoutineTargetSpaces(input: ListRoutineTargetSpacesInput) {
-    return rpcListRoutineTargetSpaces(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListRoutineTargetSpaces(this.env, input)
+    );
   }
-
   createRoutine(input: CreateRoutineInput) {
-    return rpcCreateRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateRoutine(this.env, input)
+    );
   }
-
   updateRoutine(input: UpdateRoutineInput) {
-    return rpcUpdateRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateRoutine(this.env, input)
+    );
   }
-
   pauseRoutine(input: PauseRoutineInput) {
-    return rpcPauseRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPauseRoutine(this.env, input)
+    );
   }
-
   resumeRoutine(input: ResumeRoutineInput) {
-    return rpcResumeRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcResumeRoutine(this.env, input)
+    );
   }
-
   deleteRoutine(input: DeleteRoutineInput) {
-    return rpcDeleteRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteRoutine(this.env, input)
+    );
   }
-
   listRoutineRuns(input: ListRoutineRunsInput) {
-    return rpcListRoutineRuns(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListRoutineRuns(this.env, input)
+    );
   }
-
   listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
-    return rpcListInboxFeed(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListInboxFeed(this.env, input, (stage, work) =>
+        tracing.enterSpan(stage, work)
+      )
+    );
   }
-
   searchMessages(
     input: import("@openmeld/schemas").MessageSearchRpcInput,
     spaceImageGeometryVersion?: string
@@ -1608,350 +1721,405 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   mutateInboxFeed(
     input: MutateInboxFeedRpcInput
   ): Promise<MutateInboxFeedResponse> {
-    return rpcMutateInboxFeed(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMutateInboxFeed(this.env, input)
+    );
   }
-
+  mutateSpaceInboxRead(
+    input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMutateSpaceInboxRead(this.env, input)
+    );
+  }
   listInboxItems(
     input: ListInboxItemsRpcInput
   ): Promise<ListInboxItemsResponse> {
-    return rpcListInboxItems(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListInboxItems(this.env, input)
+    );
   }
-
   observeInboxNotifications(
     input: import("@openmeld/schemas/types").ObserveInboxNotificationsRpcInput
   ) {
-    return rpcObserveInboxNotifications(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcObserveInboxNotifications(this.env, input)
+    );
   }
-
   dismissInboxItem(
     input: DismissInboxItemRpcInput
   ): Promise<DismissInboxItemResponse> {
-    return rpcDismissInboxItem(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDismissInboxItem(this.env, input)
+    );
   }
-
   getInboxItem(input: GetInboxItemRpcInput): Promise<GetInboxItemResponse> {
-    return rpcGetInboxItem(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetInboxItem(this.env, input)
+    );
   }
-
   getInboxSummary(
     input: GetInboxSummaryRpcInput
   ): Promise<InboxSummaryResponse> {
-    return rpcGetInboxSummary(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetInboxSummary(this.env, input)
+    );
   }
-
   getCenterAgentInboxSummary(
     input: GetCenterAgentInboxSummaryRpcInput
   ): Promise<CenterAgentInboxSummaryResponse> {
-    return rpcGetCenterAgentInboxSummary(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCenterAgentInboxSummary(this.env, input)
+    );
   }
-
   getSpaceInboxSummary(
     input: GetSpaceInboxSummaryRpcInput
   ): Promise<SpaceInboxSummaryResponse> {
-    return rpcGetSpaceInboxSummary(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceInboxSummary(this.env, input)
+    );
   }
-
   getSpaceInboxUnreadTargets(
     input: GetSpaceInboxUnreadTargetsRpcInput
   ): Promise<SpaceInboxUnreadTargetsResponse> {
-    return rpcGetSpaceInboxUnreadTargets(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceInboxUnreadTargets(this.env, input)
+    );
   }
-
   markCenterAgentInboxReadThrough(
     input: MarkCenterAgentInboxReadThroughRpcInput
   ): Promise<MarkCenterAgentInboxReadThroughResponse> {
-    return rpcMarkCenterAgentInboxReadThrough(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMarkCenterAgentInboxReadThrough(this.env, input)
+    );
   }
-
   markSpaceInboxReadThrough(
     input: MarkSpaceInboxReadThroughRpcInput
   ): Promise<MarkSpaceInboxReadThroughResponse> {
-    return rpcMarkSpaceInboxReadThrough(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMarkSpaceInboxReadThrough(this.env, input)
+    );
   }
-
   markInboxItemRead(
     input: MarkInboxItemReadRpcInput
   ): Promise<MarkInboxItemReadResponse> {
-    return rpcMarkInboxItemRead(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMarkInboxItemRead(this.env, input)
+    );
   }
-
   markAllInboxItemsRead(
     input: MarkAllInboxItemsReadRpcInput
   ): Promise<MarkAllInboxItemsReadResponse> {
-    return rpcMarkAllInboxItemsRead(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMarkAllInboxItemsRead(this.env, input)
+    );
   }
-
   getInboxNotificationPreferences(
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
-    return rpcGetInboxNotificationPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetInboxNotificationPreferences(this.env, input)
+    );
   }
-
   getInboxMessageNotificationPreferences(
     input: GetInboxMessageNotificationPreferencesRpcInput
   ) {
-    return rpcGetInboxMessageNotificationPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetInboxMessageNotificationPreferences(this.env, input)
+    );
   }
-
   updateInboxMessageNotificationPreferences(
     input: UpdateInboxMessageNotificationPreferencesRpcInput
   ) {
-    return rpcUpdateInboxMessageNotificationPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateInboxMessageNotificationPreferences(this.env, input)
+    );
   }
-
   localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
-    return reasoningPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      reasoningPreferences(this.env, input)
+    );
   }
-
   updateInboxNotificationPreferences(
     input: UpdateInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
-    return rpcUpdateInboxNotificationPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateInboxNotificationPreferences(this.env, input)
+    );
   }
-
   listOrganizationDocuments(
     input: ListOrganizationDocumentsRpcInput
   ): Promise<ListOrganizationDocumentsResponse> {
-    return rpcListOrganizationDocuments(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListOrganizationDocuments(this.env, input)
+    );
   }
-
   centerAgentReadOrganizationSkills(
     input: CenterAgentReadOrganizationSkillsRpcInput
   ): Promise<CenterAgentReadOrganizationSkillsResponse> {
-    return rpcCenterAgentReadOrganizationSkills(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadOrganizationSkills(this.env, input)
+    );
   }
-
   centerAgentInstallOrganizationSkill(
     input: CenterAgentInstallOrganizationSkillRpcInput
   ): Promise<CenterAgentInstallOrganizationSkillResponse> {
-    return rpcCenterAgentInstallOrganizationSkill(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentInstallOrganizationSkill(this.env, input)
+    );
   }
-
   listOrganizationSkills(
     input: ListOrganizationSkillsRpcInput
   ): Promise<ListOrganizationSkillsResponse> {
-    return rpcListOrganizationSkills(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListOrganizationSkills(this.env, input)
+    );
   }
-
   getOrganizationSkill(
     input: GetOrganizationSkillRpcInput
   ): Promise<GetOrganizationSkillResponse> {
-    return rpcGetOrganizationSkill(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetOrganizationSkill(this.env, input)
+    );
   }
-
   getOrganizationSkillCatalog(
     input: GetOrganizationSkillRpcInput
   ): Promise<OrganizationSkillRuntimeCatalogResponse> {
-    return rpcGetOrganizationSkillCatalog(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetOrganizationSkillCatalog(this.env, input)
+    );
   }
-
   createOrganizationSkill(
     input: CreateOrganizationSkillRpcInput
   ): Promise<CreateOrganizationSkillResponse> {
-    return rpcCreateOrganizationSkill(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateOrganizationSkill(this.env, input)
+    );
   }
-
   importOrganizationSkillFromGitHub(
     input: ImportOrganizationSkillFromGitHubRpcInput
   ): Promise<ImportOrganizationSkillFromGitHubResponse> {
-    return rpcImportOrganizationSkillFromGitHub(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcImportOrganizationSkillFromGitHub(this.env, input)
+    );
   }
-
   importOrganizationSkillFromFiles(
     input: ImportOrganizationSkillFromFilesRpcInput
   ): Promise<ImportOrganizationSkillFromFilesResponse> {
-    return rpcImportOrganizationSkillFromFiles(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcImportOrganizationSkillFromFiles(this.env, input)
+    );
   }
-
   previewOrganizationSkillFromGitHub(
     input: PreviewOrganizationSkillFromGitHubRpcInput
   ): Promise<PreviewOrganizationSkillFromGitHubResponse> {
-    return rpcPreviewOrganizationSkillFromGitHub(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPreviewOrganizationSkillFromGitHub(this.env, input)
+    );
   }
-
   previewOrganizationSkillRepository(
     input: PreviewOrganizationSkillRepositoryRpcInput
   ): Promise<PreviewOrganizationSkillRepositoryResponse> {
-    return rpcPreviewOrganizationSkillRepository(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPreviewOrganizationSkillRepository(this.env, input)
+    );
   }
-
   beginOrganizationSkillImportBatch(
     input: BeginOrganizationSkillImportBatchRpcInput
   ): Promise<BeginOrganizationSkillImportBatchResponse> {
-    return rpcBeginOrganizationSkillImportBatch(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcBeginOrganizationSkillImportBatch(this.env, input)
+    );
   }
-
   getOrganizationSkillImportBatch(
     input: GetOrganizationSkillImportBatchRpcInput
   ): Promise<GetOrganizationSkillImportBatchResponse> {
-    return rpcGetOrganizationSkillImportBatch(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetOrganizationSkillImportBatch(this.env, input)
+    );
   }
-
   listOrganizationSkillImportBatches(
     input: ListOrganizationSkillImportBatchesRpcInput
   ): Promise<ListOrganizationSkillImportBatchesResponse> {
-    return rpcListOrganizationSkillImportBatches(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListOrganizationSkillImportBatches(this.env, input)
+    );
   }
-
   previewOrganizationSkillFromFiles(
     input: PreviewOrganizationSkillFromFilesRpcInput
   ): Promise<PreviewOrganizationSkillFromFilesResponse> {
-    return rpcPreviewOrganizationSkillFromFiles(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPreviewOrganizationSkillFromFiles(this.env, input)
+    );
   }
-
   updateOrganizationSkill(
     input: UpdateOrganizationSkillRpcInput
   ): Promise<UpdateOrganizationSkillResponse> {
-    return rpcUpdateOrganizationSkill(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateOrganizationSkill(this.env, input)
+    );
   }
-
   setOrganizationSkillEnabled(
     input: SetOrganizationSkillEnabledRpcInput
   ): Promise<SetOrganizationSkillEnabledResponse> {
-    return rpcSetOrganizationSkillEnabled(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetOrganizationSkillEnabled(this.env, input)
+    );
   }
-
   setOrganizationSkillMaintainers(
     input: SetOrganizationSkillMaintainersRpcInput
   ): Promise<SetOrganizationSkillMaintainersResponse> {
-    return rpcSetOrganizationSkillMaintainers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetOrganizationSkillMaintainers(this.env, input)
+    );
   }
-
   deleteOrganizationSkill(
     input: DeleteOrganizationSkillRpcInput
   ): Promise<DeleteOrganizationSkillResponse> {
-    return rpcDeleteOrganizationSkill(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteOrganizationSkill(this.env, input)
+    );
   }
-
   readOrganizationSkillRuntimeSnapshot(
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
-    return rpcReadOrganizationSkillRuntimeSnapshot(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationSkillRuntimeSnapshot(this.env, input)
+    );
   }
-
   readOrganizationSkillRuntimeCatalog(
     input: ReadOrganizationSkillRuntimeCatalogRpcInput
   ): Promise<OrganizationSkillRuntimeCatalogResponse> {
-    return rpcReadOrganizationSkillRuntimeCatalog(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationSkillRuntimeCatalog(this.env, input)
+    );
   }
-
   readOrganizationSkillRuntimeResource(
     input: ReadOrganizationSkillRuntimeResourceRpcInput
   ): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
-    return rpcReadOrganizationSkillRuntimeResource(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationSkillRuntimeResource(this.env, input)
+    );
   }
-
   recordOrganizationSkillActivation(
     input: RecordOrganizationSkillActivationRpcInput
   ): Promise<RecordOrganizationSkillActivationResponse> {
-    return rpcRecordOrganizationSkillActivation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordOrganizationSkillActivation(this.env, input)
+    );
   }
-
   getOrganizationDocument(
     input: GetOrganizationDocumentRpcInput
   ): Promise<GetOrganizationDocumentResponse> {
-    return rpcGetOrganizationDocument(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetOrganizationDocument(this.env, input)
+    );
   }
-
   createOrganizationDocument(
     input: CreateOrganizationDocumentRpcInput
   ): Promise<CreateOrganizationDocumentResponse> {
-    return rpcCreateOrganizationDocument(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateOrganizationDocument(this.env, input)
+    );
   }
-
   updateOrganizationDocument(
     input: UpdateOrganizationDocumentRpcInput
   ): Promise<UpdateOrganizationDocumentResponse> {
-    return rpcUpdateOrganizationDocument(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateOrganizationDocument(this.env, input)
+    );
   }
-
   deleteOrganizationDocument(
     input: DeleteOrganizationDocumentRpcInput
   ): Promise<DeleteOrganizationDocumentResponse> {
-    return rpcDeleteOrganizationDocument(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteOrganizationDocument(this.env, input)
+    );
   }
-
   createOrganizationDocumentFolder(
     input: CreateOrganizationDocumentFolderRpcInput
   ): Promise<CreateOrganizationDocumentFolderResponse> {
-    return rpcCreateOrganizationDocumentFolder(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateOrganizationDocumentFolder(this.env, input)
+    );
   }
-
   updateOrganizationDocumentFolder(
     input: UpdateOrganizationDocumentFolderRpcInput
   ): Promise<UpdateOrganizationDocumentFolderResponse> {
-    return rpcUpdateOrganizationDocumentFolder(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateOrganizationDocumentFolder(this.env, input)
+    );
   }
-
   deleteOrganizationDocumentFolder(
     input: DeleteOrganizationDocumentFolderRpcInput
   ): Promise<DeleteOrganizationDocumentFolderResponse> {
-    return rpcDeleteOrganizationDocumentFolder(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteOrganizationDocumentFolder(this.env, input)
+    );
   }
-
   approveOrganizationDocumentDraft(
     input: ApproveOrganizationDocumentDraftRpcInput
   ): Promise<ApproveOrganizationDocumentDraftResponse> {
-    return rpcApproveOrganizationDocumentDraft(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcApproveOrganizationDocumentDraft(this.env, input)
+    );
   }
-
   discardOrganizationDocumentDraft(
     input: DiscardOrganizationDocumentDraftRpcInput
   ): Promise<DiscardOrganizationDocumentDraftResponse> {
-    return rpcDiscardOrganizationDocumentDraft(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDiscardOrganizationDocumentDraft(this.env, input)
+    );
   }
-
   async startCenterAgentMemberResearch(
     input: StartCenterAgentMemberResearchRpcInput
   ): Promise<StartCenterAgentMemberResearchResponse> {
-    const directMessage = await rpcOpenCenterAgentDirectMessageSpace(
-      this.env,
-      input
-    );
-    const response = await startCenterAgentMemberResearch(
-      this.env,
-      input,
-      directMessage.spaceId
-    );
-    const db = localStateDb(this.env);
-    if (db) {
-      this.ctx.waitUntil(
-        runCenterAgentMemberResearchTick({ db, env: this.env })
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const directMessage = await rpcOpenCenterAgentDirectMessageSpace(
+        this.env,
+        input
       );
-    }
-    return response;
+      const response = await startCenterAgentMemberResearch(
+        this.env,
+        input,
+        directMessage.spaceId
+      );
+      const db = getPostgresDatabase(this.env);
+      if (db) {
+        this.ctx.waitUntil(
+          runCenterAgentMemberResearchTick({ db, env: this.env })
+        );
+      }
+      return response;
+    });
   }
-
   getCenterAgentMemberResearchStatus(
     input: GetCenterAgentMemberResearchStatusRpcInput
   ): Promise<GetCenterAgentMemberResearchStatusResponse> {
-    return getCenterAgentMemberResearchStatus(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      getCenterAgentMemberResearchStatus(this.env, input)
+    );
   }
-
   ping() {
     return { ok: true, service: "openmeld-core" } as const;
   }
-
   getModelCatalog(options?: ModelCatalogReadOptions): GetModelCatalogResponse {
     return readModelCatalog(modelCatalogReadOptionsSchema.parse(options ?? {}));
   }
-
   readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {
     return rpcReadChangelog(this.env, input);
   }
-
   inspectDbState(): DbFactSnapshot {
     return inspectCoreDbState(this.env);
   }
-
   inspectDispatchStorageReadiness(): Promise<DispatchStorageReadiness> {
-    return inspectCoreDispatchStorageReadiness(this.env);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      inspectCoreDispatchStorageReadiness(this.env)
+    );
   }
-
   listSignals(
     input: ListSignalsInput,
     spaceAddressingVersion?: string,
@@ -1963,175 +2131,186 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   async postDeviceWaitingSignal(
     input: PostSignalInput,
     spaceAddressingVersion?: string,
     spaceImageGeometryVersion?: string
   ): Promise<SignalEnvelope> {
-    if (!input.deviceWait) {
-      throw new Error("A device waiting request is required.");
-    }
-    return await this.#postSignalWithEvidence(
-      input,
-      spaceAddressingVersion,
-      spaceImageGeometryVersion
-    );
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      if (!input.deviceWait) {
+        throw new Error("A device waiting request is required.");
+      }
+      return await this.#postSignalWithEvidence(
+        input,
+        spaceAddressingVersion,
+        spaceImageGeometryVersion
+      );
+    });
   }
-
   async mutateSpaceMessage(
     input: import("./rpc/methods").MutateSpaceMessageInput,
     spaceImageGeometryVersion?: string
   ) {
-    return toSpaceImageGeometryRpcOutput(
-      toSpaceSignalReadWireValue(await rpcMutateSpaceMessage(this.env, input)),
-      spaceImageGeometryVersion
-    );
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      return toSpaceImageGeometryRpcOutput(
+        toSpaceSignalReadWireValue(
+          await rpcMutateSpaceMessage(this.env, input)
+        ),
+        spaceImageGeometryVersion
+      );
+    });
   }
-
   async postSignal(
     input: PostSignalInput,
     spaceAddressingVersion?: string,
     spaceImageGeometryVersion?: string
   ): Promise<SignalEnvelope> {
-    if (input.deviceWait) {
-      throw new Error(
-        "Device waiting requests require postDeviceWaitingSignal."
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      if (input.deviceWait) {
+        throw new Error(
+          "Device waiting requests require postDeviceWaitingSignal."
+        );
+      }
+      return await this.#postSignalWithEvidence(
+        input,
+        spaceAddressingVersion,
+        spaceImageGeometryVersion
       );
-    }
-    return await this.#postSignalWithEvidence(
-      input,
-      spaceAddressingVersion,
-      spaceImageGeometryVersion
-    );
+    });
   }
-
   async #postSignalWithEvidence(
     input: PostSignalInput,
     spaceAddressingVersion?: string,
     spaceImageGeometryVersion?: string
   ): Promise<SignalEnvelope> {
-    const startedAt = Date.now();
-    const requestId = input.context?.actorContext.requestId ?? null;
-    const clientMessageId = input.meta?.clientMessageId ?? null;
-    const activationTargetCount =
-      input.messageEnvelope?.activationTargets.length ?? 0;
-    const targetProfileId = input.messageEnvelope?.activationTargets[0] ?? null;
-
-    emitCoreCloudflareRuntimeEvidence(this.env, {
-      event: "core.openmeld.space.signal_post_started",
-      workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
-      runtimeKind: "rpc",
-      status: "started",
-      operation: "postSignal",
-      durationMs: 0,
-      requestId,
-      spaceId: input.spaceId,
-      clientMessageId,
-      targetProfileId,
-      activationTargetCount,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const startedAt = Date.now();
+      const requestId = input.context?.actorContext.requestId ?? null;
+      const clientMessageId = input.meta?.clientMessageId ?? null;
+      const activationTargetCount =
+        input.messageEnvelope?.activationTargets.length ?? 0;
+      const targetProfileId =
+        input.messageEnvelope?.activationTargets[0] ?? null;
+      emitCoreCloudflareRuntimeEvidence(this.env, {
+        event: "core.openmeld.space.signal_post_started",
+        workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
+        runtimeKind: "rpc",
+        status: "started",
+        operation: "postSignal",
+        durationMs: 0,
+        requestId,
+        spaceId: input.spaceId,
+        clientMessageId,
+        targetProfileId,
+        activationTargetCount,
+      });
+      try {
+        const signal = await rpcPostSignal(this.env, {
+          ...input,
+          ...(spaceAddressingVersion ? { spaceAddressingVersion } : {}),
+        });
+        emitCoreCloudflareRuntimeEvidence(this.env, {
+          event: "core.openmeld.space.signal_posted",
+          workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
+          runtimeKind: "rpc",
+          status: "succeeded",
+          operation: "postSignal",
+          durationMs: Date.now() - startedAt,
+          requestId,
+          spaceId: input.spaceId,
+          clientMessageId,
+          sourceSignalId: signal.id,
+          targetProfileId,
+          activationTargetCount,
+        });
+        return toSpaceAddressingRpcOutput(
+          signal,
+          spaceAddressingVersion,
+          spaceImageGeometryVersion
+        );
+      } catch (error) {
+        emitCoreCloudflareRuntimeEvidence(this.env, {
+          event: "core.openmeld.space.signal_post_failed",
+          workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
+          runtimeKind: "rpc",
+          status: "failed",
+          operation: "postSignal",
+          durationMs: Date.now() - startedAt,
+          reasonCode: "signal_post_failed",
+          errorName: error instanceof Error ? error.name : typeof error,
+          requestId,
+          spaceId: input.spaceId,
+          clientMessageId,
+          targetProfileId,
+          activationTargetCount,
+        });
+        throw error;
+      }
     });
-
-    try {
-      const signal = await rpcPostSignal(this.env, {
-        ...input,
-        ...(spaceAddressingVersion ? { spaceAddressingVersion } : {}),
-      });
-      emitCoreCloudflareRuntimeEvidence(this.env, {
-        event: "core.openmeld.space.signal_posted",
-        workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
-        runtimeKind: "rpc",
-        status: "succeeded",
-        operation: "postSignal",
-        durationMs: Date.now() - startedAt,
-        requestId,
-        spaceId: input.spaceId,
-        clientMessageId,
-        sourceSignalId: signal.id,
-        targetProfileId,
-        activationTargetCount,
-      });
-      return toSpaceAddressingRpcOutput(
-        signal,
-        spaceAddressingVersion,
-        spaceImageGeometryVersion
-      );
-    } catch (error) {
-      emitCoreCloudflareRuntimeEvidence(this.env, {
-        event: "core.openmeld.space.signal_post_failed",
-        workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
-        runtimeKind: "rpc",
-        status: "failed",
-        operation: "postSignal",
-        durationMs: Date.now() - startedAt,
-        reasonCode: "signal_post_failed",
-        errorName: error instanceof Error ? error.name : typeof error,
-        requestId,
-        spaceId: input.spaceId,
-        clientMessageId,
-        targetProfileId,
-        activationTargetCount,
-      });
-      throw error;
-    }
   }
-
   postTransientSignal(input: PostTransientSignalInput): Promise<void> {
     return rpcPostTransientSignal(this.env, input);
   }
-
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
-    return rpcGetSpaceMembers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceMembers(this.env, input)
+    );
   }
-
   getSpaceHistoryNavigation(
     input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
   ): Promise<SpaceHistoryNavigation> {
-    return rpcGetSpaceHistoryNavigation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceHistoryNavigation(this.env, input)
+    );
   }
-
   getSpaceIdentityDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceIdentityDirectory> {
-    return rpcGetSpaceIdentityDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceIdentityDirectory(this.env, input)
+    );
   }
-
   getSpaceMemberDirectory(
     input: GetSpaceMembersInput,
     spaceAddressingVersion?: string,
     spaceImageGeometryVersion?: string
   ): Promise<SpaceMemberDirectory> {
     return withSpaceAddressingRpcOutput(
-      rpcGetSpaceMemberDirectory(this.env, input),
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+        rpcGetSpaceMemberDirectory(this.env, input)
+      ),
       spaceAddressingVersion,
       spaceImageGeometryVersion
     );
   }
-
   getSpaceViewerMembership(
     input: GetSpaceViewerMembershipInput
   ): Promise<SpaceViewerMembershipResponse> {
-    return rpcGetSpaceViewerMembership(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceViewerMembership(this.env, input)
+    );
   }
-
   recordSpaceAttachment(
     input: RecordSpaceAttachmentInput
   ): Promise<SpaceAttachmentDescriptor> {
-    return rpcRecordSpaceAttachment(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordSpaceAttachment(this.env, input)
+    );
   }
-
   deleteSpaceAttachmentRecord(
     input: DeleteSpaceAttachmentRecordInput
   ): Promise<DeleteSpaceAttachmentRecordResult> {
-    return rpcDeleteSpaceAttachmentRecord(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteSpaceAttachmentRecord(this.env, input)
+    );
   }
-
   resolveSpaceAttachmentForDownload(
     input: ResolveSpaceAttachmentForDownloadInput
   ): Promise<SpaceAttachmentDescriptor> {
-    return rpcResolveSpaceAttachmentForDownload(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcResolveSpaceAttachmentForDownload(this.env, input)
+    );
   }
-
   listSpaceFiles(
     input: ListSpaceFilesInput,
     spaceFilesOriginVersion?: string,
@@ -2143,7 +2322,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceFile(
     input: GetSpaceFileInput,
     spaceFilesOriginVersion?: string,
@@ -2155,7 +2333,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   listSpaceFileRevisions(
     input: GetSpaceFileInput,
     spaceFilesOriginVersion?: string,
@@ -2167,13 +2344,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   createSpaceFolder(
     input: CreateSpaceFolderInput
   ): Promise<CreateSpaceFolderResponse> {
     return rpcCreateSpaceFolder(this.env, input);
   }
-
   updateSpaceFileEntry(
     input: UpdateSpaceFileEntryInput,
     spaceFilesOriginVersion?: string,
@@ -2185,13 +2360,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   trashSpaceFileEntry(
     input: TrashSpaceFileEntryInput
   ): Promise<TrashSpaceFileEntryResponse> {
     return rpcTrashSpaceFileEntry(this.env, input);
   }
-
   restoreSpaceFileEntry(
     input: RestoreSpaceFileEntryInput,
     spaceFilesOriginVersion?: string,
@@ -2203,7 +2376,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   restoreSpaceFileRevision(
     input: RestoreSpaceFileRevisionInput,
     spaceFilesOriginVersion?: string,
@@ -2215,7 +2387,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   prepareSpaceFileWrite(
     input: SpaceFileWriteInput,
     spaceFilesOriginVersion?: string,
@@ -2227,7 +2398,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   commitSpaceFileWrite(
     input: SpaceFileWriteInput,
     spaceImageGeometryVersion?: string
@@ -2237,7 +2407,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   resolveSpaceFileContent(
     input: ResolveSpaceFileContentRpcInput,
     spaceImageGeometryVersion?: string
@@ -2247,7 +2416,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   streamSpaceFileContent(
     input: ReadSpaceFileContentRpcInput,
     spaceFilesOriginVersion?: string,
@@ -2260,7 +2428,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   readSpaceFileContent(
     input: ReadSpaceFileContentRpcInput,
     spaceImageGeometryVersion?: string
@@ -2270,7 +2437,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   writeSpaceFileContent(
     input: WriteSpaceFileContentRpcInput,
     spaceFilesOriginVersion?: string,
@@ -2282,7 +2448,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   spaceFileUpload(
     input: Parameters<typeof rpcSpaceFileUpload>[1],
     spaceFilesOriginVersion?: string,
@@ -2299,11 +2464,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ) {
     return rpcSpaceFileUpdateSettings(this.env, input);
   }
-
   stageSpaceComposerUpload(input: StageSpaceComposerUploadRpcInput) {
     return rpcStageSpaceComposerUpload(this.env, input);
   }
-
   publishSpaceComposerUpload(
     input: PublishSpaceComposerUploadRpcInput,
     spaceFilesOriginVersion?: string,
@@ -2315,11 +2478,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   discardSpaceComposerUpload(input: DiscardSpaceComposerUploadRpcInput) {
     return rpcDiscardSpaceComposerUpload(this.env, input);
   }
-
   listSpaceThreads(
     input: ListSpaceThreadsInput,
     spaceAddressingVersion?: string,
@@ -2331,7 +2492,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceThread(
     input: GetSpaceThreadInput,
     spaceAddressingVersion?: string,
@@ -2343,13 +2503,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   listSpaceThreadEvents(
     input: ListSpaceThreadEventsInput
   ): Promise<ListSpaceThreadEventsResponse> {
     return rpcListSpaceThreadEvents(this.env, input);
   }
-
   listSpaceThreadSignals(
     input: ListSpaceThreadSignalsInput,
     spaceAddressingVersion?: string,
@@ -2361,153 +2519,158 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceDispatchTrace(
     input: GetSpaceDispatchTraceInput
   ): Promise<SpaceDispatchTraceResponse> {
-    return rpcGetSpaceDispatchTrace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceDispatchTrace(this.env, input)
+    );
   }
-
   inspectExecutionRecovery(
     input: InspectExecutionRecoveryInput
   ): Promise<InspectExecutionRecoveryResponse> {
-    return rpcInspectExecutionRecovery(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcInspectExecutionRecovery(this.env, input)
+    );
   }
-
   executeExecutionRecovery(
     input: ExecuteExecutionRecoveryInput
   ): Promise<ExecuteExecutionRecoveryResponse> {
-    return rpcExecuteExecutionRecovery(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcExecuteExecutionRecovery(this.env, input)
+    );
   }
-
   getSpaceDispatchLookup(
     input: GetSpaceDispatchLookupInput
   ): Promise<GetSpaceDispatchLookupResponse> {
-    return rpcGetSpaceDispatchLookup(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceDispatchLookup(this.env, input)
+    );
   }
-
   getActiveSpaceWakeProgress(
     input: GetActiveSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
-    return rpcGetActiveSpaceWakeProgress(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetActiveSpaceWakeProgress(this.env, input)
+    );
   }
-
   getSpaceWakeProgress(
     input: GetSpaceWakeProgressInput
   ): Promise<GetSpaceWakeProgressResponse> {
-    return rpcGetSpaceWakeProgress(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceWakeProgress(this.env, input)
+    );
   }
-
   postSpaceWakeStop(
     input: PostSpaceWakeStopInput
   ): Promise<PostSpaceWakeStopResponse> {
     return rpcPostSpaceWakeStop(this.env, input);
   }
-
   respondToSpaceAgentInteraction(
     input: RespondToSpaceAgentInteractionInput
   ): Promise<RespondToSpaceAgentInteractionResponse> {
     return rpcRespondToSpaceAgentInteraction(this.env, input);
   }
-
   getSpaceWakeTraceWaterfall(
     input: GetSpaceWakeTraceWaterfallInput
   ): Promise<GetSpaceWakeTraceWaterfallResponse> {
     return rpcGetSpaceWakeTraceWaterfall(this.env, input);
   }
-
   getSpaceMessageReactions(input: GetSpaceMessageReactionsInput) {
     return rpcGetSpaceMessageReactions(this.env, input);
   }
   setSpaceMessageReaction(input: SetSpaceMessageReactionInput) {
     return rpcSetSpaceMessageReaction(this.env, input);
   }
-
   getSpaceMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
     return rpcGetSpaceMessageDetails(this.env, input);
   }
-
   getSpaceLinkPreviews(input: GetSpaceMessageDetailsInput) {
     return rpcGetSpaceLinkPreviews(this.env, input);
   }
-
   async createSpaceDiagnosticReport(
     input: CreateSpaceDiagnosticReportInput
   ): Promise<CreateSpaceDiagnosticReportResponse> {
-    const startedAt = Date.now();
-    const requestId = input.context?.actorContext.requestId ?? null;
-    emitCoreCloudflareRuntimeEvidence(this.env, {
-      event: "core.openmeld.space.diagnostic_report_create_started",
-      workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
-      runtimeKind: "rpc",
-      status: "started",
-      operation: "createDiagnosticReport",
-      durationMs: 0,
-      requestId,
-      spaceId: input.spaceId,
-    });
-
-    try {
-      const report = await rpcCreateSpaceDiagnosticReport(this.env, input);
-      const firstPointer = report.wakePointers[0] ?? null;
-      const exactPointer =
-        report.wakePointerDerivation.status === "exact" ? firstPointer : null;
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const startedAt = Date.now();
+      const requestId = input.context?.actorContext.requestId ?? null;
       emitCoreCloudflareRuntimeEvidence(this.env, {
-        event: "core.openmeld.space.diagnostic_report_created",
+        event: "core.openmeld.space.diagnostic_report_create_started",
         workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
         runtimeKind: "rpc",
-        status: "succeeded",
+        status: "started",
         operation: "createDiagnosticReport",
-        durationMs: Date.now() - startedAt,
-        reasonCode: report.wakePointerDerivation.status,
-        requestId,
-        spaceId: report.spaceId,
-        clientMessageId: firstPointer?.clientMessageId ?? null,
-        sourceSignalId: firstPointer?.sourceSignalId ?? null,
-        targetProfileId: exactPointer?.targetProfileId ?? null,
-        replySignalId: report.replyToSignalId ? report.reportedSignalId : null,
-        activationTargetCount: report.wakePointers.length,
-      });
-      return report;
-    } catch (error) {
-      emitCoreCloudflareRuntimeEvidence(this.env, {
-        event: "core.openmeld.space.diagnostic_report_create_failed",
-        workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
-        runtimeKind: "rpc",
-        status: "failed",
-        operation: "createDiagnosticReport",
-        durationMs: Date.now() - startedAt,
-        reasonCode: "diagnostic_report_create_failed",
-        errorName: error instanceof Error ? error.name : typeof error,
+        durationMs: 0,
         requestId,
         spaceId: input.spaceId,
       });
-      throw error;
-    }
+      try {
+        const report = await rpcCreateSpaceDiagnosticReport(this.env, input);
+        const firstPointer = report.wakePointers[0] ?? null;
+        const exactPointer =
+          report.wakePointerDerivation.status === "exact" ? firstPointer : null;
+        emitCoreCloudflareRuntimeEvidence(this.env, {
+          event: "core.openmeld.space.diagnostic_report_created",
+          workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
+          runtimeKind: "rpc",
+          status: "succeeded",
+          operation: "createDiagnosticReport",
+          durationMs: Date.now() - startedAt,
+          reasonCode: report.wakePointerDerivation.status,
+          requestId,
+          spaceId: report.spaceId,
+          clientMessageId: firstPointer?.clientMessageId ?? null,
+          sourceSignalId: firstPointer?.sourceSignalId ?? null,
+          targetProfileId: exactPointer?.targetProfileId ?? null,
+          replySignalId: report.replyToSignalId
+            ? report.reportedSignalId
+            : null,
+          activationTargetCount: report.wakePointers.length,
+        });
+        return report;
+      } catch (error) {
+        emitCoreCloudflareRuntimeEvidence(this.env, {
+          event: "core.openmeld.space.diagnostic_report_create_failed",
+          workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
+          runtimeKind: "rpc",
+          status: "failed",
+          operation: "createDiagnosticReport",
+          durationMs: Date.now() - startedAt,
+          reasonCode: "diagnostic_report_create_failed",
+          errorName: error instanceof Error ? error.name : typeof error,
+          requestId,
+          spaceId: input.spaceId,
+        });
+        throw error;
+      }
+    });
   }
-
   addSpaceMembers(
     input: AddSpaceMembersInput
   ): Promise<PostSpaceMembersResponse> {
-    return rpcAddSpaceMembers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAddSpaceMembers(this.env, input)
+    );
   }
-
   removeSpaceMembers(
     input: RemoveSpaceMembersInput
   ): Promise<RemoveSpaceMembersResponse> {
-    return rpcRemoveSpaceMembers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRemoveSpaceMembers(this.env, input)
+    );
   }
-
   leaveSpace(input: LeaveSpaceInput): Promise<LeaveSpaceResponse> {
-    return rpcLeaveSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcLeaveSpace(this.env, input)
+    );
   }
-
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
-    return rpcGetSpaceMeta(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceMeta(this.env, input)
+    );
   }
-
   spaceFilePins(
     input: SpaceFilePinsInput,
     spaceFilesOriginVersion?: string,
@@ -2519,93 +2682,106 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   spaceMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return rpcSpaceMessagePins(this.env, input);
   }
 
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcSpaceInputQueue(this.env, input);
+  }
+
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
-    return rpcListSpaceTasks(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListSpaceTasks(this.env, input)
+    );
   }
-
   getSpaceTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
-    return rpcGetSpaceTask(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceTask(this.env, input)
+    );
   }
-
   createSpaceTask(
     input: CreateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
-    return rpcCreateSpaceTask(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateSpaceTask(this.env, input)
+    );
   }
-
   mutateSpaceTask(
     input: MutateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
-    return rpcMutateSpaceTask(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMutateSpaceTask(this.env, input)
+    );
   }
-
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
     return rpcGetSpaceContract(this.env, input);
   }
-
   getSpaceBoard(input: GetSpaceBoardInput): Promise<SpaceBoardResponse> {
-    return rpcGetSpaceBoard(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceBoard(this.env, input)
+    );
   }
-
   getSpaceStatus(input: GetSpaceStatusInput): Promise<GetSpaceStatusResponse> {
     return rpcGetSpaceStatus(this.env, input);
   }
-
   getSpaceEntryResolution(
     input: GetSpaceEntryResolutionRpcInput
   ): Promise<GetSpaceEntryResolutionResponse> {
-    return rpcGetSpaceEntryResolution(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceEntryResolution(this.env, input)
+    );
   }
-
   getSpaceConversationState(
     input: GetSpaceConversationStateRpcInput
   ): Promise<GetSpaceConversationStateResponse> {
-    return rpcGetSpaceConversationState(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceConversationState(this.env, input)
+    );
   }
-
   getSpaceBootstrap(
     input: GetSpaceBootstrapInput,
     spaceAddressingVersion?: string,
     spaceImageGeometryVersion?: string
   ): Promise<SpaceBootstrapResponse> {
     return withSpaceAddressingRpcOutput(
-      rpcGetSpaceBootstrap(this.env, input),
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+        rpcGetSpaceBootstrap(this.env, input)
+      ),
       spaceAddressingVersion,
       spaceImageGeometryVersion
     );
   }
-
   getSpaceBootstrapWithTiming(
     input: GetSpaceBootstrapInput,
     spaceAddressingVersion?: string,
     spaceImageGeometryVersion?: string
   ): Promise<SpaceBootstrapWithTiming> {
     return withSpaceAddressingRpcOutput(
-      rpcGetSpaceBootstrapWithTiming(this.env, input),
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+        rpcGetSpaceBootstrapWithTiming(this.env, input)
+      ),
       spaceAddressingVersion,
       spaceImageGeometryVersion
     );
   }
-
   getSpaceUpdates(
     input: GetSpaceUpdatesInput,
     spaceAddressingVersion?: string,
     spaceImageGeometryVersion?: string
   ): Promise<GetSpaceUpdatesResponse> {
     return withSpaceAddressingRpcOutput(
-      rpcGetSpaceUpdates(this.env, input),
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+        rpcGetSpaceUpdates(this.env, input)
+      ),
       spaceAddressingVersion,
       spaceImageGeometryVersion
     );
   }
-
   getSpaceDispatchResult(
     input: GetSpaceDispatchResultInput,
     spaceAddressingVersion?: string,
@@ -2617,847 +2793,998 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
-
   deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
-    return rpcDeleteSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteSpace(this.env, input)
+    );
   }
-
   updateSpaceMeta(input: UpdateSpaceMetaInput): Promise<SpaceMeta> {
     return rpcUpdateSpaceMeta(this.env, input);
   }
-
   putSpaceContract(input: PutSpaceContractInput): Promise<SpaceContract> {
     return rpcPutSpaceContract(this.env, input);
   }
-
   patchSpaceContract(input: PatchSpaceContractInput): Promise<SpaceContract> {
-    return rpcPatchSpaceContract(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPatchSpaceContract(this.env, input)
+    );
   }
-
   getSpaceCursor(input: GetSpaceCursorInput): Promise<SpaceCursor> {
     return rpcGetSpaceCursor(this.env, input);
   }
-
   updateSpaceCursor(input: UpdateSpaceCursorInput): Promise<SpaceCursor> {
     return rpcUpdateSpaceCursor(this.env, input);
   }
-
   upsertSpacePassword(
     input: UpsertSpacePasswordInput
   ): Promise<SpacePasswordStateResult> {
-    return rpcUpsertSpacePassword(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpsertSpacePassword(this.env, input)
+    );
   }
-
   clearSpacePassword(
     input: ClearSpacePasswordInput
   ): Promise<SpacePasswordStateResult> {
-    return rpcClearSpacePassword(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcClearSpacePassword(this.env, input)
+    );
   }
-
   setSpaceAccessMode(
     input: SetSpaceAccessModeInput
   ): Promise<SpaceAccessModeStateResult> {
-    return rpcSetSpaceAccessMode(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetSpaceAccessMode(this.env, input)
+    );
   }
-
   getCurrentDeviceTarget(
     input: GetCurrentDeviceTargetInput
   ): Promise<CurrentDeviceTargetResponse> {
-    return rpcGetCurrentDeviceTarget(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentDeviceTarget(this.env, input)
+    );
   }
-
   forgetCurrentComputer(
     input: GetCurrentDeviceTargetInput
   ): Promise<ForgetCurrentComputerResponse> {
-    return rpcForgetCurrentComputer(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcForgetCurrentComputer(this.env, input)
+    );
   }
-
   forgetComputer(input: ForgetComputerInput): Promise<ForgetComputerResponse> {
-    return rpcForgetComputer(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcForgetComputer(this.env, input)
+    );
   }
-
   getPrepareReadiness(
     input: GetPrepareReadinessInput
   ): Promise<GetPrepareReadinessResponse> {
-    return rpcGetPrepareReadiness(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetPrepareReadiness(this.env, input)
+    );
   }
-
   createPrepareSession(
     input: CreatePrepareSessionInput
   ): Promise<PrepareSessionWithTokenResponse> {
-    return rpcCreatePrepareSession(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreatePrepareSession(this.env, input)
+    );
   }
-
   getPrepareSession(
     input: GetPrepareSessionInput
   ): Promise<PrepareSessionResponse> {
-    return rpcGetPrepareSession(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetPrepareSession(this.env, input)
+    );
   }
-
   mintPrepareSessionReconnectToken(
     input: MintPrepareSessionReconnectTokenInput
   ): Promise<PrepareSessionWithTokenResponse> {
-    return rpcMintPrepareSessionReconnectToken(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMintPrepareSessionReconnectToken(this.env, input)
+    );
   }
-
   resolvePrepareSessionToken(
     input: ResolvePrepareSessionTokenInput
   ): Promise<PrepareSessionResponse> {
-    return rpcResolvePrepareSessionToken(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcResolvePrepareSessionToken(this.env, input)
+    );
   }
-
   writePrepareAgentSelection(
     input: WritePrepareAgentSelectionInput
   ): Promise<PrepareSessionResponse> {
-    return rpcWritePrepareAgentSelection(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcWritePrepareAgentSelection(this.env, input)
+    );
   }
-
   writePrepareSetupBootstrap(
     input: WritePrepareSetupBootstrapInput
   ): Promise<PrepareSessionResponse> {
-    return rpcWritePrepareSetupBootstrap(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcWritePrepareSetupBootstrap(this.env, input)
+    );
   }
-
   writePrepareTerminalStep(
     input: WritePrepareTerminalStepInput
   ): Promise<PrepareSessionResponse> {
-    return rpcWritePrepareTerminalStep(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcWritePrepareTerminalStep(this.env, input)
+    );
   }
-
   getPrepareDiagnostic(
     input: GetPrepareSessionInput
   ): Promise<PrepareDiagnosticResponse> {
-    return rpcGetPrepareDiagnostic(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetPrepareDiagnostic(this.env, input)
+    );
   }
   getAgentProfilePrimaryBinding(
     input: GetAgentProfilePrimaryBindingInput
   ): Promise<GetAgentProfilePrimaryBindingResponse> {
-    return rpcGetAgentProfilePrimaryBinding(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentProfilePrimaryBinding(this.env, input)
+    );
   }
-
   getCurrentAgentProfileSession(
     input: GetCurrentAgentProfileSessionInput
   ): Promise<CurrentAgentProfileSessionLookupResponse> {
-    return rpcGetCurrentAgentProfileSession(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentAgentProfileSession(this.env, input)
+    );
   }
-
   executeAgentProfileWorkRecovery(
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
-    return rpcExecuteAgentProfileWorkRecovery(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcExecuteAgentProfileWorkRecovery(this.env, input)
+    );
   }
-
   agentProfileExecutionMode(
     input: AgentProfileExecutionModeInput
   ): Promise<AgentProfileExecutionModeResponse> {
     return rpcAgentProfileExecutionMode(this.env, input);
   }
-
   getAgentProfileControllerChangeEligibility(
     input: GetAgentProfileControllerChangeEligibilityInput
   ): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
-    return rpcGetAgentProfileControllerChangeEligibility(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentProfileControllerChangeEligibility(this.env, input)
+    );
   }
-
   getLocalRuntimeExpectedRoutes(
     input: GetLocalRuntimeExpectedRoutesInput
   ): Promise<GetLocalRuntimeExpectedRoutesResponse> {
-    return rpcGetLocalRuntimeExpectedRoutes(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetLocalRuntimeExpectedRoutes(this.env, input)
+    );
   }
-
   getAgentExecutionReadiness(
     input: GetAgentExecutionReadinessInput
   ): Promise<GetAgentExecutionReadinessResponse> {
-    return rpcGetAgentExecutionReadiness(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentExecutionReadiness(this.env, input)
+    );
   }
-
   getAgentExecutionReadinessBatch(
     input: GetAgentExecutionReadinessBatchInput
   ): Promise<GetAgentExecutionReadinessBatchResponse> {
-    return rpcGetAgentExecutionReadinessBatch(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentExecutionReadinessBatch(this.env, input)
+    );
   }
-
   ensureAgentProfilePrimaryBinding(
     input: EnsureAgentProfilePrimaryBindingInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return rpcEnsureAgentProfilePrimaryBinding(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcEnsureAgentProfilePrimaryBinding(this.env, input)
+    );
   }
-
   updateAgentProfilePrimaryBindingModelSelection(
     input: UpdateAgentProfilePrimaryBindingModelSelectionInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return rpcUpdateAgentProfilePrimaryBindingModelSelection(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAgentProfilePrimaryBindingModelSelection(this.env, input)
+    );
   }
-
   updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
     input: UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
+        this.env,
+        input
+      )
     );
   }
-
   updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
     input: UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(
+        this.env,
+        input
+      )
     );
   }
-
   updateAgentProfilePrimaryBindingOpenCodePermission(
     input: UpdateAgentProfilePrimaryBindingOpenCodePermissionInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(this.env, input)
     );
   }
-
   disableAgentProfilePrimaryBinding(
     input: DisableAgentProfilePrimaryBindingInput
   ): Promise<DisableAgentProfilePrimaryBindingResponse> {
-    return rpcDisableAgentProfilePrimaryBinding(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDisableAgentProfilePrimaryBinding(this.env, input)
+    );
   }
-
   getAgentProfileCreationDefaults(
     input: GetAgentProfileCreationDefaultsInput
   ): Promise<GetAgentProfileCreationDefaultsResponse> {
-    return rpcGetAgentProfileCreationDefaults(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentProfileCreationDefaults(this.env, input)
+    );
   }
-
   setAgentProfileCreationDefaults(
     input: SetAgentProfileCreationDefaultsInput
   ): Promise<SetAgentProfileCreationDefaultsResponse> {
-    return rpcSetAgentProfileCreationDefaults(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetAgentProfileCreationDefaults(this.env, input)
+    );
   }
-
   createAgentProfileCreationRequest(
     input: CreateAgentProfileCreationRequestRpcInput
   ): Promise<CreateAgentProfileCreationRequestResponse> {
-    return rpcCreateAgentProfileCreationRequest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateAgentProfileCreationRequest(this.env, input)
+    );
   }
-
   listAgentProfileCreationRequests(
     input: ListAgentProfileCreationRequestsRpcInput
   ): Promise<ListAgentProfileCreationRequestsResponse> {
-    return rpcListAgentProfileCreationRequests(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAgentProfileCreationRequests(this.env, input)
+    );
   }
-
   decideAgentProfileCreationRequest(
     input: DecideAgentProfileCreationRequestRpcInput
   ): Promise<AgentProfileCreationRequestMutationResponse> {
-    return rpcDecideAgentProfileCreationRequest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDecideAgentProfileCreationRequest(this.env, input)
+    );
   }
-
   cancelAgentProfileCreationRequest(
     input: MutateAgentProfileCreationRequestRpcInput
   ): Promise<AgentProfileCreationRequestMutationResponse> {
-    return rpcCancelAgentProfileCreationRequest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCancelAgentProfileCreationRequest(this.env, input)
+    );
   }
-
   retryAgentProfileCreationRequest(
     input: MutateAgentProfileCreationRequestRpcInput
   ): Promise<AgentProfileCreationRequestMutationResponse> {
-    return rpcRetryAgentProfileCreationRequest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRetryAgentProfileCreationRequest(this.env, input)
+    );
   }
-
   getAgentProfileCreationApprovalPreference(
     input: GetAgentProfileCreationApprovalPreferenceRpcInput
   ): Promise<GetAgentProfileCreationApprovalPreferenceResponse> {
-    return rpcGetAgentProfileCreationApprovalPreference(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentProfileCreationApprovalPreference(this.env, input)
+    );
   }
-
   setAgentProfileCreationApprovalPreference(
     input: SetAgentProfileCreationApprovalPreferenceRpcInput
   ): Promise<SetAgentProfileCreationApprovalPreferenceResponse> {
-    return rpcSetAgentProfileCreationApprovalPreference(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetAgentProfileCreationApprovalPreference(this.env, input)
+    );
   }
-
   centerAgentCreateAgentProfileCreationRequest(
     input: CenterAgentCreateAgentProfileCreationRequestRpcInput
   ): Promise<CreateAgentProfileCreationRequestResponse> {
-    return rpcCenterAgentCreateAgentProfileCreationRequest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentCreateAgentProfileCreationRequest(this.env, input)
+    );
   }
-
   centerAgentListAgentProfileCreationRequests(
     input: CenterAgentListAgentProfileCreationRequestsRpcInput
   ): Promise<ListAgentProfileCreationRequestsResponse> {
-    return rpcCenterAgentListAgentProfileCreationRequests(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListAgentProfileCreationRequests(this.env, input)
+    );
   }
-
   centerAgentManageAgentProfileCreationRequest(
     input: CenterAgentManageAgentProfileCreationRequestRpcInput
   ): Promise<AgentProfileCreationRequestMutationResponse> {
-    return rpcCenterAgentManageAgentProfileCreationRequest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentManageAgentProfileCreationRequest(this.env, input)
+    );
   }
-
   centerAgentGetAgentProfileCreationApprovalPreference(
     input: CenterAgentGetAgentProfileCreationApprovalPreferenceRpcInput
   ): Promise<GetAgentProfileCreationApprovalPreferenceResponse> {
-    return rpcCenterAgentGetAgentProfileCreationApprovalPreference(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentGetAgentProfileCreationApprovalPreference(this.env, input)
     );
   }
-
   centerAgentSetAgentProfileCreationApprovalPreference(
     input: CenterAgentSetAgentProfileCreationApprovalPreferenceRpcInput
   ): Promise<SetAgentProfileCreationApprovalPreferenceResponse> {
-    return rpcCenterAgentSetAgentProfileCreationApprovalPreference(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSetAgentProfileCreationApprovalPreference(this.env, input)
     );
   }
-
   getCurrentOrganizationDirectory(
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
-    return rpcGetCurrentOrganizationDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationDirectory(this.env, input)
+    );
   }
-
   getCurrentOrganizationProfileDirectory(
     input: GetCurrentOrganizationProfileDirectoryInput
   ): Promise<OrganizationProfileDirectoryResponse> {
-    return rpcGetCurrentOrganizationProfileDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationProfileDirectory(this.env, input)
+    );
   }
-
   getCurrentOrganizationAgentRuntimeOverview(
     input: GetCurrentOrganizationAgentRuntimeOverviewInput
   ): Promise<OrganizationAgentRuntimeOverviewResponse> {
-    return rpcGetCurrentOrganizationAgentRuntimeOverview(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationAgentRuntimeOverview(this.env, input)
+    );
   }
-
   getCurrentOrganizationMemberPresence(input: {
     context?: CoreRpcContextInput;
   }) {
-    return rpcGetCurrentOrganizationMemberPresence(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationMemberPresence(this.env, input)
+    );
   }
-
   recordCurrentOrganizationMemberPresence(
     input: RecordCurrentOrganizationMemberPresenceInput
   ) {
-    return rpcRecordCurrentOrganizationMemberPresence(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordCurrentOrganizationMemberPresence(this.env, input)
+    );
   }
-
   recordCurrentOrganizationWebActivity(
     input: RecordCurrentOrganizationWebActivityInput
   ): Promise<OrganizationMemberWebActivityResponse> {
-    return rpcRecordCurrentOrganizationWebActivity(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordCurrentOrganizationWebActivity(this.env, input)
+    );
   }
-
   getCurrentOrganizationComputers(
     input: GetCurrentOrganizationComputersInput
   ): Promise<OrganizationComputersResponse> {
-    return rpcGetCurrentOrganizationComputers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationComputers(this.env, input)
+    );
   }
-
   getCurrentOrganizationMemberOpenMeldServiceStatuses(
     input: GetCurrentOrganizationMemberOpenMeldServiceStatusesInput
   ): Promise<OrganizationMemberOpenMeldServiceStatusesResponse> {
-    return rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses(this.env, input)
     );
   }
-
   getCurrentOrganizationSpaceDirectory(
     input: GetCurrentOrganizationSpaceDirectoryInput
   ): Promise<OrganizationSpaceDirectoryResponse> {
-    return rpcGetCurrentOrganizationSpaceDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationSpaceDirectory(this.env, input)
+    );
   }
-
   getCurrentOrganizationSpaceDirectoryWithMemberCounts(
     input: GetCurrentOrganizationSpaceDirectoryInput
   ): Promise<OrganizationSpaceDirectoryWithMemberCountsResponse> {
-    return rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts(this.env, input)
     );
   }
-
   joinOrganizationPublicSpace(
     input: JoinOrganizationPublicSpaceInput
   ): Promise<PostSpaceMembersResponse> {
-    return rpcJoinOrganizationPublicSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcJoinOrganizationPublicSpace(this.env, input)
+    );
   }
-
   addCenterAgentToSpace(
     input: AddCenterAgentToSpaceInput
   ): Promise<PostSpaceMembersResponse> {
-    return rpcAddCenterAgentToSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAddCenterAgentToSpace(this.env, input)
+    );
   }
-
   addOrganizationDirectoryProfilesToSpace(
     input: AddOrganizationDirectoryProfilesToSpaceInput
   ): Promise<PostSpaceMembersResponse> {
-    return rpcAddOrganizationDirectoryProfilesToSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAddOrganizationDirectoryProfilesToSpace(this.env, input)
+    );
   }
-
   beginCurrentMemberConnectorAuthorization(
     input: BeginCurrentMemberConnectorAuthorizationInput
   ): Promise<ConnectorConnection> {
-    return rpcBeginCurrentMemberConnectorAuthorization(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcBeginCurrentMemberConnectorAuthorization(this.env, input)
+    );
   }
-
   beginCurrentOrganizationSharedConnectorAuthorization(
     input: BeginCurrentOrganizationSharedConnectorAuthorizationInput
   ): Promise<ConnectorConnection> {
-    return rpcBeginCurrentOrganizationSharedConnectorAuthorization(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcBeginCurrentOrganizationSharedConnectorAuthorization(this.env, input)
     );
   }
-
   beginCurrentOrganizationGitHubAppInstallation(
     input: BeginCurrentOrganizationGitHubAppInstallationInput
   ): Promise<GitHubAppInstallationStartResponse> {
-    return rpcBeginCurrentOrganizationGitHubAppInstallation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcBeginCurrentOrganizationGitHubAppInstallation(this.env, input)
+    );
   }
-
   beginGitHubAppInstallationVerification(
     input: BeginGitHubAppInstallationVerificationInput
   ): Promise<GitHubAppInstallationVerificationResponse> {
-    return rpcBeginGitHubAppInstallationVerification(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcBeginGitHubAppInstallationVerification(this.env, input)
+    );
   }
-
+  beginExistingGitHubAppInstallationVerification(
+    input: BeginExistingGitHubAppInstallationVerificationInput
+  ): Promise<boolean> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcBeginExistingGitHubAppInstallationVerification(this.env, input)
+    );
+  }
   readPendingGitHubAppInstallation(
     input: ReadPendingGitHubAppInstallationInput
   ): Promise<PendingGitHubAppInstallation> {
-    return rpcReadPendingGitHubAppInstallation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadPendingGitHubAppInstallation(this.env, input)
+    );
   }
-
   completeGitHubAppInstallation(
     input: CompleteGitHubAppInstallationInput
   ): Promise<boolean> {
-    return rpcCompleteGitHubAppInstallation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCompleteGitHubAppInstallation(this.env, input)
+    );
   }
-
   listCurrentOrganizationConnectorConnections(
     input: ListCurrentOrganizationConnectorConnectionsInput
   ): Promise<ConnectorConnectionListResponse> {
-    return rpcListCurrentOrganizationConnectorConnections(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListCurrentOrganizationConnectorConnections(this.env, input)
+    );
   }
-
   listPluginAccess(input: PluginAccessListRpcInput) {
-    return rpcListPluginAccess(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListPluginAccess(this.env, input)
+    );
+  }
+  pluginAction(input: import("@openmeld/schemas/types").PluginActionRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPluginAction(this.env, input)
+    );
+  }
+  authorizeLocalPluginConnection(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      authorizeLocalPluginConnection(this.env, input)
+    );
   }
 
-  pluginAction(input: import("@openmeld/schemas/types").PluginActionRpcInput) {
-    return rpcPluginAction(this.env, input);
+  pluginActionRequest(
+    input: import("@openmeld/schemas/types").PluginActionRequestCommandRpc
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPluginActionRequest(this.env, input)
+    );
   }
 
   previewPluginChannelConnection(input: unknown) {
-    return previewPluginChannelConnection(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      previewPluginChannelConnection(this.env, input)
+    );
   }
-
   continuePluginChannelConnection(input: unknown) {
-    return continuePluginChannelConnection(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      continuePluginChannelConnection(this.env, input)
+    );
   }
-
   continuePluginConnection(input: unknown) {
-    return continuePluginConnection(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      continuePluginConnection(this.env, input)
+    );
   }
-
   updatePluginAccess(input: PluginAccessUpdateRpcInput) {
-    return rpcUpdatePluginAccess(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdatePluginAccess(this.env, input)
+    );
   }
-
   listCurrentOrganizationConnectorAppRequests(
     input: ListCurrentOrganizationConnectorAppRequestsInput
   ): Promise<ConnectorAppRequestListResponse> {
-    return rpcListCurrentOrganizationConnectorAppRequests(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListCurrentOrganizationConnectorAppRequests(this.env, input)
+    );
   }
-
   createCurrentOrganizationConnectorAppRequest(
     input: CreateCurrentOrganizationConnectorAppRequestInput
   ): Promise<ConnectorAppRequestResponse> {
-    return rpcCreateCurrentOrganizationConnectorAppRequest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateCurrentOrganizationConnectorAppRequest(this.env, input)
+    );
   }
-
   reconcileCurrentOrganizationConnectorConnections(
     input: ReconcileCurrentOrganizationConnectorConnectionsInput
   ): Promise<ConnectorConnectionListResponse> {
-    return rpcReconcileCurrentOrganizationConnectorConnections(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReconcileCurrentOrganizationConnectorConnections(this.env, input)
+    );
   }
-
   authorizeConnectorDisconnect(
     input: AuthorizeConnectorDisconnectInput
   ): Promise<ConnectorConnection> {
-    return rpcAuthorizeConnectorDisconnect(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAuthorizeConnectorDisconnect(this.env, input)
+    );
   }
-
   completeConnectorDisconnect(
     input: CompleteConnectorDisconnectInput
   ): Promise<ConnectorConnection> {
-    return rpcCompleteConnectorDisconnect(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCompleteConnectorDisconnect(this.env, input)
+    );
   }
-
   centerAgentResolveConnectorConnection(
     input: CenterAgentResolveConnectorConnectionInput
   ): Promise<CenterAgentConnectorConnectionSelection> {
-    return rpcCenterAgentResolveConnectorConnection(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentResolveConnectorConnection(this.env, input)
+    );
   }
-
+  centerAgentListConnectorServices(
+    input: Pick<
+      CenterAgentResolveConnectorConnectionInput,
+      "context" | "requesterUserId" | "includeDelegatedRequester"
+    >
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListConnectorServices(this.env, input)
+    );
+  }
   authorizeRemoteAgentExecutionAccess(input: unknown) {
-    return authorizeRemoteAgentExecutionAccess(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      authorizeRemoteAgentExecutionAccess(this.env, input)
+    );
   }
-
+  personalComputer(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      personalComputerRpc(this.env, input)
+    );
+  }
+  acknowledgeRemoteAgentAdmission(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      acknowledgeRemoteAgentAdmission(this.env, input)
+    );
+  }
   getCenterAgentDesignation(
     input: GetCenterAgentDesignationInput
   ): Promise<GetCenterAgentDesignationResponse> {
-    return rpcGetCenterAgentDesignation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCenterAgentDesignation(this.env, input)
+    );
   }
-
   getCenterAgentModel(
     input: GetCenterAgentModelInput
   ): Promise<CenterAgentModelConfigurationResponse> {
-    return rpcGetCenterAgentModel(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCenterAgentModel(this.env, input)
+    );
   }
-
   updateCenterAgentModel(
     input: UpdateCenterAgentModelInput
   ): Promise<UpdateCenterAgentModelResponse> {
-    return rpcUpdateCenterAgentModel(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateCenterAgentModel(this.env, input)
+    );
   }
-
   listMessageChannelConnections(
     input: ListMessageChannelConnectionsInput
   ): Promise<MessageChannelConnectionListResponse> {
-    return rpcListMessageChannelConnections(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListMessageChannelConnections(this.env, input)
+    );
   }
-
   requestMessageChannelSetup(
     input: RequestMessageChannelSetupInput
   ): Promise<MessageChannelSetupRequestResponse> {
-    return rpcRequestMessageChannelSetup(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRequestMessageChannelSetup(this.env, input)
+    );
   }
-
   listActiveLarkPlatformRegistrations(
     input: ListActiveLarkPlatformRegistrationsInput
   ): Promise<LarkPlatformActiveRegistrationListResponse> {
-    return rpcListActiveLarkPlatformRegistrations(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListActiveLarkPlatformRegistrations(this.env, input)
+    );
   }
-
   previewMessageChannelIdentityLink(
     input: PreviewMessageChannelIdentityLinkInput
   ): Promise<MessageChannelIdentityLinkPreviewResponse> {
-    return rpcPreviewMessageChannelIdentityLink(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPreviewMessageChannelIdentityLink(this.env, input)
+    );
   }
-
   consumeMessageChannelIdentityLink(
     input: ConsumeMessageChannelIdentityLinkInput
   ): Promise<MessageChannelIdentityLinkConsumeResponse> {
-    return rpcConsumeMessageChannelIdentityLink(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcConsumeMessageChannelIdentityLink(this.env, input)
+    );
   }
-
   beginLarkPlatformRegistration(
     input: BeginLarkPlatformRegistrationInput
   ): Promise<LarkPlatformRegistrationResponse> {
-    return rpcBeginLarkPlatformRegistration(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcBeginLarkPlatformRegistration(this.env, input)
+    );
   }
-
   pollLarkPlatformRegistration(
     input: PollLarkPlatformRegistrationInput
   ): Promise<LarkPlatformRegistrationResponse> {
-    return rpcPollLarkPlatformRegistration(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPollLarkPlatformRegistration(this.env, input)
+    );
   }
-
   disconnectLarkPlatformRegistration(
     input: DisconnectLarkPlatformRegistrationInput
   ): Promise<MessageChannelConnectionListResponse> {
-    return rpcDisconnectLarkPlatformRegistration(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDisconnectLarkPlatformRegistration(this.env, input)
+    );
   }
-
   disconnectMessageChannelIdentityLink(
     input: DisconnectMessageChannelIdentityLinkInput
   ): Promise<MessageChannelConnectionListResponse> {
-    return rpcDisconnectMessageChannelIdentityLink(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDisconnectMessageChannelIdentityLink(this.env, input)
+    );
   }
-
   getCenterAgentDirectMessageSpaceProjection(
     input: GetCenterAgentDirectMessageSpaceProjectionInput
   ): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
-    return rpcGetCenterAgentDirectMessageSpaceProjection(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCenterAgentDirectMessageSpaceProjection(this.env, input)
+    );
   }
-
   listCenterAgentSessions(
     input: ListCenterAgentSessionsInput
   ): Promise<ListCenterAgentSessionsResponse> {
-    return rpcListCenterAgentSessions(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListCenterAgentSessions(this.env, input)
+    );
   }
-
   createCenterAgentContextManifest(
     input: CreateCenterAgentContextManifestInput
   ): Promise<CreateCenterAgentContextManifestResponse> {
-    return rpcCreateCenterAgentContextManifest(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateCenterAgentContextManifest(this.env, input)
+    );
   }
-
   createCenterAgentContextLoadReceipt(
     input: CreateCenterAgentContextLoadReceiptInput
   ): Promise<CreateCenterAgentContextLoadReceiptResponse> {
-    return rpcCreateCenterAgentContextLoadReceipt(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateCenterAgentContextLoadReceipt(this.env, input)
+    );
   }
-
   getCenterAgentOperatingState(
     input: GetCenterAgentOperatingStateInput
   ): Promise<GetCenterAgentOperatingStateResponse> {
-    return rpcGetCenterAgentOperatingState(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCenterAgentOperatingState(this.env, input)
+    );
   }
-
   designateCenterAgent(
     input: DesignateCenterAgentInput
   ): Promise<DesignateCenterAgentResponse> {
-    return rpcDesignateCenterAgent(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDesignateCenterAgent(this.env, input)
+    );
   }
-
   updateCenterAgentProfile(
     input: UpdateCenterAgentProfileInput
   ): Promise<CenterAgentUpdateProfileResponse> {
-    return rpcUpdateCenterAgentProfile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateCenterAgentProfile(this.env, input)
+    );
   }
-
   updateCenterAgentOperatingState(
     input: UpdateCenterAgentOperatingStateInput
   ): Promise<UpdateCenterAgentOperatingStateResponse> {
-    return rpcUpdateCenterAgentOperatingState(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateCenterAgentOperatingState(this.env, input)
+    );
   }
-
   connectCenterAgentSlackWorkspace(
     input: ConnectCenterAgentSlackWorkspaceInput
   ): Promise<CenterAgentSlackWorkspaceConnectionResponse> {
-    return rpcConnectCenterAgentSlackWorkspace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcConnectCenterAgentSlackWorkspace(this.env, input)
+    );
   }
-
   createSlackOAuthState(
     input: CreateSlackOAuthStateInput
   ): Promise<SlackOAuthStateCreateResponse> {
-    return rpcCreateSlackOAuthState(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateSlackOAuthState(this.env, input)
+    );
   }
-
   consumeSlackOAuthState(
     input: ConsumeSlackOAuthStateInput
   ): Promise<SlackOAuthStateConsumeResponse> {
-    return rpcConsumeSlackOAuthState(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcConsumeSlackOAuthState(this.env, input)
+    );
   }
-
   installSlackWorkspaceFromOAuth(
     input: InstallSlackWorkspaceFromOAuthInput
   ): Promise<SlackOAuthInstallationResult> {
-    return rpcInstallSlackWorkspaceFromOAuth(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcInstallSlackWorkspaceFromOAuth(this.env, input)
+    );
   }
-
   issueSlackIdentityLinkFromOAuth(
     input: IssueSlackIdentityLinkFromOAuthInput
   ): Promise<SlackOAuthIdentityLinkResult> {
-    return rpcIssueSlackIdentityLinkFromOAuth(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcIssueSlackIdentityLinkFromOAuth(this.env, input)
+    );
   }
-
   disconnectCenterAgentSlackWorkspace(
     input: DisconnectCenterAgentSlackWorkspaceInput
   ): Promise<CenterAgentSlackWorkspaceDisconnectResponse> {
-    return rpcDisconnectCenterAgentSlackWorkspace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDisconnectCenterAgentSlackWorkspace(this.env, input)
+    );
   }
-
   previewSlackIdentityLink(
     input: PreviewSlackIdentityLinkInput
   ): Promise<SlackIdentityLinkPreviewResponse> {
-    return rpcPreviewSlackIdentityLink(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcPreviewSlackIdentityLink(this.env, input)
+    );
   }
-
   consumeSlackIdentityLink(
     input: ConsumeSlackIdentityLinkInput
   ): Promise<SlackIdentityLinkConsumeResponse> {
-    return rpcConsumeSlackIdentityLink(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcConsumeSlackIdentityLink(this.env, input)
+    );
   }
-
   assertCurrentDesignatedCenterAgent(
     input: AssertCurrentDesignatedCenterAgentInput
   ): Promise<GetCenterAgentDesignationResponse> {
-    return rpcAssertCurrentDesignatedCenterAgent(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAssertCurrentDesignatedCenterAgent(this.env, input)
+    );
   }
-
   recordCenterAgentAudit(
     input: RecordCenterAgentAuditInput
   ): Promise<CenterAgentAttribution> {
-    return rpcRecordCenterAgentAudit(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordCenterAgentAudit(this.env, input)
+    );
   }
-
   listCenterAgentAuditJournal(
     input: ListCenterAgentAuditJournalInput
   ): Promise<ListCenterAgentAuditJournalResponse> {
-    return rpcListCenterAgentAuditJournal(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListCenterAgentAuditJournal(this.env, input)
+    );
   }
-
   readCenterAgentOrganizationMemoryPolicy(
     input: ReadCenterAgentOrganizationMemoryPolicyInput
   ): Promise<CenterAgentOrganizationMemoryPolicyResponse> {
-    return rpcReadCenterAgentOrganizationMemoryPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadCenterAgentOrganizationMemoryPolicy(this.env, input)
+    );
   }
-
   setCenterAgentOrganizationMemoryPolicy(
     input: SetCenterAgentOrganizationMemoryPolicyInput
   ): Promise<CenterAgentOrganizationMemoryPolicyResponse> {
-    return rpcSetCenterAgentOrganizationMemoryPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetCenterAgentOrganizationMemoryPolicy(this.env, input)
+    );
   }
-
   readOrganizationInformationProtectionPolicy(
     input: ReadOrganizationInformationProtectionPolicyInput
   ): Promise<OrganizationInformationProtectionPolicyResponse> {
-    return rpcReadOrganizationInformationProtectionPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationInformationProtectionPolicy(this.env, input)
+    );
   }
-
   setOrganizationInformationProtectionPolicy(
     input: SetOrganizationInformationProtectionPolicyInput
   ): Promise<OrganizationInformationProtectionPolicyResponse> {
-    return rpcSetOrganizationInformationProtectionPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetOrganizationInformationProtectionPolicy(this.env, input)
+    );
   }
-
   readCurrentOrganizationFeedbackReportingPolicy(
     input: ReadCurrentOrganizationFeedbackReportingPolicyInput
   ): Promise<FeedbackReportingPolicyResponse> {
-    return rpcReadCurrentOrganizationFeedbackReportingPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadCurrentOrganizationFeedbackReportingPolicy(this.env, input)
+    );
   }
-
   setCurrentOrganizationFeedbackReportingPolicy(
     input: SetCurrentOrganizationFeedbackReportingPolicyInput
   ): Promise<FeedbackReportingPolicyResponse> {
-    return rpcSetCurrentOrganizationFeedbackReportingPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetCurrentOrganizationFeedbackReportingPolicy(this.env, input)
+    );
   }
-
   wipeCurrentMemberCenterAgentMemory(
     input: WipeCurrentMemberCenterAgentMemoryInput
   ): Promise<CenterAgentWipeMemberMemoryResponse> {
-    return rpcWipeCurrentMemberCenterAgentMemory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcWipeCurrentMemberCenterAgentMemory(this.env, input)
+    );
   }
-
   centerAgentRememberForOrganization(
     input: CenterAgentRememberForOrganizationInput
   ): Promise<CenterAgentRememberForOrganizationResponse> {
-    return rpcCenterAgentRememberForOrganization(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRememberForOrganization(this.env, input)
+    );
   }
-
   centerAgentRequestMemberAttention(
     input: CenterAgentRequestMemberAttentionRpcInput
   ): Promise<CenterAgentRequestMemberAttentionResponse> {
-    return rpcCenterAgentRequestMemberAttention(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRequestMemberAttention(this.env, input)
+    );
   }
-
   centerAgentListLocalAgentConnectionCandidates(
     input: CenterAgentListLocalAgentConnectionCandidatesInput
   ): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse> {
-    return rpcCenterAgentListLocalAgentConnectionCandidates(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListLocalAgentConnectionCandidates(this.env, input)
+    );
   }
-
   centerAgentListAgentProfileCreationDefaults(
     input: CenterAgentListAgentProfileCreationDefaultsInput
   ): Promise<CenterAgentListAgentProfileCreationDefaultsResponse> {
-    return rpcCenterAgentListAgentProfileCreationDefaults(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListAgentProfileCreationDefaults(this.env, input)
+    );
   }
-
   centerAgentListComputers(
     input: CenterAgentListComputersInput
   ): Promise<CenterAgentListComputersResponse> {
-    return rpcCenterAgentListComputers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListComputers(this.env, input)
+    );
   }
-
   centerAgentReadPeopleComputers(
     input: CenterAgentReadPeopleComputersInput
   ): Promise<CenterAgentReadPeopleComputersResponse> {
-    return rpcCenterAgentReadPeopleComputers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadPeopleComputers(this.env, input)
+    );
   }
-
   centerAgentRequestOpenMeldToolsUpdate(
     input: CenterAgentRequestOpenMeldToolsUpdateInput
   ): Promise<CenterAgentRequestOpenMeldToolsUpdateResponse> {
-    return rpcCenterAgentRequestOpenMeldToolsUpdate(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRequestOpenMeldToolsUpdate(this.env, input)
+    );
   }
-
   // Separate RPC names prevent an old Core from silently ignoring a target.
   centerAgentRequestPeopleComputerToolsUpdate(
     input: CenterAgentRequestOpenMeldToolsUpdateInput
   ): Promise<CenterAgentRequestOpenMeldToolsUpdateResponse> {
-    return rpcCenterAgentRequestOpenMeldToolsUpdate(this.env, {
-      ...input,
-      target: peopleComputerTargetSchema.parse(input.target),
-    });
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRequestOpenMeldToolsUpdate(this.env, {
+        ...input,
+        target: peopleComputerTargetSchema.parse(input.target),
+      })
+    );
   }
-
   centerAgentSetPeopleComputerToolsMaintenance(
     input: CenterAgentSetOpenMeldToolsMaintenanceInput
   ): Promise<CenterAgentSetOpenMeldToolsMaintenanceResponse> {
-    return rpcCenterAgentSetOpenMeldToolsMaintenance(this.env, {
-      ...input,
-      target: peopleComputerTargetSchema.parse(input.target),
-    });
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSetOpenMeldToolsMaintenance(this.env, {
+        ...input,
+        target: peopleComputerTargetSchema.parse(input.target),
+      })
+    );
   }
-
   centerAgentListPeopleComputerLocalAgentInstallations(
     input: CenterAgentListLocalAgentInstallationsInput
   ): Promise<CenterAgentListLocalAgentInstallationsResponse> {
-    return rpcCenterAgentListLocalAgentInstallations(this.env, {
-      ...input,
-      target: peopleComputerTargetSchema.parse(input.target),
-    });
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListLocalAgentInstallations(this.env, {
+        ...input,
+        target: peopleComputerTargetSchema.parse(input.target),
+      })
+    );
   }
-
   centerAgentSelectPeopleComputerLocalAgentInstallation(
     input: CenterAgentSelectLocalAgentInstallationInput
   ): Promise<CenterAgentSelectLocalAgentInstallationResponse> {
-    return rpcCenterAgentSelectLocalAgentInstallation(this.env, {
-      ...input,
-      target: peopleComputerTargetSchema.parse(input.target),
-    });
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSelectLocalAgentInstallation(this.env, {
+        ...input,
+        target: peopleComputerTargetSchema.parse(input.target),
+      })
+    );
   }
-
   centerAgentSetOpenMeldToolsMaintenance(
     input: CenterAgentSetOpenMeldToolsMaintenanceInput
   ): Promise<CenterAgentSetOpenMeldToolsMaintenanceResponse> {
-    return rpcCenterAgentSetOpenMeldToolsMaintenance(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSetOpenMeldToolsMaintenance(this.env, input)
+    );
   }
-
   centerAgentListLocalAgentInstallations(
     input: CenterAgentListLocalAgentInstallationsInput
   ): Promise<CenterAgentListLocalAgentInstallationsResponse> {
-    return rpcCenterAgentListLocalAgentInstallations(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListLocalAgentInstallations(this.env, input)
+    );
   }
-
   centerAgentSelectLocalAgentInstallation(
     input: CenterAgentSelectLocalAgentInstallationInput
   ): Promise<CenterAgentSelectLocalAgentInstallationResponse> {
-    return rpcCenterAgentSelectLocalAgentInstallation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSelectLocalAgentInstallation(this.env, input)
+    );
   }
-
   centerAgentConnectAgentProfileToLocalAgent(
     input: CenterAgentConnectAgentProfileToLocalAgentInput
   ): Promise<CenterAgentConnectAgentProfileToLocalAgentResponse> {
-    return rpcCenterAgentConnectAgentProfileToLocalAgent(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentConnectAgentProfileToLocalAgent(this.env, input)
+    );
   }
-
   centerAgentUpdateAgentProfileRuntimeSettings(
     input: CenterAgentUpdateAgentProfileRuntimeSettingsInput
   ): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
-    return rpcCenterAgentUpdateAgentProfileRuntimeSettings(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentUpdateAgentProfileRuntimeSettings(this.env, input)
+    );
   }
-
   centerAgentCheckAgentProfileReadiness(
     input: CenterAgentCheckAgentProfileReadinessInput
   ): Promise<CenterAgentCheckAgentProfileReadinessResponse> {
-    return rpcCenterAgentCheckAgentProfileReadiness(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentCheckAgentProfileReadiness(this.env, input)
+    );
   }
-
   centerAgentCreateConfiguredAgentProfile(
     input: CenterAgentCreateConfiguredAgentProfileInput
   ): Promise<CenterAgentCreateConfiguredAgentProfileResponse> {
-    return rpcCenterAgentCreateConfiguredAgentProfile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentCreateConfiguredAgentProfile(this.env, input)
+    );
   }
-
   completeRemoteAgentSubmission(
     input: RemoteAgentCoreCallbackEvent
   ): Promise<RemoteAgentCoreCallbackResponse> {
-    const db = localStateDb(this.env);
+    const db = getPostgresDatabase(this.env);
     return completeRemoteAgentNativeDelivery(this.env, input, {
       messageChannelProviderRegistry: db
         ? createConfiguredMessageChannelProviderRegistry({
@@ -3478,11 +3805,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       waitUntil: (promise) => this.ctx.waitUntil(promise),
     });
   }
-
   verifyLarkPlatformWebhook(
     input: LarkPlatformWebhookVerificationInput
   ): Promise<LarkPlatformWebhookVerificationResponse> {
-    const db = localStateDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return Promise.resolve({
         reasonCode: "message_channel.db_unavailable",
@@ -3496,7 +3822,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       waitUntil: (promise) => this.ctx.waitUntil(promise),
     });
   }
-
   verifyGitHubAppWebhook(
     input: GitHubAppWebhookVerificationInput
   ): Promise<GitHubAppWebhookVerificationResponse> {
@@ -3505,19 +3830,20 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       input,
     });
   }
-
   submitRemoteAgentStreamDelta(
     input: RemoteAgentStreamDeltaCallbackBody
   ): Promise<RemoteAgentStreamDeltaCallbackResponse> {
-    return submitRemoteAgentStreamDelta(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      submitRemoteAgentStreamDelta(this.env, input)
+    );
   }
-
   submitRemoteAgentStreamPart(
     input: RemoteAgentStreamPartCallbackBody
   ): Promise<RemoteAgentStreamDeltaCallbackResponse> {
-    return submitRemoteAgentStreamPart(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      submitRemoteAgentStreamPart(this.env, input)
+    );
   }
-
   handleRemoteAgentSlackEvent(input: unknown): Promise<{
     status:
       | "duplicate"
@@ -3527,156 +3853,192 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       | "recovery_pending"
       | "replied";
   }> {
-    return processRemoteAgentSlackEvent(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      processRemoteAgentSlackEvent(this.env, input)
+    );
   }
-
   submitFeedbackIssue(
     input: FeedbackIssueSubmitRpcRequest
   ): Promise<SubmitFeedbackIssueResponse> {
-    return rpcSubmitFeedbackIssue(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitFeedbackIssue(this.env, input)
+    );
   }
-
   listFeedbackIssuesForOrganization(
     input: ListFeedbackIssuesForOrganizationRequest
   ): Promise<ListFeedbackIssuesForOrganizationResponse> {
-    return rpcListFeedbackIssuesForOrganization(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListFeedbackIssuesForOrganization(this.env, input)
+    );
   }
-
   updateFeedbackIssueStatusForOrganization(
     input: UpdateFeedbackIssueStatusForOrganizationRequest
   ): Promise<FeedbackIssueRecord> {
-    return rpcUpdateFeedbackIssueStatusForOrganization(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateFeedbackIssueStatusForOrganization(this.env, input)
+    );
   }
-
   readFeedbackReportingPolicy(
     input: ReadFeedbackReportingPolicyRequest
   ): Promise<FeedbackReportingPolicyResponse> {
-    return rpcReadFeedbackReportingPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadFeedbackReportingPolicy(this.env, input)
+    );
   }
-
   centerAgentCreateSpace(
     input: CenterAgentCreateSpaceInput
   ): Promise<CenterAgentCreateSpaceResponse> {
-    return rpcCenterAgentCreateSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentCreateSpace(this.env, input)
+    );
   }
-
   centerAgentCreateAgentProfile(
     input: CenterAgentCreateAgentProfileInput
   ): Promise<CenterAgentCreateAgentProfileResponse> {
-    return rpcCenterAgentCreateAgentProfile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentCreateAgentProfile(this.env, input)
+    );
   }
-
   centerAgentEnableAgentProfile(
     input: CenterAgentEnableAgentProfileInput
   ): Promise<CenterAgentEnableAgentProfileResponse> {
-    return rpcCenterAgentEnableAgentProfile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentEnableAgentProfile(this.env, input)
+    );
   }
-
   centerAgentAddAgentProfilesToSpace(
     input: CenterAgentAddAgentProfilesToSpaceInput
   ): Promise<CenterAgentAddAgentProfilesToSpaceResponse> {
-    return rpcCenterAgentAddAgentProfilesToSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentAddAgentProfilesToSpace(this.env, input)
+    );
   }
-
   centerAgentAddMembersToSpace(
     input: CenterAgentAddMembersToSpaceInput
   ): Promise<CenterAgentAddMembersToSpaceResponse> {
-    return rpcCenterAgentAddMembersToSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentAddMembersToSpace(this.env, input)
+    );
   }
-
   centerAgentRemoveAgentProfilesFromSpace(
     input: CenterAgentRemoveAgentProfilesFromSpaceInput
   ): Promise<CenterAgentRemoveAgentProfilesFromSpaceResponse> {
-    return rpcCenterAgentRemoveAgentProfilesFromSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRemoveAgentProfilesFromSpace(this.env, input)
+    );
   }
-
   centerAgentGetOrganizationDirectory(
     input: CenterAgentReadOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
-    return rpcCenterAgentGetOrganizationDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentGetOrganizationDirectory(this.env, input)
+    );
   }
-
   centerAgentReadMemberComputers(
     input: CenterAgentReadMemberComputersInput
   ): Promise<CenterAgentReadMemberComputersResponse> {
-    return rpcCenterAgentReadMemberComputers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadMemberComputers(this.env, input)
+    );
   }
-
   centerAgentReadMemberOpenMeldServiceStatus(
     input: CenterAgentReadMemberOpenMeldServiceStatusInput
   ): Promise<CenterAgentReadMemberOpenMeldServiceStatusResponse> {
-    return rpcCenterAgentReadMemberOpenMeldServiceStatus(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadMemberOpenMeldServiceStatus(this.env, input)
+    );
   }
-
   centerAgentReadSlackWorkspaceDirectory(
     input: CenterAgentReadSlackWorkspaceDirectoryInput
   ): Promise<CenterAgentReadSlackWorkspaceDirectoryResponse> {
-    return rpcCenterAgentReadSlackWorkspaceDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadSlackWorkspaceDirectory(this.env, input)
+    );
   }
-
   centerAgentListSlackChannels(
     input: CenterAgentListSlackChannelsInput
   ): Promise<CenterAgentListSlackChannelsResponse> {
-    return rpcCenterAgentListSlackChannels(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListSlackChannels(this.env, input)
+    );
   }
-
   centerAgentReadSlackChannelMembers(
     input: CenterAgentReadSlackChannelMembersInput
   ): Promise<CenterAgentReadSlackChannelMembersResponse> {
-    return rpcCenterAgentReadSlackChannelMembers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadSlackChannelMembers(this.env, input)
+    );
   }
-
   centerAgentReadSlackChannelHistory(
     input: CenterAgentReadSlackChannelHistoryInput
   ): Promise<CenterAgentReadSlackChannelHistoryResponse> {
-    return rpcCenterAgentReadSlackChannelHistory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadSlackChannelHistory(this.env, input)
+    );
   }
-
   centerAgentReadSlackFile(
     input: CenterAgentReadSlackFileInput
   ): Promise<CenterAgentReadSlackFileResponse> {
-    return rpcCenterAgentReadSlackFile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadSlackFile(this.env, input)
+    );
   }
-
   centerAgentReadChannelFile(
     input: CenterAgentReadChannelFileInput
   ): Promise<CenterAgentReadChannelFileResponse> {
-    return rpcCenterAgentReadChannelFile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadChannelFile(this.env, input)
+    );
   }
   centerAgentPostChannelFile(
     input: CenterAgentPostChannelFileInput
   ): Promise<CenterAgentPostChannelFileResponse> {
-    return rpcCenterAgentPostChannelFile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentPostChannelFile(this.env, input)
+    );
   }
-
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
-    return rpcCenterAgentSearchSlackMessages(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSearchSlackMessages(this.env, input)
+    );
   }
-
   centerAgentGetOrganizationSpaceDirectory(
     input: CenterAgentReadOrganizationSpaceDirectoryInput
   ): Promise<OrganizationSpaceDirectoryResponse> {
-    return rpcCenterAgentGetOrganizationSpaceDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentGetOrganizationSpaceDirectory(this.env, input)
+    );
   }
-
   centerAgentListActiveSpaceWakes(
     input: CenterAgentListActiveSpaceWakesInput
   ): Promise<AccountSpaceActiveWakeSummaryResponse> {
-    return rpcCenterAgentListActiveSpaceWakes(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListActiveSpaceWakes(this.env, input)
+    );
   }
-
   centerAgentReadSpaceWakeProgress(
     input: CenterAgentReadSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
-    return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadSpaceWakeProgress(this.env, input)
+    );
   }
-
   centerAgentStopSpaceWake(
     input: CenterAgentStopSpaceWakeInput
   ): Promise<PostSpaceWakeStopResponse> {
-    return rpcCenterAgentStopSpaceWake(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentStopSpaceWake(this.env, input)
+    );
+  }
+
+  centerAgentSpaceInputQueue(
+    input: CenterAgentSpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSpaceInputQueue(this.env, input)
+    );
   }
 
   centerAgentReadSpaceContext(
@@ -3689,7 +4051,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       )
     );
   }
-
   centerAgentListSpaceFiles(
     input: CenterAgentListSpaceFilesRpcInput
   ): Promise<CenterAgentListSpaceFilesResponse> {
@@ -3700,25 +4061,27 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       )
     );
   }
-
   remoteAgentListTeamFiles(
     input: RemoteAgentListTeamFilesRpcInput
   ): Promise<ListFileRootResponse> {
-    return rpcRemoteAgentListTeamFiles(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRemoteAgentListTeamFiles(this.env, input)
+    );
   }
-
   remoteAgentReadTeamFile(
     input: RemoteAgentReadTeamFileRpcInput
   ): Promise<RemoteAgentReadTeamFileResponse> {
-    return rpcRemoteAgentReadTeamFile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRemoteAgentReadTeamFile(this.env, input)
+    );
   }
-
   remoteAgentSaveTeamFile(
     input: RemoteAgentSaveTeamFileRpcInput
   ): Promise<RemoteAgentSaveTeamFileResponse> {
-    return rpcRemoteAgentSaveTeamFile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRemoteAgentSaveTeamFile(this.env, input)
+    );
   }
-
   centerAgentReadSpaceFile(
     input: CenterAgentReadSpaceFileRpcInput
   ): Promise<CenterAgentReadSpaceFileResponse> {
@@ -3729,7 +4092,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       )
     );
   }
-
   centerAgentSaveSpaceFile(
     input: CenterAgentSaveSpaceFileRpcInput
   ): Promise<CenterAgentSaveSpaceFileResponse> {
@@ -3740,7 +4102,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       )
     );
   }
-
   centerAgentManageSpaceFiles(
     input: CenterAgentManageSpaceFilesRpcInput
   ): Promise<CenterAgentManageSpaceFilesResponse> {
@@ -3751,13 +4112,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       )
     );
   }
-
   centerAgentReadDispatchHistory(
     input: CenterAgentReadDispatchHistoryInput
   ): Promise<CenterAgentReadDispatchHistoryResponse> {
-    return rpcCenterAgentReadDispatchHistory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadDispatchHistory(this.env, input)
+    );
   }
-
   centerAgentPostSpaceMessage(
     input: CenterAgentPostSpaceMessageInput
   ): Promise<CenterAgentPostSpaceMessageResponse> {
@@ -3768,47 +4129,62 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       )
     );
   }
-
   centerAgentReadSpaceAuthoringContract(
     input: CenterAgentReadSpaceAuthoringContractInput
   ): Promise<CenterAgentSpaceAuthoringContractResponse> {
-    return rpcCenterAgentReadSpaceAuthoringContract(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadSpaceAuthoringContract(this.env, input)
+    );
   }
-
   centerAgentPostSlackChannelMessage(
     input: CenterAgentPostSlackChannelMessageInput
   ): Promise<CenterAgentPostSlackChannelMessageResponse> {
-    return rpcCenterAgentPostSlackChannelMessage(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentPostSlackChannelMessage(this.env, input)
+    );
   }
-
   centerAgentPostSlackFile(
     input: CenterAgentPostSlackFileInput
   ): Promise<CenterAgentPostSlackFileResponse> {
-    return rpcCenterAgentPostSlackFile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentPostSlackFile(this.env, input)
+    );
   }
-
   centerAgentPostSlackThreadMessage(
     input: CenterAgentPostSlackThreadMessageInput
   ): Promise<CenterAgentPostSlackChannelMessageResponse> {
-    return rpcCenterAgentPostSlackThreadMessage(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentPostSlackThreadMessage(this.env, input)
+    );
   }
-
   centerAgentRecordConnectorActionAudit(
     input: CenterAgentRecordConnectorActionAuditInput
   ): Promise<CenterAgentRecordConnectorActionAuditResponse> {
-    return rpcCenterAgentRecordConnectorActionAudit(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRecordConnectorActionAudit(this.env, input)
+    );
   }
-
   centerAgentReadConnectorActionOperation(
     input: CenterAgentReadConnectorActionOperationInput
   ): Promise<CenterAgentReadConnectorActionOperationResponse> {
-    return rpcCenterAgentReadConnectorActionOperation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadConnectorActionOperation(this.env, input)
+    );
   }
-
   centerAgentRecordConnectorActionOperation(
     input: CenterAgentRecordConnectorActionOperationInput
   ): Promise<CenterAgentRecordConnectorActionOperationResponse> {
-    return rpcCenterAgentRecordConnectorActionOperation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRecordConnectorActionOperation(this.env, input)
+    );
+  }
+
+  centerAgentWakeAgentProfilesInSpaces(
+    input: CenterAgentWakeAgentProfilesInSpacesInput
+  ): Promise<CenterAgentWakeAgentProfilesInSpacesResponse> {
+    return rpcCenterAgentWakeAgentProfilesInSpaces(this.env, input, (work) =>
+      this.ctx.waitUntil(work)
+    );
   }
 
   centerAgentWakeAgentProfilesInSpace(
@@ -3821,264 +4197,293 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       )
     );
   }
-
   personalRemoteAgentSpaceTool(input: unknown) {
     return withRemoteAgentSpaceFileWire(
       runPersonalRemoteAgentSpaceTool(this.env, input)
     );
   }
-
   centerAgentListAgentTasks(
     input: CenterAgentListAgentTasksInput
   ): Promise<CenterAgentListAgentTasksResponse> {
-    return rpcCenterAgentListAgentTasks(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListAgentTasks(this.env, input)
+    );
   }
-
   centerAgentWatchAgentTask(
     input: CenterAgentWatchAgentTaskInput
   ): Promise<CenterAgentWatchAgentTaskResponse> {
-    return rpcCenterAgentWatchAgentTask(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentWatchAgentTask(this.env, input)
+    );
   }
-
+  centerAgentContinueTaskSummary(
+    input: Parameters<typeof rpcCenterAgentContinueTaskSummary>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentContinueTaskSummary(this.env, input)
+    );
+  }
   centerAgentUpdateSpaceSettings(
     input: CenterAgentUpdateSpaceSettingsInput
   ): Promise<CenterAgentUpdateSpaceSettingsResponse> {
-    return rpcCenterAgentUpdateSpaceSettings(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentUpdateSpaceSettings(this.env, input)
+    );
   }
-
   openCenterAgentDirectMessageSpace(
     input: OpenCenterAgentDirectMessageSpaceInput
   ): Promise<OpenCenterAgentDirectMessageSpaceResponse> {
-    return rpcOpenCenterAgentDirectMessageSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcOpenCenterAgentDirectMessageSpace(this.env, input)
+    );
   }
-
   openDirectMessageSpace(
     input: OpenDirectMessageSpaceInput
   ): Promise<OpenDirectMessageSpaceResponse> {
-    return rpcOpenDirectMessageSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcOpenDirectMessageSpace(this.env, input)
+    );
   }
-
   convertDirectMessageToSpace(
     input: ConvertDirectMessageToSpaceInput
   ): Promise<ConvertDirectMessageToSpaceResponse> {
-    return rpcConvertDirectMessageToSpace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcConvertDirectMessageToSpace(this.env, input)
+    );
   }
-
   notifyAgentProfileRouteCatalogChanged(
     input: NotifyAgentProfileRouteCatalogChangedInput
   ): Promise<NotifyAgentProfileRouteCatalogChangedResponse> {
     return rpcNotifyAgentProfileRouteCatalogChanged(this.env, input);
   }
-
   notifyAgentProfilesRouteCatalogChanged(
     input: NotifyAgentProfilesRouteCatalogChangedInput
   ): Promise<NotifyAgentProfileRouteCatalogChangedResponse> {
     return rpcNotifyAgentProfilesRouteCatalogChanged(this.env, input);
   }
-
   submitRuntimeRegistration(
     input: SubmitRuntimeRegistrationInput
   ): Promise<SubmitRuntimeRegistrationResponse> {
-    return rpcSubmitRuntimeRegistration(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitRuntimeRegistration(this.env, input)
+    );
   }
-
   submitRuntimeAgentControllerReports(
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
-    return rpcSubmitRuntimeAgentControllerReports(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitRuntimeAgentControllerReports(this.env, input)
+    );
   }
-
   submitRuntimeProviderConversationProofs(
     input: SubmitRuntimeProviderConversationProofsInput
   ): Promise<SubmitRuntimeProviderConversationProofsResponse> {
-    return rpcSubmitRuntimeProviderConversationProofs(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitRuntimeProviderConversationProofs(this.env, input)
+    );
   }
-
   listLocalRuntimes(
     input: GetLocalRuntimesInput
   ): Promise<LocalRuntimesResponse> {
-    return rpcListLocalRuntimes(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListLocalRuntimes(this.env, input)
+    );
   }
-
   listPeopleComputers(
     input: GetLocalRuntimesInput
   ): Promise<PeopleComputersResponse> {
-    return rpcListPeopleComputers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListPeopleComputers(this.env, input)
+    );
   }
-
   readServiceConnectionIncidents(
     input: ServiceConnectionIncidentsReadRpcInput
   ) {
     return rpcReadServiceConnectionIncidents(this.env, input);
   }
-
   reportServiceConnectionIncident(
     input: ServiceConnectionIncidentReportRpcInput
   ) {
     return rpcReportServiceConnectionIncident(this.env, input);
   }
-
   setPeopleComputerLocalAgentEnabled(
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
-    return rpcSetPeopleComputerLocalAgentEnabled(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetPeopleComputerLocalAgentEnabled(this.env, input)
+    );
   }
-
   getPeopleComputerLocalAgentInstallations(
     input: Parameters<typeof rpcGetPeopleComputerLocalAgentInstallations>[1]
   ) {
-    return rpcGetPeopleComputerLocalAgentInstallations(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetPeopleComputerLocalAgentInstallations(this.env, input)
+    );
   }
-
   selectPeopleComputerLocalAgentInstallation(
     input: Parameters<typeof rpcSelectPeopleComputerLocalAgentInstallation>[1]
   ) {
-    return rpcSelectPeopleComputerLocalAgentInstallation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSelectPeopleComputerLocalAgentInstallation(this.env, input)
+    );
   }
-
   refreshPeopleComputerLocalAgentCatalog(
     input: Parameters<typeof rpcRefreshPeopleComputerLocalAgentCatalog>[1]
   ) {
-    return rpcRefreshPeopleComputerLocalAgentCatalog(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRefreshPeopleComputerLocalAgentCatalog(this.env, input)
+    );
   }
-
   requestPeopleComputerOpenMeldToolsUpdate(
     input: Parameters<typeof rpcRequestPeopleComputerOpenMeldToolsUpdate>[1]
   ) {
-    return rpcRequestPeopleComputerOpenMeldToolsUpdate(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRequestPeopleComputerOpenMeldToolsUpdate(this.env, input)
+    );
   }
-
   setPeopleComputerOpenMeldToolsMaintenance(
     input: Parameters<typeof rpcSetPeopleComputerOpenMeldToolsMaintenance>[1]
   ) {
-    return rpcSetPeopleComputerOpenMeldToolsMaintenance(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetPeopleComputerOpenMeldToolsMaintenance(this.env, input)
+    );
   }
-
   getPeopleComputerReplyReadiness(
     input: GetPeopleComputerReplyReadinessInput
   ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
-    return rpcGetPeopleComputerReplyReadiness(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetPeopleComputerReplyReadiness(this.env, input)
+    );
   }
-
   getCurrentLocalRuntimeReplyReadiness(
     input: GetCurrentLocalRuntimeReplyReadinessInput
   ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
-    return rpcGetCurrentLocalRuntimeReplyReadiness(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentLocalRuntimeReplyReadiness(this.env, input)
+    );
   }
-
   setCurrentLocalAgentEnabled(
     input: SetCurrentLocalAgentEnabledInput
   ): Promise<SetCurrentLocalAgentEnabledResponse> {
-    return rpcSetCurrentLocalAgentEnabled(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetCurrentLocalAgentEnabled(this.env, input)
+    );
   }
-
   getCurrentLocalAgentInstallations(
     input: GetCurrentLocalAgentInstallationsInput
   ): Promise<CurrentLocalAgentInstallationsResponse> {
-    return rpcGetCurrentLocalAgentInstallations(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentLocalAgentInstallations(this.env, input)
+    );
   }
-
   selectCurrentLocalAgentInstallation(
     input: SelectCurrentLocalAgentInstallationInput
   ): Promise<SelectCurrentLocalAgentInstallationResponse> {
-    return rpcSelectCurrentLocalAgentInstallation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSelectCurrentLocalAgentInstallation(this.env, input)
+    );
   }
-
   requestCurrentOpenMeldToolsUpdate(
     input: RequestCurrentOpenMeldToolsUpdateInput
   ): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
-    return rpcRequestCurrentOpenMeldToolsUpdate(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRequestCurrentOpenMeldToolsUpdate(this.env, input)
+    );
   }
-
   setCurrentOpenMeldToolsMaintenance(
     input: SetCurrentOpenMeldToolsMaintenanceInput
   ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
-    return rpcSetCurrentOpenMeldToolsMaintenance(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetCurrentOpenMeldToolsMaintenance(this.env, input)
+    );
   }
-
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
-    return rpcSetCurrentAgentProfileWorkspace(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetCurrentAgentProfileWorkspace(this.env, input)
+    );
   }
-
   refreshCurrentLocalAgentCatalog(
     input: RefreshCurrentLocalAgentCatalogInput
   ): Promise<RefreshCurrentLocalAgentCatalogResponse> {
-    return rpcRefreshCurrentLocalAgentCatalog(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRefreshCurrentLocalAgentCatalog(this.env, input)
+    );
   }
-
   setLocalRuntimeDisplayName(
     input: SetLocalRuntimeDisplayNameInput
   ): Promise<LocalRuntimesResponse> {
-    return rpcSetLocalRuntimeDisplayName(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetLocalRuntimeDisplayName(this.env, input)
+    );
   }
-
   writeCurrentDeviceObservedMetadata(
     input: WriteCurrentDeviceObservedMetadataInput
   ): Promise<WriteCurrentDeviceObservedMetadataResponse> {
-    return rpcWriteCurrentDeviceObservedMetadata(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcWriteCurrentDeviceObservedMetadata(this.env, input)
+    );
   }
-
   enrollLocalRuntime(
     input: EnrollLocalRuntimeInput
   ): Promise<LocalRuntimeEnrollmentResponse> {
-    return rpcEnrollLocalRuntime(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcEnrollLocalRuntime(this.env, input)
+    );
   }
 }
-
 // Gateway-specific RPC entrypoint. Kept as a dedicated subclass to preserve an
 // extension point for future gateway-aware overrides.
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  firstWork(input: Parameters<typeof rpcFirstWork>[1]) {
+    return super.firstWork(input);
+  }
   handleSlackWelcomeInteraction(
     input: SlackWelcomeInteractionRpcInput
   ): Promise<SlackWelcomeInteractionRpcResponse> {
-    return handleSlackWelcomeInteraction(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      handleSlackWelcomeInteraction(this.env, input)
+    );
   }
-
   async runLocalRoutineSchedulerTick(): Promise<{
     ok: true;
     ranAtMs: number;
   }> {
-    if (this.env.OPENMELD_WORKER_ENVIRONMENT !== "local") {
-      throw new Error(
-        "Local Routine scheduler ticks are unavailable outside local development."
-      );
-    }
-
-    const ranAtMs = Date.now();
-    await runCoreScheduledTasks({
-      env: this.env,
-      cron: ROUTINE_TICK_CRON,
-      nowMs: ranAtMs,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      if (this.env.OPENMELD_WORKER_ENVIRONMENT !== "local") {
+        throw new Error(
+          "Local Routine scheduler ticks are unavailable outside local development."
+        );
+      }
+      const ranAtMs = Date.now();
+      await runCoreScheduledTasks({
+        env: this.env,
+        cron: ROUTINE_TICK_CRON,
+        nowMs: ranAtMs,
+      });
+      return { ok: true, ranAtMs };
     });
-    return { ok: true, ranAtMs };
   }
-
   createSpace(input?: CreateSpaceInput) {
     return super.createSpace(input);
   }
-
   getModelCatalog(options?: ModelCatalogReadOptions): GetModelCatalogResponse {
     return super.getModelCatalog(options);
   }
-
   readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {
     return super.readChangelog(input);
   }
-
   listAccountSpaces(
     input: ListAccountSpacesInput
   ): Promise<AccountSpaceIndexResponse> {
     return super.listAccountSpaces(input);
   }
-
   listAccountSpaceActiveWakeSummary(
     input: ListAccountSpaceActiveWakeSummaryInput
   ): Promise<AccountSpaceActiveWakeSummaryResponse> {
     return super.listAccountSpaceActiveWakeSummary(input);
   }
-
   listProjects(input: ListProjectsInput) {
     return super.listProjects(input);
   }
@@ -4130,25 +4535,20 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.updateProjectIssueRouting(input);
   }
-
   createProject(input: CreateProjectInput) {
     return super.createProject(input);
   }
-
   updateProject(input: UpdateProjectInput) {
     return super.updateProject(input);
   }
-
   updateAgentProfileDefaultProject(
     input: UpdateAgentProfileDefaultProjectInput
   ) {
     return super.updateAgentProfileDefaultProject(input);
   }
-
   archiveProject(input: ArchiveProjectInput) {
     return super.archiveProject(input);
   }
-
   discoverProjects(input: DiscoverProjectsInput) {
     return super.discoverProjects(input);
   }
@@ -4157,7 +4557,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.discoverPeopleComputerProjects(input);
   }
-
   connectPeopleComputerProjectCandidate(
     input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
   ) {
@@ -4179,23 +4578,27 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.setPeopleComputerProjectDefaultConnection(input);
   }
-
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return super.readComputerFileAccessPolicy(input);
   }
-
+  agentSessionHistory(input: Parameters<typeof rpcAgentSessionHistory>[1]) {
+    return super.agentSessionHistory(input);
+  }
+  computerSessionHistory(
+    input: Parameters<typeof rpcComputerSessionHistory>[1]
+  ) {
+    return super.computerSessionHistory(input);
+  }
   readPeopleComputerFileAccessPolicy(
     input: Parameters<typeof rpcReadPeopleComputerFileAccessPolicy>[1]
   ) {
     return super.readPeopleComputerFileAccessPolicy(input);
   }
-
   updatePeopleComputerFileAccessPolicy(
     input: Parameters<typeof rpcUpdatePeopleComputerFileAccessPolicy>[1]
   ) {
     return super.updatePeopleComputerFileAccessPolicy(input);
   }
-
   selectLocalFolders(input: SelectLocalFoldersInput) {
     return super.selectLocalFolders(input);
   }
@@ -4204,412 +4607,347 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.selectPeopleComputerFolders(input);
   }
-
   updateComputerFileAccessPolicy(input: UpdateComputerFileAccessPolicyInput) {
     return super.updateComputerFileAccessPolicy(input);
   }
-
   connectCandidate(input: ConnectCandidateInput) {
     return super.connectCandidate(input);
   }
-
   connectDeclaredPath(input: ConnectDeclaredPathInput) {
     return super.connectDeclaredPath(input);
   }
-
   setDefaultConnection(input: SetDefaultConnectionInput) {
     return super.setDefaultConnection(input);
   }
-
   removeConnection(input: RemoveConnectionInput) {
     return super.removeConnection(input);
   }
-
   removeMissingConnections(input: RemoveMissingConnectionsInput) {
     return super.removeMissingConnections(input);
   }
-
   submitAgentActivityEvents(input: SubmitAgentActivityEventsInput) {
     return super.submitAgentActivityEvents(input);
   }
-
   submitAgentActivitySessionReconciliation(
     input: SubmitAgentActivitySessionReconciliationInput
   ) {
     return super.submitAgentActivitySessionReconciliation(input);
   }
-
   readAgentActivitySnapshot(input: ReadAgentActivitySnapshotInput) {
     return super.readAgentActivitySnapshot(input);
   }
-
   readAgentActivitySessionInventory(
     input: ReadAgentActivitySessionInventoryInput
   ) {
     return super.readAgentActivitySessionInventory(input);
   }
-
   readAgentActivityStats(input: ReadAgentActivityStatsInput) {
     return super.readAgentActivityStats(input);
   }
-
   readOrganizationUsageOverview(input: ReadOrganizationUsageOverviewInput) {
     return super.readOrganizationUsageOverview(input);
   }
-
+  readOrganizationAiUsage(input: OrganizationAiUsageRpcInput) {
+    return super.readOrganizationAiUsage(input);
+  }
   listRoutines(input: ListRoutinesInput) {
     return super.listRoutines(input);
   }
-
   listRoutineTargetSpaces(input: ListRoutineTargetSpacesInput) {
     return super.listRoutineTargetSpaces(input);
   }
-
   createRoutine(input: CreateRoutineInput) {
     return super.createRoutine(input);
   }
-
   updateRoutine(input: UpdateRoutineInput) {
     return super.updateRoutine(input);
   }
-
   pauseRoutine(input: PauseRoutineInput) {
     return super.pauseRoutine(input);
   }
-
   resumeRoutine(input: ResumeRoutineInput) {
     return super.resumeRoutine(input);
   }
-
   deleteRoutine(input: DeleteRoutineInput) {
     return super.deleteRoutine(input);
   }
-
   listRoutineRuns(input: ListRoutineRunsInput) {
     return super.listRoutineRuns(input);
   }
-
   reportDesktopUpdateObservation(
     input: import("@openmeld/schemas/types").DesktopUpdateObservationRpcInput
   ) {
-    return rpcReportDesktopUpdateObservation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReportDesktopUpdateObservation(this.env, input)
+    );
   }
-
   listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
     return super.listInboxFeed(input);
   }
-
   searchMessages(
     input: import("@openmeld/schemas").MessageSearchRpcInput,
     spaceImageGeometryVersion?: string
   ) {
     return super.searchMessages(input, spaceImageGeometryVersion);
   }
-
   mutateInboxFeed(
     input: MutateInboxFeedRpcInput
   ): Promise<MutateInboxFeedResponse> {
     return super.mutateInboxFeed(input);
   }
-
   listInboxItems(
     input: ListInboxItemsRpcInput
   ): Promise<ListInboxItemsResponse> {
     return super.listInboxItems(input);
   }
-
   observeInboxNotifications(
     input: import("@openmeld/schemas/types").ObserveInboxNotificationsRpcInput
   ) {
     return super.observeInboxNotifications(input);
   }
-
   dismissInboxItem(
     input: DismissInboxItemRpcInput
   ): Promise<DismissInboxItemResponse> {
     return super.dismissInboxItem(input);
   }
-
   getInboxItem(input: GetInboxItemRpcInput): Promise<GetInboxItemResponse> {
     return super.getInboxItem(input);
   }
-
   getInboxSummary(
     input: GetInboxSummaryRpcInput
   ): Promise<InboxSummaryResponse> {
     return super.getInboxSummary(input);
   }
-
   getCenterAgentInboxSummary(
     input: GetCenterAgentInboxSummaryRpcInput
   ): Promise<CenterAgentInboxSummaryResponse> {
     return super.getCenterAgentInboxSummary(input);
   }
-
   getSpaceInboxSummary(
     input: GetSpaceInboxSummaryRpcInput
   ): Promise<SpaceInboxSummaryResponse> {
     return super.getSpaceInboxSummary(input);
   }
-
   getSpaceInboxUnreadTargets(
     input: GetSpaceInboxUnreadTargetsRpcInput
   ): Promise<SpaceInboxUnreadTargetsResponse> {
     return super.getSpaceInboxUnreadTargets(input);
   }
-
+  mutateSpaceInboxRead(
+    input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
+  ) {
+    return super.mutateSpaceInboxRead(input);
+  }
   markCenterAgentInboxReadThrough(
     input: MarkCenterAgentInboxReadThroughRpcInput
   ): Promise<MarkCenterAgentInboxReadThroughResponse> {
     return super.markCenterAgentInboxReadThrough(input);
   }
-
   markSpaceInboxReadThrough(
     input: MarkSpaceInboxReadThroughRpcInput
   ): Promise<MarkSpaceInboxReadThroughResponse> {
     return super.markSpaceInboxReadThrough(input);
   }
-
   markInboxItemRead(
     input: MarkInboxItemReadRpcInput
   ): Promise<MarkInboxItemReadResponse> {
     return super.markInboxItemRead(input);
   }
-
   markAllInboxItemsRead(
     input: MarkAllInboxItemsReadRpcInput
   ): Promise<MarkAllInboxItemsReadResponse> {
     return super.markAllInboxItemsRead(input);
   }
-
   getInboxNotificationPreferences(
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return super.getInboxNotificationPreferences(input);
   }
-
   getInboxMessageNotificationPreferences(
     input: GetInboxMessageNotificationPreferencesRpcInput
   ) {
     return super.getInboxMessageNotificationPreferences(input);
   }
-
   updateInboxMessageNotificationPreferences(
     input: UpdateInboxMessageNotificationPreferencesRpcInput
   ) {
     return super.updateInboxMessageNotificationPreferences(input);
   }
-
   updateInboxNotificationPreferences(
     input: UpdateInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return super.updateInboxNotificationPreferences(input);
   }
-
   listOrganizationDocuments(
     input: ListOrganizationDocumentsRpcInput
   ): Promise<ListOrganizationDocumentsResponse> {
     return super.listOrganizationDocuments(input);
   }
-
   centerAgentReadOrganizationSkills(
     input: CenterAgentReadOrganizationSkillsRpcInput
   ): Promise<CenterAgentReadOrganizationSkillsResponse> {
     return super.centerAgentReadOrganizationSkills(input);
   }
-
   centerAgentInstallOrganizationSkill(
     input: CenterAgentInstallOrganizationSkillRpcInput
   ): Promise<CenterAgentInstallOrganizationSkillResponse> {
     return super.centerAgentInstallOrganizationSkill(input);
   }
-
   listOrganizationSkills(
     input: ListOrganizationSkillsRpcInput
   ): Promise<ListOrganizationSkillsResponse> {
     return super.listOrganizationSkills(input);
   }
-
   getOrganizationSkill(
     input: GetOrganizationSkillRpcInput
   ): Promise<GetOrganizationSkillResponse> {
     return super.getOrganizationSkill(input);
   }
-
   getOrganizationSkillCatalog(
     input: GetOrganizationSkillRpcInput
   ): Promise<OrganizationSkillRuntimeCatalogResponse> {
     return super.getOrganizationSkillCatalog(input);
   }
-
   createOrganizationSkill(
     input: CreateOrganizationSkillRpcInput
   ): Promise<CreateOrganizationSkillResponse> {
     return super.createOrganizationSkill(input);
   }
-
   importOrganizationSkillFromGitHub(
     input: ImportOrganizationSkillFromGitHubRpcInput
   ): Promise<ImportOrganizationSkillFromGitHubResponse> {
     return super.importOrganizationSkillFromGitHub(input);
   }
-
   importOrganizationSkillFromFiles(
     input: ImportOrganizationSkillFromFilesRpcInput
   ): Promise<ImportOrganizationSkillFromFilesResponse> {
     return super.importOrganizationSkillFromFiles(input);
   }
-
   previewOrganizationSkillFromGitHub(
     input: PreviewOrganizationSkillFromGitHubRpcInput
   ): Promise<PreviewOrganizationSkillFromGitHubResponse> {
     return super.previewOrganizationSkillFromGitHub(input);
   }
-
   previewOrganizationSkillRepository(
     input: PreviewOrganizationSkillRepositoryRpcInput
   ): Promise<PreviewOrganizationSkillRepositoryResponse> {
     return super.previewOrganizationSkillRepository(input);
   }
-
   beginOrganizationSkillImportBatch(
     input: BeginOrganizationSkillImportBatchRpcInput
   ): Promise<BeginOrganizationSkillImportBatchResponse> {
     return super.beginOrganizationSkillImportBatch(input);
   }
-
   getOrganizationSkillImportBatch(
     input: GetOrganizationSkillImportBatchRpcInput
   ): Promise<GetOrganizationSkillImportBatchResponse> {
     return super.getOrganizationSkillImportBatch(input);
   }
-
   listOrganizationSkillImportBatches(
     input: ListOrganizationSkillImportBatchesRpcInput
   ): Promise<ListOrganizationSkillImportBatchesResponse> {
     return super.listOrganizationSkillImportBatches(input);
   }
-
   previewOrganizationSkillFromFiles(
     input: PreviewOrganizationSkillFromFilesRpcInput
   ): Promise<PreviewOrganizationSkillFromFilesResponse> {
     return super.previewOrganizationSkillFromFiles(input);
   }
-
   updateOrganizationSkill(
     input: UpdateOrganizationSkillRpcInput
   ): Promise<UpdateOrganizationSkillResponse> {
     return super.updateOrganizationSkill(input);
   }
-
   setOrganizationSkillEnabled(
     input: SetOrganizationSkillEnabledRpcInput
   ): Promise<SetOrganizationSkillEnabledResponse> {
     return super.setOrganizationSkillEnabled(input);
   }
-
   setOrganizationSkillMaintainers(
     input: SetOrganizationSkillMaintainersRpcInput
   ): Promise<SetOrganizationSkillMaintainersResponse> {
     return super.setOrganizationSkillMaintainers(input);
   }
-
   deleteOrganizationSkill(
     input: DeleteOrganizationSkillRpcInput
   ): Promise<DeleteOrganizationSkillResponse> {
     return super.deleteOrganizationSkill(input);
   }
-
   readOrganizationSkillRuntimeSnapshot(
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
     return super.readOrganizationSkillRuntimeSnapshot(input);
   }
-
   readOrganizationSkillRuntimeCatalog(
     input: ReadOrganizationSkillRuntimeCatalogRpcInput
   ): Promise<OrganizationSkillRuntimeCatalogResponse> {
     return super.readOrganizationSkillRuntimeCatalog(input);
   }
-
   readOrganizationSkillRuntimeResource(
     input: ReadOrganizationSkillRuntimeResourceRpcInput
   ): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
     return super.readOrganizationSkillRuntimeResource(input);
   }
-
   recordOrganizationSkillActivation(
     input: RecordOrganizationSkillActivationRpcInput
   ): Promise<RecordOrganizationSkillActivationResponse> {
     return super.recordOrganizationSkillActivation(input);
   }
-
   getOrganizationDocument(
     input: GetOrganizationDocumentRpcInput
   ): Promise<GetOrganizationDocumentResponse> {
     return super.getOrganizationDocument(input);
   }
-
   createOrganizationDocument(
     input: CreateOrganizationDocumentRpcInput
   ): Promise<CreateOrganizationDocumentResponse> {
     return super.createOrganizationDocument(input);
   }
-
   updateOrganizationDocument(
     input: UpdateOrganizationDocumentRpcInput
   ): Promise<UpdateOrganizationDocumentResponse> {
     return super.updateOrganizationDocument(input);
   }
-
   deleteOrganizationDocument(
     input: DeleteOrganizationDocumentRpcInput
   ): Promise<DeleteOrganizationDocumentResponse> {
     return super.deleteOrganizationDocument(input);
   }
-
   createOrganizationDocumentFolder(
     input: CreateOrganizationDocumentFolderRpcInput
   ): Promise<CreateOrganizationDocumentFolderResponse> {
     return super.createOrganizationDocumentFolder(input);
   }
-
   updateOrganizationDocumentFolder(
     input: UpdateOrganizationDocumentFolderRpcInput
   ): Promise<UpdateOrganizationDocumentFolderResponse> {
     return super.updateOrganizationDocumentFolder(input);
   }
-
   deleteOrganizationDocumentFolder(
     input: DeleteOrganizationDocumentFolderRpcInput
   ): Promise<DeleteOrganizationDocumentFolderResponse> {
     return super.deleteOrganizationDocumentFolder(input);
   }
-
   approveOrganizationDocumentDraft(
     input: ApproveOrganizationDocumentDraftRpcInput
   ): Promise<ApproveOrganizationDocumentDraftResponse> {
     return super.approveOrganizationDocumentDraft(input);
   }
-
   discardOrganizationDocumentDraft(
     input: DiscardOrganizationDocumentDraftRpcInput
   ): Promise<DiscardOrganizationDocumentDraftResponse> {
     return super.discardOrganizationDocumentDraft(input);
   }
-
   startCenterAgentMemberResearch(
     input: StartCenterAgentMemberResearchRpcInput
   ): Promise<StartCenterAgentMemberResearchResponse> {
     return super.startCenterAgentMemberResearch(input);
   }
-
   getCenterAgentMemberResearchStatus(
     input: GetCenterAgentMemberResearchStatusRpcInput
   ): Promise<GetCenterAgentMemberResearchStatusResponse> {
     return super.getCenterAgentMemberResearchStatus(input);
   }
-
   listSignals(
     input: ListSignalsInput,
     spaceAddressingVersion?: string,
@@ -4621,7 +4959,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   postDeviceWaitingSignal(
     input: PostSignalInput,
     spaceAddressingVersion?: string,
@@ -4633,7 +4970,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   postSignal(
     input: PostSignalInput,
     spaceAddressingVersion?: string,
@@ -4645,34 +4981,28 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   mutateSpaceMessage(
     input: import("./rpc/methods").MutateSpaceMessageInput,
     spaceImageGeometryVersion?: string
   ) {
     return super.mutateSpaceMessage(input, spaceImageGeometryVersion);
   }
-
   postTransientSignal(input: PostTransientSignalInput): Promise<void> {
     return super.postTransientSignal(input);
   }
-
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
     return super.getSpaceMembers(input);
   }
-
   getSpaceHistoryNavigation(
     input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
   ): Promise<SpaceHistoryNavigation> {
     return super.getSpaceHistoryNavigation(input);
   }
-
   getSpaceIdentityDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceIdentityDirectory> {
     return super.getSpaceIdentityDirectory(input);
   }
-
   getSpaceMemberDirectory(
     input: GetSpaceMembersInput,
     spaceAddressingVersion?: string,
@@ -4684,31 +5014,26 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceViewerMembership(
     input: GetSpaceViewerMembershipInput
   ): Promise<SpaceViewerMembershipResponse> {
     return super.getSpaceViewerMembership(input);
   }
-
   recordSpaceAttachment(
     input: RecordSpaceAttachmentInput
   ): Promise<SpaceAttachmentDescriptor> {
     return super.recordSpaceAttachment(input);
   }
-
   deleteSpaceAttachmentRecord(
     input: DeleteSpaceAttachmentRecordInput
   ): Promise<DeleteSpaceAttachmentRecordResult> {
     return super.deleteSpaceAttachmentRecord(input);
   }
-
   resolveSpaceAttachmentForDownload(
     input: ResolveSpaceAttachmentForDownloadInput
   ): Promise<SpaceAttachmentDescriptor> {
     return super.resolveSpaceAttachmentForDownload(input);
   }
-
   listSpaceFiles(
     input: ListSpaceFilesInput,
     spaceFilesOriginVersion?: string,
@@ -4720,7 +5045,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceFile(
     input: GetSpaceFileInput,
     spaceFilesOriginVersion?: string,
@@ -4732,7 +5056,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   listSpaceFileRevisions(
     input: GetSpaceFileInput,
     spaceFilesOriginVersion?: string,
@@ -4744,13 +5067,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   createSpaceFolder(
     input: CreateSpaceFolderInput
   ): Promise<CreateSpaceFolderResponse> {
     return super.createSpaceFolder(input);
   }
-
   updateSpaceFileEntry(
     input: UpdateSpaceFileEntryInput,
     spaceFilesOriginVersion?: string,
@@ -4762,13 +5083,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   trashSpaceFileEntry(
     input: TrashSpaceFileEntryInput
   ): Promise<TrashSpaceFileEntryResponse> {
     return super.trashSpaceFileEntry(input);
   }
-
   restoreSpaceFileEntry(
     input: RestoreSpaceFileEntryInput,
     spaceFilesOriginVersion?: string,
@@ -4780,7 +5099,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   restoreSpaceFileRevision(
     input: RestoreSpaceFileRevisionInput,
     spaceFilesOriginVersion?: string,
@@ -4792,7 +5110,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   prepareSpaceFileWrite(
     input: SpaceFileWriteInput,
     spaceFilesOriginVersion?: string,
@@ -4804,21 +5121,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   commitSpaceFileWrite(
     input: SpaceFileWriteInput,
     spaceImageGeometryVersion?: string
   ): Promise<SpaceFileDescriptor> {
     return super.commitSpaceFileWrite(input, spaceImageGeometryVersion);
   }
-
   resolveSpaceFileContent(
     input: ResolveSpaceFileContentRpcInput,
     spaceImageGeometryVersion?: string
   ): Promise<ResolveSpaceFileContentResponse> {
     return super.resolveSpaceFileContent(input, spaceImageGeometryVersion);
   }
-
   listSpaceThreads(
     input: ListSpaceThreadsInput,
     spaceAddressingVersion?: string,
@@ -4830,7 +5144,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceThread(
     input: GetSpaceThreadInput,
     spaceAddressingVersion?: string,
@@ -4842,13 +5155,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   listSpaceThreadEvents(
     input: ListSpaceThreadEventsInput
   ): Promise<ListSpaceThreadEventsResponse> {
     return super.listSpaceThreadEvents(input);
   }
-
   listSpaceThreadSignals(
     input: ListSpaceThreadSignalsInput,
     spaceAddressingVersion?: string,
@@ -4860,104 +5171,86 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceDispatchTrace(
     input: GetSpaceDispatchTraceInput
   ): Promise<SpaceDispatchTraceResponse> {
     return super.getSpaceDispatchTrace(input);
   }
-
   inspectExecutionRecovery(
     input: InspectExecutionRecoveryInput
   ): Promise<InspectExecutionRecoveryResponse> {
     return super.inspectExecutionRecovery(input);
   }
-
   executeExecutionRecovery(
     input: ExecuteExecutionRecoveryInput
   ): Promise<ExecuteExecutionRecoveryResponse> {
     return super.executeExecutionRecovery(input);
   }
-
   getSpaceDispatchLookup(
     input: GetSpaceDispatchLookupInput
   ): Promise<GetSpaceDispatchLookupResponse> {
     return super.getSpaceDispatchLookup(input);
   }
-
   getActiveSpaceWakeProgress(
     input: GetActiveSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
     return super.getActiveSpaceWakeProgress(input);
   }
-
   getSpaceWakeProgress(
     input: GetSpaceWakeProgressInput
   ): Promise<GetSpaceWakeProgressResponse> {
     return super.getSpaceWakeProgress(input);
   }
-
   postSpaceWakeStop(
     input: PostSpaceWakeStopInput
   ): Promise<PostSpaceWakeStopResponse> {
     return super.postSpaceWakeStop(input);
   }
-
   respondToSpaceAgentInteraction(
     input: RespondToSpaceAgentInteractionInput
   ): Promise<RespondToSpaceAgentInteractionResponse> {
     return super.respondToSpaceAgentInteraction(input);
   }
-
   getSpaceWakeTraceWaterfall(
     input: GetSpaceWakeTraceWaterfallInput
   ): Promise<GetSpaceWakeTraceWaterfallResponse> {
     return super.getSpaceWakeTraceWaterfall(input);
   }
-
   getSpaceMessageReactions(input: GetSpaceMessageReactionsInput) {
     return super.getSpaceMessageReactions(input);
   }
   setSpaceMessageReaction(input: SetSpaceMessageReactionInput) {
     return super.setSpaceMessageReaction(input);
   }
-
   getSpaceMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
     return super.getSpaceMessageDetails(input);
   }
-
   getSpaceLinkPreviews(input: GetSpaceMessageDetailsInput) {
     return super.getSpaceLinkPreviews(input);
   }
-
   createSpaceDiagnosticReport(
     input: CreateSpaceDiagnosticReportInput
   ): Promise<CreateSpaceDiagnosticReportResponse> {
     return super.createSpaceDiagnosticReport(input);
   }
-
   addSpaceMembers(
     input: AddSpaceMembersInput
   ): Promise<PostSpaceMembersResponse> {
     return super.addSpaceMembers(input);
   }
-
   removeSpaceMembers(
     input: RemoveSpaceMembersInput
   ): Promise<RemoveSpaceMembersResponse> {
     return super.removeSpaceMembers(input);
   }
-
   leaveSpace(input: LeaveSpaceInput): Promise<LeaveSpaceResponse> {
     return super.leaveSpace(input);
   }
-
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
     return super.getSpaceMeta(input);
   }
-
   spaceFilePins(
     input: SpaceFilePinsInput,
     spaceFilesOriginVersion?: string,
@@ -4969,57 +5262,53 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   spaceMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return super.spaceMessagePins(input);
   }
 
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return super.spaceInputQueue(input);
+  }
+
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
     return super.listSpaceTasks(input);
   }
-
   getSpaceTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
     return super.getSpaceTask(input);
   }
-
   createSpaceTask(
     input: CreateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
     return super.createSpaceTask(input);
   }
-
   mutateSpaceTask(
     input: MutateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
     return super.mutateSpaceTask(input);
   }
-
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
     return super.getSpaceContract(input);
   }
-
   getSpaceBoard(input: GetSpaceBoardInput): Promise<SpaceBoardResponse> {
     return super.getSpaceBoard(input);
   }
-
   getSpaceStatus(input: GetSpaceStatusInput): Promise<GetSpaceStatusResponse> {
     return super.getSpaceStatus(input);
   }
-
   getSpaceEntryResolution(
     input: GetSpaceEntryResolutionRpcInput
   ): Promise<GetSpaceEntryResolutionResponse> {
     return super.getSpaceEntryResolution(input);
   }
-
   getSpaceConversationState(
     input: GetSpaceConversationStateRpcInput
   ): Promise<GetSpaceConversationStateResponse> {
     return super.getSpaceConversationState(input);
   }
-
   getSpaceBootstrap(
     input: GetSpaceBootstrapInput,
     spaceAddressingVersion?: string,
@@ -5031,7 +5320,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceBootstrapWithTiming(
     input: GetSpaceBootstrapInput,
     spaceAddressingVersion?: string,
@@ -5043,11 +5331,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   inspectDispatchStorageReadiness(): Promise<DispatchStorageReadiness> {
     return super.inspectDispatchStorageReadiness();
   }
-
   getSpaceUpdates(
     input: GetSpaceUpdatesInput,
     spaceAddressingVersion?: string,
@@ -5059,7 +5345,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   getSpaceDispatchResult(
     input: GetSpaceDispatchResultInput,
     spaceAddressingVersion?: string,
@@ -5071,227 +5356,190 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-
   deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
     return super.deleteSpace(input);
   }
-
   updateSpaceMeta(input: UpdateSpaceMetaInput): Promise<SpaceMeta> {
     return super.updateSpaceMeta(input);
   }
-
   putSpaceContract(input: PutSpaceContractInput): Promise<SpaceContract> {
     return super.putSpaceContract(input);
   }
-
   patchSpaceContract(input: PatchSpaceContractInput): Promise<SpaceContract> {
     return super.patchSpaceContract(input);
   }
-
   getSpaceCursor(input: GetSpaceCursorInput): Promise<SpaceCursor> {
     return super.getSpaceCursor(input);
   }
-
   updateSpaceCursor(input: UpdateSpaceCursorInput): Promise<SpaceCursor> {
     return super.updateSpaceCursor(input);
   }
-
   upsertSpacePassword(
     input: UpsertSpacePasswordInput
   ): Promise<SpacePasswordStateResult> {
     return super.upsertSpacePassword(input);
   }
-
   clearSpacePassword(
     input: ClearSpacePasswordInput
   ): Promise<SpacePasswordStateResult> {
     return super.clearSpacePassword(input);
   }
-
   setSpaceAccessMode(
     input: SetSpaceAccessModeInput
   ): Promise<SpaceAccessModeStateResult> {
     return super.setSpaceAccessMode(input);
   }
-
   getCurrentDeviceTarget(
     input: GetCurrentDeviceTargetInput
   ): Promise<CurrentDeviceTargetResponse> {
     return super.getCurrentDeviceTarget(input);
   }
-
+  personalComputer(input: unknown) {
+    return super.personalComputer(input);
+  }
   listLocalRuntimes(
     input: GetLocalRuntimesInput
   ): Promise<LocalRuntimesResponse> {
     return super.listLocalRuntimes(input);
   }
-
   listPeopleComputers(
     input: GetLocalRuntimesInput
   ): Promise<PeopleComputersResponse> {
     return super.listPeopleComputers(input);
   }
-
   readServiceConnectionIncidents(
     input: ServiceConnectionIncidentsReadRpcInput
   ) {
     return super.readServiceConnectionIncidents(input);
   }
-
   reportServiceConnectionIncident(
     input: ServiceConnectionIncidentReportRpcInput
   ) {
     return super.reportServiceConnectionIncident(input);
   }
-
   setPeopleComputerLocalAgentEnabled(
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
     return super.setPeopleComputerLocalAgentEnabled(input);
   }
-
   getPeopleComputerLocalAgentInstallations(
     input: Parameters<typeof rpcGetPeopleComputerLocalAgentInstallations>[1]
   ) {
     return super.getPeopleComputerLocalAgentInstallations(input);
   }
-
   selectPeopleComputerLocalAgentInstallation(
     input: Parameters<typeof rpcSelectPeopleComputerLocalAgentInstallation>[1]
   ) {
     return super.selectPeopleComputerLocalAgentInstallation(input);
   }
-
   refreshPeopleComputerLocalAgentCatalog(
     input: Parameters<typeof rpcRefreshPeopleComputerLocalAgentCatalog>[1]
   ) {
     return super.refreshPeopleComputerLocalAgentCatalog(input);
   }
-
   requestPeopleComputerOpenMeldToolsUpdate(
     input: Parameters<typeof rpcRequestPeopleComputerOpenMeldToolsUpdate>[1]
   ) {
     return super.requestPeopleComputerOpenMeldToolsUpdate(input);
   }
-
   setPeopleComputerOpenMeldToolsMaintenance(
     input: Parameters<typeof rpcSetPeopleComputerOpenMeldToolsMaintenance>[1]
   ) {
     return super.setPeopleComputerOpenMeldToolsMaintenance(input);
   }
-
   getPeopleComputerReplyReadiness(
     input: GetPeopleComputerReplyReadinessInput
   ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
     return super.getPeopleComputerReplyReadiness(input);
   }
-
   getCurrentLocalRuntimeReplyReadiness(
     input: GetCurrentLocalRuntimeReplyReadinessInput
   ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
     return super.getCurrentLocalRuntimeReplyReadiness(input);
   }
-
   setCurrentLocalAgentEnabled(
     input: SetCurrentLocalAgentEnabledInput
   ): Promise<SetCurrentLocalAgentEnabledResponse> {
     return super.setCurrentLocalAgentEnabled(input);
   }
-
   getCurrentLocalAgentInstallations(
     input: GetCurrentLocalAgentInstallationsInput
   ): Promise<CurrentLocalAgentInstallationsResponse> {
     return super.getCurrentLocalAgentInstallations(input);
   }
-
   selectCurrentLocalAgentInstallation(
     input: SelectCurrentLocalAgentInstallationInput
   ): Promise<SelectCurrentLocalAgentInstallationResponse> {
     return super.selectCurrentLocalAgentInstallation(input);
   }
-
   requestCurrentOpenMeldToolsUpdate(
     input: RequestCurrentOpenMeldToolsUpdateInput
   ): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
     return super.requestCurrentOpenMeldToolsUpdate(input);
   }
-
   setCurrentOpenMeldToolsMaintenance(
     input: SetCurrentOpenMeldToolsMaintenanceInput
   ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
     return super.setCurrentOpenMeldToolsMaintenance(input);
   }
-
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
     return super.setCurrentAgentProfileWorkspace(input);
   }
-
   refreshCurrentLocalAgentCatalog(
     input: RefreshCurrentLocalAgentCatalogInput
   ): Promise<RefreshCurrentLocalAgentCatalogResponse> {
     return super.refreshCurrentLocalAgentCatalog(input);
   }
-
   forgetCurrentComputer(
     input: GetCurrentDeviceTargetInput
   ): Promise<ForgetCurrentComputerResponse> {
     return super.forgetCurrentComputer(input);
   }
-
   forgetComputer(input: ForgetComputerInput): Promise<ForgetComputerResponse> {
     return super.forgetComputer(input);
   }
-
   getPrepareReadiness(
     input: GetPrepareReadinessInput
   ): Promise<GetPrepareReadinessResponse> {
     return super.getPrepareReadiness(input);
   }
-
   createPrepareSession(
     input: CreatePrepareSessionInput
   ): Promise<PrepareSessionWithTokenResponse> {
     return super.createPrepareSession(input);
   }
-
   getPrepareSession(
     input: GetPrepareSessionInput
   ): Promise<PrepareSessionResponse> {
     return super.getPrepareSession(input);
   }
-
   mintPrepareSessionReconnectToken(
     input: MintPrepareSessionReconnectTokenInput
   ): Promise<PrepareSessionWithTokenResponse> {
     return super.mintPrepareSessionReconnectToken(input);
   }
-
   resolvePrepareSessionToken(
     input: ResolvePrepareSessionTokenInput
   ): Promise<PrepareSessionResponse> {
     return super.resolvePrepareSessionToken(input);
   }
-
   writePrepareAgentSelection(
     input: WritePrepareAgentSelectionInput
   ): Promise<PrepareSessionResponse> {
     return super.writePrepareAgentSelection(input);
   }
-
   writePrepareSetupBootstrap(
     input: WritePrepareSetupBootstrapInput
   ): Promise<PrepareSessionResponse> {
     return super.writePrepareSetupBootstrap(input);
   }
-
   writePrepareTerminalStep(
     input: WritePrepareTerminalStepInput
   ): Promise<PrepareSessionResponse> {
     return super.writePrepareTerminalStep(input);
   }
-
   getPrepareDiagnostic(
     input: GetPrepareSessionInput
   ): Promise<PrepareDiagnosticResponse> {
@@ -5302,61 +5550,51 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ): Promise<GetAgentProfilePrimaryBindingResponse> {
     return super.getAgentProfilePrimaryBinding(input);
   }
-
   getCurrentAgentProfileSession(
     input: GetCurrentAgentProfileSessionInput
   ): Promise<CurrentAgentProfileSessionLookupResponse> {
     return super.getCurrentAgentProfileSession(input);
   }
-
   executeAgentProfileWorkRecovery(
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
     return super.executeAgentProfileWorkRecovery(input);
   }
-
   agentProfileExecutionMode(
     input: AgentProfileExecutionModeInput
   ): Promise<AgentProfileExecutionModeResponse> {
     return super.agentProfileExecutionMode(input);
   }
-
   getAgentProfileControllerChangeEligibility(
     input: GetAgentProfileControllerChangeEligibilityInput
   ): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
     return super.getAgentProfileControllerChangeEligibility(input);
   }
-
   getLocalRuntimeExpectedRoutes(
     input: GetLocalRuntimeExpectedRoutesInput
   ): Promise<GetLocalRuntimeExpectedRoutesResponse> {
     return super.getLocalRuntimeExpectedRoutes(input);
   }
-
   getAgentExecutionReadiness(
     input: GetAgentExecutionReadinessInput
   ): Promise<GetAgentExecutionReadinessResponse> {
     return super.getAgentExecutionReadiness(input);
   }
-
   getAgentExecutionReadinessBatch(
     input: GetAgentExecutionReadinessBatchInput
   ): Promise<GetAgentExecutionReadinessBatchResponse> {
     return super.getAgentExecutionReadinessBatch(input);
   }
-
   ensureAgentProfilePrimaryBinding(
     input: EnsureAgentProfilePrimaryBindingInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
     return super.ensureAgentProfilePrimaryBinding(input);
   }
-
   updateAgentProfilePrimaryBindingModelSelection(
     input: UpdateAgentProfilePrimaryBindingModelSelectionInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
     return super.updateAgentProfilePrimaryBindingModelSelection(input);
   }
-
   updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
     input: UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
@@ -5364,7 +5602,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       input
     );
   }
-
   updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
     input: UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
@@ -5372,391 +5609,326 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       input
     );
   }
-
   updateAgentProfilePrimaryBindingOpenCodePermission(
     input: UpdateAgentProfilePrimaryBindingOpenCodePermissionInput
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
     return super.updateAgentProfilePrimaryBindingOpenCodePermission(input);
   }
-
   disableAgentProfilePrimaryBinding(
     input: DisableAgentProfilePrimaryBindingInput
   ): Promise<DisableAgentProfilePrimaryBindingResponse> {
     return super.disableAgentProfilePrimaryBinding(input);
   }
-
   getAgentProfileCreationDefaults(
     input: GetAgentProfileCreationDefaultsInput
   ): Promise<GetAgentProfileCreationDefaultsResponse> {
     return super.getAgentProfileCreationDefaults(input);
   }
-
   setAgentProfileCreationDefaults(
     input: SetAgentProfileCreationDefaultsInput
   ): Promise<SetAgentProfileCreationDefaultsResponse> {
     return super.setAgentProfileCreationDefaults(input);
   }
-
   createAgentProfileCreationRequest(
     input: CreateAgentProfileCreationRequestRpcInput
   ): Promise<CreateAgentProfileCreationRequestResponse> {
     return super.createAgentProfileCreationRequest(input);
   }
-
   listAgentProfileCreationRequests(
     input: ListAgentProfileCreationRequestsRpcInput
   ): Promise<ListAgentProfileCreationRequestsResponse> {
     return super.listAgentProfileCreationRequests(input);
   }
-
   decideAgentProfileCreationRequest(
     input: DecideAgentProfileCreationRequestRpcInput
   ): Promise<AgentProfileCreationRequestMutationResponse> {
     return super.decideAgentProfileCreationRequest(input);
   }
-
   cancelAgentProfileCreationRequest(
     input: MutateAgentProfileCreationRequestRpcInput
   ): Promise<AgentProfileCreationRequestMutationResponse> {
     return super.cancelAgentProfileCreationRequest(input);
   }
-
   retryAgentProfileCreationRequest(
     input: MutateAgentProfileCreationRequestRpcInput
   ): Promise<AgentProfileCreationRequestMutationResponse> {
     return super.retryAgentProfileCreationRequest(input);
   }
-
   getAgentProfileCreationApprovalPreference(
     input: GetAgentProfileCreationApprovalPreferenceRpcInput
   ): Promise<GetAgentProfileCreationApprovalPreferenceResponse> {
     return super.getAgentProfileCreationApprovalPreference(input);
   }
-
   setAgentProfileCreationApprovalPreference(
     input: SetAgentProfileCreationApprovalPreferenceRpcInput
   ): Promise<SetAgentProfileCreationApprovalPreferenceResponse> {
     return super.setAgentProfileCreationApprovalPreference(input);
   }
-
   getCurrentOrganizationDirectory(
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return super.getCurrentOrganizationDirectory(input);
   }
-
   getCurrentOrganizationProfileDirectory(
     input: GetCurrentOrganizationProfileDirectoryInput
   ): Promise<OrganizationProfileDirectoryResponse> {
     return super.getCurrentOrganizationProfileDirectory(input);
   }
-
   getCurrentOrganizationAgentRuntimeOverview(
     input: GetCurrentOrganizationAgentRuntimeOverviewInput
   ): Promise<OrganizationAgentRuntimeOverviewResponse> {
     return super.getCurrentOrganizationAgentRuntimeOverview(input);
   }
-
   recordCurrentOrganizationWebActivity(
     input: RecordCurrentOrganizationWebActivityInput
   ): Promise<OrganizationMemberWebActivityResponse> {
     return super.recordCurrentOrganizationWebActivity(input);
   }
-
   getCurrentOrganizationMemberPresence(input: {
     context?: CoreRpcContextInput;
   }) {
     return super.getCurrentOrganizationMemberPresence(input);
   }
-
   recordCurrentOrganizationMemberPresence(
     input: RecordCurrentOrganizationMemberPresenceInput
   ) {
     return super.recordCurrentOrganizationMemberPresence(input);
   }
-
   getCurrentOrganizationComputers(
     input: GetCurrentOrganizationComputersInput
   ): Promise<OrganizationComputersResponse> {
     return super.getCurrentOrganizationComputers(input);
   }
-
   getCurrentOrganizationMemberOpenMeldServiceStatuses(
     input: GetCurrentOrganizationMemberOpenMeldServiceStatusesInput
   ): Promise<OrganizationMemberOpenMeldServiceStatusesResponse> {
     return super.getCurrentOrganizationMemberOpenMeldServiceStatuses(input);
   }
-
   getCurrentOrganizationSpaceDirectory(
     input: GetCurrentOrganizationSpaceDirectoryInput
   ): Promise<OrganizationSpaceDirectoryResponse> {
     return super.getCurrentOrganizationSpaceDirectory(input);
   }
-
   getCurrentOrganizationSpaceDirectoryWithMemberCounts(
     input: GetCurrentOrganizationSpaceDirectoryInput
   ): Promise<OrganizationSpaceDirectoryWithMemberCountsResponse> {
     return super.getCurrentOrganizationSpaceDirectoryWithMemberCounts(input);
   }
-
   joinOrganizationPublicSpace(
     input: JoinOrganizationPublicSpaceInput
   ): Promise<PostSpaceMembersResponse> {
     return super.joinOrganizationPublicSpace(input);
   }
-
   addCenterAgentToSpace(
     input: AddCenterAgentToSpaceInput
   ): Promise<PostSpaceMembersResponse> {
     return super.addCenterAgentToSpace(input);
   }
-
   addOrganizationDirectoryProfilesToSpace(
     input: AddOrganizationDirectoryProfilesToSpaceInput
   ): Promise<PostSpaceMembersResponse> {
     return super.addOrganizationDirectoryProfilesToSpace(input);
   }
-
   getCenterAgentDesignation(
     input: GetCenterAgentDesignationInput
   ): Promise<GetCenterAgentDesignationResponse> {
     return super.getCenterAgentDesignation(input);
   }
-
   getCenterAgentModel(
     input: GetCenterAgentModelInput
   ): Promise<CenterAgentModelConfigurationResponse> {
     return super.getCenterAgentModel(input);
   }
-
   updateCenterAgentModel(
     input: UpdateCenterAgentModelInput
   ): Promise<UpdateCenterAgentModelResponse> {
     return super.updateCenterAgentModel(input);
   }
-
   listMessageChannelConnections(
     input: ListMessageChannelConnectionsInput
   ): Promise<MessageChannelConnectionListResponse> {
     return super.listMessageChannelConnections(input);
   }
-
   requestMessageChannelSetup(
     input: RequestMessageChannelSetupInput
   ): Promise<MessageChannelSetupRequestResponse> {
     return super.requestMessageChannelSetup(input);
   }
-
   listActiveLarkPlatformRegistrations(
     input: ListActiveLarkPlatformRegistrationsInput
   ): Promise<LarkPlatformActiveRegistrationListResponse> {
     return super.listActiveLarkPlatformRegistrations(input);
   }
-
   previewMessageChannelIdentityLink(
     input: PreviewMessageChannelIdentityLinkInput
   ): Promise<MessageChannelIdentityLinkPreviewResponse> {
     return super.previewMessageChannelIdentityLink(input);
   }
-
   consumeMessageChannelIdentityLink(
     input: ConsumeMessageChannelIdentityLinkInput
   ): Promise<MessageChannelIdentityLinkConsumeResponse> {
     return super.consumeMessageChannelIdentityLink(input);
   }
-
   beginLarkPlatformRegistration(
     input: BeginLarkPlatformRegistrationInput
   ): Promise<LarkPlatformRegistrationResponse> {
     return super.beginLarkPlatformRegistration(input);
   }
-
   pollLarkPlatformRegistration(
     input: PollLarkPlatformRegistrationInput
   ): Promise<LarkPlatformRegistrationResponse> {
     return super.pollLarkPlatformRegistration(input);
   }
-
   disconnectLarkPlatformRegistration(
     input: DisconnectLarkPlatformRegistrationInput
   ): Promise<MessageChannelConnectionListResponse> {
     return super.disconnectLarkPlatformRegistration(input);
   }
-
   disconnectMessageChannelIdentityLink(
     input: DisconnectMessageChannelIdentityLinkInput
   ): Promise<MessageChannelConnectionListResponse> {
     return super.disconnectMessageChannelIdentityLink(input);
   }
-
   getCenterAgentDirectMessageSpaceProjection(
     input: GetCenterAgentDirectMessageSpaceProjectionInput
   ): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
     return super.getCenterAgentDirectMessageSpaceProjection(input);
   }
-
   listCenterAgentSessions(
     input: ListCenterAgentSessionsInput
   ): Promise<ListCenterAgentSessionsResponse> {
     return super.listCenterAgentSessions(input);
   }
-
   createCenterAgentContextManifest(
     input: CreateCenterAgentContextManifestInput
   ): Promise<CreateCenterAgentContextManifestResponse> {
     return super.createCenterAgentContextManifest(input);
   }
-
   createCenterAgentContextLoadReceipt(
     input: CreateCenterAgentContextLoadReceiptInput
   ): Promise<CreateCenterAgentContextLoadReceiptResponse> {
     return super.createCenterAgentContextLoadReceipt(input);
   }
-
   getCenterAgentOperatingState(
     input: GetCenterAgentOperatingStateInput
   ): Promise<GetCenterAgentOperatingStateResponse> {
     return super.getCenterAgentOperatingState(input);
   }
-
   designateCenterAgent(
     input: DesignateCenterAgentInput
   ): Promise<DesignateCenterAgentResponse> {
     return super.designateCenterAgent(input);
   }
-
   updateCenterAgentProfile(
     input: UpdateCenterAgentProfileInput
   ): Promise<CenterAgentUpdateProfileResponse> {
     return super.updateCenterAgentProfile(input);
   }
-
   updateCenterAgentOperatingState(
     input: UpdateCenterAgentOperatingStateInput
   ): Promise<UpdateCenterAgentOperatingStateResponse> {
     return super.updateCenterAgentOperatingState(input);
   }
-
   connectCenterAgentSlackWorkspace(
     input: ConnectCenterAgentSlackWorkspaceInput
   ): Promise<CenterAgentSlackWorkspaceConnectionResponse> {
     return super.connectCenterAgentSlackWorkspace(input);
   }
-
   createSlackOAuthState(
     input: CreateSlackOAuthStateInput
   ): Promise<SlackOAuthStateCreateResponse> {
     return super.createSlackOAuthState(input);
   }
-
   consumeSlackOAuthState(
     input: ConsumeSlackOAuthStateInput
   ): Promise<SlackOAuthStateConsumeResponse> {
     return super.consumeSlackOAuthState(input);
   }
-
   installSlackWorkspaceFromOAuth(
     input: InstallSlackWorkspaceFromOAuthInput
   ): Promise<SlackOAuthInstallationResult> {
     return super.installSlackWorkspaceFromOAuth(input);
   }
-
   issueSlackIdentityLinkFromOAuth(
     input: IssueSlackIdentityLinkFromOAuthInput
   ): Promise<SlackOAuthIdentityLinkResult> {
     return super.issueSlackIdentityLinkFromOAuth(input);
   }
-
   disconnectCenterAgentSlackWorkspace(
     input: DisconnectCenterAgentSlackWorkspaceInput
   ): Promise<CenterAgentSlackWorkspaceDisconnectResponse> {
     return super.disconnectCenterAgentSlackWorkspace(input);
   }
-
   previewSlackIdentityLink(
     input: PreviewSlackIdentityLinkInput
   ): Promise<SlackIdentityLinkPreviewResponse> {
     return super.previewSlackIdentityLink(input);
   }
-
   consumeSlackIdentityLink(
     input: ConsumeSlackIdentityLinkInput
   ): Promise<SlackIdentityLinkConsumeResponse> {
     return super.consumeSlackIdentityLink(input);
   }
-
   assertCurrentDesignatedCenterAgent(
     input: AssertCurrentDesignatedCenterAgentInput
   ): Promise<GetCenterAgentDesignationResponse> {
     return super.assertCurrentDesignatedCenterAgent(input);
   }
-
   recordCenterAgentAudit(
     input: RecordCenterAgentAuditInput
   ): Promise<CenterAgentAttribution> {
     return super.recordCenterAgentAudit(input);
   }
-
   listCenterAgentAuditJournal(
     input: ListCenterAgentAuditJournalInput
   ): Promise<ListCenterAgentAuditJournalResponse> {
     return super.listCenterAgentAuditJournal(input);
   }
-
   readCenterAgentOrganizationMemoryPolicy(
     input: ReadCenterAgentOrganizationMemoryPolicyInput
   ): Promise<CenterAgentOrganizationMemoryPolicyResponse> {
     return super.readCenterAgentOrganizationMemoryPolicy(input);
   }
-
   setCenterAgentOrganizationMemoryPolicy(
     input: SetCenterAgentOrganizationMemoryPolicyInput
   ): Promise<CenterAgentOrganizationMemoryPolicyResponse> {
     return super.setCenterAgentOrganizationMemoryPolicy(input);
   }
-
   readOrganizationInformationProtectionPolicy(
     input: ReadOrganizationInformationProtectionPolicyInput
   ): Promise<OrganizationInformationProtectionPolicyResponse> {
     return super.readOrganizationInformationProtectionPolicy(input);
   }
-
   setOrganizationInformationProtectionPolicy(
     input: SetOrganizationInformationProtectionPolicyInput
   ): Promise<OrganizationInformationProtectionPolicyResponse> {
     return super.setOrganizationInformationProtectionPolicy(input);
   }
-
   readCurrentOrganizationFeedbackReportingPolicy(
     input: ReadCurrentOrganizationFeedbackReportingPolicyInput
   ): Promise<FeedbackReportingPolicyResponse> {
     return super.readCurrentOrganizationFeedbackReportingPolicy(input);
   }
-
   setCurrentOrganizationFeedbackReportingPolicy(
     input: SetCurrentOrganizationFeedbackReportingPolicyInput
   ): Promise<FeedbackReportingPolicyResponse> {
     return super.setCurrentOrganizationFeedbackReportingPolicy(input);
   }
-
   wipeCurrentMemberCenterAgentMemory(
     input: WipeCurrentMemberCenterAgentMemoryInput
   ): Promise<CenterAgentWipeMemberMemoryResponse> {
     return super.wipeCurrentMemberCenterAgentMemory(input);
   }
-
   centerAgentRememberForOrganization(
     input: CenterAgentRememberForOrganizationInput
   ): Promise<CenterAgentRememberForOrganizationResponse> {
     return super.centerAgentRememberForOrganization(input);
   }
-
   completeRemoteAgentSubmission(
     input: RemoteAgentCoreCallbackEvent
   ): Promise<RemoteAgentCoreCallbackResponse> {
     return super.completeRemoteAgentSubmission(input);
   }
-
   handleRemoteAgentSlackEvent(input: unknown): Promise<{
     status:
       | "duplicate"
@@ -5768,91 +5940,76 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }> {
     return super.handleRemoteAgentSlackEvent(input);
   }
-
   submitFeedbackIssue(
     input: FeedbackIssueSubmitRpcRequest
   ): Promise<SubmitFeedbackIssueResponse> {
     return super.submitFeedbackIssue(input);
   }
-
   centerAgentCreateSpace(
     input: CenterAgentCreateSpaceInput
   ): Promise<CenterAgentCreateSpaceResponse> {
     return super.centerAgentCreateSpace(input);
   }
-
   centerAgentEnableAgentProfile(
     input: CenterAgentEnableAgentProfileInput
   ): Promise<CenterAgentEnableAgentProfileResponse> {
     return super.centerAgentEnableAgentProfile(input);
   }
-
   centerAgentAddAgentProfilesToSpace(
     input: CenterAgentAddAgentProfilesToSpaceInput
   ): Promise<CenterAgentAddAgentProfilesToSpaceResponse> {
     return super.centerAgentAddAgentProfilesToSpace(input);
   }
-
   centerAgentAddMembersToSpace(
     input: CenterAgentAddMembersToSpaceInput
   ): Promise<CenterAgentAddMembersToSpaceResponse> {
     return super.centerAgentAddMembersToSpace(input);
   }
-
   centerAgentRemoveAgentProfilesFromSpace(
     input: CenterAgentRemoveAgentProfilesFromSpaceInput
   ): Promise<CenterAgentRemoveAgentProfilesFromSpaceResponse> {
     return super.centerAgentRemoveAgentProfilesFromSpace(input);
   }
-
   centerAgentGetOrganizationDirectory(
     input: CenterAgentReadOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return super.centerAgentGetOrganizationDirectory(input);
   }
-
   centerAgentReadMemberComputers(
     input: CenterAgentReadMemberComputersInput
   ): Promise<CenterAgentReadMemberComputersResponse> {
     return super.centerAgentReadMemberComputers(input);
   }
-
   centerAgentReadMemberOpenMeldServiceStatus(
     input: CenterAgentReadMemberOpenMeldServiceStatusInput
   ): Promise<CenterAgentReadMemberOpenMeldServiceStatusResponse> {
     return super.centerAgentReadMemberOpenMeldServiceStatus(input);
   }
-
   centerAgentReadSlackWorkspaceDirectory(
     input: CenterAgentReadSlackWorkspaceDirectoryInput
   ): Promise<CenterAgentReadSlackWorkspaceDirectoryResponse> {
     return super.centerAgentReadSlackWorkspaceDirectory(input);
   }
-
   centerAgentListSlackChannels(
     input: CenterAgentListSlackChannelsInput
   ): Promise<CenterAgentListSlackChannelsResponse> {
     return super.centerAgentListSlackChannels(input);
   }
-
   centerAgentReadSlackChannelMembers(
     input: CenterAgentReadSlackChannelMembersInput
   ): Promise<CenterAgentReadSlackChannelMembersResponse> {
     return super.centerAgentReadSlackChannelMembers(input);
   }
-
   centerAgentReadSlackChannelHistory(
     input: CenterAgentReadSlackChannelHistoryInput
   ): Promise<CenterAgentReadSlackChannelHistoryResponse> {
     return super.centerAgentReadSlackChannelHistory(input);
   }
-
   centerAgentReadSlackFile(
     input: CenterAgentReadSlackFileInput
   ): Promise<CenterAgentReadSlackFileResponse> {
     return super.centerAgentReadSlackFile(input);
   }
-
   centerAgentReadChannelFile(
     input: CenterAgentReadChannelFileInput
   ): Promise<CenterAgentReadChannelFileResponse> {
@@ -5863,175 +6020,172 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ): Promise<CenterAgentPostChannelFileResponse> {
     return super.centerAgentPostChannelFile(input);
   }
-
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
     return super.centerAgentSearchSlackMessages(input);
   }
-
   centerAgentGetOrganizationSpaceDirectory(
     input: CenterAgentReadOrganizationSpaceDirectoryInput
   ): Promise<OrganizationSpaceDirectoryResponse> {
     return super.centerAgentGetOrganizationSpaceDirectory(input);
   }
-
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
     return super.centerAgentReadSpaceContext(input);
   }
-
   centerAgentPostSpaceMessage(
     input: CenterAgentPostSpaceMessageInput
   ): Promise<CenterAgentPostSpaceMessageResponse> {
     return super.centerAgentPostSpaceMessage(input);
   }
-
   centerAgentReadSpaceAuthoringContract(
     input: CenterAgentReadSpaceAuthoringContractInput
   ): Promise<CenterAgentSpaceAuthoringContractResponse> {
     return super.centerAgentReadSpaceAuthoringContract(input);
   }
-
   centerAgentPostSlackChannelMessage(
     input: CenterAgentPostSlackChannelMessageInput
   ): Promise<CenterAgentPostSlackChannelMessageResponse> {
     return super.centerAgentPostSlackChannelMessage(input);
   }
-
   centerAgentPostSlackFile(
     input: CenterAgentPostSlackFileInput
   ): Promise<CenterAgentPostSlackFileResponse> {
     return super.centerAgentPostSlackFile(input);
   }
-
   centerAgentPostSlackThreadMessage(
     input: CenterAgentPostSlackThreadMessageInput
   ): Promise<CenterAgentPostSlackChannelMessageResponse> {
     return super.centerAgentPostSlackThreadMessage(input);
   }
-
   centerAgentRecordConnectorActionAudit(
     input: CenterAgentRecordConnectorActionAuditInput
   ): Promise<CenterAgentRecordConnectorActionAuditResponse> {
     return super.centerAgentRecordConnectorActionAudit(input);
   }
-
   centerAgentReadConnectorActionOperation(
     input: CenterAgentReadConnectorActionOperationInput
   ): Promise<CenterAgentReadConnectorActionOperationResponse> {
     return super.centerAgentReadConnectorActionOperation(input);
   }
-
   centerAgentRecordConnectorActionOperation(
     input: CenterAgentRecordConnectorActionOperationInput
   ): Promise<CenterAgentRecordConnectorActionOperationResponse> {
     return super.centerAgentRecordConnectorActionOperation(input);
   }
-
   centerAgentWakeAgentProfilesInSpace(
     input: CenterAgentWakeAgentProfilesInSpaceInput
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
     return super.centerAgentWakeAgentProfilesInSpace(input);
   }
 
+  centerAgentWakeAgentProfilesInSpaces(
+    input: CenterAgentWakeAgentProfilesInSpacesInput
+  ): Promise<CenterAgentWakeAgentProfilesInSpacesResponse> {
+    return super.centerAgentWakeAgentProfilesInSpaces(input);
+  }
+
   personalRemoteAgentSpaceTool(input: unknown) {
     return super.personalRemoteAgentSpaceTool(input);
   }
-
   centerAgentListAgentTasks(
     input: CenterAgentListAgentTasksInput
   ): Promise<CenterAgentListAgentTasksResponse> {
     return super.centerAgentListAgentTasks(input);
   }
-
   centerAgentWatchAgentTask(
     input: CenterAgentWatchAgentTaskInput
   ): Promise<CenterAgentWatchAgentTaskResponse> {
     return super.centerAgentWatchAgentTask(input);
   }
-
+  centerAgentContinueTaskSummary(
+    input: Parameters<typeof rpcCenterAgentContinueTaskSummary>[1]
+  ) {
+    return super.centerAgentContinueTaskSummary(input);
+  }
   centerAgentUpdateSpaceSettings(
     input: CenterAgentUpdateSpaceSettingsInput
   ): Promise<CenterAgentUpdateSpaceSettingsResponse> {
     return super.centerAgentUpdateSpaceSettings(input);
   }
-
   openCenterAgentDirectMessageSpace(
     input: OpenCenterAgentDirectMessageSpaceInput
   ): Promise<OpenCenterAgentDirectMessageSpaceResponse> {
     return super.openCenterAgentDirectMessageSpace(input);
   }
-
   openDirectMessageSpace(
     input: OpenDirectMessageSpaceInput
   ): Promise<OpenDirectMessageSpaceResponse> {
     return super.openDirectMessageSpace(input);
   }
-
   convertDirectMessageToSpace(
     input: ConvertDirectMessageToSpaceInput
   ): Promise<ConvertDirectMessageToSpaceResponse> {
     return super.convertDirectMessageToSpace(input);
   }
-
   notifyAgentProfileRouteCatalogChanged(
     input: NotifyAgentProfileRouteCatalogChangedInput
   ): Promise<NotifyAgentProfileRouteCatalogChangedResponse> {
     return super.notifyAgentProfileRouteCatalogChanged(input);
   }
-
   notifyAgentProfilesRouteCatalogChanged(
     input: NotifyAgentProfilesRouteCatalogChangedInput
   ): Promise<NotifyAgentProfileRouteCatalogChangedResponse> {
     return super.notifyAgentProfilesRouteCatalogChanged(input);
   }
-
   submitRuntimeRegistration(
     input: SubmitRuntimeRegistrationInput
   ): Promise<SubmitRuntimeRegistrationResponse> {
     return super.submitRuntimeRegistration(input);
   }
-
   submitRuntimeAgentControllerReports(
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
     return super.submitRuntimeAgentControllerReports(input);
   }
-
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput
   ) {
     return super.submitAgentControllerTaskLifecycleEvents(input);
   }
-
   submitRuntimeProviderConversationProofs(
     input: SubmitRuntimeProviderConversationProofsInput
   ): Promise<SubmitRuntimeProviderConversationProofsResponse> {
     return super.submitRuntimeProviderConversationProofs(input);
   }
-
   setLocalRuntimeDisplayName(
     input: SetLocalRuntimeDisplayNameInput
   ): Promise<LocalRuntimesResponse> {
     return super.setLocalRuntimeDisplayName(input);
   }
-
   writeCurrentDeviceObservedMetadata(
     input: WriteCurrentDeviceObservedMetadataInput
   ): Promise<WriteCurrentDeviceObservedMetadataResponse> {
     return super.writeCurrentDeviceObservedMetadata(input);
   }
-
   enrollLocalRuntime(
     input: EnrollLocalRuntimeInput
   ): Promise<LocalRuntimeEnrollmentResponse> {
     return super.enrollLocalRuntime(input);
   }
 }
-
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  remoteAgentOpenDirectMessageSpace(input: OpenDirectMessageSpaceInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRemoteAgentOpenDirectMessageSpace(this.env, input)
+    );
+  }
+
+  remoteAgentGetOrganizationDirectory(input: {
+    context?: CoreRpcContextInput;
+  }) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRemoteAgentGetOrganizationDirectory(this.env, input)
+    );
+  }
+
   writeSpaceFileContent(
     input: WriteSpaceFileContentRpcInput,
     spaceFilesOriginVersion?: string,
@@ -6045,270 +6199,325 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
       )
     );
   }
-
   centerAgentInviteSlackTeammates(
     input: CenterAgentInviteSlackTeammatesRpcInput
   ): Promise<CenterAgentInviteSlackTeammatesRpcResponse> {
-    return handleCenterAgentSlackTeammateInvitations(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      handleCenterAgentSlackTeammateInvitations(this.env, input)
+    );
   }
-
   centerAgentListOrganizationMembers(
     input: CenterAgentListOrganizationMembersToolRpcInput
   ): Promise<CenterAgentListOrganizationMembersResponse> {
-    return rpcCenterAgentListOrganizationMembers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListOrganizationMembers(this.env, input)
+    );
   }
-
   centerAgentAuthorizeAnonymousMemberTool(
     input: CenterAgentAuthorizeAnonymousMemberToolRpcInput
   ): Promise<CenterAgentAuthorizeAnonymousMemberToolResponse> {
-    return rpcCenterAgentAuthorizeAnonymousMemberTool(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentAuthorizeAnonymousMemberTool(this.env, input)
+    );
   }
-
   centerAgentListProjects(
     input: CenterAgentListProjectsToolRpcInput
   ): Promise<CenterAgentListProjectsToolResponse> {
-    return rpcCenterAgentListProjects(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListProjects(this.env, input)
+    );
   }
-
   centerAgentCreateProject(
     input: CenterAgentCreateProjectToolRpcInput
   ): Promise<CenterAgentCreateProjectToolResponse> {
-    return rpcCenterAgentCreateProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentCreateProject(this.env, input)
+    );
   }
-
   centerAgentUpdateProject(
     input: CenterAgentUpdateProjectToolRpcInput
   ): Promise<CenterAgentUpdateProjectToolResponse> {
-    return rpcCenterAgentUpdateProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentUpdateProject(this.env, input)
+    );
   }
-
   centerAgentSetAgentProfileDefaultProject(
     input: CenterAgentSetAgentProfileDefaultProjectToolRpcInput
   ): Promise<CenterAgentSetAgentProfileDefaultProjectToolResponse> {
-    return rpcCenterAgentSetAgentProfileDefaultProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSetAgentProfileDefaultProject(this.env, input)
+    );
   }
-
   centerAgentPrepareRemoveProject(
     input: CenterAgentPrepareRemoveProjectToolRpcInput
   ): Promise<CenterAgentPrepareRemoveProjectToolResponse> {
-    return rpcCenterAgentPrepareRemoveProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentPrepareRemoveProject(this.env, input)
+    );
   }
-
   centerAgentRemoveProject(
     input: CenterAgentRemoveProjectToolRpcInput
   ): Promise<CenterAgentRemoveProjectToolResponse> {
-    return rpcCenterAgentRemoveProject(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRemoveProject(this.env, input)
+    );
   }
-
   centerAgentReadOrganizationDocuments(
     input: CenterAgentReadOrganizationDocumentsRpcInput
   ): Promise<CenterAgentReadOrganizationDocumentsResponse> {
-    return rpcCenterAgentReadOrganizationDocuments(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadOrganizationDocuments(this.env, input)
+    );
   }
-
   centerAgentOrganizationDocumentsComputerSnapshot(
     input: CenterAgentOrganizationDocumentsComputerSnapshotRpcInput
   ): Promise<CenterAgentOrganizationDocumentsComputerSnapshotResponse> {
-    return rpcCenterAgentOrganizationDocumentsComputerSnapshot(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentOrganizationDocumentsComputerSnapshot(this.env, input)
+    );
   }
-
   centerAgentDraftOrganizationDocument(
     input: CenterAgentDraftOrganizationDocumentRpcInput
   ): Promise<CenterAgentDraftOrganizationDocumentResponse> {
-    return rpcCenterAgentDraftOrganizationDocument(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentDraftOrganizationDocument(this.env, input)
+    );
   }
-
   async centerAgentStartSelfMemberResearch(
     input: CenterAgentStartSelfMemberResearchToolRpcInput
   ): Promise<StartCenterAgentMemberResearchResponse> {
-    const response = await rpcCenterAgentStartSelfMemberResearch(
-      this.env,
-      input
-    );
-    const db = localStateDb(this.env);
-    if (db) {
-      this.ctx.waitUntil(
-        runCenterAgentMemberResearchTick({ db, env: this.env })
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const response = await rpcCenterAgentStartSelfMemberResearch(
+        this.env,
+        input
       );
-    }
-    return response;
+      const db = getPostgresDatabase(this.env);
+      if (db) {
+        this.ctx.waitUntil(
+          runCenterAgentMemberResearchTick({ db, env: this.env })
+        );
+      }
+      return response;
+    });
   }
-
   recordCenterAgentMemberResearchComputerFile(
     input: RecordCenterAgentMemberResearchComputerFileRpcInput
   ): Promise<RecordCenterAgentMemberResearchComputerFileResponse> {
-    return rpcRecordCenterAgentMemberResearchComputerFile(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordCenterAgentMemberResearchComputerFile(this.env, input)
+    );
   }
-
   centerAgentManageOrganizationDocuments(
     input: CenterAgentManageOrganizationDocumentsRpcInput
   ): Promise<CenterAgentManageOrganizationDocumentsResponse> {
-    return rpcCenterAgentManageOrganizationDocuments(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentManageOrganizationDocuments(this.env, input)
+    );
   }
-
   readOrganizationDocumentPromptContext(
     input: OrganizationDocumentPromptContextRpcInput
   ): Promise<OrganizationDocumentPromptContextResponse> {
-    return rpcReadOrganizationDocumentPromptContext(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationDocumentPromptContext(this.env, input)
+    );
   }
-
   centerAgentCreateOrganizationInviteLink(
     input: CenterAgentCreateOrganizationInviteLinkToolRpcInput
   ): Promise<CenterAgentCreateOrganizationInviteLinkResponse> {
-    return rpcCenterAgentCreateOrganizationInviteLink(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentCreateOrganizationInviteLink(this.env, input)
+    );
   }
-
   centerAgentGetOrganizationInviteLink(
     input: CenterAgentGetOrganizationInviteLinkToolRpcInput
   ): Promise<CenterAgentGetOrganizationInviteLinkResponse> {
-    return rpcCenterAgentGetOrganizationInviteLink(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentGetOrganizationInviteLink(this.env, input)
+    );
   }
-
   centerAgentReadAgentActivityOverview(
     input: CenterAgentReadAgentActivityInput
   ) {
-    return rpcCenterAgentReadAgentActivityOverview(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadAgentActivityOverview(this.env, input)
+    );
   }
-
+  centerAgentReadAiUsage(input: CenterAgentAiUsageRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadAiUsage(this.env, input)
+    );
+  }
+  recordRemoteAiUsage(input: RemoteAiUsageWrite) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordRemoteAiUsage(this.env, input)
+    );
+  }
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {
-    return rpcCenterAgentReadAgentActivity(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadAgentActivity(this.env, input)
+    );
   }
-
   centerAgentListAgentActivitySessions(
     input: CenterAgentListAgentActivitySessionsInput
   ) {
-    return rpcCenterAgentListAgentActivitySessions(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListAgentActivitySessions(this.env, input)
+    );
   }
-
   centerAgentListActiveSpaceWakes(
     input: CenterAgentListActiveSpaceWakesInput
   ): Promise<AccountSpaceActiveWakeSummaryResponse> {
-    return rpcCenterAgentListActiveSpaceWakes(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListActiveSpaceWakes(this.env, input)
+    );
   }
-
   centerAgentReadSpaceWakeProgress(
     input: CenterAgentReadSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
-    return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadSpaceWakeProgress(this.env, input)
+    );
   }
-
   centerAgentStopSpaceWake(
     input: CenterAgentStopSpaceWakeInput
   ): Promise<PostSpaceWakeStopResponse> {
-    return rpcCenterAgentStopSpaceWake(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentStopSpaceWake(this.env, input)
+    );
+  }
+  centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadChangelog(this.env, input)
+    );
   }
 
-  centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
-    return rpcCenterAgentReadChangelog(this.env, input);
+  centerAgentSpaceInputQueue(
+    input: CenterAgentSpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSpaceInputQueue(this.env, input)
+    );
   }
 
   centerAgentSearchMemory(input: CenterAgentSearchMemoryRpcInput) {
-    return rpcCenterAgentSearchMemory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSearchMemory(this.env, input)
+    );
   }
-
   centerAgentReadAuditJournal(input: CenterAgentReadAuditJournalRpcInput) {
-    return rpcCenterAgentReadAuditJournal(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadAuditJournal(this.env, input)
+    );
   }
-
   centerAgentReadTurnDiagnostics(
     input: CenterAgentReadTurnDiagnosticsInput
   ): Promise<CenterAgentReadTurnDiagnosticsResponse> {
-    return rpcCenterAgentReadTurnDiagnostics(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadTurnDiagnostics(this.env, input)
+    );
   }
-
   centerAgentSetReplyPlacement(input: CenterAgentSetReplyPlacementInput) {
-    return rpcCenterAgentSetReplyPlacement(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSetReplyPlacement(this.env, input)
+    );
   }
-
   centerAgentListOpportunities(input: CenterAgentListOpportunitiesInput) {
-    return rpcCenterAgentListOpportunities(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListOpportunities(this.env, input)
+    );
   }
-
   centerAgentRecommendOpportunity(input: CenterAgentRecommendOpportunityInput) {
-    return rpcCenterAgentRecommendOpportunity(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRecommendOpportunity(this.env, input)
+    );
   }
-
   centerAgentRespondToOpportunity(input: CenterAgentRespondToOpportunityInput) {
-    return rpcCenterAgentRespondToOpportunity(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentRespondToOpportunity(this.env, input)
+    );
   }
-
   centerAgentSetOrganizationWorkingLanguage(
     input: CenterAgentSetOrganizationWorkingLanguageToolRpcInput
   ): Promise<CenterAgentSetOrganizationWorkingLanguageToolResponse> {
-    return rpcCenterAgentSetOrganizationWorkingLanguage(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentSetOrganizationWorkingLanguage(this.env, input)
+    );
   }
-
   centerAgentListRoutineRuns(input: CenterAgentListRoutineRunsToolRpcInput) {
-    return rpcCenterAgentListRoutineRuns(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListRoutineRuns(this.env, input)
+    );
   }
-
   centerAgentReadRoutineRunDiagnostics(
     input: CenterAgentReadRoutineRunDiagnosticsRpcInput
   ) {
-    return rpcCenterAgentReadRoutineRunDiagnostics(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentReadRoutineRunDiagnostics(this.env, input)
+    );
   }
-
   centerAgentListRoutines(
     input: CenterAgentListRoutinesToolRpcInput
   ): Promise<ListCenterAgentRoutinesResponse> {
-    return rpcCenterAgentListRoutines(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListRoutines(this.env, input)
+    );
   }
-
   centerAgentCreateRoutine(
     input: CenterAgentCreateRoutineToolRpcInput
   ): Promise<CreateCenterAgentRoutineResponse> {
-    return rpcCenterAgentCreateRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentCreateRoutine(this.env, input)
+    );
   }
-
   centerAgentUpdateRoutine(
     input: CenterAgentUpdateRoutineToolRpcInput
   ): Promise<UpdateCenterAgentRoutineResponse> {
-    return rpcCenterAgentUpdateRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentUpdateRoutine(this.env, input)
+    );
   }
-
   centerAgentDeleteRoutine(
     input: CenterAgentDeleteRoutineToolRpcInput
   ): Promise<DeleteCenterAgentRoutineResponse> {
-    return rpcCenterAgentDeleteRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentDeleteRoutine(this.env, input)
+    );
   }
-
   centerAgentPauseRoutine(
     input: CenterAgentPauseRoutineToolRpcInput
   ): Promise<PauseCenterAgentRoutineResponse> {
-    return rpcCenterAgentPauseRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentPauseRoutine(this.env, input)
+    );
   }
-
   centerAgentResumeRoutine(
     input: CenterAgentResumeRoutineToolRpcInput
   ): Promise<ResumeCenterAgentRoutineResponse> {
-    return rpcCenterAgentResumeRoutine(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentResumeRoutine(this.env, input)
+    );
   }
 }
-
 /**
  * Compatibility entrypoint for already-deployed Remote Agent bindings.
  * New bindings use CenterAgentRpcEntrypoint because this private surface now
  * carries multiple Center Agent product-tool families, not only Routines.
  */
 export class CenterAgentRoutineRpcEntrypoint extends CenterAgentRpcEntrypoint {}
-
 function toSpaceImageGeometryRpcOutput<T>(value: T, version?: string): T {
   return version === OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     ? value
     : toLegacySpaceImageGeometryWireValue(value);
 }
-
 async function withSpaceImageGeometryRpcOutput<T>(
   value: Promise<T>,
   version?: string
 ): Promise<T> {
   return toSpaceImageGeometryRpcOutput(await value, version);
 }
-
 function toLegacySpaceAddressingRpcOutput<T>(value: T): T {
   return toLegacySpaceAddressingWireValue(value) as T;
 }
-
 function toSpaceAddressingRpcOutput<T>(
   value: T,
   spaceAddressingVersion: string | undefined,
@@ -6321,7 +6530,6 @@ function toSpaceAddressingRpcOutput<T>(
     ? readValue
     : toLegacySpaceAddressingRpcOutput(readValue);
 }
-
 async function withSpaceAddressingRpcOutput<T>(
   value: Promise<T>,
   spaceAddressingVersion: string | undefined,
@@ -6333,7 +6541,6 @@ async function withSpaceAddressingRpcOutput<T>(
     spaceImageGeometryVersion
   );
 }
-
 /**
  * The RPC boundary analog of `withSpaceAddressingRpcOutput`, shared by both
  * Space Files RPC boundaries this Core exposes:
@@ -6359,7 +6566,6 @@ async function withSpaceFilesOriginRpcOutput<T>(
     ? resolved
     : (toLegacySpaceFilesOriginWireValue(resolved) as T);
 }
-
 /**
  * `streamSpaceFileContent`'s resolved value embeds a live `bytes:
  * ReadableStream` alongside its file-descriptor metadata.
@@ -6371,7 +6577,9 @@ async function withSpaceFilesOriginRpcOutput<T>(
  * the walk and reattach it untouched.
  */
 async function withSpaceFilesOriginStreamRpcOutput<
-  T extends { bytes: unknown },
+  T extends {
+    bytes: unknown;
+  },
 >(
   value: Promise<T>,
   originCapable: boolean,
@@ -6390,26 +6598,27 @@ async function withSpaceFilesOriginStreamRpcOutput<
     bytes,
   } as T;
 }
-
 class CoreEntrypoint extends CenterAgentRpcEntrypoint {
   ping() {
     return super.ping();
   }
-
   async queue(batch: MessageBatch<unknown>): Promise<void> {
-    await handleCoreQueueBatch({
-      batch,
-      ctx: this.ctx,
-      env: this.env,
-    });
+    await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      handleCoreQueueBatch({
+        batch,
+        ctx: this.ctx,
+        env: this.env,
+      })
+    );
   }
-
   async scheduled(controller: ScheduledController): Promise<void> {
-    await runCoreScheduledTasks({
-      env: this.env,
-      cron: controller.cron,
-      nowMs: Date.now(),
-    });
+    await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      runCoreScheduledTasks({
+        env: this.env,
+        cron: controller.cron,
+        nowMs: Date.now(),
+      })
+    );
   }
 }
 
@@ -6431,7 +6640,11 @@ import type {
   CenterAgentReadChannelFileResponse,
   CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
-import { rpcPluginAction } from "./connectors/plugin-actions";
+import { rpcPluginActionRequest } from "./connectors/plugin-action-requests";
+import {
+  authorizeLocalPluginConnection,
+  rpcPluginAction,
+} from "./connectors/plugin-actions";
 import {
   type CenterAgentPostChannelFileInput,
   rpcCenterAgentPostChannelFile,
@@ -6440,4 +6653,8 @@ import {
   type CenterAgentReadChannelFileInput,
   rpcCenterAgentReadChannelFile,
 } from "./remote-agent/application/message-channel-file-service";
-import { rpcCenterAgentSetReplyPlacement } from "./rpc/methods";
+import {
+  rpcAgentSessionHistory,
+  rpcCenterAgentSetReplyPlacement,
+  rpcComputerSessionHistory,
+} from "./rpc/methods";

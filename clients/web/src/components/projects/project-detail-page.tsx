@@ -25,6 +25,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationProjectActivityPath,
@@ -35,6 +36,8 @@ import {
 	resolveProjectErrorMessage,
 	updateCurrentProject,
 } from "#/lib/organizations/projects";
+import { mayShowCachedReadData } from "#/lib/query-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import {
 	projectQueryKeys,
@@ -56,6 +59,9 @@ export function ProjectDetailPage(input: { projectId: string }) {
 	const navigate = useNavigate();
 	const projectsQuery = useQuery(
 		projectsQueryOptions({ organizationId: currentOrganization.id })
+	);
+	const showPending = useDelayedPending(
+		projectsQuery.isPending && projectsQuery.fetchStatus !== "paused"
 	);
 	const directoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
@@ -121,7 +127,13 @@ export function ProjectDetailPage(input: { projectId: string }) {
 		},
 	});
 
-	if (projectsQuery.isPending) {
+	if (projectsQuery.isPending && !projectsQuery.data) {
+		if (projectsQuery.fetchStatus === "paused") {
+			return <ReadPausedState subject="this Project" />;
+		}
+		if (!showPending) {
+			return null;
+		}
 		return (
 			<div className="grid gap-4">
 				<Skeleton className="h-7 w-48" />
@@ -130,7 +142,10 @@ export function ProjectDetailPage(input: { projectId: string }) {
 			</div>
 		);
 	}
-	if (projectsQuery.isError) {
+	if (
+		projectsQuery.isError &&
+		!(projectsQuery.data && mayShowCachedReadData(projectsQuery.error))
+	) {
 		return (
 			<div
 				className={cn(
@@ -171,6 +186,21 @@ export function ProjectDetailPage(input: { projectId: string }) {
 
 	return (
 		<div className="grid gap-6">
+			{projectsQuery.isRefetchError ? (
+				<output className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-card/35 px-4 py-3 text-sm">
+					<span>
+						Couldn't refresh Projects. Showing the last loaded details.
+					</span>
+					<Button
+						disabled={projectsQuery.isFetching}
+						onClick={() => projectsQuery.refetch()}
+						size="sm"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</output>
+			) : null}
 			<div>
 				<Link
 					className={APP_INLINE_BACK_LINK_CLASS_NAME}

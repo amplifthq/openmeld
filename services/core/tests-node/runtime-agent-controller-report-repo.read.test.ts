@@ -4,28 +4,22 @@ import {
   createRuntimeLookupInput,
   type RuntimeLookupInput,
 } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
   acceptRuntimeAgentControllerReportRecord,
   readCurrentRuntimeAgentControllerReports,
-} from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+} from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import {
   listOwnedDeviceExecutionTargetRecords,
   registerRuntimeRegistryRecord,
-} from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
-import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("runtime agent controller report repo read-side", () => {
   it("reads current reports for one authority Runtime without returning other Runtime facts", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const firstLookupInput = lookupInput("owner-1", "device-1");
       const secondLookupInput = lookupInput("owner-2", "device-2");
@@ -66,17 +60,13 @@ describe("runtime agent controller report repo read-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("filters current reports by valid Agent Controller refs", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -114,17 +104,13 @@ describe("runtime agent controller report repo read-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects openMeldServiceRuntimeId values that do not carry Runtime Registry authority source", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       await expect(
         readCurrentRuntimeAgentControllerReports({
@@ -138,17 +124,13 @@ describe("runtime agent controller report repo read-side", () => {
         "openMeldServiceRuntimeId must come from Runtime Registry authority"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("projects fresh, stale, unsupported, and multiple usage windows without dropping the controller", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -241,17 +223,18 @@ describe("runtime agent controller report repo read-side", () => {
         { key: "provider", status: "unsupported", usedPercent: null },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
-  it("keeps the last reported capacity stale when a later provider read is unavailable", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+  it.each([
+    undefined,
+    "refresh_failed",
+    "not_applicable",
+    "not_authenticated",
+  ] as const)("retains last reported capacity only for a failed refresh (%s)", async (reason) => {
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -293,6 +276,7 @@ describe("runtime agent controller report repo read-side", () => {
                 resetsAt: null,
                 status: "unavailable",
                 usedPercent: null,
+                ...(reason ? { reason } : {}),
               },
             ],
           },
@@ -308,30 +292,32 @@ describe("runtime agent controller report repo read-side", () => {
         db: harness.db,
         openMeldServiceRuntimeId: registeredRuntimeId,
       });
-      expect(
-        storedReports[0]?.agentControllerInterface?.usageLimits
-      ).toMatchObject([
-        { key: "codex:primary", status: "stale", usedPercent: 42 },
-        { key: "codex:secondary", status: "stale", usedPercent: 100 },
-        {
-          key: "provider-unavailable",
-          status: "unavailable",
-          usedPercent: null,
-        },
-        { key: "provider", status: "unsupported", usedPercent: null },
-      ]);
+      if (reason === "not_applicable" || reason === "not_authenticated") {
+        expect(
+          storedReports[0]?.agentControllerInterface?.usageLimits
+        ).toMatchObject([{ reason, usedPercent: null, status: "unavailable" }]);
+      } else {
+        expect(
+          storedReports[0]?.agentControllerInterface?.usageLimits
+        ).toMatchObject([
+          { key: "codex:primary", status: "stale", usedPercent: 42 },
+          { key: "codex:secondary", status: "stale", usedPercent: 100 },
+          {
+            key: "provider-unavailable",
+            status: "unavailable",
+            usedPercent: null,
+          },
+          { key: "provider", status: "unsupported", usedPercent: null },
+        ]);
+      }
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not retain another provider account's capacity after an account switch", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -402,7 +388,7 @@ describe("runtime agent controller report repo read-side", () => {
         }),
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
@@ -502,7 +488,7 @@ function openMeldServiceRuntimeId(
 }
 
 async function registerRuntime(
-  db: D1Database,
+  db: PostgresDatabase,
   runtimeLookupInput: RuntimeLookupInput,
   openMeldServiceRuntimeIdValue: AuthorityOpenMeldServiceRuntimeId
 ): Promise<void> {
@@ -517,7 +503,7 @@ async function registerRuntime(
 }
 
 async function writeReport(
-  db: D1Database,
+  db: PostgresDatabase,
   openMeldServiceRuntimeIdValue: AuthorityOpenMeldServiceRuntimeId,
   agentControllerRef: string,
   status: "disabled" | "ready"

@@ -1,0 +1,202 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790960000000,
+      "tag": "0001_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790964465100,
+      "tag": "0001_product",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790967607600,
+      "tag": "0002_inbox_sequence",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790967810758,
+      "tag": "0003_auth_uuid_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790975157315,
+      "tag": "0004_owner_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790978315878,
+      "tag": "0005_join_request_applicant_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790978590548,
+      "tag": "0006_timestamp_millisecond_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790979019638,
+      "tag": "0007_json_and_repository_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790983701613,
+      "tag": "0008_slack_welcome_retry",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790984488287,
+      "tag": "0009_native_submission_claim",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790984596111,
+      "tag": "0010_submission_claim_nullability",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790993593558,
+      "tag": "0011_retired_owner_awareness",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791001927411,
+      "tag": "0012_rainy_lorna_dane",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791031952549,
+      "tag": "0013_d1_import_completion",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791088848411,
+      "tag": "0014_batch_wake_publications",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791093824967,
+      "tag": "0015_plugin_action_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791192247019,
+      "tag": "0016_open_tomorrow_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791204757872,
+      "tag": "0017_account_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791204781698,
+      "tag": "0018_account_deletion_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791267405557,
+      "tag": "0019_activity_recent_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791275423823,
+      "tag": "0020_nifty_avengers",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791298257012,
+      "tag": "0021_routines_product",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791355487644,
+      "tag": "0022_space_recent_message_previews",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791374969658,
+      "tag": "0023_tearful_spiral",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791377828078,
+      "tag": "0024_funny_shinko_yamashiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791378013780,
+      "tag": "0025_lovely_human_torch",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791397366114,
+      "tag": "0026_ended_inbox_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791437308614,
+      "tag": "0027_project_workflow",
+      "breakpoints": true
+    }
+  ]
+}

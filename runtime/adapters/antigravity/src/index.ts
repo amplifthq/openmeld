@@ -19,10 +19,20 @@ import {
 } from "@openmeld/adapter-core";
 import { verifyAntigravityLaunchContract as verifyAntigravityLaunchContractLocal } from "./config/antigravity-runtime-config.js";
 import {
+  invokeAntigravityAcpTransport,
+  isAntigravityAcpLaunchContract,
+} from "./transport/antigravity-acp-transport.js";
+import {
   AntigravityCliTransportError,
   invokeAntigravityCliTransport,
 } from "./transport/antigravity-cli-transport.js";
 import { withAntigravityDispatchSpaceAction } from "./transport/antigravity-space-action.js";
+
+export {
+  invokeAntigravityAcpTransport,
+  isAntigravityAcpLaunchContract,
+  probeAntigravityAcp,
+} from "./transport/antigravity-acp-transport.js";
 
 export type AntigravityAdapterOptions = {
   antigravityBin?: string;
@@ -53,6 +63,7 @@ export type AntigravityInvokeByTransportMode = Partial<
 >;
 
 type ActiveTask = {
+  cancel?: () => Promise<void>;
   cancellationRequested: boolean;
   process: AdapterRuntimeProcessEvent | null;
 };
@@ -70,7 +81,6 @@ export {
   buildAntigravityArgs,
   invokeAntigravityCliTransport,
 } from "./transport/antigravity-cli-transport.js";
-export { parseAntigravityUsageLimits } from "./usage/antigravity-usage-limits.js";
 
 export function createAntigravityAdapter(
   options: AntigravityAdapterOptions = {}
@@ -85,7 +95,18 @@ export function createAntigravityAdapter(
     : undefined;
   const controlShell = createSharedControlShell({
     gracefulTimeoutMs: options.gracefulTimeoutMs,
-    sendCancel: options.sendCancel,
+    sendCancel:
+      options.sendCancel ??
+      (processInterruptSender
+        ? (request) =>
+            processInterruptSender({
+              taskId: request.taskId,
+              reason: request.reason ?? "cancel",
+              mode: activeTasks.get(request.taskId)?.cancel
+                ? "graceful"
+                : "force",
+            })
+        : undefined),
     sendInterrupt: options.sendInterrupt ?? processInterruptSender,
     waitForMs: options.waitForMs,
   });
@@ -149,6 +170,35 @@ function createDefaultAntigravityInvoke(input: {
             message: `context.rebuild_failed: ${toErrorMessage(error)}`,
           }),
         invokeOnce: async (sessionId) => {
+          const onProcessControlEvent = (event: AdapterRuntimeProcessEvent) => {
+            task.process = event.phase === "process_spawned" ? event : null;
+            if (
+              event.phase === "process_spawned" &&
+              task.cancellationRequested
+            ) {
+              signalProcess(event, "SIGINT");
+            }
+            input.options.registerRuntimeProcess?.({
+              ...event,
+              taskId: request.taskId,
+            });
+          };
+          if (isAntigravityAcpLaunchContract(launchContract)) {
+            const transportResult = await invokeAntigravityAcpTransport({
+              request,
+              launchContract,
+              sessionId,
+              onProcessControlEvent,
+              registerCancel: (cancel) => {
+                task.cancel = cancel;
+              },
+            });
+            return {
+              contextId: transportResult.sessionId,
+              output: transportResult.output,
+              telemetry: transportResult.telemetry,
+            };
+          }
           const transportResult = await withAntigravityDispatchSpaceAction({
             env: request.env,
             prompt: request.prompt,
@@ -162,20 +212,7 @@ function createDefaultAntigravityInvoke(input: {
                 jsonSchema,
                 launchContract,
                 onPreview: request.onPreview,
-                onProcessControlEvent: (event) => {
-                  task.process =
-                    event.phase === "process_spawned" ? event : null;
-                  if (
-                    event.phase === "process_spawned" &&
-                    task.cancellationRequested
-                  ) {
-                    signalProcess(event, "SIGINT");
-                  }
-                  input.options.registerRuntimeProcess?.({
-                    ...event,
-                    taskId: request.taskId,
-                  });
-                },
+                onProcessControlEvent,
                 onRuntimeEvent: request.onRuntimeEvent,
                 prompt,
                 sessionId,
@@ -190,7 +227,8 @@ function createDefaultAntigravityInvoke(input: {
           };
         },
         isContextLostError: (error) =>
-          error instanceof AntigravityCliTransportError &&
+          error instanceof Error &&
+          "code" in error &&
           error.code === "context_not_found",
       });
       const agentControllerConversation =
@@ -235,6 +273,10 @@ async function resolveDispatchLaunchContract(input: {
       { code: "controller.launch.needs_repair", errorType: "config" }
     );
   }
+  // The ACP handshake verifies the selected binary during the actual dispatch.
+  if (isAntigravityAcpLaunchContract(launchContract)) {
+    return launchContract;
+  }
   const verification = await verifyAntigravityLaunchContractLocal({
     launchContract,
   });
@@ -260,6 +302,9 @@ function createProcessInterruptSender(
       );
     }
     task.cancellationRequested = true;
+    if (signal.mode !== "force" && task.cancel) {
+      return task.cancel();
+    }
     if (!task.process) {
       return Promise.resolve();
     }

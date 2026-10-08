@@ -38,6 +38,9 @@ describe("DesktopAwareLink", () => {
 					<DesktopAwareLink href="https://example.com/docs">
 						Docs
 					</DesktopAwareLink>
+					<DesktopAwareLink href="/spaces/space-1">
+						Public Space
+					</DesktopAwareLink>
 				</>
 			),
 		});
@@ -64,10 +67,16 @@ describe("DesktopAwareLink", () => {
 		);
 		expect(bridge.openExternal).toHaveBeenCalledTimes(1);
 
+		fireEvent.click(screen.getByRole("link", { name: "Public Space" }));
+		await waitFor(() => expect(bridge.openExternal).toHaveBeenCalledTimes(2));
+		expect(bridge.openExternal).toHaveBeenLastCalledWith(
+			"http://lane.localhost:31952/spaces/space-1"
+		);
+
 		fireEvent.click(screen.getByRole("link", { name: "Agent" }), {
 			metaKey: true,
 		});
-		await waitFor(() => expect(bridge.openExternal).toHaveBeenCalledTimes(2));
+		await waitFor(() => expect(bridge.openExternal).toHaveBeenCalledTimes(3));
 		expect(bridge.openExternal).toHaveBeenLastCalledWith(
 			"http://lane.localhost:31952/o/team/agents?profileId=agent-1#activity"
 		);
@@ -75,7 +84,7 @@ describe("DesktopAwareLink", () => {
 			screen.getByRole("link", { name: "Agent" }),
 			new MouseEvent("auxclick", { bubbles: true, button: 1 })
 		);
-		await waitFor(() => expect(bridge.openExternal).toHaveBeenCalledTimes(3));
+		await waitFor(() => expect(bridge.openExternal).toHaveBeenCalledTimes(4));
 		expect(bridge.openExternal).toHaveBeenLastCalledWith(
 			"http://lane.localhost:31952/o/team/agents?profileId=agent-1#activity"
 		);
@@ -84,7 +93,7 @@ describe("DesktopAwareLink", () => {
 		await screen.findByRole("heading", { name: "Agent page" });
 		expect(router.state.location.search).toEqual({ profileId: "agent-1" });
 		expect(router.state.location.hash).toBe("activity");
-		expect(bridge.openExternal).toHaveBeenCalledTimes(3);
+		expect(bridge.openExternal).toHaveBeenCalledTimes(4);
 	});
 
 	it("keeps same-page hash and query navigation on the current app path", async () => {

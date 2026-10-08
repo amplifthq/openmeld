@@ -6,19 +6,18 @@ import type {
   RemoteAgentTurnRuntimeEvidence,
   RemoteAgentWorkerRuntimeDiagnosticsResponse,
 } from "@openmeld/schemas/types";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   handoffRoutineRunNativeDelivery,
   markRemoteAgentNativeDeliveryAck,
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../../core/src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../../core/src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { rpcCenterAgentListRoutines } from "../../core/src/routines/routine-center-agent-rpc";
 import {
   rpcCenterAgentListRoutineRuns,
   rpcCenterAgentReadRoutineRunDiagnostics,
 } from "../../core/src/routines/routine-evidence-rpc";
-import { applyDrizzleMigrationsForTables } from "../../core/tests-node/helpers/sqlite-d1-harness.test-support";
 import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-context";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import {
@@ -33,24 +32,13 @@ import {
   TEST_NOW_MS,
 } from "./fixtures";
 
-const fixtures: Awaited<ReturnType<typeof createEvidenceFixture>>[] = [];
 const PRIVATE_TEXT = "Private financial decision; do not expose this content";
-afterEach(() => {
-  for (const fixture of fixtures.splice(0)) {
-    fixture.harness.close();
-  }
-});
 
 async function fixture() {
   const f = await createEvidenceFixture();
-  fixtures.push(f);
-  applyDrizzleMigrationsForTables(f.harness, ["routines", "routine_runs"]);
-  f.harness.run({
-    sql: `INSERT INTO routines (
-      id, organization_id, name, instructions, schedule_kind, cron_expression, timezone,
-      target_space_id, status, next_due_at, created_by_user_id, updated_by_user_id, created_at_ms, updated_at_ms
-    ) VALUES ('routine-1', ?, 'Daily report', ?, 'cron', '0 9 * * *', 'UTC', ?, 'paused', NULL, ?, ?, ?, ?)`,
-    params: [
+  await f.harness.query({
+    text: "INSERT INTO openmeld.\"routines\" (\n      id, organization_id, name, instructions, schedule_kind, cron_expression, timezone,\n      target_space_id, status, next_due_at, created_by_user_id, updated_by_user_id, created_at_ms, updated_at_ms\n    ) VALUES ('routine-1', $1, 'Daily report', $2, 'cron', '0 9 * * *', 'UTC', $3, 'paused', NULL, $4, $5, $6, $7)",
+    values: [
       f.request.organizationId,
       PRIVATE_TEXT,
       EVIDENCE_OTHER_SPACE_ID,
@@ -65,13 +53,9 @@ async function fixture() {
     ["middle-run", 1000, "skipped"],
     ["latest-run", 2000, "failed"],
   ] as const) {
-    f.harness.run({
-      sql: `INSERT INTO routine_runs (
-        id, routine_id, organization_id, scheduled_for, status, failure_code, failure_detail,
-        target_space_id_snapshot, destination_kind_snapshot, routine_name_snapshot,
-        execution_engine, started_at_ms
-      ) VALUES (?, 'routine-1', ?, ?, ?, ?, ?, ?, 'space', 'Original report', 'workflow', ?)`,
-      params: [
+    await f.harness.query({
+      text: "INSERT INTO openmeld.\"routine_runs\" (\n        id, routine_id, organization_id, scheduled_for, status, failure_code, failure_detail,\n        target_space_id_snapshot, destination_kind_snapshot, routine_name_snapshot,\n        execution_engine, started_at_ms, scope_snapshot, created_by_user_id_snapshot\n      ) VALUES ($1, 'routine-1', $2, $3, $4, $5, $6, $7, 'space', 'Original report', 'workflow', $8, 'team', $9)",
+      values: [
         id,
         f.request.organizationId,
         TEST_NOW_MS + offset,
@@ -80,6 +64,7 @@ async function fixture() {
         PRIVATE_TEXT,
         EVIDENCE_SPACE_ID,
         TEST_NOW_MS,
+        f.speaker.ownerUserId,
       ],
     });
   }
@@ -253,7 +238,9 @@ describe("Routine evidence through normal member tools", () => {
       speakerMember: { memberId: f.speaker.id, userId: f.speaker.ownerUserId },
     });
     expect(legacy.routines[0]?.lastRun?.id).toBe("latest-run");
-    f.harness.run({ sql: "DELETE FROM routines WHERE id = 'routine-1'" });
+    await f.harness.query({
+      text: "DELETE FROM openmeld.\"routines\" WHERE id = 'routine-1'",
+    });
     expect((await f.read()).run).toEqual(prior.run);
     expect(JSON.stringify(prior)).not.toContain(PRIVATE_TEXT);
     expect(JSON.stringify(prior)).not.toContain(EVIDENCE_OTHER_SPACE_ID);
@@ -263,12 +250,12 @@ describe("Routine evidence through normal member tools", () => {
     const f = await fixture();
     await delivery(f, "first-delivery", 0);
     await delivery(f, "continuation-delivery", 500);
-    f.harness.run({
-      sql: "UPDATE routine_runs SET native_delivery_id = 'first-delivery', continuation_delegation_id = 'delegation-1' WHERE id = 'old-run'",
+    await f.harness.query({
+      text: "UPDATE openmeld.\"routine_runs\" SET native_delivery_id = 'first-delivery', continuation_delegation_id = 'delegation-1' WHERE id = 'old-run'",
     });
-    f.harness.run({
-      sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'completed', completed_at_ms = ?, failure_detail = ? WHERE delivery_id = 'first-delivery'",
-      params: [TEST_NOW_MS + 250, PRIVATE_TEXT],
+    await f.harness.query({
+      text: "UPDATE openmeld.\"openMeldRemoteAgent_native_delivery_ledger\" SET status = 'completed', completed_at_ms = $1, failure_detail = $2 WHERE delivery_id = 'first-delivery'",
+      values: [TEST_NOW_MS + 250, PRIVATE_TEXT],
     });
     await handoffRoutineRunNativeDelivery({
       db: f.harness.db,
@@ -289,8 +276,8 @@ describe("Routine evidence through normal member tools", () => {
         );
       },
     });
-    const before = f.harness.queryAll({
-      sql: "SELECT * FROM routine_runs ORDER BY id",
+    const before = await f.harness.queryAll({
+      text: 'SELECT * FROM openmeld."routine_runs" ORDER BY id',
     });
     const output = await executeEvidenceCodeMode({
       fixture: f,
@@ -322,14 +309,16 @@ describe("Routine evidence through normal member tools", () => {
     ]);
     expect(JSON.stringify(output)).not.toContain(PRIVATE_TEXT);
     expect(
-      f.harness.queryAll({ sql: "SELECT * FROM routine_runs ORDER BY id" })
+      await f.harness.queryAll({
+        text: 'SELECT * FROM openmeld."routine_runs" ORDER BY id',
+      })
     ).toEqual(before);
-    f.harness.run({
-      sql: "UPDATE routine_runs SET status = 'completed', finished_at_ms = ? WHERE id = 'old-run'",
-      params: [TEST_NOW_MS + 900],
+    await f.harness.query({
+      text: "UPDATE openmeld.\"routine_runs\" SET status = 'completed', finished_at_ms = $1 WHERE id = 'old-run'",
+      values: [TEST_NOW_MS + 900],
     });
-    f.harness.run({
-      sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'completed', final_publication_state = 'outcome_unknown' WHERE delivery_id = 'continuation-delivery'",
+    await f.harness.query({
+      text: "UPDATE openmeld.\"openMeldRemoteAgent_native_delivery_ledger\" SET status = 'completed', final_publication_state = 'outcome_unknown' WHERE delivery_id = 'continuation-delivery'",
     });
     const uncertain = await f.read();
     expect(uncertain.run.status).toBe("completed");
@@ -352,16 +341,16 @@ describe("Routine evidence through normal member tools", () => {
       accessMode: "members_only",
       name: "Readable private destination",
     });
-    f.harness.run({
-      sql: "UPDATE routine_runs SET target_space_id_snapshot = ?, published_signal_id = 'private-result' WHERE id = 'old-run'",
-      params: [EVIDENCE_OTHER_SPACE_ID],
+    await f.harness.query({
+      text: "UPDATE openmeld.\"routine_runs\" SET target_space_id_snapshot = $1, published_signal_id = 'private-result' WHERE id = 'old-run'",
+      values: [EVIDENCE_OTHER_SPACE_ID],
     });
     Reflect.set(f.env, "OPENMELD_REMOTE_AGENT_WORKER", {
-      readRuntimeDiagnostics: () => {
+      readRuntimeDiagnostics: async () => {
         if (change === "revoked_member") {
-          f.harness.run({
-            sql: "DELETE FROM members WHERE id = ?",
-            params: [f.speaker.id],
+          await f.harness.query({
+            text: 'DELETE FROM openmeld."members" WHERE id = $1',
+            values: [f.speaker.id],
           });
         } else {
           f.spaces.set(EVIDENCE_SPACE_ID, {
@@ -414,9 +403,9 @@ describe("Routine evidence through normal member tools", () => {
 
   it("redacts inaccessible/private references and explicitly marks unsupported channel provenance", async () => {
     const f = await fixture();
-    f.harness.run({
-      sql: "UPDATE routine_runs SET target_space_id_snapshot = ?, published_signal_id = 'private-result' WHERE id = 'old-run'",
-      params: [EVIDENCE_OTHER_SPACE_ID],
+    await f.harness.query({
+      text: "UPDATE openmeld.\"routine_runs\" SET target_space_id_snapshot = $1, published_signal_id = 'private-result' WHERE id = 'old-run'",
+      values: [EVIDENCE_OTHER_SPACE_ID],
     });
     const hidden = await f.read();
     expect(hidden.run.destination.coverage).toBe("redacted");
@@ -426,8 +415,8 @@ describe("Routine evidence through normal member tools", () => {
     });
     expect(JSON.stringify(hidden)).not.toContain(EVIDENCE_OTHER_SPACE_ID);
     expect(JSON.stringify(hidden)).not.toContain("private-result");
-    f.harness.run({
-      sql: "UPDATE routine_runs SET destination_kind_snapshot = 'slack_thread', target_space_id_snapshot = NULL, slack_channel_id_snapshot = 'private-channel' WHERE id = 'old-run'",
+    await f.harness.query({
+      text: "UPDATE openmeld.\"routine_runs\" SET destination_kind_snapshot = 'slack_thread', target_space_id_snapshot = NULL, slack_channel_id_snapshot = 'private-channel' WHERE id = 'old-run'",
     });
     const channel = await f.read();
     expect(channel.run.destination.coverage).toBe("unsupported_source");
@@ -437,9 +426,9 @@ describe("Routine evidence through normal member tools", () => {
   it("reveals a recorded publication only while the exact Space message remains readable", async () => {
     const f = await fixture();
     const publishedSignalId = "retained-routine-result";
-    f.harness.run({
-      sql: "UPDATE routine_runs SET published_signal_id = ? WHERE id = 'old-run'",
-      params: [publishedSignalId],
+    await f.harness.query({
+      text: "UPDATE openmeld.\"routine_runs\" SET published_signal_id = $1 WHERE id = 'old-run'",
+      values: [publishedSignalId],
     });
     f.signals.set(EVIDENCE_SPACE_ID, new Set([publishedSignalId]));
 
@@ -460,9 +449,9 @@ describe("Routine evidence through normal member tools", () => {
   it("rejects unknown and personal Runs identically, revoked members and caller-supplied submission IDs", async () => {
     const f = await fixture();
     await expect(f.read("missing")).rejects.toMatchObject({ status: 404 });
-    f.harness.run({
-      sql: "UPDATE routine_runs SET agent_profile_id_snapshot = ? WHERE id = 'old-run'",
-      params: [f.request.agentProfileId],
+    await f.harness.query({
+      text: "UPDATE openmeld.\"routine_runs\" SET agent_profile_id_snapshot = $1, scope_snapshot='personal', created_by_user_id_snapshot='another-member' WHERE id = 'old-run'",
+      values: [f.request.agentProfileId],
     });
     await expect(f.read()).rejects.toMatchObject({ status: 404 });
     const listed = centerAgentListRoutineRunsToolResponseSchema.parse(
@@ -477,9 +466,9 @@ describe("Routine evidence through normal member tools", () => {
         submissionId: "arbitrary",
       })
     ).rejects.toThrow();
-    f.harness.run({
-      sql: "DELETE FROM members WHERE id = ?",
-      params: [f.speaker.id],
+    await f.harness.query({
+      text: 'DELETE FROM openmeld."members" WHERE id = $1',
+      values: [f.speaker.id],
     });
     await expect(f.read("middle-run")).rejects.toMatchObject({ status: 403 });
   });

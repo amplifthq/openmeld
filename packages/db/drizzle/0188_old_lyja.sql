@@ -1,1 +1,0 @@
-ALTER TABLE `center_agent_connector_action_operations` ADD `linear_issue_receipt_json` text;

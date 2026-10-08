@@ -152,6 +152,14 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
       action: runtimeTransportAgentProfileWorkRecoveryActionSchema,
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
       forkInterruptedConversation: z.boolean().optional(),
+      automaticForkEligible: z.boolean().optional(),
+      requesterRecoveryScope: z
+        .strictObject({
+          profileId: z.string().min(1),
+          spaceId: z.string().min(1),
+          canFork: z.boolean(),
+        })
+        .optional(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
       // Older owner shards omit these exact-source fields during a rolling Core
@@ -284,6 +292,8 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
     forkInterruptedConversation: z.boolean().optional(),
+    requireAutomaticForkEligibility: z.literal(true).optional(),
+    requesterProfileId: z.string().min(1).optional(),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
 
@@ -328,7 +338,9 @@ export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
   });
 
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
-  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
 
 export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
   z.strictObject({
@@ -338,6 +350,7 @@ export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
 export const runtimeTransportAgentProfileWorkSkipRequestSchema =
   runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    requesterProfileId: z.string().min(1).optional(),
   });
 
 export const runtimeTransportAgentProfileWorkSkipResponseSchema =
@@ -444,6 +457,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
+  verifiedRequesterContext: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
@@ -481,7 +495,9 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
 
 export const runtimeTransportCapabilitiesSchema =
   runtimeTransportBaseCapabilitiesSchema.extend({
+    localExecutionInput: z.literal(true).optional(),
     spaceWorkHandoff: z.literal(true).optional(),
+    sessionHistory: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),
@@ -1190,6 +1206,8 @@ export const runtimeTransportDispatchSourceSignalSchema = z.strictObject({
 });
 
 export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
+  // Core identity/delegation projection for this Wake, never a permission grant.
+  requesterIsAgentOwner: z.boolean().optional(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId,
   executionToken: runtimeCoordinatorExecutionTokenEnvelopeSchema.optional(),
@@ -2136,6 +2154,17 @@ export const runtimeTransportDispatchReasoningRequestSchema =
       reasoningState: localAgentReasoningStateSchema,
     });
 
+export const runtimeTransportDispatchProgressRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      progressSnapshot: z
+        .string()
+        .trim()
+        .min(1)
+        .max(32 * 1024),
+    });
+
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
@@ -2323,6 +2352,8 @@ export const runtimeTransportDispatchPreviewEndRequestSchema = z.strictObject({
 
 export const daemonStreamCodeSchema = z.enum([
   "daemon.computer_file_access.read_policy",
+  "daemon.session_history.request",
+  "daemon.session_history.request_result",
   "daemon.computer_file_access.read_policy_result",
   "daemon.computer_file_access.update_policy",
   "daemon.computer_file_access.update_policy_result",
@@ -2336,6 +2367,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.reasoning",
+  "daemon.dispatch.progress",
   "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",
@@ -2347,6 +2379,8 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.route_catalog.changed",
   "daemon.local_agent_control.cancel",
   "daemon.local_agent_control.interrupt",
+  "daemon.execution_input.request",
+  "daemon.execution_input.result",
   "daemon.local_agent_control.fork_session",
   "daemon.local_agent_control.manage_installation",
   "daemon.local_agent_control.refresh_catalog",

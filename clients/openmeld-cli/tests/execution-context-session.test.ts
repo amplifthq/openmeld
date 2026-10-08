@@ -58,6 +58,30 @@ afterEach(async () => {
 });
 
 describe("Execution Context local authority", () => {
+  it("passes the workspace owner's Git metadata facts to the native boundary", () => {
+    const gitMetadata = {
+      commonDirectoryPointerPath:
+        "/task/repository.git/worktrees/worktree/commondir",
+      configPath: "/task/repository.git/config",
+      gitDirectoryPointerPath: "/task/repository.git/worktrees/worktree/gitdir",
+      hooksPath: "/task/repository.git/hooks",
+      worktreeConfigPath:
+        "/task/repository.git/worktrees/worktree/config.worktree",
+      worktreeGitPointerPath: "/task/worktree/.git",
+    };
+    expect(
+      executionContextFileAccessBoundary({
+        context,
+        workingDirectory: "/task/worktree",
+        taskWorkspace: {
+          workingDirectory: "/task/worktree",
+          boundaryRoot: "/task",
+          gitMetadata,
+        },
+        policy: { mode: "local_agent_settings", revision: 1, updatedAtMs: 1 },
+      })
+    ).toMatchObject({ folders: ["/task"], gitMetadata });
+  });
   it("creates distinct canonical task folders and refuses a symlink to another task", async () => {
     const root = await mkdtemp(join(tmpdir(), "openmeld-context-"));
     roots.push(root);

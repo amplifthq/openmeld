@@ -1,7 +1,7 @@
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
-import type { resolveDirectMessagePeer } from "./direct-message-peer";
+import type { resolveDirectMessagePresentation } from "./direct-message-presentation";
 
 /** Import the former split lists once; subsequent writes retire messages. */
 export function mergeChatPreferences(
@@ -68,11 +68,18 @@ export function mergeChatPreferences(
 
 export type Chat = {
 	messagePreview?: AccountSpaceItem["messagePreview"];
+	recentMessagePreviews?: AccountSpaceItem["recentMessagePreviews"];
 	spaceId: string;
 	name: string | null;
 	createdAt: string | null;
 	viewerProfileId?: string;
-	peer?: ReturnType<typeof resolveDirectMessagePeer>;
+	peer?: ReturnType<typeof resolveDirectMessagePresentation>["peer"];
+	participants?: ReturnType<
+		typeof resolveDirectMessagePresentation
+	>["participants"];
+	profileKind?: string;
 	session?: boolean;
 	centerAgentProfileName?: string;
+	centerAgentProfileId?: string;
+	centerAgentAvatarStyle?: import("@openmeld/schemas/types").AuthProfileView["avatarStyle"];
 };

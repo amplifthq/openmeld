@@ -2,6 +2,7 @@
 
 import type { SpaceTask, SpaceTaskPhase } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	CheckCircleIcon,
 	CircleIcon,
@@ -9,8 +10,11 @@ import {
 	FlowArrowIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { mayShowCachedReadData } from "#/lib/query-display";
 import { buildSpaceMessageFocusHref } from "#/lib/spaces/thread-navigation";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { SpaceTasksSkeleton } from "./space-panel-skeletons";
 import { SpaceTaskCard } from "./space-task-card";
 import { SpaceTaskDetailDrawer } from "./space-task-detail-drawer";
@@ -46,6 +50,71 @@ const ACTIVE_COLUMNS = [
 	title: string;
 }[];
 
+function TasksRefreshNotice(input: {
+	isFetching: boolean;
+	isRefetchError: boolean;
+	onRetry: () => void;
+}) {
+	if (!input.isRefetchError) {
+		return null;
+	}
+	return (
+		<output className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-card/35 px-4 py-3 text-sm">
+			<span>Couldn't refresh Tasks. Showing the last loaded board.</span>
+			<Button
+				disabled={input.isFetching}
+				onClick={input.onRetry}
+				size="sm"
+				variant="outline"
+			>
+				Retry
+			</Button>
+		</output>
+	);
+}
+
+function TasksReadGate(input: {
+	isPaused: boolean;
+	isPending: boolean;
+	onRetry: () => void;
+	showPending: boolean;
+}) {
+	if (input.isPending) {
+		if (input.isPaused) {
+			return <ReadPausedState subject="Tasks" />;
+		}
+		return input.showPending ? <SpaceTasksSkeleton /> : null;
+	}
+	return (
+		<div className="flex min-h-0 flex-1 items-center justify-center p-6">
+			<div className="max-w-sm text-center">
+				<p className="font-medium text-sm">Tasks couldn't load</p>
+				<p className="mt-1 text-muted-foreground text-sm">
+					OpenMeld couldn't read the shared Task board.
+				</p>
+				<Button
+					className="mt-4"
+					onClick={input.onRetry}
+					size="sm"
+					variant="outline"
+				>
+					Try again
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+function shouldBlockTasksRead(input: {
+	hasData: boolean;
+	isError: boolean;
+	error: unknown;
+}): boolean {
+	return (
+		!input.hasData || (input.isError && !mayShowCachedReadData(input.error))
+	);
+}
+
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 	const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -66,28 +135,24 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	)
 		? selectedProjectId
 		: "";
+	const showPending = useDelayedPending(
+		tasksQuery.isPending && tasksQuery.fetchStatus !== "paused"
+	);
 
-	if (tasksQuery.isPending) {
-		return <SpaceTasksSkeleton />;
-	}
-	if (tasksQuery.isError) {
+	if (
+		shouldBlockTasksRead({
+			error: tasksQuery.error,
+			hasData: Boolean(tasksQuery.data),
+			isError: tasksQuery.isError,
+		})
+	) {
 		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center p-6">
-				<div className="max-w-sm text-center">
-					<p className="font-medium text-sm">Tasks couldn't load</p>
-					<p className="mt-1 text-muted-foreground text-sm">
-						OpenMeld couldn't read the shared Task board.
-					</p>
-					<Button
-						className="mt-4"
-						onClick={() => tasksQuery.refetch()}
-						size="sm"
-						variant="outline"
-					>
-						Try again
-					</Button>
-				</div>
-			</div>
+			<TasksReadGate
+				isPaused={tasksQuery.fetchStatus === "paused"}
+				isPending={tasksQuery.isPending}
+				onRetry={() => tasksQuery.refetch()}
+				showPending={showPending}
+			/>
 		);
 	}
 
@@ -110,8 +175,13 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 		: `/spaces/${encodeURIComponent(input.spaceId)}`;
 
 	return (
-		<div className="min-h-0 flex-1 overflow-y-auto">
+		<ScrollArea className="min-h-0 flex-1">
 			<div className="mx-auto max-w-[1600px] p-4 sm:p-6">
+				<TasksRefreshNotice
+					isFetching={tasksQuery.isFetching}
+					isRefetchError={tasksQuery.isRefetchError}
+					onRetry={() => tasksQuery.refetch()}
+				/>
 				<TaskBoardHeader
 					onPhaseChange={setPhase}
 					onProjectChange={(projectId) => {
@@ -213,7 +283,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				spaceName={input.spaceName ?? "this Space"}
 				task={selectedTask}
 			/>
-		</div>
+		</ScrollArea>
 	);
 }
 

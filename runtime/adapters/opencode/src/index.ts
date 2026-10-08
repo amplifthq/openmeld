@@ -85,10 +85,12 @@ export {
   invokeOpenCodeServerTransport,
   OpenCodeServerTransportError,
 } from "./transport/opencode-server-transport.js";
+export { readOpenCode2Inventory } from "./transport/opencode2-server.js";
 export {
   type OpenCodeGoUsageResponse,
   parseOpenCodeGoUsageResponse,
 } from "./usage/opencode-go-usage-limits.js";
+export { parseOpenRouterUsageResponse } from "./usage/openrouter-usage-limits.js";
 
 const OPENCODE_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("opencode");

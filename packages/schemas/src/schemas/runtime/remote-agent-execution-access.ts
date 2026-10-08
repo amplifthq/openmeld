@@ -1,6 +1,8 @@
 import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { pluginDelegationAuthorizationSchema } from "../http/plugin-delegation";
+import { cloudComputerSchema } from "./cloud-computer";
 import { remoteAgentResultSourcesSchema } from "./remote-agent-retained-result";
 import type { remoteAgentTurnEnvelopeSchema } from "./remote-agent-turn-envelope";
 
@@ -10,6 +12,9 @@ export const remoteAgentExecutionAccessRequestSchema = z.strictObject({
   submissionId: identity,
   sources: remoteAgentResultSourcesSchema.optional(),
   effect: z.enum(["read", "write"]).optional(),
+  includeDelegatedRequester: z.boolean().optional(),
+  includePluginDelegations: z.literal(true).optional(),
+  includeComputer: z.literal(true).optional(),
 });
 
 export const remoteAgentExecutionScopeSchema = z.strictObject({
@@ -33,6 +38,18 @@ export const remoteAgentExecutionScopeSchema = z.strictObject({
 export const remoteAgentExecutionAccessResponseSchema = z.strictObject({
   scope: remoteAgentExecutionScopeSchema,
   submissionId: identity,
+  pluginDelegations: z.array(pluginDelegationAuthorizationSchema).optional(),
+  computer: cloudComputerSchema.nullable().optional(),
+  delegatedRequesterSupported: z.literal(true).optional(),
+  delegatedRequester: z
+    .strictObject({
+      delegationId: identity,
+      parentDeliveryId: identity,
+      memberId: identity,
+      userId: identity,
+      profileId: identity,
+    })
+    .optional(),
 });
 
 export type RemoteAgentExecutionScope = zod.infer<

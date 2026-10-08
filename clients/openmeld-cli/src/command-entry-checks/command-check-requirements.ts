@@ -56,6 +56,10 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
   root: buildCommandChecks(OPTIONAL_CLI_UPDATE),
   "plugins.list": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
   "plugins.connect": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
+  "plugins.connection": buildCommandChecks(
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
   "plugins.actions": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
   "plugins.call": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
   view: buildCommandChecks(OPTIONAL_CLI_UPDATE),
@@ -396,6 +400,7 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     AUTO_FIX_LOCAL_RUNTIME
   ),
+  "computer.cloud": buildCommandChecks(REQUIRED_SIGN_IN),
   "computer.list": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

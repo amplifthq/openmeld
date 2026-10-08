@@ -1,11 +1,10 @@
+import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
 import { createCoreRpcHttpError } from "../rpc/errors";
-
 export type CenterAgentOrganizationDocumentOperationKind =
   | "create_folder"
   | "move_document"
   | "rename_folder"
   | "save_document";
-
 export type CenterAgentOrganizationDocumentOperationScope = {
   actorProfileId: string;
   operationId: string;
@@ -13,7 +12,6 @@ export type CenterAgentOrganizationDocumentOperationScope = {
   organizationId: string;
   representedUserId: string;
 };
-
 export type CenterAgentOrganizationDocumentOperationRecord =
   CenterAgentOrganizationDocumentOperationScope & {
     claimExpiresAtMs: number | null;
@@ -26,12 +24,10 @@ export type CenterAgentOrganizationDocumentOperationRecord =
     targetResourceId: string;
     updatedAtMs: number;
   };
-
 export type BeginCenterAgentOrganizationDocumentOperationResult = {
   operation: CenterAgentOrganizationDocumentOperationRecord;
   outcome: "claimed" | "completed_replay" | "pending_in_progress";
 };
-
 type CenterAgentOrganizationDocumentOperationRow = {
   actor_profile_id: string;
   claim_expires_at_ms: number | null;
@@ -48,17 +44,14 @@ type CenterAgentOrganizationDocumentOperationRow = {
   target_resource_id: string;
   updated_at_ms: number;
 };
-
 export const CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS = 5 * 60_000;
-
 export async function buildCenterAgentOrganizationDocumentRequestSignature(
   value: unknown
 ): Promise<string> {
   return await sha256Hex(stableJson(value));
 }
-
 export async function beginCenterAgentOrganizationDocumentOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   requestSignature: string;
   scope: CenterAgentOrganizationDocumentOperationScope;
@@ -68,10 +61,9 @@ export async function beginCenterAgentOrganizationDocumentOperation(input: {
   const claimId = `center_agent_org_document_claim_${crypto.randomUUID()}`;
   const claimExpiresAtMs =
     input.nowMs + CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS;
-  const insert = await input.db
-    .prepare(
-      `
-        INSERT OR IGNORE INTO center_agent_organization_document_operations (
+  const insert = await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."center_agent_organization_document_operations" (
           id,
           organization_id,
           actor_profile_id,
@@ -86,10 +78,8 @@ export async function beginCenterAgentOrganizationDocumentOperation(input: {
           claim_expires_at_ms,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 'pending', $9, $10, $11, $12) ON CONFLICT DO NOTHING`,
+    values: [
       id,
       input.scope.organizationId,
       input.scope.actorProfileId,
@@ -101,10 +91,9 @@ export async function beginCenterAgentOrganizationDocumentOperation(input: {
       claimId,
       claimExpiresAtMs,
       input.nowMs,
-      input.nowMs
-    )
-    .run();
-
+      input.nowMs,
+    ],
+  });
   const operation = await readCenterAgentOrganizationDocumentOperation({
     db: input.db,
     scope: input.scope,
@@ -116,7 +105,7 @@ export async function beginCenterAgentOrganizationDocumentOperation(input: {
     operation,
     requestSignature: input.requestSignature,
   });
-  if (Number(insert.meta?.changes ?? 0) === 1) {
+  if (Number(insert.rowCount ?? 0) === 1) {
     if (operation.id !== id || operation.status !== "pending") {
       throw new Error(
         "Center Agent document operation claim did not preserve its inserted pending row."
@@ -140,39 +129,37 @@ export async function beginCenterAgentOrganizationDocumentOperation(input: {
   }
   const legacyClaimCutoffMs =
     input.nowMs - CENTER_AGENT_DOCUMENT_OPERATION_CLAIM_LEASE_MS;
-  const takeover = await input.db
-    .prepare(
-      `
-        UPDATE center_agent_organization_document_operations
+  const takeover = await input.db.query({
+    text: `
+        UPDATE "openmeld"."center_agent_organization_document_operations"
         SET
-          claim_id = ?,
-          claim_expires_at_ms = ?,
-          updated_at_ms = ?
-        WHERE id = ?
+          claim_id = $1,
+          claim_expires_at_ms = $2,
+          updated_at_ms = $3
+        WHERE id = $4
           AND status = 'pending'
           AND (
             (
               claim_id IS NOT NULL
-              AND claim_expires_at_ms <= ?
+              AND claim_expires_at_ms <= $5
             )
             OR (
               claim_id IS NULL
               AND claim_expires_at_ms IS NULL
-              AND updated_at_ms <= ?
+              AND updated_at_ms <= $6
             )
           )
-      `
-    )
-    .bind(
+      `,
+    values: [
       claimId,
       claimExpiresAtMs,
       input.nowMs,
       operation.id,
       input.nowMs,
-      legacyClaimCutoffMs
-    )
-    .run();
-  if (Number(takeover.meta?.changes ?? 0) !== 1) {
+      legacyClaimCutoffMs,
+    ],
+  });
+  if (Number(takeover.rowCount ?? 0) !== 1) {
     const current = await readCenterAgentOrganizationDocumentOperation({
       db: input.db,
       scope: input.scope,
@@ -209,65 +196,61 @@ export async function beginCenterAgentOrganizationDocumentOperation(input: {
   }
   return { operation: recovered, outcome: "claimed" };
 }
-
 export function prepareCompleteCenterAgentOrganizationDocumentOperationStatement(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   claimId: string;
   nowMs: number;
   operationRecordId: string;
   responseJson: string;
-}): D1PreparedStatement {
-  return input.db
-    .prepare(
-      `
-        UPDATE center_agent_organization_document_operations
+}): QueryConfig {
+  return {
+    text: `
+        UPDATE "openmeld"."center_agent_organization_document_operations"
         SET
-          response_json = ?,
+          response_json = $1,
           status = 'completed',
           claim_id = NULL,
           claim_expires_at_ms = NULL,
-          updated_at_ms = ?
-        WHERE id = ?
+          updated_at_ms = $2
+        WHERE id = $3
           AND status = 'pending'
-          AND claim_id = ?
-      `
-    )
-    .bind(
+          AND claim_id = $4
+      `,
+    values: [
       input.responseJson,
       input.nowMs,
       input.operationRecordId,
-      input.claimId
-    );
+      input.claimId,
+    ],
+  };
 }
-
 export async function readCenterAgentOrganizationDocumentOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   scope: CenterAgentOrganizationDocumentOperationScope;
 }): Promise<CenterAgentOrganizationDocumentOperationRecord | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentOrganizationDocumentOperationRow>({
+      text: `
         SELECT *
-        FROM center_agent_organization_document_operations
-        WHERE organization_id = ?
-          AND actor_profile_id = ?
-          AND represented_user_id = ?
-          AND operation_kind = ?
-          AND operation_id = ?
+        FROM "openmeld"."center_agent_organization_document_operations"
+        WHERE organization_id = $1
+          AND actor_profile_id = $2
+          AND represented_user_id = $3
+          AND operation_kind = $4
+          AND operation_id = $5
         LIMIT 1
-      `
-    )
-    .bind(
-      input.scope.organizationId,
-      input.scope.actorProfileId,
-      input.scope.representedUserId,
-      input.scope.operationKind,
-      input.scope.operationId
-    )
-    .first<CenterAgentOrganizationDocumentOperationRow>();
+      `,
+      values: [
+        input.scope.organizationId,
+        input.scope.actorProfileId,
+        input.scope.representedUserId,
+        input.scope.operationKind,
+        input.scope.operationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapOperation(row) : null;
 }
-
 export function requireCenterAgentOrganizationDocumentOperationRequestMatch(input: {
   operation: CenterAgentOrganizationDocumentOperationRecord;
   requestSignature: string;
@@ -282,7 +265,6 @@ export function requireCenterAgentOrganizationDocumentOperationRequestMatch(inpu
     status: 409,
   });
 }
-
 function mapOperation(
   row: CenterAgentOrganizationDocumentOperationRow
 ): CenterAgentOrganizationDocumentOperationRecord {
@@ -304,7 +286,6 @@ function mapOperation(
     updatedAtMs: Number(row.updated_at_ms),
   };
 }
-
 async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -312,7 +293,6 @@ async function sha256Hex(value: string): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-
 function stableJson(value: unknown): string {
   if (value === undefined) {
     return "undefined";

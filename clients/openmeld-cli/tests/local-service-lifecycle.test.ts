@@ -568,6 +568,81 @@ describe("local service lifecycle", () => {
     );
   });
 
+  it.each([
+    {
+      targetOwner: "owner-a",
+      legacy: false,
+      expectedCause: "controlled_service_update",
+    },
+    {
+      targetOwner: "owner-a",
+      legacy: true,
+      expectedCause: "controlled_service_update",
+    },
+    { targetOwner: "owner-b", legacy: false, expectedCause: "user_stop" },
+    { targetOwner: "owner-b", legacy: true, expectedCause: "user_stop" },
+  ])("carries $expectedCause into the real stop journal for $targetOwner (legacy=$legacy)", async ({
+    targetOwner,
+    legacy,
+    expectedCause,
+  }) => {
+    const journal = await vi.importActual<
+      typeof import("../src/local-service/lifecycle/daemon-lifecycle-journal")
+    >("../src/local-service/lifecycle/daemon-lifecycle-journal");
+    emitDaemonLifecycleEventMock.mockImplementation(
+      journal.emitDaemonLifecycleEvent
+    );
+    inspectDaemonServiceInventoryMock
+      .mockReset()
+      .mockResolvedValueOnce(
+        buildInitialInventory(serviceManager, {
+          serviceContract: {
+            ...buildServiceContract({
+              bundleId: "bundle-old",
+              desiredState: "background",
+            }),
+            ownerUserId: "owner-a",
+          },
+        })
+      )
+      .mockResolvedValue(buildFinalInventory(serviceManager));
+    resolveOpenMeldProfileOrNullMock.mockResolvedValue({
+      openMeldProfileId: "target-profile",
+      ownerUserId: targetOwner,
+    });
+    requestLocalDaemonShutdownMock.mockImplementation(async () => {
+      expect(await journal.resolveRecentDaemonSignalStopCause()).toBe(
+        expectedCause
+      );
+      if (legacy) {
+        throw new LocalDaemonControlPlaneClientError(
+          "daemon.control.contract_mismatch",
+          "Legacy service"
+        );
+      }
+      runtimeSettled = true;
+      return { accepted: true, gracePeriodMs: 2000, mode: "graceful" };
+    });
+    serviceManager.stop = vi.fn(async () => {
+      // The fallback SIGTERM reader must see the same cause after the control request.
+      expect(await journal.resolveRecentDaemonSignalStopCause()).toBe(
+        expectedCause
+      );
+    });
+    const result = await runDaemonServiceLifecycle({
+      profile: "target-profile",
+      expectedVersion: EXPECTED_VERSION,
+      operation: "reinstall",
+      installSource: "daemon.command.install",
+      desiredState: "stopped",
+      shouldStartAfterLifecycle: false,
+      forceReinstall: true,
+    });
+    expect(result.status).toBe("aligned");
+    expect(requestLocalDaemonShutdownMock).toHaveBeenCalledOnce();
+    expect(serviceManager.stop).toHaveBeenCalledOnce();
+  });
+
   it("aborts an upgrade without stopping the service when controlled drain has a transient failure", async () => {
     requestLocalDaemonShutdownMock.mockRejectedValue(
       new LocalDaemonControlPlaneClientError(

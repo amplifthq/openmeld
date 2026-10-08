@@ -1,11 +1,11 @@
+import type { PluginDefinition } from "@openmeld/product-catalog/plugins";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
-import { AppLogo } from "./app-logo";
-import type { PluginDefinition } from "./plugin-catalog";
 import { PluginConnectionSurface } from "./plugin-connection-surface";
 import { PluginScopeTabs, usePluginScope } from "./plugin-scope-tabs";
 import { PluginStatusBadge } from "./plugins-catalog-panel";
@@ -103,7 +103,7 @@ export function OrganizationPluginDetailPage(input: {
 				<section className="rounded-md border border-border/70 bg-card px-4 py-5 sm:px-5">
 					<h2 className="font-medium text-foreground text-sm">Availability</h2>
 					<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
-						{input.plugin.name} is planned and cannot be connected yet.
+						{input.plugin.name} does not have a configured sign-in method yet.
 					</p>
 				</section>
 			)}

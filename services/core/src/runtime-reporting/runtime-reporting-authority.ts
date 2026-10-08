@@ -2,19 +2,18 @@ import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
 } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AgentActivityEventRejectionReason } from "@openmeld/schemas/types";
 import { lookupRuntime } from "../runtime-registry/application/runtime-lookup-service";
-import { readRuntimeRegistryRecord } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
-
+import { readRuntimeRegistryRecord } from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 export type VerifiedRuntimeReportingAuthority = {
   deviceId: string;
   lane: string;
   ownerUserId: string;
   openMeldServiceRuntimeId: string;
 };
-
 export async function verifyRuntimeReportingAuthority(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   deviceId: string;
   lane: string;
   ownerUserId: string;
@@ -23,7 +22,10 @@ export async function verifyRuntimeReportingAuthority(input: {
     value: string;
   };
 }): Promise<
-  | { ok: true; runtime: VerifiedRuntimeReportingAuthority }
+  | {
+      ok: true;
+      runtime: VerifiedRuntimeReportingAuthority;
+    }
   | {
       ok: false;
       reason: Extract<

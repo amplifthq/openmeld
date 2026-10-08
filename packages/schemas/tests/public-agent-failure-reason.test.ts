@@ -25,6 +25,19 @@ it.each([
   ).toMatchObject({ kind: "request_ended", recoveryTarget: null });
 });
 
+it("explains a pinned Skill that was disabled before the turn started", () => {
+  expect(
+    resolveCenterAgentCallbackFailureMessage({
+      failureCode: "organization_skill.release_unavailable",
+      failureDetail:
+        "HTTP 403 organization_skill.release_unavailable: internal detail",
+      failureMessage: "Internal callback failure",
+    })
+  ).toBe(
+    "A Skill selected for this request is no longer available. Ask an Organization admin to restore it, or send a new request without that Skill."
+  );
+});
+
 it.each([
   "context.workspace_mismatch",
   "context.workspace_verification_unavailable",
@@ -60,6 +73,17 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("does not claim an unacknowledged hosted admission never started", () => {
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.admission_timeout",
+        failureMessage: "internal watchdog detail",
+      })
+    ).toBe(
+      "OpenMeld could not confirm whether Center Agent started this request. Open Diagnostics to check its status before starting more work."
+    );
+  });
+
   it("explains output exhaustion and the next safe action without vendor details", () => {
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -112,6 +136,15 @@ describe("public agent failure reason mapping", () => {
     const reason = resolveMappedPublicAgentFailureReason(errorCode);
     expect(reason).toContain(expected);
     expect(reason).not.toContain("provider was unreachable");
+  });
+  it("explains why Custom config cannot start a scoped task", () => {
+    expect(
+      resolveMappedPublicAgentFailureReason(
+        "execution_context.custom_config_file_access_unverified"
+      )
+    ).toBe(
+      "OpenMeld could not verify file-access limits with this Agent's previous permission settings, so the task did not start. Choose Ask for approval, Approve for me, or Full access in this Agent's settings, then try again."
+    );
   });
   it("links a missing Claude project container to Agent setup", () => {
     expect(
@@ -472,6 +505,13 @@ describe("public agent failure reason mapping", () => {
   });
 
   it("maps exact Usage exhaustion without exposing provider wording", () => {
+    expect(resolvePublicAgentAvailabilityCopy("usage_exhausted")).toMatchObject(
+      {
+        availabilityBadgeLabel: "Usage Limit reached",
+        availabilitySummary:
+          "This agent reached a Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+      }
+    );
     expect(resolveMappedPublicAgentFailureReason("usage_exhausted")).toBe(
       "This agent reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again."
     );
@@ -935,6 +975,11 @@ describe("public agent failure reason mapping", () => {
       "daemon.delivery.execution_stalled",
       "Runner stopped making progress on this Wake. Reconnect the computer before trying again.",
       "This agent stopped making progress on this Wake. Reconnect the computer before trying again.",
+    ],
+    [
+      "runtime.local_runtime_lost",
+      "OpenMeld Service stopped or disconnected while Runner was working on this Wake. Start OpenMeld again before retrying.",
+      "OpenMeld Service stopped or disconnected while this agent was working on this Wake. Start OpenMeld again before retrying.",
     ],
     [
       "daemon.delivery.finalization_timeout",

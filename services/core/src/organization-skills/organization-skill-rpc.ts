@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   beginOrganizationSkillImportBatchResponseSchema,
   beginOrganizationSkillImportBatchRpcInputSchema,
   createOrganizationSkillResponseSchema,
@@ -80,7 +84,7 @@ import type {
   UpdateOrganizationSkillResponse,
   UpdateOrganizationSkillRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
@@ -106,20 +110,31 @@ import {
   type OrganizationSkillActor,
   readEnabledOrganizationSkillReleaseSelection,
 } from "./organization-skill-service";
-
 export async function rpcListOrganizationSkills(
   env: CoreBindings,
   input: ListOrganizationSkillsRpcInput
 ): Promise<ListOrganizationSkillsResponse> {
   const request = parseRequest(listOrganizationSkillsRpcInputSchema, input);
-  const { actor, service } = await prepareHumanRequest(env, request.context);
+  const { actor, service } = await prepareHumanRequest(
+    env,
+    request.context,
+    true
+  );
+  const agentRead = request.context.actorContext.profileKind === "agent";
+  const skills = await service.list(actor);
   return parseResponse(listOrganizationSkillsResponseSchema, {
     canManage: actor.role === "owner" || actor.role === "admin",
     organizationId: actor.organizationId,
-    skills: await service.list(actor),
+    skills: agentRead
+      ? skills
+          .filter((skill) => skill.enabled)
+          .map((skill) => ({
+            ...skill,
+            permissions: { canEdit: false, canManage: false },
+          }))
+      : skills,
   });
 }
-
 export async function rpcGetOrganizationSkill(
   env: CoreBindings,
   input: GetOrganizationSkillRpcInput
@@ -147,7 +162,6 @@ export async function rpcGetOrganizationSkill(
         }),
   });
 }
-
 export async function rpcGetOrganizationSkillCatalog(
   env: CoreBindings,
   input: GetOrganizationSkillRpcInput
@@ -159,7 +173,6 @@ export async function rpcGetOrganizationSkillCatalog(
     await service.getCatalog(actor, request.skillId)
   );
 }
-
 export async function rpcCreateOrganizationSkill(
   env: CoreBindings,
   input: CreateOrganizationSkillRpcInput
@@ -172,7 +185,6 @@ export async function rpcCreateOrganizationSkill(
     skill: await service.create(actor, body),
   });
 }
-
 export async function rpcImportOrganizationSkillFromGitHub(
   env: CoreBindings,
   input: ImportOrganizationSkillFromGitHubRpcInput
@@ -187,10 +199,20 @@ export async function rpcImportOrganizationSkillFromGitHub(
     request.expectedOrganizationId
   );
   if (request.batchId !== undefined) {
-    return await importGitHubSkillInBatch({ actor, env, request });
+    return await importGitHubSkillInBatch({
+      actor,
+      actorProfileId: request.context.actorContext.openMeldProfileId,
+      env,
+      request,
+    });
   }
   if (request.operationId !== undefined) {
-    return await importGitHubSkillWithOperation({ actor, env, request });
+    return await importGitHubSkillWithOperation({
+      actor,
+      actorProfileId: request.context.actorContext.openMeldProfileId,
+      env,
+      request,
+    });
   }
   return parseResponse(importOrganizationSkillFromGitHubResponseSchema, {
     skill: await service.importFromGitHub(
@@ -200,7 +222,6 @@ export async function rpcImportOrganizationSkillFromGitHub(
     ),
   });
 }
-
 export async function rpcBeginOrganizationSkillImportBatch(
   env: CoreBindings,
   input: BeginOrganizationSkillImportBatchRpcInput
@@ -214,6 +235,21 @@ export async function rpcBeginOrganizationSkillImportBatch(
     actor.organizationId,
     request.expectedOrganizationId
   );
+  return await beginSkillImportBatchForActor({ actor, env, request, service });
+}
+
+// Both the Web caller and the Center Agent's verified represented member use
+// the same frozen plan and per-item operation owner.
+export async function beginSkillImportBatchForActor(input: {
+  actor: OrganizationSkillActor;
+  env: CoreBindings;
+  request: Omit<
+    BeginOrganizationSkillImportBatchRpcInput,
+    "context" | "expectedOrganizationId"
+  >;
+  service: ReturnType<typeof createOrganizationSkillService>;
+}): Promise<BeginOrganizationSkillImportBatchResponse> {
+  const { actor, env, request, service } = input;
   requireManagerActor(actor);
   const { db } = requireStores(env);
   const existing = await readOrganizationSkillImportBatch({
@@ -268,7 +304,6 @@ export async function rpcBeginOrganizationSkillImportBatch(
     batch,
   });
 }
-
 export async function rpcGetOrganizationSkillImportBatch(
   env: CoreBindings,
   input: GetOrganizationSkillImportBatchRpcInput
@@ -293,7 +328,6 @@ export async function rpcGetOrganizationSkillImportBatch(
     batch,
   });
 }
-
 export async function rpcListOrganizationSkillImportBatches(
   env: CoreBindings,
   input: ListOrganizationSkillImportBatchesRpcInput
@@ -315,10 +349,14 @@ export async function rpcListOrganizationSkillImportBatches(
   });
 }
 
-async function importGitHubSkillInBatch(input: {
+export async function importGitHubSkillInBatch(input: {
   actor: OrganizationSkillActor;
+  actorProfileId: string;
   env: CoreBindings;
-  request: ImportOrganizationSkillFromGitHubRpcInput;
+  request: Omit<
+    ImportOrganizationSkillFromGitHubRpcInput,
+    "context" | "expectedOrganizationId"
+  >;
 }): Promise<ImportOrganizationSkillFromGitHubResponse> {
   const { actor, env, request } = input;
   requireManagerActor(actor);
@@ -354,6 +392,7 @@ async function importGitHubSkillInBatch(input: {
   try {
     const response = await importGitHubSkillWithOperation({
       actor,
+      actorProfileId: input.actorProfileId,
       env,
       request: { ...request, operationId },
     });
@@ -389,7 +428,6 @@ async function importGitHubSkillInBatch(input: {
     throw error;
   }
 }
-
 function batchFailureMessage(error: unknown): string {
   const cause = error instanceof Error ? error.cause : undefined;
   if (
@@ -402,7 +440,6 @@ function batchFailureMessage(error: unknown): string {
   }
   return "This Skill could not be installed. Try again.";
 }
-
 function requireManagerActor(actor: OrganizationSkillActor): void {
   if (actor.role !== "owner" && actor.role !== "admin") {
     throw createCoreRpcHttpError({
@@ -412,7 +449,6 @@ function requireManagerActor(actor: OrganizationSkillActor): void {
     });
   }
 }
-
 function batchInputConflict(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.batch_conflict",
@@ -420,7 +456,6 @@ function batchInputConflict(): Error {
     status: 409,
   });
 }
-
 function batchNotFound(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.batch_missing",
@@ -428,11 +463,14 @@ function batchNotFound(): Error {
     status: 404,
   });
 }
-
 async function importGitHubSkillWithOperation(input: {
   actor: OrganizationSkillActor;
+  actorProfileId: string;
   env: CoreBindings;
-  request: ImportOrganizationSkillFromGitHubRpcInput;
+  request: Omit<
+    ImportOrganizationSkillFromGitHubRpcInput,
+    "context" | "expectedOrganizationId"
+  >;
 }): Promise<ImportOrganizationSkillFromGitHubResponse> {
   const { actor, env, request } = input;
   if (actor.role !== "owner" && actor.role !== "admin") {
@@ -452,13 +490,13 @@ async function importGitHubSkillWithOperation(input: {
   }
   const { bucket, db } = requireStores(env);
   const operationKey = await buildHumanOrganizationSkillImportOperationKey({
-    actorProfileId: request.context.actorContext.openMeldProfileId,
+    actorProfileId: input.actorProfileId,
     operationId: request.operationId,
     organizationId: actor.organizationId,
     userId: actor.userId,
   });
   const requestSignature = await buildOrganizationSkillRequestSignature({
-    actorProfileId: request.context.actorContext.openMeldProfileId,
+    actorProfileId: input.actorProfileId,
     expectedCommitSha: request.expectedCommitSha,
     url: request.url,
     userId: actor.userId,
@@ -526,14 +564,16 @@ async function importGitHubSkillWithOperation(input: {
     importOrganizationSkillFromGitHubResponseSchema,
     { skill }
   );
-  const completed = await prepareCompleteOrganizationSkillOperationStatement({
-    db,
-    kind: "human_import",
-    nowMs: Date.now(),
-    operation: begin.operation,
-    responseJson: JSON.stringify({ skillId, releaseId }),
-  }).run();
-  if (Number(completed.meta.changes ?? 0) === 1) {
+  const completed = await db.query(
+    prepareCompleteOrganizationSkillOperationStatement({
+      db,
+      kind: "human_import",
+      nowMs: Date.now(),
+      operation: begin.operation,
+      responseJson: JSON.stringify({ skillId, releaseId }),
+    })
+  );
+  if (Number(completed.rowCount ?? 0) === 1) {
     return response;
   }
   const current = await readOrganizationSkillOperation({
@@ -556,7 +596,6 @@ async function importGitHubSkillWithOperation(input: {
     status: 409,
   });
 }
-
 async function readCompletedGitHubImport(input: {
   actor: OrganizationSkillActor;
   env: CoreBindings;
@@ -579,7 +618,6 @@ async function readCompletedGitHubImport(input: {
     skill,
   });
 }
-
 export async function rpcImportOrganizationSkillFromFiles(
   env: CoreBindings,
   input: ImportOrganizationSkillFromFilesRpcInput
@@ -597,7 +635,6 @@ export async function rpcImportOrganizationSkillFromFiles(
     skill: await service.importFromFiles(actor, request.files),
   });
 }
-
 export async function rpcPreviewOrganizationSkillFromFiles(
   env: CoreBindings,
   input: PreviewOrganizationSkillFromFilesRpcInput
@@ -616,7 +653,6 @@ export async function rpcPreviewOrganizationSkillFromFiles(
     preview: await service.previewFromFiles(actor, request.files),
   });
 }
-
 export async function rpcPreviewOrganizationSkillFromGitHub(
   env: CoreBindings,
   input: PreviewOrganizationSkillFromGitHubRpcInput
@@ -635,7 +671,6 @@ export async function rpcPreviewOrganizationSkillFromGitHub(
     preview: await service.previewFromGitHub(actor, request.url),
   });
 }
-
 export async function rpcPreviewOrganizationSkillRepository(
   env: CoreBindings,
   input: PreviewOrganizationSkillRepositoryRpcInput
@@ -654,7 +689,6 @@ export async function rpcPreviewOrganizationSkillRepository(
     preview: await service.previewRepositoryFromGitHub(actor, request.url),
   });
 }
-
 export async function rpcUpdateOrganizationSkill(
   env: CoreBindings,
   input: UpdateOrganizationSkillRpcInput
@@ -678,7 +712,6 @@ export async function rpcUpdateOrganizationSkill(
     }),
   });
 }
-
 export async function rpcSetOrganizationSkillEnabled(
   env: CoreBindings,
   input: SetOrganizationSkillEnabledRpcInput
@@ -701,7 +734,6 @@ export async function rpcSetOrganizationSkillEnabled(
     ),
   });
 }
-
 export async function rpcSetOrganizationSkillMaintainers(
   env: CoreBindings,
   input: SetOrganizationSkillMaintainersRpcInput
@@ -724,7 +756,6 @@ export async function rpcSetOrganizationSkillMaintainers(
     ),
   });
 }
-
 export async function rpcDeleteOrganizationSkill(
   env: CoreBindings,
   input: DeleteOrganizationSkillRpcInput
@@ -742,7 +773,6 @@ export async function rpcDeleteOrganizationSkill(
     skillId: request.skillId,
   });
 }
-
 export async function rpcReadOrganizationSkillRuntimeSnapshot(
   env: CoreBindings,
   input: ReadOrganizationSkillRuntimeSnapshotRpcInput
@@ -761,7 +791,6 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
     )
   );
 }
-
 export async function rpcReadOrganizationSkillRuntimeCatalog(
   env: CoreBindings,
   input: ReadOrganizationSkillRuntimeCatalogRpcInput
@@ -772,20 +801,29 @@ export async function rpcReadOrganizationSkillRuntimeCatalog(
   );
   const authorization = await authorizeRuntimeSelection(env, request);
   const { db, bucket } = requireStores(env);
-  await readEnabledOrganizationSkillReleaseSelection({
+  const availableReleases = await readEnabledOrganizationSkillReleaseSelection({
     db,
     organizationId: authorization.activeOrganization.organizationId,
     selectedReleases: request.releases,
+    skipUnavailableSelectedReleases: request.skipUnavailableSelectedReleases,
   });
+  if (availableReleases.length !== request.releases.length) {
+    console.info(
+      "[core.organization_skill.unavailable_optional_releases_skipped]",
+      {
+        count: request.releases.length - availableReleases.length,
+        organizationId: authorization.activeOrganization.organizationId,
+      }
+    );
+  }
   return parseResponse(
     organizationSkillRuntimeCatalogResponseSchema,
     await createOrganizationSkillService({ bucket, db }).readRuntimeCatalog(
       authorization.activeOrganization.organizationId,
-      request.releases
+      availableReleases
     )
   );
 }
-
 async function authorizeRuntimeSelection(
   env: CoreBindings,
   request: {
@@ -820,7 +858,6 @@ async function authorizeRuntimeSelection(
   }
   return authorization;
 }
-
 export async function rpcReadOrganizationSkillRuntimeResource(
   env: CoreBindings,
   input: ReadOrganizationSkillRuntimeResourceRpcInput
@@ -865,7 +902,6 @@ export async function rpcReadOrganizationSkillRuntimeResource(
     ),
   });
 }
-
 export async function rpcRecordOrganizationSkillActivation(
   env: CoreBindings,
   input: RecordOrganizationSkillActivationRpcInput
@@ -887,24 +923,24 @@ export async function rpcRecordOrganizationSkillActivation(
   }
   const { db } = requireStores(env);
   const release = await db
-    .prepare(
-      `
+    .query({
+      text: `
         SELECT 1
-        FROM organization_skill_releases
-        WHERE organization_id = ?
-          AND skill_id = ?
-          AND id = ?
-          AND digest = ?
+        FROM "openmeld"."organization_skill_releases"
+        WHERE organization_id = $1
+          AND skill_id = $2
+          AND id = $3
+          AND digest = $4
         LIMIT 1
-      `
-    )
-    .bind(
-      authorization.activeOrganization.organizationId,
-      request.skillId,
-      request.releaseId,
-      request.digest
-    )
-    .first();
+      `,
+      values: [
+        authorization.activeOrganization.organizationId,
+        request.skillId,
+        request.releaseId,
+        request.digest,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!release) {
     throw createCoreRpcHttpError({
       code: "organization_skill.release_missing",
@@ -912,10 +948,9 @@ export async function rpcRecordOrganizationSkillActivation(
       status: 404,
     });
   }
-  const result = await db
-    .prepare(
-      `
-        INSERT OR IGNORE INTO organization_skill_activations (
+  const result = await db.query({
+    text: `
+        INSERT INTO "openmeld"."organization_skill_activations" (
           activated_at,
           digest,
           organization_id,
@@ -923,28 +958,25 @@ export async function rpcRecordOrganizationSkillActivation(
           routine_run_id,
           skill_id,
           submission_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
+    values: [
       Date.now(),
       request.digest,
       authorization.activeOrganization.organizationId,
       request.releaseId,
       request.routineRunId,
       request.skillId,
-      request.submissionId
-    )
-    .run();
+      request.submissionId,
+    ],
+  });
   return recordOrganizationSkillActivationResponseSchema.parse({
-    recorded: Number(result.meta.changes ?? 0) === 1,
+    recorded: Number(result.rowCount ?? 0) === 1,
   });
 }
-
 export async function prepareHumanRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext,
-  allowAgentReleaseRead = false
+  allowAgentRead = false
 ) {
   const membership = await resolveActiveOrganizationMembership({
     context,
@@ -959,7 +991,7 @@ export async function prepareHumanRequest(
   }
   if (
     context.actorContext.profileKind !== "human" &&
-    !(allowAgentReleaseRead && context.actorContext.profileKind === "agent")
+    !(allowAgentRead && context.actorContext.profileKind === "agent")
   ) {
     throw createCoreRpcHttpError({
       code: "organization_skill.human_actor_required",
@@ -969,23 +1001,25 @@ export async function prepareHumanRequest(
   }
   const { db, bucket } = requireStores(env);
   const profile = await db
-    .prepare(
-      `
+    .query({
+      text: `
         SELECT 1
-        FROM openmeld_profiles
-        WHERE profile_id = ?
-          AND owner_user_id = ?
-          AND profile_kind = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
+          AND owner_user_id = $2
+          AND profile_kind = $3
+          AND (profile_kind = 'human' OR organization_id = $4)
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(
-      context.actorContext.openMeldProfileId,
-      membership.userId,
-      context.actorContext.profileKind
-    )
-    .first();
+      `,
+      values: [
+        context.actorContext.openMeldProfileId,
+        membership.userId,
+        context.actorContext.profileKind,
+        membership.organizationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!profile) {
     throw createCoreRpcHttpError({
       code: "organization_skill.human_actor_required",
@@ -1009,12 +1043,11 @@ export async function prepareHumanRequest(
     }),
   };
 }
-
 function requireStores(env: CoreBindings): {
   bucket: R2Bucket;
-  db: D1Database;
+  db: PostgresDatabase;
 } {
-  const db = organizationSkillsDb(env);
+  const db = getPostgresDatabase(env);
   const bucket = env.OPENMELD_ORGANIZATION_SKILLS;
   if (!(db && bucket)) {
     throw createCoreRpcHttpError({
@@ -1025,7 +1058,6 @@ function requireStores(env: CoreBindings): {
   }
   return { bucket, db };
 }
-
 function requireExpectedOrganization(
   activeOrganizationId: string,
   expectedOrganizationId: string
@@ -1036,10 +1068,16 @@ function requireExpectedOrganization(
     expectedOrganizationId,
   });
 }
-
 function parseRequest<T>(
   schema: {
-    safeParse(value: unknown): { data: T; success: true } | { success: false };
+    safeParse(value: unknown):
+      | {
+          data: T;
+          success: true;
+        }
+      | {
+          success: false;
+        };
   },
   input: unknown
 ): T {
@@ -1053,10 +1091,16 @@ function parseRequest<T>(
   }
   return parsed.data;
 }
-
 function parseResponse<T>(
   schema: {
-    safeParse(value: unknown): { data: T; success: true } | { success: false };
+    safeParse(value: unknown):
+      | {
+          data: T;
+          success: true;
+        }
+      | {
+          success: false;
+        };
   },
   input: unknown
 ): T {

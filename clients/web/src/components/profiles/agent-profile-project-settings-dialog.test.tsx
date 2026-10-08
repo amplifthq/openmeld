@@ -17,7 +17,7 @@ import { AgentProfileProjectSettingsDialog } from "./agent-profile-project-setti
 const updateDefaultProjectMock = vi.hoisted(() => vi.fn());
 const updateWorkspaceMock = vi.hoisted(() => vi.fn());
 const ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE =
-	/changing folders would interrupt the current Wake/i;
+	/wait until this task finishes to change a folder on this computer/i;
 
 afterEach(cleanup);
 
@@ -190,7 +190,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		);
 	});
 
-	it("keeps working-folder changes disabled while the Agent is working", () => {
+	it("allows a future Project choice while blocking local folder changes during work", async () => {
 		renderSettings("blocked");
 
 		expect(screen.getByText(ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE)).toBeTruthy();
@@ -200,8 +200,32 @@ describe("AgentProfileProjectSettingsDialog", () => {
 					name: "Folder source",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(true);
+		).toBe(false);
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
+		expect(
+			screen
+				.getByRole("option", { name: "On this computer" })
+				.getAttribute("aria-disabled")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
 
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Save changes",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await vi.waitFor(() => expect(updateDefaultProjectMock).toHaveBeenCalled());
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps an unknown local folder unselected and blocks a local write during work", () => {
+		renderSettings("blocked", { defaultProjectId: null }, null);
+		expect(
+			screen.getByRole("combobox", { name: "Folder source" }).textContent
+		).toContain("Choose a folder source");
 		expect(
 			(
 				screen.getByRole("button", {

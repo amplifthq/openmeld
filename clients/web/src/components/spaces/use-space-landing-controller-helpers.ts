@@ -18,7 +18,7 @@ import {
 	createWakeProgressItem,
 	doWakeProgressItemsMatch,
 	filterVisibleWakeProgressItems,
-	isAgentDirectConversationSpace,
+	isAutomaticWakeSpace,
 	isSpaceComposerSubmissionError,
 	isWakeProgressSourceSignalRecoverable,
 	mergeWakeProgressItems,
@@ -29,7 +29,10 @@ import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
-import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS,
+	spaceQueryKeys,
+} from "#/query/spaces/status";
 import { spaceThreadsQueryOptions } from "#/query/spaces/threads";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 import {
@@ -112,6 +115,7 @@ export function buildLocalWakeProgressItems(input: {
 }
 
 export function resolveComposerWakeProgressTargetProfileIds(input: {
+	isThreadMessage?: boolean;
 	explicitActivationTargets: readonly string[];
 	explicitReferenceTargets?: readonly string[];
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -128,11 +132,13 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 		return [];
 	}
 	if (
-		!isAgentDirectConversationSpace({
+		!isAutomaticWakeSpace({
 			activeMemberCount: input.status.members.totalCount,
 			agentMemberCount: input.status.members.agentCount,
 			humanMemberCount: input.status.members.humanCount,
 			purpose: input.status.spacePurpose,
+			isThreadMessage: input.isThreadMessage,
+			directMessageConvertedAt: input.status.directMessageConvertedAt,
 		})
 	) {
 		return [];
@@ -163,6 +169,7 @@ export function readPublishedWakeTargetProfileIds(
 }
 
 export function resolveComposerAddressingTargets(input: {
+	isThreadMessage?: boolean;
 	addressingTargets: readonly SpaceComposerAddressingTarget[];
 	membersSnapshot: SpaceMembersSnapshot | null;
 	senderProfileId: string;
@@ -474,12 +481,23 @@ export function filterUnconfirmedRestoredWakeProgress(input: {
 }): WakeProgressItem[] {
 	return input.currentItems.filter(
 		(item) =>
+			isRecentLocalWakeSubmission(item) ||
 			!input.restoredItems.some((restored) =>
 				doWakeProgressItemsMatch({ left: item, right: restored })
 			) ||
 			input.confirmedItems.some((confirmed) =>
 				doWakeProgressItemsMatch({ left: item, right: confirmed })
 			)
+	);
+}
+
+function isRecentLocalWakeSubmission(item: WakeProgressItem): boolean {
+	const ageMs = Date.now() - item.updatedAtMs;
+	return (
+		!(item.dispatchId || item.terminal) &&
+		(item.phase === "sending" || item.phase === "request_sent") &&
+		ageMs >= 0 &&
+		ageMs < SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS
 	);
 }
 
@@ -501,6 +519,9 @@ export function findUnconfirmedPresentedWakeProgress(input: {
 	fromHistoricalSignal: boolean;
 } | null {
 	for (const item of input.presentedItems) {
+		if (isRecentLocalWakeSubmission(item)) {
+			continue;
+		}
 		if (
 			input.confirmedItems.some((confirmed) =>
 				doWakeProgressItemsMatch({ left: item, right: confirmed })
@@ -717,6 +738,7 @@ export async function pollWakeProgress(input: {
 						clientMessageId,
 						includePreviewText: true,
 						includeSourceContext: true,
+						includeReplyPlacement: true,
 						includeTiming: true,
 						includeWaitReason: true,
 						includeDeviceWait: true,
@@ -767,6 +789,8 @@ export function areWakeProgressItemsEqual(
 				other !== undefined &&
 				item.clientMessageId === other.clientMessageId &&
 				item.dispatchId === other.dispatchId &&
+				item.replyThreadRootSignalId === other.replyThreadRootSignalId &&
+				item.replyPlacementRevision === other.replyPlacementRevision &&
 				item.failureReasonCode === other.failureReasonCode &&
 				item.message === other.message &&
 				item.previewText === other.previewText &&

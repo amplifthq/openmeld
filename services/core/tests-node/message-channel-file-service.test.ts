@@ -23,14 +23,14 @@ vi.mock("../src/center-agent/center-agent-audit", () => ({
   writeCenterAgentAuditEntry: state.audit,
 }));
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
+  "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo",
   () => ({
     readRemoteAgentNativeDeliveryByDispatchAndConversation: async () =>
       state.delivery,
   })
 );
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/lark-platform-channel-connection-repo",
+  "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo",
   () => ({
     readRemoteAgentLarkPlatformChannelConnection: async () => state.connection,
   })
@@ -49,7 +49,12 @@ const input = {
   conversationId: "conversation",
   fileKey: "file_1",
 } as CenterAgentReadChannelFileInput;
-const env = { OPENMELD_DB: {} } as CoreBindings;
+const env = {
+  OPENMELD_POSTGRESQL: {
+    connectionString:
+      "postgresql://127.0.0.1:1/unexpected_test_database_access",
+  },
+} as CoreBindings;
 
 describe("current-message file authority", () => {
   beforeEach(() => {

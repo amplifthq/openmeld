@@ -31,8 +31,8 @@ allowBuilds:
   workerd: true
 
 catalog:
-  '@cloudflare/workers-types': 5.20260908.1
-  wrangler: 4.130.0
+  '@cloudflare/workers-types': 5.20261001.1
+  wrangler: 4.147.0
   zod: 4.6.5
 
 minimumReleaseAgeExclude:
@@ -70,9 +70,12 @@ packageExtensions:
 
 patchedDependencies:
   '@better-auth/electron@1.6.30': patches/@better-auth__electron@1.6.30.patch
-  '@cloudflare/computer@0.2.1': patches/@cloudflare__computer@0.2.1.patch
-  '@flue/runtime@2.1.0': patches/@flue__runtime@2.1.0.patch
+  '@cloudflare/computer@0.4.1': patches/@cloudflare__computer@0.4.1.patch
+  '@flue/runtime@2.2.2': patches/@flue__runtime@2.2.2.patch
+  '@tailwindcss/vite@4.2.1': patches/@tailwindcss__vite.patch
   '@tanstack/history@1.162.1': patches/@tanstack__history@1.162.1.patch
+  '@tanstack/start-plugin-core@1.171.39': patches/@tanstack__start-plugin-core.patch
   better-sqlite3@13.0.3: patches/better-sqlite3@13.0.3.patch
   img-fx@0.5.1: patches/img-fx@0.5.1.patch
+  slate-react@0.126.4: patches/slate-react@0.126.4.patch
   thinking-orbs@0.3.1: patches/thinking-orbs@0.3.1.patch

@@ -2,7 +2,7 @@ import { resolveSpaceFileMimeType } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ArrowUpIcon } from "@phosphor-icons/react";
+import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import {
 	PromptInput,
@@ -17,6 +17,12 @@ import {
 	MessageContent,
 	MessageHeader,
 } from "#/components/spaces/primitives/message";
+import {
+	MessageScroller,
+	MessageScrollerContent,
+	MessageScrollerProvider,
+	MessageScrollerViewport,
+} from "#/components/spaces/primitives/message-scroller";
 import { SpaceAttachmentStrip } from "#/components/spaces/space-attachment-strip";
 import {
 	SpaceComposerAddMenu,
@@ -25,6 +31,7 @@ import {
 	useSpaceComposerFileInput,
 } from "#/components/spaces/space-composer-attachments";
 import { SpaceConversationDateMarker } from "#/components/spaces/space-conversation-date-marker";
+import { SpaceConversationSendScrollController } from "#/components/spaces/space-conversation-scroll-controller";
 import { SpaceConversationSkeleton } from "#/components/spaces/space-conversation-skeleton";
 import {
 	SpaceHeaderIdentityIcon,
@@ -32,13 +39,15 @@ import {
 } from "#/components/spaces/space-header";
 import { SpaceLocalAttachmentPreview } from "#/components/spaces/space-local-attachment-preview";
 import { resolveSpaceMessageBubblePresentationClass } from "#/components/spaces/space-message-bubble-style";
-import { SpaceMessageDeliveryStatus } from "#/components/spaces/space-message-delivery-status";
 import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-profile-avatar";
+import { SpaceMessageProgressRow } from "#/components/spaces/space-message-progress-row";
 import { SpaceMessageSurface } from "#/components/spaces/space-message-surface";
+import { SpaceRequestElapsedTime } from "#/components/spaces/space-request-elapsed-time";
 import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent-pending-message";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
+import { useCenterAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 
 type CenterAgentComposerAttachments = {
@@ -80,6 +89,7 @@ function CenterAgentAttachmentState(input: {
 
 export function CenterAgentOptimisticConversation(input: {
 	organizationSlug?: string;
+	selfAvatarImageUrl?: string | null;
 	conversationTitle?: string;
 	selfProfile?: {
 		openMeldProfileId: string;
@@ -94,12 +104,16 @@ export function CenterAgentOptimisticConversation(input: {
 	composerErrorMessage?: string | null;
 	onComposerChange: (value: string) => void;
 	onSend: () => void;
+	onStop?: () => void;
+	stopStatus?: "stopping" | "stopped" | "unconfirmed";
 	pendingMessage: PendingCenterAgentMessage | null;
 	presentation?: "compact" | "full";
 }) {
-	const isSending = input.pendingMessage !== null;
+	const isSending =
+		input.pendingMessage !== null && input.stopStatus !== "stopped";
 	const organization = useOptionalAppOrganization()?.currentOrganization;
 	const organizationSlug = input.organizationSlug ?? organization?.slug;
+	const selfAvatarImageUrl = resolveSelfAvatarImageUrl(input);
 	const fileInput = useSpaceComposerFileInput({
 		disabled: isSending || !input.attachments,
 		onAddFiles: async (files) => {
@@ -137,68 +151,86 @@ export function CenterAgentOptimisticConversation(input: {
 				/>
 			)}
 			<div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-				<div
-					aria-label="Center Agent conversation"
-					className="min-h-0 flex-1 overflow-y-auto"
-					role="log"
-				>
-					<div
-						className="flex w-full flex-col py-4"
-						data-space-conversation-content-width=""
-					>
-						{input.emptyContent ??
-							(input.pendingMessage && organization ? (
-								<CenterAgentDirectMessageIntro
-									disabled
-									isPersonalContext={organization.isPersonal === true}
-									onSelectStarterAction={input.onComposerChange}
-									onStartComputerSetup={() => undefined}
-									showStarterActions
-									showStarterComputerSetup={false}
-								/>
-							) : null)}
-						{input.pendingMessage ? (
-							<>
-								<SpaceConversationDateMarker
-									date={new Date(input.pendingMessage.createdAtMs)}
-									loadedSignalCount={0}
-								/>
-								<Message
-									align="end"
-									className="py-1.5"
-									data-space-self-message="true"
-								>
-									<MessageContent
-										className="w-full min-w-0 gap-0"
-										directMessage
-									>
-										<MessageHeader className="h-6 px-0">
-											{input.selfProfile ? (
-												<div className="flex items-center gap-1.5">
-													<SpaceMessageProfileAvatar
-														agentControllerRef={null}
-														avatarImageUrl={input.selfProfile.avatarUrl}
-														displayName={input.selfProfile.profileName}
-														profileId={input.selfProfile.openMeldProfileId}
-														profileKind="human"
-													/>
-												</div>
-											) : (
-												<Skeleton className="size-6 animate-none rounded-full" />
-											)}
-										</MessageHeader>
-										<PendingMessageSurface message={input.pendingMessage} />
-										{/* Keep the transcript's action-footer space before publication. */}
-										<div aria-hidden="true" className="mt-0.5 min-h-7" />
-									</MessageContent>
-								</Message>
-								<CenterAgentOptimisticReplyShell />
-							</>
-						) : (
-							!input.empty && <SpaceConversationSkeleton />
-						)}
-					</div>
-				</div>
+				<MessageScrollerProvider autoScroll defaultScrollPosition="end">
+					<SpaceConversationSendScrollController
+						isSendingMessage={isSending}
+						onSendStart={onOptimisticSendStart}
+					/>
+					<MessageScroller className="min-h-0 flex-1">
+						<MessageScrollerViewport
+							aria-label="Center Agent conversation"
+							className="min-h-0 flex-1"
+							data-space-optimistic-conversation=""
+							role="log"
+						>
+							<MessageScrollerContent
+								className="flex w-full flex-col gap-0 py-4"
+								data-space-conversation-content-width=""
+							>
+								{input.emptyContent ??
+									(input.pendingMessage && organization ? (
+										<CenterAgentDirectMessageIntro
+											disabled
+											isPersonalContext={organization.isPersonal === true}
+											onSelectStarterAction={input.onComposerChange}
+											onStartComputerSetup={() => undefined}
+											showStarterActions
+											showStarterComputerSetup={false}
+										/>
+									) : null)}
+								{input.pendingMessage ? (
+									<>
+										<SpaceConversationDateMarker
+											date={new Date(input.pendingMessage.createdAtMs)}
+											loadedSignalCount={0}
+										/>
+										<Message
+											align="end"
+											className="py-1.5"
+											data-space-self-message="true"
+										>
+											<MessageContent
+												className="w-full min-w-0 gap-0"
+												directMessage
+											>
+												<MessageHeader className="px-0">
+													{input.selfProfile ? (
+														<div className="flex items-center gap-1.5">
+															<SpaceMessageProfileAvatar
+																agentControllerRef={null}
+																avatarImageUrl={selfAvatarImageUrl}
+																displayName={input.selfProfile.profileName}
+																profileId={input.selfProfile.openMeldProfileId}
+																profileKind="human"
+																responsive
+															/>
+														</div>
+													) : (
+														<span data-slot="message-speaker-avatar">
+															<span data-slot="message-speaker-avatar-content">
+																<Skeleton className="size-8 animate-none rounded-full" />
+															</span>
+														</span>
+													)}
+												</MessageHeader>
+												<PendingMessageSurface message={input.pendingMessage} />
+												{/* Keep the transcript's action-footer space before publication. */}
+												<div aria-hidden="true" className="mt-0.5 min-h-7" />
+											</MessageContent>
+										</Message>
+										<CenterAgentOptimisticReplyShell
+											onStop={input.onStop}
+											startedAtMs={input.pendingMessage.createdAtMs}
+											stopStatus={input.stopStatus}
+										/>
+									</>
+								) : (
+									!input.empty && <SpaceConversationSkeleton />
+								)}
+							</MessageScrollerContent>
+						</MessageScrollerViewport>
+					</MessageScroller>
+				</MessageScrollerProvider>
 				<footer className="shrink-0 bg-background">
 					<div className="w-full py-4" data-space-conversation-content-width="">
 						{input.composerErrorMessage ? (
@@ -342,22 +374,81 @@ function PendingAttachment({ file }: { file: File }) {
 	);
 }
 
-function CenterAgentOptimisticReplyShell() {
+function CenterAgentOptimisticReplyShell(input: {
+	startedAtMs: number;
+	onStop?: () => void;
+	stopStatus?: "stopping" | "stopped" | "unconfirmed";
+}) {
+	const profile = useCenterAgentAvatarProfile();
 	return (
 		<div
-			className="flex w-full min-w-0 flex-col gap-2 px-3 py-2"
+			className="flex w-full min-w-0 items-center gap-2 py-2"
 			data-testid="center-agent-optimistic-reply"
 		>
-			<div className="flex min-w-0 items-center gap-1.5">
-				<Skeleton
-					aria-hidden="true"
-					className="size-6 shrink-0 rounded-full motion-reduce:animate-none"
-				/>
-				<span className="min-w-0 font-bold text-foreground text-sm">
-					Center Agent
-				</span>
-			</div>
-			<SpaceMessageDeliveryStatus presentation="agent_sending" />
+			<SpaceMessageProfileAvatar
+				agentControllerRef={null}
+				avatarStyle={profile?.avatarStyle}
+				displayName={profile?.profileName ?? "Center Agent"}
+				isCenterAgent
+				profileId={profile?.profileId ?? "center-agent"}
+				profileKind="agent"
+				responsive
+				working={!input.stopStatus}
+			/>
+			<SpaceMessageProgressRow
+				control={
+					input.onStop && input.stopStatus !== "stopped" ? (
+						<Button
+							aria-label={
+								input.stopStatus === "unconfirmed"
+									? "Retry stop"
+									: "Stop Center Agent"
+							}
+							disabled={input.stopStatus === "stopping"}
+							onClick={input.onStop}
+							size="xs"
+							variant="ghost"
+						>
+							<StopIcon aria-hidden="true" weight="fill" />
+							{input.stopStatus === "unconfirmed" ? "Retry stop" : "Stop"}
+						</Button>
+					) : null
+				}
+				slot="center-agent-optimistic-progress"
+			>
+				{input.stopStatus ? (
+					<output className="text-muted-foreground text-sm">
+						{
+							{
+								stopped: "Stopped",
+								stopping: "Stopping…",
+								unconfirmed: "Stop not confirmed",
+							}[input.stopStatus]
+						}
+					</output>
+				) : (
+					<output className="flex min-w-0 items-center gap-1 text-[13px] text-muted-foreground">
+						<span className="truncate">
+							{profile?.profileName ?? "Center Agent"} · Working…
+						</span>
+						<span aria-hidden="true">·</span>
+						<SpaceRequestElapsedTime startedAtMs={input.startedAtMs} />
+					</output>
+				)}
+			</SpaceMessageProgressRow>
 		</div>
 	);
+}
+
+function onOptimisticSendStart() {
+	// This pre-route transcript has no saved reading position to clear.
+}
+
+function resolveSelfAvatarImageUrl(input: {
+	selfAvatarImageUrl?: string | null;
+	selfProfile?: { avatarUrl?: string } | null;
+}) {
+	return input.selfAvatarImageUrl === undefined
+		? input.selfProfile?.avatarUrl
+		: input.selfAvatarImageUrl;
 }

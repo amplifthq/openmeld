@@ -1,12 +1,12 @@
 export const SPACE_WAKE_COMPOSER_HINT =
 	"To wake an agent, type @, then pick the agent.";
 export const SPACE_COMPOSER_ACCESSIBLE_NAME = "Message this space";
-export type SpaceAgentDirectConversationComposerHintKind = "direct_message";
+export type SpaceAutomaticWakeComposerHintKind = "one_human_agent";
 
 export type SpaceComposerConversationKind =
 	| "space"
 	| "human_direct_message"
-	| "agent_direct_message"
+	| "agent_conversation"
 	| "center_agent_direct_message";
 
 export type SpaceComposerPlacement = "conversation" | "thread";
@@ -25,15 +25,15 @@ export type SpaceComposerPolicy = {
 };
 
 export function resolveSpaceComposerConversationKind(input: {
-	isAgentDirectMessage: boolean;
+	hasAutomaticWakeTarget: boolean;
 	isCenterAgentDirectMessage: boolean;
 	isDirectMessage: boolean;
 }): SpaceComposerConversationKind {
 	if (input.isCenterAgentDirectMessage) {
 		return "center_agent_direct_message";
 	}
-	if (input.isAgentDirectMessage) {
-		return "agent_direct_message";
+	if (input.hasAutomaticWakeTarget) {
+		return "agent_conversation";
 	}
 	if (input.isDirectMessage) {
 		return "human_direct_message";
@@ -53,8 +53,8 @@ export function resolveSpaceComposerPolicy(input: {
 }): SpaceComposerPolicy {
 	const placeholderContext =
 		input.placement === "thread" ? "thread" : input.conversationKind;
-	const agentDirectConversation =
-		input.conversationKind === "agent_direct_message" ||
+	const automaticWakeConversation =
+		input.conversationKind === "agent_conversation" ||
 		input.conversationKind === "center_agent_direct_message";
 	const sendButtonLabel = resolveSpaceComposerSendButtonLabel({
 		isSendingMessage: input.isSendingMessage === true,
@@ -79,8 +79,8 @@ export function resolveSpaceComposerPolicy(input: {
 					isSendingMessage: false,
 					placement: input.placement,
 				}),
-		showMentionButton: !agentDirectConversation,
-		wakeTextHint: agentDirectConversation
+		showMentionButton: !automaticWakeConversation,
+		wakeTextHint: automaticWakeConversation
 			? null
 			: resolveSpaceComposerWakeTextHint(input.text, {
 					hasAuthoredMentions: input.hasAuthoredMentions,
@@ -119,7 +119,7 @@ export function resolveSpaceComposerPlaceholder(input: {
 	if (input.context === "human_direct_message") {
 		return `Message ${input.targetName?.trim() || "this person"}…`;
 	}
-	if (input.context === "agent_direct_message") {
+	if (input.context === "agent_conversation") {
 		return `Message ${input.targetName?.trim() || "this agent"}…`;
 	}
 	return SPACE_WAKE_COMPOSER_HINT;
@@ -138,7 +138,7 @@ export function resolveSpaceComposerAccessibleName(input: {
 	if (input.context === "human_direct_message") {
 		return `Message ${input.targetName?.trim() || "this person"}`;
 	}
-	if (input.context === "agent_direct_message") {
+	if (input.context === "agent_conversation") {
 		return `Message ${input.targetName?.trim() || "this agent"}`;
 	}
 	return SPACE_COMPOSER_ACCESSIBLE_NAME;

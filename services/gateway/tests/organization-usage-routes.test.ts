@@ -10,6 +10,43 @@ const TEST_EXECUTION_CONTEXT = {
 } as unknown as ExecutionContext;
 
 describe("Organization Usage routes", () => {
+  it("queries the authenticated organization and rejects caller-supplied organization identity", async () => {
+    const { coreRpc, env } = makeEnv();
+    const query = {
+      fromMs: 1000,
+      toMs: 2000,
+      computerId: "computer-1",
+      bucketBoundariesMs: [1000, 1500, 2000],
+    };
+    const request = (body: unknown) =>
+      app.fetch(
+        new Request("http://local/v1/organizations/current/usage/query", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+    expect((await request(query)).status).toBe(200);
+    expect(coreRpc.readOrganizationAiUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+        query,
+      })
+    );
+    expect(
+      (await request({ ...query, organizationId: "another-org" })).status
+    ).toBe(400);
+    expect(
+      (await request({ ...query, toMs: 1000 + 32 * 86_400_000 })).status
+    ).toBe(400);
+    expect(coreRpc.readOrganizationAiUsage).toHaveBeenCalledTimes(1);
+    expect(
+      (await request({ ...query, bucketBoundariesMs: [1000, 2001] })).status
+    ).toBe(400);
+  });
+
   it("forwards the active member context and returns the strict overview", async () => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(
@@ -20,10 +57,12 @@ describe("Organization Usage routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      centerAgentWakes: {
-        dailyLimit: 200,
+      aiSpend: {
+        dailyLimitNanoUsd: null,
         resetsAt: "2026-07-17T00:00:00.000Z",
-        usedToday: 12,
+        usedNanoUsd: 120_000_000,
+        missingCostRequests: 0,
+        exhausted: false,
       },
       routines: {
         count: 7,
@@ -48,11 +87,18 @@ describe("Organization Usage routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    readOrganizationAiUsage: vi.fn(async () => ({
+      fromMs: 1000,
+      toMs: 2000,
+      models: [],
+    })),
     readOrganizationUsageOverview: vi.fn(async () => ({
-      centerAgentWakes: {
-        dailyLimit: 200,
+      aiSpend: {
+        dailyLimitNanoUsd: null,
         resetsAt: "2026-07-17T00:00:00.000Z",
-        usedToday: 12,
+        usedNanoUsd: 120_000_000,
+        missingCostRequests: 0,
+        exhausted: false,
       },
       routines: {
         count: 7,

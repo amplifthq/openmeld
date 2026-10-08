@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeDispatchOriginTraceRecord,
   normalizeDispatchPromptTraceRecord,
-} from "../space/infrastructure/d1/space-dispatch-trace-normalization";
+} from "../space/infrastructure/postgresql/space-dispatch-trace-normalization";
 
 describe("space dispatch trace normalization", () => {
   it("omits origin diagnostics when every normalized field is empty", () => {

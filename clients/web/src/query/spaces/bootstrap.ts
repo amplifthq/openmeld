@@ -37,6 +37,7 @@ export async function readSpaceBootstrap(input: {
 			includeAgentReadiness: false,
 			spaceId: input.spaceId,
 			includeAgentStreamPresence: true,
+			includeAgentStreamRecovery: true,
 			historyQuery: {
 				recent: true,
 				limit: SPACE_INITIAL_HISTORY_MAX_MESSAGES,
@@ -44,13 +45,15 @@ export async function readSpaceBootstrap(input: {
 			},
 			...(input.signal === undefined ? {} : { signal: input.signal }),
 		});
+		const envelopes = response.history.signals.flatMap((item) => {
+			const envelope = parseEnvelope(item);
+			return envelope ? [envelope] : [];
+		});
 		return {
 			...response,
 			history: {
-				envelopes: response.history.signals.flatMap((item) => {
-					const envelope = parseEnvelope(item);
-					return envelope ? [envelope] : [];
-				}),
+				confirmedCursor: envelopes.at(-1)?.id ?? null,
+				envelopes,
 				nextCursor: response.history.nextCursor,
 			},
 		};

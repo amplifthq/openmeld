@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   listOpenOrganizationDocumentDraftInboxTargets,
   resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSet,
@@ -9,25 +10,21 @@ import {
   buildOrganizationDocumentDraftSourceKey,
   projectOrganizationDocumentDraftReview,
 } from "./organization-document-inbox-producer";
-
 export const ORGANIZATION_DOCUMENT_INBOX_RECONCILE_LIMIT = 100;
-
 type PendingOrganizationDocumentDraftRow = {
   draft_created_at: number;
   id: string;
   organization_id: string;
   title: string;
 };
-
 export type OrganizationDocumentInboxReconcileResult = {
   attempted: number;
   errors: number;
   projected: number;
 };
-
 export async function reconcileOrganizationDocumentDraftInbox(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
-  db: D1Database;
+  db: PostgresDatabase;
   limit?: number;
   nowMs: number;
 }): Promise<OrganizationDocumentInboxReconcileResult> {
@@ -66,7 +63,6 @@ export async function reconcileOrganizationDocumentDraftInbox(input: {
     errors: 0,
     projected: 0,
   };
-
   for (const [workKey, draft] of work) {
     const [organizationId, documentId] = parseDocumentWorkKey(workKey);
     try {
@@ -88,10 +84,9 @@ export async function reconcileOrganizationDocumentDraftInbox(input: {
   }
   return result;
 }
-
 async function reconcileOrganizationDocumentInboxWorkItem(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
-  db: D1Database;
+  db: PostgresDatabase;
   documentId: string;
   draft: PendingOrganizationDocumentDraftRow | null;
   failedOrganizationIds: Set<string>;
@@ -146,7 +141,6 @@ async function reconcileOrganizationDocumentInboxWorkItem(input: {
     recipientUserIds: reviewerUserIds,
   });
 }
-
 async function resolveReviewerUserIds(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
   failedOrganizationIds: Set<string>;
@@ -185,9 +179,8 @@ async function resolveReviewerUserIds(input: {
     throw error;
   }
 }
-
 async function listRotatingOpenDraftInboxTargets(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   nowMs: number;
 }) {
@@ -212,22 +205,24 @@ async function listRotatingOpenDraftInboxTargets(input: {
     })
   ).targets;
 }
-
 async function listPendingOrganizationDocumentDrafts(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   nowMs: number;
 }): Promise<PendingOrganizationDocumentDraftRow[]> {
   const count = await input.db
-    .prepare(
-      `
+    .query<{
+      count: number;
+    }>({
+      text: `
         SELECT COUNT(*) AS count
-        FROM organization_documents
+        FROM "openmeld"."organization_documents"
         WHERE draft_content IS NOT NULL
           AND draft_created_at IS NOT NULL
-      `
-    )
-    .first<{ count: number }>();
+      `,
+      values: [],
+    })
+    .then((result) => result.rows[0] ?? null);
   const total = Math.max(0, Math.trunc(Number(count?.count ?? 0)));
   if (total === 0) {
     return [];
@@ -235,50 +230,45 @@ async function listPendingOrganizationDocumentDrafts(input: {
   const pageCount = Math.ceil(total / input.limit);
   const minute = Math.floor(input.nowMs / 60_000);
   const offset = (minute % pageCount) * input.limit;
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<PendingOrganizationDocumentDraftRow>({
+    text: `
         SELECT id, organization_id, title, draft_created_at
-        FROM organization_documents
+        FROM "openmeld"."organization_documents"
         WHERE draft_content IS NOT NULL
           AND draft_created_at IS NOT NULL
         ORDER BY draft_created_at, id
-        LIMIT ? OFFSET ?
-      `
-    )
-    .bind(input.limit, offset)
-    .all<PendingOrganizationDocumentDraftRow>();
-  return rows.results ?? [];
+        LIMIT $1 OFFSET $2
+      `,
+    values: [input.limit, offset],
+  });
+  return rows.rows ?? [];
 }
-
 async function readPendingOrganizationDocumentDraft(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   documentId: string;
   organizationId: string;
 }): Promise<PendingOrganizationDocumentDraftRow | null> {
   return await input.db
-    .prepare(
-      `
+    .query<PendingOrganizationDocumentDraftRow>({
+      text: `
         SELECT id, organization_id, title, draft_created_at
-        FROM organization_documents
-        WHERE organization_id = ?
-          AND id = ?
+        FROM "openmeld"."organization_documents"
+        WHERE organization_id = $1
+          AND id = $2
           AND draft_content IS NOT NULL
           AND draft_created_at IS NOT NULL
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.documentId)
-    .first<PendingOrganizationDocumentDraftRow>();
+      `,
+      values: [input.organizationId, input.documentId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 function buildDocumentWorkKey(
   organizationId: string,
   documentId: string
 ): string {
   return `${organizationId}\u0000${documentId}`;
 }
-
 function parseDocumentWorkKey(value: string): [string, string] {
   const separatorIndex = value.indexOf("\u0000");
   if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
@@ -286,7 +276,6 @@ function parseDocumentWorkKey(value: string): [string, string] {
   }
   return [value.slice(0, separatorIndex), value.slice(separatorIndex + 1)];
 }
-
 function normalizeLimit(value: number | undefined): number {
   if (value === undefined) {
     return ORGANIZATION_DOCUMENT_INBOX_RECONCILE_LIMIT;
@@ -296,7 +285,6 @@ function normalizeLimit(value: number | undefined): number {
   }
   return value;
 }
-
 function logReconciliationFailure(input: {
   documentId?: string;
   draft?: PendingOrganizationDocumentDraftRow | null;

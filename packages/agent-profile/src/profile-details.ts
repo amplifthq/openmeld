@@ -371,9 +371,7 @@ function buildAgentProfileActivitySection(
     ],
     operationalContext.recoveryAction
       ? {
-          ...(operationalContext.recoveryAction.kind ===
-            "skip_interrupted_work" &&
-          operationalContext.recoveryTargetWakeLifecycleId
+          ...(operationalContext.recoveryTargetWakeLifecycleId
             ? {
                 expectedInterruptedTargetWakeLifecycleId:
                   operationalContext.recoveryTargetWakeLifecycleId,

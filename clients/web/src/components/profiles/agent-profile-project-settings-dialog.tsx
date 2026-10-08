@@ -69,7 +69,10 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 		initialProjectId,
 		input.currentWorkingFolder
 	);
-	const initialFallback = initialPath ? "advanced" : "managed";
+	const initialFallback = resolveInitialFallback(
+		initialPath,
+		input.currentWorkingFolder
+	);
 	const [projectId, setProjectId] = useState(initialProjectId);
 	const [fallback, setFallback] = useState<
 		"advanced" | "managed" | "project" | null
@@ -79,16 +82,16 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 		useState<LocalProjectControlConnection | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const disabled =
-		pending ||
-		input.profile.defaultProjectId === undefined ||
+	const disabled = pending || input.profile.defaultProjectId === undefined;
+	const localFolderChangesBlocked =
 		input.executionTargetChangeEligibilityStatus !== "allowed";
-	const valid = isWorkingFolderDraftValid({
-		projectId,
-		connection,
-		fallback,
-		path,
-	});
+	const valid =
+		isWorkingFolderDraftValid({
+			projectId,
+			connection,
+			fallback,
+			path,
+		}) && !(localFolderChangesBlocked && !projectId);
 	const save = async () => {
 		// The displayed choice does not prove that the Service has a usable
 		// workspace. Explicit Save may reapply it to initialize or repair it.
@@ -158,6 +161,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 					) : null}
 					<AgentProfileProjectSelector
 						disabled={disabled}
+						localFolderChangesBlocked={localFolderChangesBlocked}
 						manualPath={path}
 						onConnectionReady={setConnection}
 						onManualPathChange={(value) => {
@@ -208,14 +212,14 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 					</p>
 					{input.executionTargetChangeEligibilityStatus === "blocked" ? (
 						<p className="text-muted-foreground text-sm">
-							Working folder changes are unavailable while this Agent is working
-							because changing folders would interrupt the current Wake.
+							This Agent is working. You can choose a project for new work now.
+							Wait until this task finishes to change a folder on this computer.
 						</p>
 					) : null}
 					{input.executionTargetChangeEligibilityStatus === "unavailable" ? (
 						<p className="text-muted-foreground text-sm">
-							OpenMeld couldn’t confirm whether this Agent is working. Try
-							again.
+							OpenMeld can’t check whether this Agent is working. Try again
+							before changing a folder on this computer.
 						</p>
 					) : null}
 					{error ? (
@@ -249,6 +253,19 @@ function resolveInitialCustomPath(
 		return "";
 	}
 	return path ?? "";
+}
+
+function resolveInitialFallback(
+	initialPath: string,
+	currentWorkingFolder: string | null
+): "advanced" | "managed" | null {
+	if (initialPath) {
+		return "advanced";
+	}
+	if (currentWorkingFolder === "OpenMeld managed") {
+		return "managed";
+	}
+	return null;
 }
 
 function isWorkingFolderDraftValid(input: {

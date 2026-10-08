@@ -12,7 +12,7 @@ export function WorkingFolderSelect(input: {
 	disabled: boolean;
 	value: string;
 	placeholder?: string;
-	items: readonly { label: string; value: string }[];
+	items: readonly { disabled?: boolean; label: string; value: string }[];
 	onChange: (value: string) => void;
 }) {
 	return (
@@ -31,7 +31,12 @@ export function WorkingFolderSelect(input: {
 			/>
 			<SelectContent>
 				{input.items.map((item, index) => (
-					<SelectItem index={index} key={item.value} value={item.value}>
+					<SelectItem
+						disabled={item.disabled}
+						index={index}
+						key={item.value}
+						value={item.value}
+					>
 						{item.label}
 					</SelectItem>
 				))}

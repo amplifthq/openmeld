@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   INBOX_CONTEXT_LABEL_MAX_CHARS,
   INBOX_TITLE_MAX_CHARS,
@@ -10,31 +11,38 @@ import { truncateInboxText } from "../../inbox/application/inbox-text";
 
 const AGENT_PROFILE_WORK_RECOVERY_SOURCE_KIND =
   "agent_profile_work_recovery" as const;
-
 export type AgentProfileWorkRecoveryInboxStage =
   | "approve_queued_work"
   | "resolve_occupied_conversation"
   | "review_interrupted_work";
-
 type AgentProfileWorkRecoveryInboxIdentity = {
   interruptedClientMessageId: string;
   profileId: string;
   stage: AgentProfileWorkRecoveryInboxStage;
 };
-
 export async function projectAgentProfileWorkRecoveryInboxItem(
   input: AgentProfileWorkRecoveryInboxIdentity & {
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
     occurredAtMs: number;
     organizationId: string;
     ownerUserId: string;
     profileName: string;
     sourceTarget?:
-      | { kind: "agent_profile"; profileId: string }
-      | { kind: "space"; signalId: string; spaceId: string };
+      | {
+          kind: "agent_profile";
+          profileId: string;
+        }
+      | {
+          kind: "space";
+          signalId: string;
+          spaceId: string;
+        };
   }
-): Promise<{ deliveryId: string | null; itemId: string }> {
+): Promise<{
+  deliveryId: string | null;
+  itemId: string;
+}> {
   const profileName = requireText(input.profileName, "profileName");
   const presentation = resolveRecoveryPresentation({
     profileName,
@@ -73,10 +81,9 @@ export async function projectAgentProfileWorkRecoveryInboxItem(
     nowMs: input.nowMs,
   });
 }
-
 export async function resolveAgentProfileWorkRecoveryInboxItem(
   input: AgentProfileWorkRecoveryInboxIdentity & {
-    db: D1Database;
+    db: PostgresDatabase;
     organizationId: string;
     resolvedAtMs: number;
   }
@@ -89,7 +96,6 @@ export async function resolveAgentProfileWorkRecoveryInboxItem(
     sourceKind: AGENT_PROFILE_WORK_RECOVERY_SOURCE_KIND,
   });
 }
-
 export async function buildAgentProfileWorkRecoveryInboxSourceKey(
   input: AgentProfileWorkRecoveryInboxIdentity
 ): Promise<string> {
@@ -108,11 +114,13 @@ export async function buildAgentProfileWorkRecoveryInboxSourceKey(
   ).join("");
   return `agent_profile_work_recovery_${hex}`;
 }
-
 function resolveRecoveryPresentation(input: {
   profileName: string;
   stage: AgentProfileWorkRecoveryInboxStage;
-}): { preview: string; title: string } {
+}): {
+  preview: string;
+  title: string;
+} {
   switch (input.stage) {
     case "approve_queued_work":
       return {
@@ -136,7 +144,6 @@ function resolveRecoveryPresentation(input: {
       return assertNeverRecoveryStage(input.stage);
   }
 }
-
 export function isAgentProfileWorkRecoveryInboxStage(
   value: unknown
 ): value is AgentProfileWorkRecoveryInboxStage {
@@ -146,7 +153,6 @@ export function isAgentProfileWorkRecoveryInboxStage(
     value === "review_interrupted_work"
   );
 }
-
 function requireRecoveryStage(
   stage: AgentProfileWorkRecoveryInboxStage
 ): AgentProfileWorkRecoveryInboxStage {
@@ -159,7 +165,6 @@ function requireRecoveryStage(
       return assertNeverRecoveryStage(stage);
   }
 }
-
 function requireText(value: string, field: string): string {
   const normalized = value.trim();
   if (!normalized) {
@@ -167,7 +172,6 @@ function requireText(value: string, field: string): string {
   }
   return normalized;
 }
-
 function assertNeverRecoveryStage(value: never): never {
   throw new TypeError(
     `Unsupported Agent Profile work recovery stage: ${String(value)}`

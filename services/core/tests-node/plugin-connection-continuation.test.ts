@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import { continuePluginConnection } from "../src/connectors/plugin-connection-continuation";
 import type { CoreBindings } from "../src/lib/bindings";
-import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 
 const owner = vi.hoisted(() => ({
   membership: vi.fn(),
@@ -23,10 +23,6 @@ const owner = vi.hoisted(() => ({
   localPermission: vi.fn(),
   localBinding: vi.fn(),
 }));
-vi.mock("../src/lib/bindings", () => ({
-  identityDb: () => ({}),
-  wakeEvidenceDb: () => ({}),
-}));
 vi.mock("../src/organizations/organization-context", () => ({
   resolveActiveOrganizationMembership: owner.membership,
   readOrganizationRouteSlug: owner.slug,
@@ -38,7 +34,7 @@ vi.mock("../src/rpc/methods", () => ({
   rpcReadPluginConnectionLocalSource: owner.localSource,
 }));
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
+  "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo",
   () => ({ readRemoteAgentNativeDeliveryByExecution: owner.delivery })
 );
 vi.mock("../src/connectors/connector-connection-repository", () => ({
@@ -56,13 +52,19 @@ vi.mock("../src/connectors/plugin-local-caller", () => ({
   requirePluginProfile: owner.localProfile,
 }));
 vi.mock(
-  "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo",
+  "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo",
   () => ({ readPrimaryAgentProfileBindingRecord: owner.localBinding })
 );
 
 const request = createSubmitTurnRequest();
 const humanId = request.author.profileId as string;
-const env = { WEB_APP_URL: "https://openmeld.ai" } as CoreBindings;
+const env = {
+  OPENMELD_POSTGRESQL: {
+    connectionString:
+      "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+  },
+  WEB_APP_URL: "https://openmeld.ai",
+} as CoreBindings;
 const input = {
   spaceId: request.spaceId,
   sourceSignalId: "reply-1",
@@ -167,9 +169,15 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
     owner.post.mockResolvedValue({ id: "continued-1" });
   });
 
-  it("continues as the original human in the authoritative Thread with completed receipts, not a callback-driven rerun", async () => {
+  it.each([
+    "https://openmeld.ai",
+    "https://app.openmeld.ai",
+  ])("continues the original human's persisted task at %s with its Thread and completed receipts", async (webAppUrl) => {
     expect(owner.post).not.toHaveBeenCalled();
-    const result = await continuePluginConnection(env, input);
+    const result = await continuePluginConnection(
+      { ...env, WEB_APP_URL: webAppUrl },
+      input
+    );
     expect(result).toEqual({
       status: "requested",
       sourceSignalId: "reply-1",

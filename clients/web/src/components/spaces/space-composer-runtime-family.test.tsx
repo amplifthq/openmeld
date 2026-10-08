@@ -113,7 +113,7 @@ function ComposerHarness(input: {
 					text: draft.text,
 				}}
 				context={{
-					conversationKind: "agent_direct_message",
+					conversationKind: "agent_conversation",
 					placement: "conversation",
 				}}
 			/>

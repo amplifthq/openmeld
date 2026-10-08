@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   archiveProjectResponseSchema,
   archiveProjectRpcInputSchema,
@@ -51,17 +52,12 @@ import type {
   UpdateProjectResponse,
   UpdateProjectRpcInput,
 } from "@openmeld/schemas/types";
-import {
-  type CoreBindings,
-  projectDb,
-  projectionsDb,
-  wakeEvidenceDb,
-} from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { authorizeRemoteAgentExecutionAccess } from "../remote-agent/application/remote-agent-execution-access";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "../rpc/errors";
 import { resolveSpaceStub } from "../rpc/space-ref";
-import { listSpaceTaskProjectCandidates } from "../space/infrastructure/d1/space-task-project-link-repo";
+import { listSpaceTaskProjectCandidates } from "../space/infrastructure/postgresql/space-task-project-link-repo";
 import { resolveProjectIssueAction } from "./project-issue-action-routing";
 import { listProjectIssueRoutingCandidates } from "./project-repository";
 import {
@@ -180,7 +176,7 @@ export async function rpcReadProjectRecentTasks(
     request.context
   );
   await service.read(authority, request.projectId);
-  const db = projectionsDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "project.store_unavailable",
@@ -290,8 +286,8 @@ export async function rpcResolveProjectIssueAction(
     submissionId,
     effect: "write",
   });
-  const deliveryDb = wakeEvidenceDb(env);
-  const db = projectDb(env);
+  const db = getPostgresDatabase(env);
+  const deliveryDb = db;
   if (!(deliveryDb && db)) {
     throw createCoreRpcHttpError({
       code: "project.store_unavailable",

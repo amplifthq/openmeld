@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d30d93f0-4896-4768-bc58-b4fdd04b8907",
+  "id": "f2b8cac6-2ff9-4ed9-9d87-8f36bdf2dc2c",
   "prevId": "79809c47-b8b8-4dfa-9273-94ccd3602a32",
   "tables": {
     "account_sidebar_preferences": {
@@ -12710,6 +12710,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "avatar_style": {
+          "name": "avatar_style",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "integer",
@@ -18119,35 +18126,6 @@
         "repository_url": {
           "name": "repository_url",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_json": {
-          "name": "issue_destination_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_revision": {
-          "name": "issue_destination_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "issue_destination_updated_by_user_id": {
-          "name": "issue_destination_updated_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_updated_at_ms": {
-          "name": "issue_destination_updated_at_ms",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

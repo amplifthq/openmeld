@@ -6,6 +6,7 @@ export function SpaceMessageProgressRow(input: {
 	align?: "start" | "end";
 	children: ReactNode;
 	compact?: boolean;
+	fill?: boolean;
 	control?: ReactNode;
 	slot: string;
 	testId?: string;
@@ -28,7 +29,8 @@ export function SpaceMessageProgressRow(input: {
 		>
 			<div
 				className={cn(
-					"min-w-0 flex-[0_1_auto]",
+					"min-w-0",
+					input.fill ? "flex-1" : "flex-[0_1_auto]",
 					isEndAligned ? "flex justify-end text-right" : null
 				)}
 				data-align={input.align ?? "start"}
@@ -40,7 +42,7 @@ export function SpaceMessageProgressRow(input: {
 				<div
 					className={cn(
 						"flex min-h-6 shrink-0 items-center",
-						input.compact ? null : "w-20",
+						input.compact ? null : "min-w-20",
 						isEndAligned ? "justify-end" : "justify-start"
 					)}
 					data-slot="space-message-progress-control"

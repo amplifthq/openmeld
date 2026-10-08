@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@openmeld/ui/globals.css";
+@import "@openmeld/ui/fonts.css";
+@import "streamdown/styles.css";
+@source "../../../packages/ui/src";
+@source "../node_modules/streamdown/dist";

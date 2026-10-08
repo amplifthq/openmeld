@@ -23,6 +23,34 @@ const TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const OTHER_TARGET_PROFILE_ID = "agt_44444444-4444-4444-8444-444444444444";
 
 describe("Wake progress projection", () => {
+  it("keeps awaiting confirmation active and stoppable without inventing an execution outcome", () => {
+    const item = createWakeProgressItem({
+      clientMessageId: "request",
+      dispatchId: "uncertain",
+      sourceSignalId: "source",
+      targetProfileId: TARGET_PROFILE_ID,
+      targetLabel: "Agent",
+      phase: "running",
+      failureReasonCode: "remote_agent.execution_confirmation_pending",
+      updatedAtMs: 100,
+      wakeStopEligibility: {
+        status: "eligible",
+        controlMode: "cancel",
+        reliability: "native_cancel",
+        reasonCode: null,
+      },
+    });
+    expect(item.terminal).toBe(false);
+    expect(item.failureReasonCode).toBe(
+      "remote_agent.execution_confirmation_pending"
+    );
+    expect(item.message).toContain(
+      "Later work in this conversation may be waiting"
+    );
+    expect(item.message).toContain("Do not resend the original request");
+    expect(item.message).not.toContain("is working");
+    expect(isActiveWakeProgressItem(item)).toBe(true);
+  });
   it("keeps distinct executions on one source separate through merging and final cleanup", () => {
     const a = createWakeProgressItem({
       clientMessageId: "request",
@@ -34,6 +62,40 @@ describe("Wake progress projection", () => {
       updatedAtMs: 100,
     });
     const b = { ...a, dispatchId: "B", updatedAtMs: 200 };
+    const selected = {
+      ...a,
+      replyThreadRootSignalId: null,
+      replyPlacementRevision: 2,
+    };
+    const stale = {
+      ...a,
+      replyThreadRootSignalId: "source",
+      replyPlacementRevision: 1,
+    };
+    for (const [current, incoming] of [
+      [selected, stale],
+      [stale, selected],
+    ]) {
+      expect(
+        mergeWakeProgressItems({
+          currentItems: [current],
+          incomingItems: [incoming],
+        })[0]
+      ).toMatchObject({
+        replyThreadRootSignalId: null,
+        replyPlacementRevision: 2,
+      });
+    }
+    expect(
+      mergeWakeProgressItems({
+        currentItems: [selected],
+        incomingItems: [{ ...a, updatedAtMs: 300 }],
+      })[0]
+    ).toMatchObject({
+      updatedAtMs: 300,
+      replyThreadRootSignalId: null,
+      replyPlacementRevision: 2,
+    });
     const merged = mergeWakeProgressItems({
       currentItems: [a],
       incomingItems: [b],

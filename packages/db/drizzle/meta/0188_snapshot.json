@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e8075f2e-cdc2-4028-a866-d8b3d3b0aa4b",
-  "prevId": "dc0c78d8-c2d6-4161-9967-a4e0ccbe88b0",
+  "id": "6e146a2d-a275-4896-ae77-caff0447ad45",
+  "prevId": "d5cca731-4be3-46ae-8597-ecd1a52c9deb",
   "tables": {
     "account_sidebar_preferences": {
       "name": "account_sidebar_preferences",
@@ -3376,6 +3376,180 @@
         }
       }
     },
+    "ai_usage_records": {
+      "name": "ai_usage_records",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runtime": {
+          "name": "runtime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "agent_profile_id": {
+          "name": "agent_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "space_id": {
+          "name": "space_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attempt_id": {
+          "name": "attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "computer_id": {
+          "name": "computer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "controller": {
+          "name": "controller",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "occurred_at_ms": {
+          "name": "occurred_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "output_tokens": {
+          "name": "output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "total_tokens": {
+          "name": "total_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cost_nano_usd": {
+          "name": "cost_nano_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cost_kind": {
+          "name": "cost_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "record_json": {
+          "name": "record_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "ai_usage_records_org_time_idx": {
+          "name": "ai_usage_records_org_time_idx",
+          "columns": ["organization_id", "occurred_at_ms"],
+          "isUnique": false
+        },
+        "ai_usage_records_org_task_idx": {
+          "name": "ai_usage_records_org_task_idx",
+          "columns": ["organization_id", "task_id", "occurred_at_ms"],
+          "isUnique": false
+        },
+        "ai_usage_records_org_computer_idx": {
+          "name": "ai_usage_records_org_computer_idx",
+          "columns": ["organization_id", "computer_id", "occurred_at_ms"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "ai_usage_records_organization_id_organizations_id_fk": {
+          "name": "ai_usage_records_organization_id_organizations_id_fk",
+          "tableFrom": "ai_usage_records",
+          "tableTo": "organizations",
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ai_usage_records_organization_id_runtime_event_id_pk": {
+          "columns": ["organization_id", "runtime", "event_id"],
+          "name": "ai_usage_records_organization_id_runtime_event_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "center_agent_attention_requests": {
       "name": "center_agent_attention_requests",
       "columns": {
@@ -3821,13 +3995,6 @@
         },
         "provider_execution_id": {
           "name": "provider_execution_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "linear_issue_receipt_json": {
-          "name": "linear_issue_receipt_json",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -12717,6 +12884,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "avatar_style": {
+          "name": "avatar_style",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "integer",
@@ -14721,6 +14895,21 @@
           "notNull": false,
           "autoincrement": false
         },
+        "admission_attempt_count": {
+          "name": "admission_attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "admission_retry_due_at_ms": {
+          "name": "admission_retry_due_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "accepted_at_ms": {
           "name": "accepted_at_ms",
           "type": "integer",
@@ -15605,6 +15794,47 @@
       },
       "indexes": {},
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "organization_ai_usage_policies": {
+      "name": "organization_ai_usage_policies",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "daily_limit_nano_usd": {
+          "name": "daily_limit_nano_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at_ms": {
+          "name": "updated_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "organization_ai_usage_policies_organization_id_organizations_id_fk": {
+          "name": "organization_ai_usage_policies_organization_id_organizations_id_fk",
+          "tableFrom": "organization_ai_usage_policies",
+          "tableTo": "organizations",
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -18126,95 +18356,6 @@
         "repository_url": {
           "name": "repository_url",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_json": {
-          "name": "issue_destination_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_revision": {
-          "name": "issue_destination_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "issue_destination_updated_by_user_id": {
-          "name": "issue_destination_updated_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_updated_at_ms": {
-          "name": "issue_destination_updated_at_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "additional_repository_urls_json": {
-          "name": "additional_repository_urls_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "repository_settings_revision": {
-          "name": "repository_settings_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "repository_settings_updated_by_user_id": {
-          "name": "repository_settings_updated_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "repository_settings_updated_at_ms": {
-          "name": "repository_settings_updated_at_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "common_agent_profile_ids_json": {
-          "name": "common_agent_profile_ids_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "common_agents_revision": {
-          "name": "common_agents_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "common_agents_updated_by_user_id": {
-          "name": "common_agents_updated_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "common_agents_updated_at_ms": {
-          "name": "common_agents_updated_at_ms",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

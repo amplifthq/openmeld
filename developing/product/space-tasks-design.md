@@ -55,6 +55,10 @@ The following product decisions were confirmed during design discussion. They de
 | --- | --- |
 | Permit at most two automatic rework rounds after initial implementation, then require a human decision before another round. Escalate earlier for a real blocker or scope/authority change. | Bound unproductive Agent-to-Agent cycles without interrupting healthy in-flight execution or marking unfinished work complete. |
 
+Storage update: production shared relational persistence moved to PostgreSQL
+on 2026-10-04. This proposal uses that current backend; use the
+[PostgreSQL workflow](../engineering/postgresql.md) for new schema work.
+
 ## 1. Product Decision
 
 Add **Tasks** alongside **Messages** and **Files** in an eligible Space. Messages is the default place to request and discuss work. Tasks makes work that needs continued attention visible and actionable. Files holds existing Space materials and deliverables.
@@ -395,7 +399,7 @@ Use focused behavior tests at the owner seam, then supported real-user entry poi
 The first increment observes already-linked GitHub issue `closed` and
 `reopened` events through the GitHub App webhook. Close cancels still-active
 linked Tasks after refreshing `lastObservedState`. Reopen refreshes the
-observation and does not reopen a completed or canceled Task. Missing D1 link
+observation and does not reopen a completed or canceled Task. Missing PostgreSQL link
 rows are ignored; callbacks grant no new execution authority and do not start
 a model turn.
 

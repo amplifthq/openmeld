@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dc0c78d8-c2d6-4161-9967-a4e0ccbe88b0",
-  "prevId": "d30d93f0-4896-4768-bc58-b4fdd04b8907",
+  "id": "d5cca731-4be3-46ae-8597-ecd1a52c9deb",
+  "prevId": "f2b8cac6-2ff9-4ed9-9d87-8f36bdf2dc2c",
   "tables": {
     "account_sidebar_preferences": {
       "name": "account_sidebar_preferences",
@@ -12710,6 +12710,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "avatar_style": {
+          "name": "avatar_style",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "integer",
@@ -14709,6 +14716,21 @@
         },
         "submitted_at_ms": {
           "name": "submitted_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "admission_attempt_count": {
+          "name": "admission_attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "admission_retry_due_at_ms": {
+          "name": "admission_retry_due_at_ms",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -18119,95 +18141,6 @@
         "repository_url": {
           "name": "repository_url",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_json": {
-          "name": "issue_destination_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_revision": {
-          "name": "issue_destination_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "issue_destination_updated_by_user_id": {
-          "name": "issue_destination_updated_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "issue_destination_updated_at_ms": {
-          "name": "issue_destination_updated_at_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "additional_repository_urls_json": {
-          "name": "additional_repository_urls_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "repository_settings_revision": {
-          "name": "repository_settings_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "repository_settings_updated_by_user_id": {
-          "name": "repository_settings_updated_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "repository_settings_updated_at_ms": {
-          "name": "repository_settings_updated_at_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "common_agent_profile_ids_json": {
-          "name": "common_agent_profile_ids_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "common_agents_revision": {
-          "name": "common_agents_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "common_agents_updated_by_user_id": {
-          "name": "common_agents_updated_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "common_agents_updated_at_ms": {
-          "name": "common_agents_updated_at_ms",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

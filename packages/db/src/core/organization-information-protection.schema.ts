@@ -1,8 +1,9 @@
 import { sql } from "drizzle-orm";
-import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { bigint, check, text } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const organizationInformationProtectionPolicies = sqliteTable(
+export const organizationInformationProtectionPolicies = applicationTable(
   "organization_information_protection_policies",
   {
     organizationId: text("organization_id")
@@ -12,8 +13,8 @@ export const organizationInformationProtectionPolicies = sqliteTable(
     updatedByUserId: text("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   () => [
     check(

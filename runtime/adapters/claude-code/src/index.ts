@@ -11,6 +11,7 @@ import {
   type AdapterPreviewCallback,
   type AdapterRuntimeProcessEvent,
   type AdapterTransportMode,
+  agentExecutionSteerRequestSchema,
   bridgeAgentControllerConversationRef,
   buildAdapterCancelRequest,
   buildExecutableLaunchContract,
@@ -104,7 +105,11 @@ export {
   ClaudeCliTransportError,
   invokeClaudeCliTransport,
 } from "./transport/claude-cli-transport.js";
-export { projectClaudeCodeUsageLimits } from "./usage/claude-code-usage-limits.js";
+export {
+  projectClaudeCodeAccountUsageLimits,
+  projectClaudeCodeUsageLimits,
+} from "./usage/claude-code-usage-limits.js";
+export { probeClaudeCodeUsageLimits } from "./usage/claude-code-usage-probe.js";
 
 const CLAUDE_CODE_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("claude-code");
@@ -112,6 +117,7 @@ const EXPECTED_FORCE_CLOSE_INTERRUPT_ERROR_RE =
   /query closed before response received/i;
 
 type ActiveClaudeAgentSdkQuery = {
+  liveInput?: Parameters<ClaudeAgentSdkQueryRegistration>[0]["liveInput"];
   permissionModeUpdatesAllowed: boolean;
   query: ClaudeAgentSdkActiveQuery;
 };
@@ -121,11 +127,13 @@ export const createClaudeCodeAdapter = (
 ): RuntimeAdapter => {
   const activeAgentSdkQueries = new Map<string, ActiveClaudeAgentSdkQuery>();
   const registerAgentSdkQuery: ClaudeAgentSdkQueryRegistration = ({
+    liveInput,
     permissionModeUpdatesAllowed,
     query,
     taskId,
   }) => {
     const activeQuery = {
+      liveInput,
       permissionModeUpdatesAllowed,
       query,
     };
@@ -139,6 +147,7 @@ export const createClaudeCodeAdapter = (
   const sendInterrupt: ClaudeCodeInterruptSignalFn = async (signal) => {
     const activeQuery = activeAgentSdkQueries.get(signal.taskId);
     if (activeQuery) {
+      activeQuery.liveInput?.close();
       if (signal.mode === "force") {
         Promise.resolve()
           .then(() => activeQuery.query.interrupt())
@@ -238,6 +247,28 @@ export const createClaudeCodeAdapter = (
     cancel: controlShell.cancel,
     dispatch,
     interrupt: controlShell.interrupt,
+    steer: async (request) => {
+      const parsed = agentExecutionSteerRequestSchema.safeParse(request);
+      if (!parsed.success) {
+        throw new Error("execution_input.invalid");
+      }
+      const active = activeAgentSdkQueries.get(parsed.data.taskId);
+      if (!active) {
+        return {
+          status: "not_applied",
+          taskId: parsed.data.taskId,
+          reasonCode: "execution_input.target_unavailable",
+        };
+      }
+      if (!active.liveInput) {
+        return {
+          status: "not_applied",
+          taskId: parsed.data.taskId,
+          reasonCode: "execution_input.unsupported",
+        };
+      }
+      return await active.liveInput.steer(parsed.data);
+    },
     updatePermissionMode,
   };
 };

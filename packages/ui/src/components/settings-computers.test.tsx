@@ -226,7 +226,7 @@ describe("Settings Local Agent usage limits", () => {
       />
     );
     expect(screen.queryByRole("meter")).toBeNull();
-    expect(screen.getByText("Usage temporarily unavailable")).toBeTruthy();
+    expect(screen.getByText("Usage not reported")).toBeTruthy();
   });
 
   it("keeps dock quotas separate by computer and provider and preserves a logo without usage", async () => {
@@ -553,7 +553,7 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.getByText("Low")).toBeTruthy();
     expect(screen.getByText("Exhausted")).toBeTruthy();
     expect(screen.getByText("Stale")).toBeTruthy();
-    expect(screen.getByText("Usage temporarily unavailable")).toBeTruthy();
+    expect(screen.getByText("Usage not reported")).toBeTruthy();
     expect(screen.getByText("Usage not supported")).toBeTruthy();
     expect(screen.getAllByRole("progressbar")).toHaveLength(4);
     const availableGauge = screen.getByRole("progressbar", {

@@ -183,9 +183,13 @@ jobs:
 
       - name: Require production database migrations current
         env:
+          OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: ${{ github.token }}
+          OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: ${{ github.server_url }}
+          OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: ${{ github.repository }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD"
+          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD" --hosted-cli
         working-directory: release-source
 
       - name: Acquire shared CLI publication lease
@@ -251,6 +255,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
           OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           # npm Trusted Publishing authenticates private repositories through OIDC,
           # but npm cannot write public Sigstore provenance for a private source repo.
           NPM_CONFIG_PROVENANCE: "false"

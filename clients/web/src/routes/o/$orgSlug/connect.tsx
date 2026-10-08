@@ -2,8 +2,8 @@ import { buttonVariants } from "@openmeld/ui/components/button";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useCallback, useMemo } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowGuard } from "#/components/app/start-flow-guard";
@@ -71,6 +71,7 @@ function WebConnectContent(input: {
 	search: ConnectRouteSearch;
 }) {
 	const { orgSlug, search } = input;
+	const navigate = useNavigate();
 	const isCreatingAgent = search.returnTo === "agent_creation";
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
 	const routeIntent = useMemo<ConnectRouteIntent>(
@@ -98,6 +99,30 @@ function WebConnectContent(input: {
 			}),
 		[routeIntent]
 	);
+	const onNativeCompleted = useCallback(() => {
+		if (
+			!(
+				centerNativeCard &&
+				(routeIntent.resetThisComputer || routeIntent.connectedComputerId)
+			)
+		) {
+			return;
+		}
+		navigate({
+			to: buildOrganizationConnectPath({ orgSlug }),
+			search: buildConnectRouteSearch({
+				...routeIntent,
+				connectedComputerId: undefined,
+				resetThisComputer: false,
+			}),
+			replace: true,
+		}).catch((error: unknown) => {
+			console.error(
+				"Could not finish the computer connection navigation.",
+				error
+			);
+		});
+	}, [centerNativeCard, navigate, orgSlug, routeIntent]);
 
 	// The org-scoped Connect route mounts setup directly, so it must guard missing or stale
 	// human-profile state itself: without an active human profile the prepare
@@ -169,6 +194,7 @@ function WebConnectContent(input: {
 						<StartBringAgentsSetupPage
 							autoReturnOnCompletion={false}
 							observePrepareSessionId={search.observePrepareSessionId}
+							onCompleted={onNativeCompleted}
 							orgSlug={orgSlug}
 							selfRoute={buildOrganizationConnectPath({ orgSlug })}
 							selfRouteSearch={resetConsumedSearch}

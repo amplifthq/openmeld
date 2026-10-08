@@ -1,17 +1,11 @@
 import { desc, sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, primaryKey, text } from "drizzle-orm/pg-core";
 import { members } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
 // A restrictive reference protects organization/account removal while the
 // owning Space still assigns management to this organization member.
-export const spaceOwnerMemberReferences = sqliteTable(
+export const spaceOwnerMemberReferences = applicationTable(
   "space_owner_member_references",
   {
     spaceId: text("space_id").notNull(),
@@ -25,7 +19,7 @@ export const spaceOwnerMemberReferences = sqliteTable(
   ]
 );
 
-export const spaceIndexSpaces = sqliteTable(
+export const spaceIndexSpaces = applicationTable(
   "space_index_spaces",
   {
     spaceId: text("space_id").primaryKey(),
@@ -34,26 +28,35 @@ export const spaceIndexSpaces = sqliteTable(
     status: text("status").notNull(),
     spaceName: text("space_name"),
     messagePreviewJson: text("message_preview_json"),
-    messagePreviewRevision: integer("message_preview_revision"),
-    messagePreviewAttemptedAtMs: integer("message_preview_attempted_at_ms"),
+    recentMessagePreviewsJson: text("recent_message_previews_json"),
+    messagePreviewRevision: bigint("message_preview_revision", {
+      mode: "number",
+    }),
+    messagePreviewAttemptedAtMs: bigint("message_preview_attempted_at_ms", {
+      mode: "number",
+    }),
     spacePurpose: text("space_purpose"),
     directMessagePairKey: text("direct_message_pair_key"),
-    directMessageConvertedAtMs: integer("direct_message_converted_at_ms"),
-    activeMemberCount: integer("active_member_count"),
-    activeHumanCount: integer("active_human_count"),
-    activeAgentCount: integer("active_agent_count"),
+    directMessageConvertedAtMs: bigint("direct_message_converted_at_ms", {
+      mode: "number",
+    }),
+    activeMemberCount: bigint("active_member_count", { mode: "number" }),
+    activeHumanCount: bigint("active_human_count", { mode: "number" }),
+    activeAgentCount: bigint("active_agent_count", { mode: "number" }),
     creatorProfileId: text("creator_profile_id"),
     creatorKind: text("creator_kind"),
     creatorOwnerUserId: text("creator_owner_user_id"),
     creatorProfileName: text("creator_profile_name"),
-    spaceCreatedAtMs: integer("space_created_at_ms"),
-    spaceUpdatedAtMs: integer("space_updated_at_ms"),
-    deletedAtMs: integer("deleted_at_ms"),
+    spaceCreatedAtMs: bigint("space_created_at_ms", { mode: "number" }),
+    spaceUpdatedAtMs: bigint("space_updated_at_ms", { mode: "number" }),
+    deletedAtMs: bigint("deleted_at_ms", { mode: "number" }),
     deletedByProfileId: text("deleted_by_profile_id"),
     deletedByOwnerUserId: text("deleted_by_owner_user_id"),
     deletedByProfileName: text("deleted_by_profile_name"),
-    sourceUpdatedAtMs: integer("source_updated_at_ms").notNull(),
-    projectedAtMs: integer("projected_at_ms").notNull(),
+    sourceUpdatedAtMs: bigint("source_updated_at_ms", {
+      mode: "number",
+    }).notNull(),
+    projectedAtMs: bigint("projected_at_ms", { mode: "number" }).notNull(),
     projectionEventId: text("projection_event_id").notNull(),
   },
   (table) => [
@@ -91,7 +94,7 @@ export const spaceIndexSpaces = sqliteTable(
   ]
 );
 
-export const spaceIndexMemberships = sqliteTable(
+export const spaceIndexMemberships = applicationTable(
   "space_index_memberships",
   {
     spaceId: text("space_id").notNull(),
@@ -103,28 +106,32 @@ export const spaceIndexMemberships = sqliteTable(
     controllerRefSnapshot: text("controller_ref_snapshot"),
     status: text("status").notNull(),
     memberSource: text("member_source").notNull(),
-    addedAtMs: integer("added_at_ms").notNull(),
-    removedAtMs: integer("removed_at_ms"),
+    addedAtMs: bigint("added_at_ms", { mode: "number" }).notNull(),
+    removedAtMs: bigint("removed_at_ms", { mode: "number" }),
     addedByProfileId: text("added_by_profile_id"),
     addedByOwnerUserId: text("added_by_owner_user_id"),
     addedByDisplayNameSnapshot: text("added_by_display_name_snapshot"),
     removedByProfileId: text("removed_by_profile_id"),
     removedByOwnerUserId: text("removed_by_owner_user_id"),
     removalReason: text("removal_reason"),
-    firstEnteredAtMs: integer("first_entered_at_ms"),
-    lastEnteredAtMs: integer("last_entered_at_ms"),
+    firstEnteredAtMs: bigint("first_entered_at_ms", { mode: "number" }),
+    lastEnteredAtMs: bigint("last_entered_at_ms", { mode: "number" }),
     // Profile-history overlay projected from openmeld_profile_space_history so the
     // account/profile space lists never JOIN across the Profile domain
     // (physical-db-split.md P0.3). Values are raw ms/ts numbers scoped to one
     // gateway host; reads must treat a host mismatch as "no overlay". The
     // overlay is projection data: rebuildable, may lag its Profile source.
     overlayGatewayHost: text("overlay_gateway_host"),
-    overlayPinnedAtMs: integer("overlay_pinned_at_ms"),
-    overlayLastJoinedAtMs: integer("overlay_last_joined_at_ms"),
-    overlayLastSeenTs: integer("overlay_last_seen_ts"),
-    overlayUpdatedAtMs: integer("overlay_updated_at_ms"),
-    sourceUpdatedAtMs: integer("source_updated_at_ms").notNull(),
-    projectedAtMs: integer("projected_at_ms").notNull(),
+    overlayPinnedAtMs: bigint("overlay_pinned_at_ms", { mode: "number" }),
+    overlayLastJoinedAtMs: bigint("overlay_last_joined_at_ms", {
+      mode: "number",
+    }),
+    overlayLastSeenTs: bigint("overlay_last_seen_ts", { mode: "number" }),
+    overlayUpdatedAtMs: bigint("overlay_updated_at_ms", { mode: "number" }),
+    sourceUpdatedAtMs: bigint("source_updated_at_ms", {
+      mode: "number",
+    }).notNull(),
+    projectedAtMs: bigint("projected_at_ms", { mode: "number" }).notNull(),
     projectionEventId: text("projection_event_id").notNull(),
   },
   (table) => [
@@ -149,14 +156,16 @@ export const spaceIndexMemberships = sqliteTable(
   ]
 );
 
-export const spaceIndexProjectionEvents = sqliteTable(
+export const spaceIndexProjectionEvents = applicationTable(
   "space_index_projection_events",
   {
     projectionEventId: text("projection_event_id").primaryKey(),
     spaceId: text("space_id").notNull(),
     eventType: text("event_type").notNull(),
-    sourceUpdatedAtMs: integer("source_updated_at_ms").notNull(),
-    projectedAtMs: integer("projected_at_ms").notNull(),
+    sourceUpdatedAtMs: bigint("source_updated_at_ms", {
+      mode: "number",
+    }).notNull(),
+    projectedAtMs: bigint("projected_at_ms", { mode: "number" }).notNull(),
     payloadJson: text("payload_json").notNull(),
   },
   (table) => [

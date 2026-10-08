@@ -1,0 +1,2 @@
+DROP INDEX "openmeld"."center_agent_wake_publications_delegation_unique";--> statement-breakpoint
+CREATE INDEX "center_agent_wake_publications_delegation_idx" ON "openmeld"."center_agent_wake_publications" USING btree ("delegation_id");

@@ -24,19 +24,27 @@ import {
 } from "./fixtures";
 import { NODE_CODE_MODE_RUNTIME } from "./node-code-mode-runtime";
 
+// This Node loop exercises real model traffic, Core reads and tool authority.
+// Production usage persistence requires a Cloudflare invocation and SQL owner;
+// it is covered by the Worker tests, not this isolated SQLite conversation.
+vi.mock("../flue-adapter/ai-usage", () => ({
+  createFlueMeteredFetch: (input: { fetch?: typeof globalThis.fetch }) =>
+    input.fetch ?? globalThis.fetch,
+}));
+
 const ACTIVITY = "openmeld_read_center_agent_activity";
 const code = (limit: number) =>
   `async () => codemode.${ACTIVITY}({limit:${limit}})`;
-const call = (name: string, args: Record<string, unknown>) =>
+const call = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
   fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
 
 it("delivers database-backed results through discovery, schemas, Code Mode and the real Flue loop, then rejects revoked authority", async () => {
   const f = await createEvidenceFixture();
   const calls: number[] = [];
   for (const [index, id] of ["cedar-action", "birch-action"].entries()) {
-    f.harness.run({
-      sql: "INSERT INTO center_agent_audit_journal (id, organization_id, actor_profile_id, action, resource_type, resource_id, source_space_id, created_at) VALUES (?, ?, ?, 'create_space', 'space', ?, ?, ?)",
-      params: [
+    await f.harness.query({
+      text: "INSERT INTO openmeld.\"center_agent_audit_journal\" (id, organization_id, actor_profile_id, action, resource_type, resource_id, source_space_id, created_at) VALUES ($1, $2, $3, 'create_space', 'space', $4, $5, $6)",
+      values: [
         id,
         f.request.organizationId,
         f.request.agentProfileId,
@@ -250,9 +258,9 @@ it("delivers database-backed results through discovery, schemas, Code Mode and t
 
     // Keep the original frozen catalog and prior successful results. Revoking
     // membership must still fail in the real Core owner on the next invocation.
-    f.harness.run({
-      sql: "DELETE FROM members WHERE id = ?",
-      params: [f.speaker.id],
+    await f.harness.query({
+      text: 'DELETE FROM openmeld."members" WHERE id = $1',
+      values: [f.speaker.id],
     });
     const codeMode = catalog.tools.find((tool) => tool.name === "codemode");
     if (!codeMode) {
@@ -282,7 +290,6 @@ it("delivers database-backed results through discovery, schemas, Code Mode and t
     vi.restoreAllMocks();
     await runtime.stop();
     await rm(directory, { recursive: true, force: true });
-    f.harness.close();
   }
 }, 180_000);
 

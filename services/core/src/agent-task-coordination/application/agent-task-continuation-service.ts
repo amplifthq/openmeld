@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentDelegationSnapshot,
   AgentTaskCompletionObservation,
@@ -5,18 +6,20 @@ import type {
   AgentTaskHandle,
   AgentTaskTerminalOutcome,
 } from "@openmeld/schemas/types";
+import { isTaskSummaryRecoveryAuthorized } from "../../center-agent/application/task-summary-recovery-service";
 import type { CoreBindings } from "../../lib/bindings";
+import { reportTaskContinuationEvidence } from "../../remote-agent/application/native-delivery-admission-evidence";
 import {
   activateCenterAgentFallbackSpaceWake,
   RemoteAgentTaskContinuationTerminalError,
   submitRemoteAgentTaskContinuationDelivery,
 } from "../../remote-agent/application/native-delivery-service";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   type AgentDelegationRecord,
   activateFallbackAgentDelegationChild,
   readAgentDelegation,
-} from "../infrastructure/d1/agent-delegation-repo";
+} from "../infrastructure/postgresql/agent-delegation-repo";
 import {
   type AgentTaskCompletionSubscriptionRecord,
   cancelAgentTaskCompletionSubscription,
@@ -26,23 +29,39 @@ import {
   readAgentTaskCompletionSubscription,
   releaseAgentTaskCompletionSubscriptionClaim,
   settleAgentTaskCompletionSubscription,
-} from "../infrastructure/d1/agent-task-coordination-repo";
+} from "../infrastructure/postgresql/agent-task-coordination-repo";
 
 const AGENT_TASK_CONTINUATION_CLAIM_LEASE_MS = 60_000;
-
 export async function processAgentTaskContinuationQueueMessage(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   message: AgentTaskContinuationQueueMessage;
   nowMs: number;
 }): Promise<
-  | { status: "completed"; task: AgentTaskHandle | null }
-  | { retryAfterSeconds: number; status: "retry_later" }
+  | {
+      status: "completed";
+      task: AgentTaskHandle | null;
+    }
+  | {
+      retryAfterSeconds: number;
+      status: "retry_later";
+    }
 > {
   const current = await readAgentTaskCompletionSubscription({
     db: input.db,
     subscriptionId: input.message.subscriptionId,
   });
+  if (current?.continuationIdempotencyKey) {
+    reportTaskContinuationEvidence({
+      idempotencyKey: current.continuationIdempotencyKey,
+      subscriptionId: current.subscriptionId,
+      subscriptionCreatedAtMs: current.createdAtMs,
+      enqueuedAtMs: input.message.enqueuedAtMs,
+      observedAtMs: input.nowMs,
+      stage: "queue_received",
+      event: "started",
+    });
+  }
   if (
     !current ||
     current.state === "settled" ||
@@ -72,7 +91,6 @@ export async function processAgentTaskContinuationQueueMessage(input: {
   ) {
     return { retryAfterSeconds: 5, status: "retry_later" };
   }
-
   const claimId = crypto.randomUUID();
   const claimed = await claimReadyAgentTaskCompletionSubscription({
     claimId,
@@ -83,6 +101,15 @@ export async function processAgentTaskContinuationQueueMessage(input: {
   });
   if (!claimed) {
     return { retryAfterSeconds: 5, status: "retry_later" };
+  }
+  if (claimed.continuationIdempotencyKey) {
+    reportTaskContinuationEvidence({
+      idempotencyKey: claimed.continuationIdempotencyKey,
+      subscriptionId: claimed.subscriptionId,
+      observedAtMs: Date.now(),
+      stage: "claimed",
+      event: "finished",
+    });
   }
   try {
     const continuationTask = await executeClaimedAgentTaskContinuation({
@@ -121,9 +148,8 @@ export async function processAgentTaskContinuationQueueMessage(input: {
     throw error;
   }
 }
-
 async function isRoutineObserverStillRunning(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryId: string;
 }): Promise<boolean> {
   const observer = await readRemoteAgentNativeDeliveryByDeliveryId(input);
@@ -132,11 +158,10 @@ async function isRoutineObserverStillRunning(input: {
     (observer?.status === "accepted" || observer?.status === "retry_observed")
   );
 }
-
 async function executeClaimedAgentTaskContinuation(input: {
   claimId: string;
   claimed: AgentTaskCompletionSubscriptionRecord;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<AgentTaskHandle | null> {
@@ -206,14 +231,27 @@ async function executeClaimedAgentTaskContinuation(input: {
   if (!delegation || delegation.organizationId !== claimed.organizationId) {
     throw new Error("agent_task_continuation.delegation_missing");
   }
-  const isAuthorized = () =>
-    isClaimedAgentTaskContinuationAuthorized({
+  const isAuthorized = async () => {
+    if (
+      claimed.continuation?.kind === "resume_agent" &&
+      claimed.continuation.summaryRecovery &&
+      !(await isTaskSummaryRecoveryAuthorized({
+        db: input.db,
+        env: input.env,
+        observer: observerDelivery,
+        operatorUserId: claimed.continuation.summaryRecovery.operatorUserId,
+      }))
+    ) {
+      return false;
+    }
+    return await isClaimedAgentTaskContinuationAuthorized({
       claimId: input.claimId,
       db: input.db,
       delegationId: delegation.delegationId,
       expectedGeneration: delegation.generation,
       subscriptionId: claimed.subscriptionId,
     });
+  };
   if (!(await isAuthorized())) {
     await cancelAgentTaskCompletionSubscription({
       db: input.db,
@@ -222,7 +260,6 @@ async function executeClaimedAgentTaskContinuation(input: {
     });
     return null;
   }
-
   const continuationTask =
     claimed.continuation.kind === "activate_fallback"
       ? await executeFallbackActivation({
@@ -255,11 +292,10 @@ async function executeClaimedAgentTaskContinuation(input: {
     subscriptionId: claimed.subscriptionId,
   });
 }
-
 async function settleClaimedAgentTaskContinuation(input: {
   claimId: string;
   continuationTask: AgentTaskHandle | null;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   subscriptionId: string;
 }): Promise<AgentTaskHandle | null> {
@@ -278,18 +314,18 @@ async function settleClaimedAgentTaskContinuation(input: {
   }
   return input.continuationTask;
 }
-
 type ObserverDelivery = NonNullable<
   Awaited<ReturnType<typeof readRemoteAgentNativeDeliveryByDeliveryId>>
 >;
-
 async function executeFallbackActivation(input: {
   claimed: AgentTaskCompletionSubscriptionRecord;
   continuation: Extract<
     NonNullable<AgentTaskCompletionSubscriptionRecord["continuation"]>,
-    { kind: "activate_fallback" }
+    {
+      kind: "activate_fallback";
+    }
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   delegation: AgentDelegationRecord;
   env: CoreBindings;
   isAuthorized: () => Promise<boolean>;
@@ -335,14 +371,15 @@ async function executeFallbackActivation(input: {
   });
   return created.task;
 }
-
 async function executeParentResume(input: {
   claimed: AgentTaskCompletionSubscriptionRecord;
   continuation: Extract<
     NonNullable<AgentTaskCompletionSubscriptionRecord["continuation"]>,
-    { kind: "resume_agent" }
+    {
+      kind: "resume_agent";
+    }
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   delegation: AgentDelegationRecord;
   env: CoreBindings;
   idempotencyKey: string;
@@ -373,6 +410,8 @@ async function executeParentResume(input: {
     env: input.env,
     idempotencyKey: input.idempotencyKey,
     instruction: input.continuation.instruction,
+    replyLanguageTag: input.continuation.replyLanguageTag,
+    ...(input.continuation.summaryRecovery ? { summaryOnly: true } : {}),
     isAuthorized: input.isAuthorized,
     nowMs: input.nowMs,
     observerDelivery: input.observerDelivery,
@@ -382,14 +421,15 @@ async function executeParentResume(input: {
   });
   return created.task;
 }
-
 async function executeTaskWatchResume(input: {
   claimed: AgentTaskCompletionSubscriptionRecord;
   continuation: Extract<
     NonNullable<AgentTaskCompletionSubscriptionRecord["continuation"]>,
-    { kind: "resume_task_watch" }
+    {
+      kind: "resume_task_watch";
+    }
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   idempotencyKey: string;
   isAuthorized: () => Promise<boolean>;
@@ -402,6 +442,7 @@ async function executeTaskWatchResume(input: {
     env: input.env,
     idempotencyKey: input.idempotencyKey,
     instruction: input.continuation.instruction,
+    replyLanguageTag: input.continuation.replyLanguageTag,
     isAuthorized: input.isAuthorized,
     nowMs: input.nowMs,
     observerDelivery: input.observerDelivery,

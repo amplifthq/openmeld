@@ -19,10 +19,7 @@ import {
   checkProductionWeb,
   validateSsrPage,
 } from "./production-web-health.mjs";
-import {
-  buildProductionRenderer,
-  rendererBuildEnvironment,
-} from "./renderer-build.mjs";
+import { buildRenderer, rendererBuildEnvironment } from "./renderer-build.mjs";
 
 const ENV_FILE = /^\.env(?:\.|$)/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -30,15 +27,11 @@ const BUILD_ENV =
   /^(VITE_|CLOUDFLARE_ENV$|OPENMELD_DESKTOP_(TARGET|PILOT)$|OPENMELD_RENDERER_NODE_HEAP_MB$|OPENMELD_DEV_ISOLATED$|OPENMELD_GATEWAY_URL$|NODE_OPTIONS$|NODE_ENV$|BETTER_AUTH_URL$|WEB_APP_URL$)/u;
 
 export function productionBuildEnvironment(scope, env, memoryBytes, platform) {
-  const desktopMacBuild =
-    scope === "desktop" && (platform ?? process.platform) === "darwin";
+  // Match the coordinated release budget for the same App renderer. A smaller
+  // standalone limit can fail before Workerd ever validates the artifact.
+  const defaultHeap = ["website", "docs"].includes(scope) ? 2048 : 5120;
   return {
-    ...rendererBuildEnvironment(
-      env,
-      memoryBytes,
-      platform,
-      desktopMacBuild ? 5120 : 4096
-    ),
+    ...rendererBuildEnvironment(env, memoryBytes, platform, defaultHeap),
     CLOUDFLARE_ENV: "prod",
     OPENMELD_RELEASE_ARTIFACT_CHECK: "1",
     OPENMELD_DESKTOP_PILOT: undefined,
@@ -91,7 +84,9 @@ export async function artifactInputIdentity(
   sourceSha,
   env = process.env
 ) {
-  const hash = createHash("sha256").update(desktopWebBuildIdentity(root));
+  const hash = createHash("sha256").update(
+    ["website", "docs"].includes(scope) ? scope : desktopWebBuildIdentity(root)
+  );
   const files = execFileSync(
     "git",
     [
@@ -105,6 +100,10 @@ export async function artifactInputIdentity(
       "package.json",
       "pnpm-workspace.yaml",
       "turbo.json",
+      "scripts/vite",
+      ...(["website", "docs"].includes(scope)
+        ? [`clients/${scope}`, "packages", "pnpm-lock.yaml"]
+        : []),
     ],
     { cwd: root, encoding: "utf8" }
   )
@@ -121,7 +120,13 @@ export async function artifactInputIdentity(
       }
     }
   }
-  for (const directory of [root, path.join(root, "clients/web")]) {
+  for (const directory of [
+    root,
+    path.join(
+      root,
+      ["website", "docs"].includes(scope) ? `clients/${scope}` : "clients/web"
+    ),
+  ]) {
     for (const name of (await readdir(directory))
       .filter((name) => ENV_FILE.test(name))
       .sort()) {
@@ -151,7 +156,12 @@ export async function artifactInputIdentity(
 }
 
 function artifactSnapshotPath(receiptPath, scope, identity) {
-  if (!((scope === "web" || scope === "desktop") && SHA256.test(identity))) {
+  if (
+    !(
+      ["web", "website", "docs", "desktop"].includes(scope) &&
+      SHA256.test(identity)
+    )
+  ) {
     throw new Error(
       "Artifact snapshot requires a valid scope and input identity."
     );
@@ -346,8 +356,8 @@ export async function checkProductionArtifact({
   sourceSha,
   allowDirty = false,
 }) {
-  if (!["web", "desktop"].includes(scope)) {
-    throw new Error("Choose --scope web or desktop.");
+  if (!["web", "website", "docs", "desktop"].includes(scope)) {
+    throw new Error("Choose --scope web, website, docs, or desktop.");
   }
   const head = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: root,
@@ -373,7 +383,10 @@ export async function checkProductionArtifact({
     sourceSha,
     buildInputs
   );
-  const webRoot = path.join(root, "clients/web");
+  const clientDirectory = ["website", "docs"].includes(scope)
+    ? `clients/${scope}`
+    : "clients/web";
+  const webRoot = path.join(root, clientDirectory);
   const output = path.join(webRoot, "dist");
   const receiptPath = path.join(
     root,
@@ -395,7 +408,7 @@ export async function checkProductionArtifact({
   // Anonymous local SSR needs the cookie module to initialize, not a real
   // production signing key. Production secret readiness has its own guard.
   env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = randomBytes(32).toString("hex");
-  await buildProductionRenderer(root, env);
+  await buildRenderer(root, env, { clientDirectory });
 
   // Vite's Cloudflare preview consumes the generated output configuration and
   // runs that bundle in local Workerd, including SSR imports and asset modules.
@@ -419,6 +432,7 @@ export async function checkProductionArtifact({
       throw new Error("Workerd preview did not open a local listener.");
     }
     ssr = await checkProductionWeb({
+      scope: scope === "desktop" ? "web" : scope,
       url: `http://127.0.0.1:${address.port}`,
       sourceSha,
       allowDirty,

@@ -6,16 +6,17 @@ import { FluidNavMenu, FluidNavMenuItem } from "./nav-menu";
 const hover = vi.hoisted(() => ({
   set: (_index: number | null): void => undefined,
 }));
-vi.mock("#hooks/use-proximity-hover", async () => {
+vi.mock("#hooks/use-fluid-hover", async () => {
   const { useState } = await import("react");
   const stable = {
     itemRects: [],
+    isMeasured: false,
     sessionRef: { current: 0 },
     handlers: {},
     registerItem: () => undefined,
   };
   return {
-    useProximityHover: () => {
+    useFluidHover: () => {
       const [activeIndex, setActiveIndex] = useState<number | null>(null);
       hover.set = setActiveIndex;
       return { ...stable, activeIndex, setActiveIndex };

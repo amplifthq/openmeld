@@ -26,13 +26,29 @@ Official references:
 
 ## Rules
 
+The isolated PostgreSQL foundation probe is a development tool under
+`tooling/postgresql`, not a product Worker package. Its single staging-only
+`wrangler.jsonc` owns the `OPENMELD_POSTGRESQL` Hyperdrive binding and finite
+acceptance expiry. `probe.mjs deploy` explicitly syncs only its Doppler staging
+probe token before deployment; it has no production deploy or sync target.
+`cf-typegen` generates its types and `verify.mjs` checks resource isolation.
+It uses the repository-pinned Wrangler version; creating this tool does not
+require unrelated product Worker upgrades or production secret synchronization.
+
 1. Non-sensitive configuration belongs in `wrangler.jsonc` `vars` and `env.prod.vars`.
 2. Sensitive values belong in the approved Doppler process-injection path or local `.dev.vars` / `.dev.vars.prod` for local work, and in Cloudflare Worker secret storage for staging and production.
 3. This repo uses `.dev.vars.prod`, not `.dev.vars.production`, because the Wrangler environment name is `prod`.
 4. `wrangler.jsonc` is the source of truth for public Worker config. Do not hand-maintain staging or production vars in the Cloudflare dashboard.
+
 5. Secret sync is explicit. Staging and production secret changes happen through the matching `sync:secrets:*` command, not an untracked Dashboard edit.
 6. Every Cloudflare Worker package must provide `cf-typegen`, `sync:config:stg`, `sync:stg`, `sync:config:prod`, and `sync:prod`.
 7. Every Worker package that owns secrets must also provide `sync:secrets:stg` and `sync:secrets:prod`.
+
+Web's production `OPENMELD_DESKTOP_DOWNLOAD_ORIGIN` points to the R2 custom
+domain `https://downloads.openmeld.ai` for immutable Desktop artifacts. Other
+environments omit it and use their own bucket. The domain's artifact-only WAF
+rule, cache eligibility rule and Smart Tiered Cache are described in
+`developing/clients/desktop.md`; the R2 development URL remains disabled.
 
 For a brand-new OpenMeld account surface, Core, Auth, and Remote Agent form a
 Service Binding cycle, while Gateway and Web need stable identities before
@@ -46,13 +62,29 @@ release then replaces those placeholders with the real Workers.
    are not integrated until the owning `wrangler.jsonc`, this document, and
    generated Worker types are updated.
 
+## Docs toolchain
+
+The Docs Worker uses the current workspace-pinned Wrangler and compatibility
+date. It adds no new cloud capability that needs a fleet Wrangler upgrade.
+Generate its types with `pnpm --filter openmeld-docs cf-typegen`; existing
+Worker contracts remain unchanged.
+
+## Public Docs Worker
+
+`clients/docs/wrangler.jsonc` owns `openmeld-docs-prod` at `docs.openmeld.ai`
+and `openmeld-docs-stg` at `docs.staging.openmeld.ai`. Cloudflare custom
+domains create the DNS record when the guarded deployment runs. Do not create
+a competing DNS record manually. The package owns no secrets, database, KV,
+R2, or service binding. Logs, traces, and the existing environment-specific
+Analytics Engine binding follow the shared observability policy.
+
 ## Git working-copy connector ingress
 
 Both OpenConnector configurations keep `OOMOL_CONNECT_BLOCKED_PROXIES = "*"`.
 Their entrypoint is the small `.openmeld-working-copy-worker.mjs` overlay,
 copied by the existing `scripts/cloudflare/deploy-openconnector.mjs` deployer
 alongside `github-working-copy-policy.mjs`. The deployer requires reviewed
-upstream commit `c6f45596a8e018285d2799ccd08e6a251444c25d`, refuses existing
+upstream commit `31be0d205cfd3f2b0a8f9ab5e3a54558976ed500`, refuses existing
 overlay files, and removes only its own temporary copies. No binding, resource,
 secret name, general proxy allowlist or second credential store is added.
 
@@ -65,6 +97,15 @@ to the upstream `/v1/proxy/github` handler. A request-local policy enables only
 GitHub for that call. The pinned upstream's app cache includes both allowed and
 blocked proxy policy; normal HTTP proxy and MCP requests use the unchanged
 blocked policy. Re-review that cache contract before advancing the upstream pin.
+
+The overlay also recognizes the selected-connection Git read protocol under
+`/v1/openmeld/git-connections/:owner/:repo/`: `GET info/refs` with exactly
+`service=git-upload-pack`, and `POST git-upload-pack` with the Git request
+content type and no query. It preserves the stream and the upstream runtime
+authentication checks. This requires an upstream endpoint newer than the
+current pin. Update the reviewed pin and deploy the producer before enabling
+the Computer consumer. See the selected Git connection integration contract in
+`developing/architecture/shared-contracts.md`.
 
 A separately scoped runtime token must already grant the selected connection
 and GitHub proxy. The overlay does not mint, replace or widen a runtime token.
@@ -85,6 +126,23 @@ References: the pinned upstream `docs/runtime-api.md`,
 [Cloudflare Fetch Handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/fetch/);
 [GitHub reference updates](https://docs.github.com/en/rest/git/refs#update-a-reference).
 
+## Website and App hosts
+
+`clients/website/wrangler.jsonc` owns `openmeld-website-prod` on `openmeld.ai`
+and `openmeld-website-stg` on `staging.openmeld.ai`. Its fixed `APP` binding
+targets the corresponding Web Worker; `APP_URL` and the compiled `VITE_APP_URL`
+point at the corresponding App host. It owns no database, R2 or secrets and reuses the
+environment's existing observability dataset. `LEGACY_BROWSER_COMPATIBILITY`
+controls only the temporary old-browser asset/server-function forwarding window.
+
+Web custom domains are `app.openmeld.ai` and `app.staging.openmeld.ai`.
+Auth/Core/Gateway `WEB_APP_URL` uses the same App host. Auth's singular
+`AUTH_LEGACY_APP_ORIGIN` admits the exact old root during the migration; parent
+cookie domains and Passkey RP IDs remain unchanged. Read the guarded
+[migration sequence](../developing/engineering/production-release.md#websiteapp-origin-migration)
+before applying these configurations. A configuration diff is not deployed
+domain evidence.
+
 ## Internal Staging Topology
 
 Each Worker has an explicit `env.stg` block. Staging uses the same binding names
@@ -93,14 +151,14 @@ staging-only resource:
 
 | Resource | Staging identity |
 | --- | --- |
-| Workers | `openmeld-web-stg`, `openmeld-auth-stg`, `openmeld-gateway-stg`, `openmeld-core-stg`, `openmeld-remote-agent-stg` |
+| Workers | `openmeld-website-stg`, `openmeld-docs-stg`, `openmeld-web-stg`, `openmeld-auth-stg`, `openmeld-gateway-stg`, `openmeld-core-stg`, `openmeld-remote-agent-stg` |
 | D1 | `openmeld-db-stg` |
 | KV | `openmeld-auth-kv-stg` |
 | Queues | `openmeld-daemon-dispatch-stg`, `openmeld-message-channel-events-stg` |
 | R2 | `openmeld-space-attachments-stg`, `openmeld-organization-skills-stg`, `openmeld-organization-logos-stg`, `openmeld-desktop-downloads-stg` |
 | AI Gateway | Shared operator gateway `openmeld-remote-agent-prod`; request metadata retains the Staging environment and Organization |
 | Remote Agent container | `openmeld-agent-computer-stg` |
-| Public routes | `staging.openmeld.ai`, `auth.staging.openmeld.ai`, `gateway.staging.openmeld.ai` |
+| Public routes | `staging.openmeld.ai`, `docs.staging.openmeld.ai`, `app.staging.openmeld.ai`, `auth.staging.openmeld.ai`, `gateway.staging.openmeld.ai` |
 
 Durable Object namespaces, Workflow identity, Analytics Engine environment
 metadata, and Worker versions are created by the staging Worker deployments.
@@ -119,7 +177,7 @@ Doppler. Provider connections still require separate staging authorization.
 The resource manifest in
 `scripts/cloudflare/provision-openmeld-resources.mjs` is the account-resource
 source of truth. `pnpm staging:deploy` provisions missing resources, bootstraps
-missing Worker identities, applies only staging D1 migrations, deploys all five
+missing Worker identities, applies only staging D1 migrations, deploys all seven
 Workers, and verifies the public entry points. See
 `developing/engineering/staging-environment.md` for the guarded operator flow.
 
@@ -185,7 +243,6 @@ Workers, and verifies the public entry points. See
   - `OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED`
   - `OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED`
   - `OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS`
-  - `OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT`
   - `OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED`
   - `OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED`
   - `OPENMELD_LARK_CHANNEL_ENABLED`
@@ -329,15 +386,12 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 
 | Resource type | Binding | Owner | Config files | Notes |
 | --- | --- | --- | --- | --- |
-| D1 | `OPENMELD_DB` | The single production D1 (Auth owns identity tables; Core owns business, dispatch, integration, and memory tables) | `services/auth/wrangler.jsonc`, `services/core/wrangler.jsonc` | Greenfield production database `openmeld-db-prod`. All shared-schema migrations live in `packages/db`; provisioning never applies them. |
-| D1 | `OPENMELD_IDENTITY_DB` | Auth identity alias | `services/auth/wrangler.jsonc` | Aliased to `openmeld-db-prod`; no second physical identity database exists. |
-| D1 | `OPENMELD_LOCAL_STATE_DB` | Binding / devices / sessions / diagnostics alias | `services/core/wrangler.jsonc` | Aliased to `openmeld-db-prod`; reads route there via `localStateDb()`. |
-| D1 | `OPENMELD_WAKE_EVIDENCE_DB` | Dispatch Ledger / observability alias | `services/core/wrangler.jsonc` | Aliased to `openmeld-db-prod`. A future observability-only split is a separate capacity decision, not greenfield provisioning behavior. |
-| D1 | `OPENMELD_PROJECTIONS_DB` | Space Index alias | `services/core/wrangler.jsonc` | Aliased to `openmeld-db-prod`; reads route there via `projectionsDb()`. |
+| Hyperdrive | `OPENMELD_POSTGRESQL` | Auth identity and Core relational business owners | `services/auth/wrangler.jsonc`, `services/core/wrangler.jsonc` | Candidate production uses one registered cache-disabled PlanetScale PG18 target. The guarded frozen-import release is required before promotion; provisioning does not switch live production. |
+| D1 | `OPENMELD_DB`, `OPENMELD_IDENTITY_DB`, `OPENMELD_LOCAL_STATE_DB`, `OPENMELD_WAKE_EVIDENCE_DB`, `OPENMELD_PROJECTIONS_DB` | Historical shared relational database and aliases | Retained `env.stg` in Auth/Core configs; immutable D1 history under `packages/db/drizzle` | Production no longer binds these databases. The production D1 source is frozen migration/recovery evidence; shared staging remains on its deployed D1 revision. Current-source shared-staging deployment stays blocked. |
 | KV | `OPENMELD_AUTH_KV` | Auth | `services/auth/wrangler.jsonc` | Auth worker runtime storage. |
 | Queue | `OPENMELD_DAEMON_DISPATCH_QUEUE` | Core Dispatch | `services/core/wrangler.jsonc` | Production Queue `openmeld-daemon-dispatch-prod`; four-day retention. |
 | Queue | `OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE` | Gateway producer and Core consumer | `services/gateway/wrangler.jsonc`, `services/core/wrangler.jsonc`, generated Worker types | Production Queue `openmeld-message-channel-events-prod`; four-day retention. Gateway acknowledges Lark/Feishu only after enqueue; Core owns retry, redrive, ingress claims, and Center Agent admission. |
-| Workflow | `OPENMELD_ROUTINE_RUN_WORKFLOW` | Core Center Agent Routine execution | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Production Workflow `openmeld-routine-run-prod` binds `RoutineRunWorkflow`; D1 remains the Routine and Run product truth. Wrangler creates it with the first Core deployment. |
+| Workflow | `OPENMELD_ROUTINE_RUN_WORKFLOW` | Core Center Agent Routine execution | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Production Workflow `openmeld-routine-run-prod` binds `RoutineRunWorkflow`; the shared relational owner retains Routine and Run product truth. Wrangler creates it with the first Core deployment. |
 | Worker vars | `OPENMELD_ROUTINE_ENGINE_DEFAULT`, `OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS` | Core Center Agent Routine engine selection | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Workflow is the normal default. The global `legacy` value or an Organization override affects only newly claimed Runs; an existing Workflow-owned Run never crosses engines. |
 | Durable Object | `OPENMELD_SPACES` | Core Space domain | `services/core/wrangler.jsonc` | Space truth and message state. |
 | Durable Object | `OPENMELD_FILE_ROOTS` | Core Files domain | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | One SQLite writer per Team or member Files root; Space Files keep their existing Space writer. Migration v7. |
@@ -361,8 +415,10 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 | Rate Limit | `OPENMELD_SPACE_PASSWORD_RATE_LIMITER` | Gateway protected Space reads | `services/gateway/wrangler.jsonc`, `services/gateway/worker-configuration.d.ts` | Limits each source IP and Space pair to 10 password-bearing anonymous read requests per 60 seconds before Core password verification. Core remains the password authorization owner. |
 | R2 | `OPENMELD_ORGANIZATION_LOGOS` | Gateway Organization logo bytes | `services/gateway/wrangler.jsonc`, `services/gateway/wrangler.test.jsonc`, `services/gateway/worker-configuration.d.ts` | Production bucket `openmeld-organization-logos-prod`; preview/dev bucket `openmeld-organization-logos-preview`. Objects use immutable versioned keys and contain no source upload or private metadata. |
 | R2 | `OPENMELD_ACCOUNT_AVATARS` | Gateway Account avatar bytes | `services/gateway/wrangler.jsonc`, `services/gateway/wrangler.test.jsonc`, `services/gateway/worker-configuration.d.ts` | Uses the existing production and preview Organization-logo buckets under a separate `profiles/{profileId}/avatars/` key namespace; no new Cloudflare resource is required. Objects are immutable normalized WebP output and contain no source upload or private metadata. |
-| R2 | `OPENMELD_ORGANIZATION_SKILLS` | Core Organization Skill release bundles | `services/core/wrangler.jsonc`, `services/core/wrangler.test.jsonc`, `services/core/worker-configuration.d.ts` | Production bucket `openmeld-organization-skills-prod`; preview/dev bucket `openmeld-organization-skills-preview`. Core is the only writer and reads exact immutable release objects only after Organization authorization. D1 owns identity, enabled state, permissions, provenance, and the active-release pointer. |
+| R2 | `OPENMELD_ORGANIZATION_SKILLS` | Core Organization Skill release bundles | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Production bucket `openmeld-organization-skills-prod`; preview/dev bucket `openmeld-organization-skills-preview`. Core is the only writer and reads exact immutable release objects only after Organization authorization. The shared relational owner retains identity, enabled state, permissions, provenance, and the active-release pointer. |
 | R2 | `OPENMELD_SPACE_ATTACHMENTS` | Gateway, Core, and Remote Agent private attachment bytes plus immutable Space file revision bytes | Gateway, Core, and Remote Agent Wrangler configs and generated Worker types | Production bucket `openmeld-space-attachments-prod`; preview/dev bucket `openmeld-space-attachments-preview`. Gateway serves authenticated, Space-authorized reads and writes. For Space Files, the owning Space Durable Object authorizes the actor, validates optimistic concurrency, and returns the exact immutable object scope before Gateway stores bytes. After exact Message Channel connection, conversation, and Organization-member authorization, Core downloads bounded provider images, validates JPEG/PNG magic bytes, and stores deterministic transient objects. Remote Agent reads those inputs and removes transient objects only after admission succeeds. Remote Agent also writes Browser Run screenshots only after Core creates scoped attachment metadata; callback publication revalidates the descriptor. |
+| Service binding | `OPENMELD_ACCOUNT_DELETION_GATEWAY` | Core -> Gateway | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Private `AccountDeletionEntrypoint` disconnects App credentials. The admin secret stays in Gateway. |
+| R2 | `OPENMELD_ACCOUNT_AVATARS` | Core account cleanup | `services/core/wrangler.jsonc`, `services/core/wrangler.test.jsonc`, `services/core/worker-configuration.d.ts` | Reuses Gateway's Organization-logo bucket and avatar key namespace; no new bucket. |
 | Service binding | `OPENMELD_AUTH_WORKER` | Core -> Auth | `services/core/wrangler.jsonc` | Core calls Auth through service binding. |
 | Service binding | `OPENMELD_REMOTE_AGENT_WORKER` | Core -> Remote Agent | `services/core/wrangler.jsonc` | Core submits hosted Center Agent turns through the shared Remote Agent RPC contract. |
 | Service binding | `OPENMELD_CORE_WORKER` | Remote Agent -> Core | `services/remote-agent/wrangler.jsonc` | Remote Agent binds the private `CenterAgentRpcEntrypoint` for sequenced Space stream snapshots, terminal turn callbacks, and Core-backed Center Agent product tools. Core owns authorization, durable result publication, and product-data tenancy. The historical `CenterAgentRoutineRpcEntrypoint` export remains only for already-deployed binding compatibility. |
@@ -429,7 +485,12 @@ The manifest owns these resources:
 - Durable Object namespaces: the three active Core namespaces and three active
   Remote Agent namespaces. The script discovers their stable IDs by exact
   namespace name and never creates namespaces outside a Worker deployment.
-- D1: `openmeld-db-prod`, `openmeld-open-connector-db-prod`
+- D1: frozen `openmeld-db-prod` source and active upstream
+  `openmeld-open-connector-db-prod`. The latter belongs to OpenConnector, not
+  OpenMeld shared product persistence.
+- Hyperdrive: production Auth/Core use the registered `OPENMELD_POSTGRESQL`
+  binding. PlanetScale target ownership is in
+  [physical-db-split.md](../developing/architecture/physical-db-split.md).
 - KV: `openmeld-auth-kv-prod`
 - R2 production: `openmeld-space-attachments-prod`,
   `openmeld-organization-skills-prod`, `openmeld-organization-logos-prod`,
@@ -499,6 +560,13 @@ depends on the Gateway upload route. Keep that mixed-version window short.
 
 ### Add Or Change A D1 Database
 
+This flow applies to separate upstream D1 resources and retained legacy
+bindings. OpenMeld shared product schema changes use the
+[PostgreSQL workflow](../developing/engineering/postgresql.md); production
+changes use the scoped
+[database release](../developing/engineering/production-release.md#production-database-release).
+Do not add a D1 binding to current Auth/Core as a fallback.
+
 D1 has two separate concerns:
 
 - Cloudflare resource and Worker binding ownership
@@ -513,9 +581,9 @@ Required flow:
    `env` block.
 4. Record the DB domain owner, allowed writers, read consumers, and migration
    owner in this document or the data-layer docs.
-5. If this is a shared OpenMeld D1 schema change, use the root `db:*` commands from
-   [packages/db/README.md](../packages/db/README.md), not package-local ad hoc
-   commands.
+5. Use the owning upstream database migration workflow. Historical OpenMeld D1
+   migrations are immutable; root `db:*` generation now targets PostgreSQL.
+   Keep shared staging on its deployed revision until its migration is supported.
 6. Run `pnpm cf-typegen` and include regenerated
    `worker-configuration.d.ts` files in the change.
 
@@ -712,10 +780,11 @@ The workflow contract is:
 2. Component deploy workflows check out one captured release SHA, run the
    component's scoped release verification, call `sync:config:prod` once, and
    perform a lightweight post-deploy health check.
-3. Component workflows share the cached pnpm setup action. They do not run D1
-   migrations or `PRAGMA optimize`.
-4. Database scopes call the single `db:release:prod` sequence before their
-   selected Worker. Normal component deploys never call it.
+3. Component workflows share the cached pnpm setup action. They do not apply
+   shared database migrations.
+4. Production PostgreSQL migrations use the guarded local `db` scope before
+   dependent Workers. The legacy `db:release:prod` command rejects this backend;
+   do not substitute a hosted D1 release for native migration acceptance.
 5. Web deploy creates a temporary `.dev.vars.prod` because the production build
    needs `WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET`.
 6. Core, Gateway, and Remote Agent own production Worker secrets but do not yet

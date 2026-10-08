@@ -61,7 +61,7 @@ class Context:
         with sqlite3.connect(self.backup) as target:
             self.db.backup(target)
 
-    def request(self, service, path, data=None, method=None):
+    def request(self, service, path, data=None, method=None, profile_id=None):
         port = self.lane["ports"][service]
         if not isinstance(port, int) or not 1024 <= port <= 65535:
             raise RuntimeError("Invalid local lane port.")
@@ -70,7 +70,7 @@ class Context:
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
         if service == "gateway":
-            headers.update({"x-openmeld-profile-id": self.human["profile_id"],
+            headers.update({"x-openmeld-profile-id": profile_id or self.human["profile_id"],
                             "x-openmeld-requested-organization-id": self.org["id"]})
         request = urllib.request.Request(f"http://127.0.0.1:{port}{path}",
                   data=json.dumps(data).encode() if data is not None else None,

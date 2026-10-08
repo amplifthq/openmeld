@@ -41,6 +41,7 @@ import {
 	peopleConnectionFilter,
 	removeSidebarPeopleGroup,
 	resolvePeopleSections,
+	toggleSidebarPersonStar,
 } from "./people-sidebar-order";
 import { TeamSidebarHeaderAction } from "./team-sidebar-header";
 
@@ -65,7 +66,7 @@ export function PeopleSidebar(input: {
 	loading: boolean;
 	error: string | null;
 	onSelect: (id: string) => void;
-	onChat: (id: string) => Promise<void>;
+	onChat?: (id: string) => Promise<void>;
 	chatPending: boolean;
 }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -128,22 +129,8 @@ export function PeopleSidebar(input: {
 		input.selectedProfileId ?? ""
 	);
 	const visible = new Map<string, readonly string[]>();
-	const toggleStar = (id: string) => {
-		if (starred.has(id)) {
-			save(
-				moveSidebarPerson(preferences, "people", id, preferences.people.itemIds)
-			);
-		} else {
-			save(
-				moveSidebarPerson(
-					preferences,
-					"starred",
-					id,
-					preferences.starred.itemIds
-				)
-			);
-		}
-	};
+	const toggleStar = (id: string) =>
+		save(toggleSidebarPersonStar(preferences, id));
 	const groups = sections
 		.filter(
 			(section) =>
@@ -255,10 +242,12 @@ export function PeopleSidebar(input: {
 									key={member.id}
 									member={member}
 									onChat={
-										member.profileStatus === "active" && !member.isCurrentUser
+										input.onChat &&
+										member.profileStatus === "active" &&
+										!member.isCurrentUser
 											? () => {
 													input
-														.onChat(member.id)
+														.onChat?.(member.id)
 														.catch((error) =>
 															toast.error(
 																error instanceof Error

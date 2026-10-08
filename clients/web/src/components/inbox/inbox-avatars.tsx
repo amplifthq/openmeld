@@ -6,12 +6,12 @@ import {
 	isDirectMessageItem,
 	resolveAccountSpaceViewerProfileId,
 } from "#/components/spaces/account-space-sections";
-import { resolveDirectMessagePeer } from "#/components/spaces/direct-message-peer";
+import { DirectMessageAvatar } from "#/components/spaces/direct-message-avatar";
+import { resolveDirectMessagePresentation } from "#/components/spaces/direct-message-presentation";
 import {
 	resolveSpaceMemberAppearances,
 	SpaceMemberAvatars,
 } from "#/components/spaces/space-member-avatars";
-import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { centerAgentSessionsQueryOptions } from "#/query/organizations/center-agent-sessions";
@@ -19,21 +19,6 @@ import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 
 const InboxAvatars = createContext<ReadonlyMap<string, ReactNode>>(new Map());
-
-function directMessageAvatar(
-	peer: ReturnType<typeof resolveDirectMessagePeer>
-) {
-	return peer ? (
-		<SpaceProfileIcon
-			agentControllerRef={peer.agentControllerRef}
-			avatarImageUrl={peer.avatarUrl}
-			profileId={peer.profileId}
-			profileKind={peer.profileKind}
-			profileName={peer.profileName}
-			size="sm"
-		/>
-	) : null;
-}
 
 /** Share the sidebar's authorized Space index and Profile presentation, not Inbox copies. */
 export function InboxAvatarProvider({ children }: { children: ReactNode }) {
@@ -67,7 +52,7 @@ export function InboxAvatarProvider({ children }: { children: ReactNode }) {
 				continue;
 			}
 			if (isDirectMessageItem(item)) {
-				const peer = resolveDirectMessagePeer({
+				const presentation = resolveDirectMessagePresentation({
 					item,
 					profileDirectory: directory.data,
 					viewerProfileId: resolveAccountSpaceViewerProfileId({
@@ -75,7 +60,7 @@ export function InboxAvatarProvider({ children }: { children: ReactNode }) {
 						item,
 					}),
 				});
-				result.set(item.spaceId, directMessageAvatar(peer));
+				result.set(item.spaceId, <DirectMessageAvatar {...presentation} />);
 			} else if (item.memberPreviews?.length) {
 				result.set(
 					item.spaceId,
@@ -95,7 +80,11 @@ export function InboxAvatarProvider({ children }: { children: ReactNode }) {
 			if (profile) {
 				result.set(
 					session.spaceId,
-					<CenterAgentChatAvatar profileName={profile.profileName} />
+					<CenterAgentChatAvatar
+						avatarStyle={profile.avatarStyle}
+						profileId={profile.profileId}
+						profileName={profile.profileName}
+					/>
 				);
 			}
 		}

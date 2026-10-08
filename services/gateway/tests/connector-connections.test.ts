@@ -43,6 +43,125 @@ afterEach(() => {
 });
 
 describe("Gateway connector connection routes", () => {
+  it("projects expired credential health only to opted-in clients without changing account ownership", async () => {
+    const health = {
+      state: "reconnect_required",
+      observedAt: new Date().toISOString(),
+      expiresAt: null,
+      reason: "oauth_token_expired",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json([
+          {
+            service: "linear",
+            configured: true,
+            connectionName: LINEAR_CONNECTION.connectionName,
+            health,
+          },
+        ])
+      )
+    );
+    const environment = makeEnv({
+      reconcileCurrentOrganizationConnectorConnections: async () => ({
+        connections: [
+          { ...LINEAR_CONNECTION, status: "active", scope: "member" },
+        ],
+        currentUserId: "user-1",
+        organizationId: "org-1",
+      }),
+    });
+    for (const optedIn of [false, true]) {
+      const response = await app.fetch(
+        new Request(
+          `http://local/v1/organizations/current/connectors/linear/connections?expectedOrganizationId=org-1${optedIn ? "&includeConnectionHealth=true" : ""}`
+        ),
+        environment,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        connections: Array<{
+          health?: unknown;
+          status: string;
+          connectionName: string;
+        }>;
+      };
+      expect(body.connections[0]?.status).toBe("active");
+      expect(body.connections[0]?.connectionName).toBe(
+        LINEAR_CONNECTION.connectionName
+      );
+      expect(body.connections[0]?.health).toEqual(optedIn ? health : undefined);
+    }
+  });
+  it("routes only typed JSON Plugin decisions to the current account's Core owner", async () => {
+    const requestId = "00000000-0000-4000-8000-000000000001";
+    const pluginActionRequest = vi.fn(async () => ({
+      requestId,
+      inboxItemId: "private-inbox-item",
+      state: "pending",
+      service: "posthog",
+      actionId: "create_project",
+      effect: "write",
+      accountName: "Synthetic member",
+      accountScope: "member",
+      actorProfileId: "agent",
+      inputFieldCount: 1,
+      targets: [{ label: "project", value: "synthetic" }],
+      createdAtMs: 1,
+      expiresAtMs: 2,
+    }));
+    const environment = makeEnv({ pluginActionRequest });
+    const invoke = (body: unknown, contentType = "application/json") =>
+      app.fetch(
+        new Request(
+          "http://local/v1/organizations/current/plugins/action-requests?expectedOrganizationId=org-1",
+          {
+            method: "POST",
+            headers: { "content-type": contentType },
+            body: JSON.stringify(body),
+          }
+        ),
+        environment,
+        TEST_EXECUTION_CONTEXT
+      );
+    expect((await invoke({ operation: "read", requestId })).status).toBe(200);
+    expect(pluginActionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        command: { operation: "read", requestId },
+        context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+      })
+    );
+    pluginActionRequest.mockClear();
+    for (const body of [
+      { operation: "send_code", requestId },
+      {
+        operation: "approve",
+        requestId,
+        code: "synthetic",
+        userId: "another-user",
+      },
+      {
+        operation: "approve",
+        requestId,
+        code: "synthetic",
+        input: { target: "other" },
+      },
+    ]) {
+      expect((await invoke(body)).status).toBe(400);
+    }
+    expect(
+      (
+        await invoke(
+          { operation: "approve", requestId, code: "synthetic" },
+          "text/plain"
+        )
+      ).status
+    ).toBe(400);
+    expect(pluginActionRequest).not.toHaveBeenCalled();
+  });
   it("scopes a private channel request to the authenticated organization and keeps preview separate from explicit continuation", async () => {
     const previewPluginChannelConnection = vi.fn(async () => ({
       requestId: "request",
@@ -142,7 +261,7 @@ describe("Gateway connector connection routes", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://connectors.example.test/v1/providers",
+      "https://connectors.example.test/v1/providers?includeConnectionAuth=true",
       expect.objectContaining({ method: "GET" })
     );
     await expect(response.json()).resolves.toMatchObject({
@@ -224,13 +343,13 @@ describe("Gateway connector connection routes", () => {
     });
   });
 
-  it("rejects connector services outside the supported App catalog", async () => {
+  it("rejects malformed provider identities before calling Core or OpenConnector", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await app.fetch(
       new Request(
-        "http://local/v1/organizations/current/connectors/unknown/connections?expectedOrganizationId=org-1"
+        "http://local/v1/organizations/current/connectors/INVALID!/connections?expectedOrganizationId=org-1"
       ),
       makeEnv({}),
       TEST_EXECUTION_CONTEXT
@@ -452,6 +571,70 @@ describe("Gateway connector connection routes", () => {
     );
   });
 
+  it("registers durable cleanup when credential configuration finishes after account closure", async () => {
+    const configured = Promise.withResolvers<Response>();
+    const started = Promise.withResolvers<void>();
+    const target = SHARED_POSTHOG_CONNECTION.connectionName;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () => {
+        started.resolve();
+        return await configured.promise;
+      })
+      .mockResolvedValueOnce(
+        Response.json([
+          { configured: true, connectionName: target, service: "posthog" },
+        ])
+      )
+      .mockRejectedValueOnce(
+        new Error("Disconnect is temporarily unavailable")
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const requestAccountConnectionCleanup = vi.fn(async () => true);
+    const responsePromise = app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/connectors/posthog/shared-credential?expectedOrganizationId=org-1",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            authType: "api_key",
+            values: { apiKey: "test-only", baseUrl: "https://us.posthog.com" },
+          }),
+        }
+      ),
+      makeEnv(
+        {
+          beginCurrentOrganizationSharedConnectorAuthorization: async () =>
+            SHARED_POSTHOG_CONNECTION,
+          reconcileCurrentOrganizationConnectorConnections: () =>
+            Promise.reject(new Error("account_unavailable")),
+        },
+        { requestAccountConnectionCleanup }
+      ),
+      TEST_EXECUTION_CONTEXT
+    );
+    await started.promise;
+    // The account cleanup has completed while the external write was pending.
+    configured.resolve(
+      Response.json({
+        configured: true,
+        connectionName: target,
+        service: "posthog",
+      })
+    );
+    expect((await responsePromise).status).toBeGreaterThanOrEqual(400);
+    expect(requestAccountConnectionCleanup).toHaveBeenCalledWith({
+      userId: "user-1",
+      connectionName: target,
+      service: "posthog",
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining("/api/connections/posthog"),
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
   it("starts a selected-repository GitHub App installation through Core", async () => {
     const expiresAtMs = Date.now() + 600_000;
     const beginCurrentOrganizationGitHubAppInstallation = vi.fn(async () => ({
@@ -504,6 +687,46 @@ describe("Gateway connector connection routes", () => {
       expectedOrganizationId: "org-1",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("starts user authorization for an App that is already installed", async () => {
+    const beginCurrentOrganizationGitHubAppInstallation = vi.fn(async () => ({
+      connection: SHARED_CONNECTION,
+      expiresAtMs: Date.now() + 600_000,
+      state: `githubapp_${"a".repeat(64)}`,
+      verificationConnectionName: "github_verify_aaaaaaaaaaaaaaaaaaaaaaaa",
+    }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        authorizationUrl:
+          "https://github.com/login/oauth/authorize?client_id=public-id",
+        state: "connector_oauth_state",
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/connectors/github/shared-authorization?expectedOrganizationId=org-1",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ existingInstallation: true }),
+        }
+      ),
+      makeEnv({ beginCurrentOrganizationGitHubAppInstallation }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      authorizationUrl:
+        "https://github.com/login/oauth/authorize?client_id=public-id",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/oauth/authorizations"),
+      expect.objectContaining({
+        body: expect.stringContaining("github_verify_aaaaaaaaaaaaaaaaaaaaaaaa"),
+      })
+    );
   });
 
   it("turns the installer verification token into the pending organization installation", async () => {
@@ -590,6 +813,94 @@ describe("Gateway connector connection routes", () => {
       expect.objectContaining({
         availableConnectionNames: [SHARED_CONNECTION_NAME],
         service: "github",
+      })
+    );
+  });
+
+  it("finishes an existing installation after GitHub user authorization", async () => {
+    const verifier = "github_verify_aaaaaaaaaaaaaaaaaaaaaaaa";
+    const readPendingGitHubAppInstallation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        installationId: null,
+        organizationId: "org-1",
+        status: "installing",
+        targetConnectionName: SHARED_CONNECTION_NAME,
+        userId: "user-1",
+        verificationConnectionName: verifier,
+      })
+      .mockResolvedValueOnce({
+        installationId: "987654",
+        organizationId: "org-1",
+        status: "verifying",
+        targetConnectionName: SHARED_CONNECTION_NAME,
+        userId: "user-1",
+        verificationConnectionName: verifier,
+      });
+    const beginExistingGitHubAppInstallationVerification = vi.fn(
+      async () => true
+    );
+    const completeGitHubAppInstallation = vi.fn(async () => true);
+    const reconcileCurrentOrganizationConnectorConnections = vi.fn(
+      async () => ({
+        connections: [{ ...SHARED_CONNECTION, status: "active" as const }],
+        currentUserId: "user-1",
+        organizationId: "org-1",
+      })
+    );
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json([
+          { configured: true, connectionName: verifier, service: "github" },
+        ])
+      )
+      .mockResolvedValueOnce(
+        Response.json({ accountLogin: "amplifthq", installationId: "987654" })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          configured: true,
+          connectionName: SHARED_CONNECTION_NAME,
+          service: "github",
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            configured: true,
+            connectionName: SHARED_CONNECTION_NAME,
+            service: "github",
+          },
+        ])
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/connectors/github/connections?expectedOrganizationId=org-1"
+      ),
+      makeEnv({
+        beginExistingGitHubAppInstallationVerification,
+        completeGitHubAppInstallation,
+        readPendingGitHubAppInstallation,
+        reconcileCurrentOrganizationConnectorConnections,
+      }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(beginExistingGitHubAppInstallationVerification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        installationId: "987654",
+        verificationConnectionName: verifier,
+      })
+    );
+    expect(completeGitHubAppInstallation).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/providers/github/installations"),
+      expect.objectContaining({
+        body: expect.stringContaining('"expectedAccountLogin":"amplifthq"'),
+        method: "POST",
       })
     );
   });
@@ -746,12 +1057,7 @@ describe("Gateway connector connection routes", () => {
     });
     expect(
       reconcileCurrentOrganizationConnectorConnections
-    ).toHaveBeenCalledWith({
-      availableConnectionNames: [],
-      context: expect.objectContaining({ activeOrganizationId: "org-1" }),
-      expectedOrganizationId: "org-1",
-      service: "notion",
-    });
+    ).toHaveBeenCalledTimes(1);
     await expect(response.json()).resolves.toMatchObject({
       connections: [expect.objectContaining({ service: "github" })],
       currentUserId: "user-1",
@@ -913,8 +1219,13 @@ describe("Gateway connector connection routes", () => {
   });
 });
 
-function makeEnv(coreOverrides: Record<string, unknown>): CloudflareBindings {
+function makeEnv(
+  coreOverrides: Record<string, unknown>,
+  authOverrides: Record<string, unknown> = {}
+): CloudflareBindings {
   const authRpc = {
+    requestAccountConnectionCleanup: vi.fn(async () => false),
+    ...authOverrides,
     resolveRequestAuthWithProfile: vi.fn(async () => ({
       claims: {
         activeOrganizationId: "org-1",
@@ -940,6 +1251,11 @@ function makeEnv(coreOverrides: Record<string, unknown>): CloudflareBindings {
     OPENMELD_AUTH_WORKER: authRpc,
     OPENMELD_CONNECTORS_BASE_URL: "https://connectors.example.test",
     OPENMELD_CORE_WORKER: {
+      listCurrentOrganizationConnectorConnections: vi.fn(async () => ({
+        connections: [CONNECTION],
+        currentUserId: "user-1",
+        organizationId: "org-1",
+      })),
       readPendingGitHubAppInstallation: vi.fn(async () => null),
       ...coreOverrides,
     },

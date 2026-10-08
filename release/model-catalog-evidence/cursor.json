@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "cursor",
-  "observedAt": "2026-09-22T13:24:28.881Z",
-  "fingerprint": "5008dcc82965e4ce7fb7591b514bfdbbd68519d3b55f9678614d4107dd3a8e03",
+  "observedAt": "2026-10-07T01:13:38.982Z",
+  "fingerprint": "248854041ce3c54f7b7b9214c3e610f56fed4c65c7e62f8d60b01a96cd93c84e",
   "sources": [
     {
       "url": "https://cursor.com/docs/cli/reference/parameters.md",
@@ -43,6 +43,34 @@
               "input": 272000,
               "output": 128000
             },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 0.45,
+                    "output": 3.6,
+                    "cache_read": 0.045
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.125,
+                    "output": 1,
+                    "cache_read": 0.0125
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
+            },
             "cost": {
               "input": 0.25,
               "output": 2,
@@ -77,6 +105,34 @@
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 2.5,
+                    "output": 20,
+                    "cache_read": 0.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.625,
+                    "output": 5,
+                    "cache_read": 0.0625
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 1.25,
@@ -113,6 +169,34 @@
               "input": 272000,
               "output": 128000
             },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 3.5,
+                    "output": 28,
+                    "cache_read": 0.35
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.875,
+                    "output": 7,
+                    "cache_read": 0.0875
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
+            },
             "cost": {
               "input": 1.75,
               "output": 14,
@@ -147,6 +231,22 @@
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 3.5,
+                    "output": 28,
+                    "cache_read": 0.35
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 1.75,
@@ -263,6 +363,18 @@
                       "service_tier": "priority"
                     }
                   }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.375,
+                    "output": 2.25,
+                    "cache_read": 0.0375
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
                 }
               }
             },
@@ -300,6 +412,22 @@
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "flex": {
+                  "cost": {
+                    "input": 0.1,
+                    "output": 0.625,
+                    "cache_read": 0.01
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 0.2,
@@ -452,7 +580,8 @@
                 "cache_read": 0.04,
                 "cache_write": 0.5
               }
-            }
+            },
+            "canonical_model_id": "openai/gpt-5.6-luna"
           },
           "gpt-5.6-sol": {
             "id": "gpt-5.6-sol",
@@ -532,7 +661,8 @@
                 "cache_read": 0.8,
                 "cache_write": 10
               }
-            }
+            },
+            "canonical_model_id": "openai/gpt-5.6-sol"
           },
           "gpt-5.6-terra": {
             "id": "gpt-5.6-terra",
@@ -612,7 +742,8 @@
                 "cache_read": 0.4,
                 "cache_write": 5
               }
-            }
+            },
+            "canonical_model_id": "openai/gpt-5.6-terra"
           },
           "gpt-6-astra": {
             "id": "gpt-6-astra",
@@ -666,6 +797,19 @@
                       }
                     }
                   }
+                },
+                "ultrafast": {
+                  "cost": {
+                    "input": 60,
+                    "output": 300,
+                    "cache_read": 6,
+                    "cache_write": 75
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "ultrafast"
+                    }
+                  }
                 }
               }
             },
@@ -692,7 +836,251 @@
                 "cache_read": 2,
                 "cache_write": 25
               }
-            }
+            },
+            "canonical_model_id": "openai/gpt-6-astra"
+          },
+          "gpt-6-luna": {
+            "id": "gpt-6-luna",
+            "name": "GPT-6 Luna",
+            "description": "OpenAI's most efficient model for focused, high-volume tasks",
+            "family": "gpt-luna",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-05-18",
+            "release_date": "2026-09-22",
+            "last_updated": "2026-09-22",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 0.2,
+                    "output": 1,
+                    "cache_read": 0.02,
+                    "cache_write": 0.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 0.1,
+              "output": 0.5,
+              "cache_read": 0.01,
+              "cache_write": 0.125,
+              "tiers": [
+                {
+                  "input": 0.2,
+                  "output": 0.75,
+                  "cache_read": 0.02,
+                  "cache_write": 0.25,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 0.2,
+                "output": 0.75,
+                "cache_read": 0.02,
+                "cache_write": 0.25
+              }
+            },
+            "canonical_model_id": "openai/gpt-6-luna"
+          },
+          "gpt-6-sol": {
+            "id": "gpt-6-sol",
+            "name": "GPT-6 Sol",
+            "description": "OpenAI model for complex coding and agentic workflows",
+            "family": "gpt-sol",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-04-20",
+            "release_date": "2026-09-22",
+            "last_updated": "2026-09-22",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 4,
+                    "output": 20,
+                    "cache_read": 0.4,
+                    "cache_write": 5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 2,
+              "output": 10,
+              "cache_read": 0.2,
+              "cache_write": 2.5,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 15,
+                  "cache_read": 0.4,
+                  "cache_write": 5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 15,
+                "cache_read": 0.4,
+                "cache_write": 5
+              }
+            },
+            "canonical_model_id": "openai/gpt-6-sol"
+          },
+          "gpt-6.1-sol": {
+            "id": "gpt-6.1-sol",
+            "name": "GPT-6.1 Sol",
+            "description": "Near-Astra performance for complex coding, computer use, and professional work at a lower cost.",
+            "family": "gpt-sol",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-04-30",
+            "release_date": "2026-09-29",
+            "last_updated": "2026-09-29",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 4,
+                    "output": 20,
+                    "cache_read": 0.2,
+                    "cache_write": 5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 2,
+              "output": 10,
+              "cache_read": 0.1,
+              "cache_write": 2.5,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 15,
+                  "cache_read": 0.2,
+                  "cache_write": 5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 15,
+                "cache_read": 0.2,
+                "cache_write": 5
+              }
+            },
+            "canonical_model_id": "openai/gpt-6.1-sol"
           }
         },
         "anthropic": {
@@ -763,7 +1151,8 @@
               "output": 50,
               "cache_read": 0.25,
               "cache_write": 12.5
-            }
+            },
+            "canonical_model_id": "anthropic/claude-fable-5-1"
           },
           "claude-haiku-4-5": {
             "id": "claude-haiku-4-5",
@@ -798,7 +1187,8 @@
               "output": 5,
               "cache_read": 0.1,
               "cache_write": 1.25
-            }
+            },
+            "canonical_model_id": "anthropic/claude-haiku-4-5"
           },
           "claude-opus-4-5": {
             "id": "claude-opus-4-5",
@@ -837,7 +1227,8 @@
               "output": 25,
               "cache_read": 0.5,
               "cache_write": 6.25
-            }
+            },
+            "canonical_model_id": "anthropic/claude-opus-4-5"
           },
           "claude-opus-4-6": {
             "id": "claude-opus-4-6",
@@ -1021,7 +1412,64 @@
               "output": 25,
               "cache_read": 0.5,
               "cache_write": 6.25
-            }
+            },
+            "canonical_model_id": "anthropic/claude-opus-5"
+          },
+          "claude-opus-5-5": {
+            "id": "claude-opus-5-5",
+            "name": "Claude Opus 5.5",
+            "description": "Claude model for long-running agentic coding and knowledge work",
+            "family": "claude-opus",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-06",
+            "release_date": "2026-09-22",
+            "last_updated": "2026-09-22",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 8,
+                    "output": 40,
+                    "cache_read": 0.4,
+                    "cache_write": 10
+                  },
+                  "provider": {
+                    "body": {
+                      "speed": "fast"
+                    },
+                    "headers": {
+                      "anthropic-beta": "fast-mode-2026-02-01"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 4,
+              "output": 20,
+              "cache_read": 0.2,
+              "cache_write": 5
+            },
+            "canonical_model_id": "anthropic/claude-opus-5-5"
           },
           "claude-sonnet-4-5": {
             "id": "claude-sonnet-4-5",
@@ -1056,7 +1504,8 @@
               "output": 15,
               "cache_read": 0.3,
               "cache_write": 3.75
-            }
+            },
+            "canonical_model_id": "anthropic/claude-sonnet-4-5"
           },
           "claude-sonnet-4-6": {
             "id": "claude-sonnet-4-6",
@@ -1134,6 +1583,42 @@
               "cache_read": 0.2,
               "cache_write": 2.5
             }
+          },
+          "claude-sonnet-5-5": {
+            "id": "claude-sonnet-5-5",
+            "name": "Claude Sonnet 5.5",
+            "description": "Fast Claude model for everyday coding, agents, and knowledge work",
+            "family": "claude-sonnet",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-06",
+            "release_date": "2026-09-28",
+            "last_updated": "2026-09-28",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 2,
+              "output": 10,
+              "cache_read": 0.2,
+              "cache_write": 2.5
+            },
+            "canonical_model_id": "anthropic/claude-sonnet-5-5"
           }
         },
         "google": {
@@ -1174,7 +1659,8 @@
               "output": 2.5,
               "cache_read": 0.03,
               "input_audio": 1
-            }
+            },
+            "canonical_model_id": "google/gemini-2.5-flash"
           },
           "gemini-3.5-flash": {
             "id": "gemini-3.5-flash",
@@ -1243,7 +1729,8 @@
               "output": 3.75,
               "cache_read": 0.075,
               "input_audio": 0.75
-            }
+            },
+            "canonical_model_id": "google/gemini-3.8-flash"
           }
         },
         "xai": {
@@ -1294,7 +1781,8 @@
                 "output": 12,
                 "cache_read": 0.6
               }
-            }
+            },
+            "canonical_model_id": "xai/grok-4.5"
           },
           "grok-4.6": {
             "id": "grok-4.6",
@@ -1344,7 +1832,8 @@
                 "output": 12,
                 "cache_read": 1
               }
-            }
+            },
+            "canonical_model_id": "xai/grok-4.6"
           },
           "grok-4.7": {
             "id": "grok-4.7",
@@ -1394,7 +1883,30 @@
                 "output": 12,
                 "cache_read": 1
               }
-            }
+            },
+            "canonical_model_id": "xai/grok-4.7"
+          },
+          "grok-imagine-video-1.5-lite": {
+            "id": "grok-imagine-video-1.5-lite",
+            "name": "Grok Imagine Video 1.5 Lite",
+            "description": "Cost-efficient video model for text-to-video and image-to-video generation",
+            "family": "grok",
+            "attachment": true,
+            "reasoning": false,
+            "tool_call": false,
+            "temperature": false,
+            "release_date": "2026-10-01",
+            "last_updated": "2026-10-01",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["video"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1024,
+              "output": 0
+            },
+            "canonical_model_id": "xai/grok-imagine-video-1.5-lite"
           }
         }
       }

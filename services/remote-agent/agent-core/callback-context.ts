@@ -10,6 +10,8 @@ import {
   conversationCompactionMarkerSchema,
   type ModelCatalogReadOptions,
   type OpenMeldNavigationTarget,
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY,
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE,
   openMeldNavigationTargetSchema,
   openMeldRuntimeProfileIdSchema,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
@@ -30,6 +32,8 @@ import {
 } from "@openmeld/schemas";
 import type {
   AgentActivityOverviewResponse,
+  AiUsageQueryResponse,
+  CenterAgentAiUsageRpcInput,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
   CenterAgentCreateOrganizationInviteLinkResponse,
@@ -161,6 +165,8 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  RemoteAiUsageWrite,
+  RemoteAiUsageWriteResponse,
   ResolveProjectIssueActionResponse,
   ResolveProjectIssueActionRpcInput,
   ResolveSpaceFileContentInput,
@@ -177,6 +183,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
+  isOrganizationSkillReleaseUnavailable,
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
   normalizeRemoteAgentErrorMessage,
@@ -228,7 +235,7 @@ export type RemoteAgentCallbackContext = {
     { kind: "plugin_connection" }
   >;
   // Absent only on pre-isolation admissions; cleanup must retain their old address.
-  computerIsolationVersion?: 1 | 2;
+  computerIsolationVersion?: 1 | 2 | 3;
   accepted: boolean;
   acceptedAt: string;
   agentProfileId: string;
@@ -250,6 +257,7 @@ export type RemoteAgentCallbackContext = {
   outputAttachments?: SpaceMessageAttachment[];
   outputFiles?: SpaceMessageFileReference[];
   dispatchId: string;
+  taskId?: string;
   idempotencyKey: string;
   lastCoreResponse?: RemoteAgentCoreCallbackResponse;
   lastFailureFact?: RemoteAgentFailureFact;
@@ -330,7 +338,15 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  authorizeLocalPluginConnection?(input: unknown): Promise<unknown>;
+  recordRemoteAiUsage?(
+    input: RemoteAiUsageWrite
+  ): Promise<RemoteAiUsageWriteResponse>;
+  centerAgentReadAiUsage?(
+    input: CenterAgentAiUsageRpcInput
+  ): Promise<AiUsageQueryResponse>;
   authorizeRemoteAgentExecutionAccess?(input: unknown): Promise<unknown>;
+  acknowledgeRemoteAgentAdmission?(input: unknown): Promise<unknown>;
   getModelCatalog?(
     options?: ModelCatalogReadOptions
   ): Promise<ModelCatalog> | ModelCatalog;
@@ -477,7 +493,10 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentConnectAgentProfileToLocalAgent?(input: unknown): Promise<unknown>;
   centerAgentRemoveAgentProfilesFromSpace?(input: unknown): Promise<unknown>;
   centerAgentCreateSpace?(input: unknown): Promise<unknown>;
+  remoteAgentOpenDirectMessageSpace?(input: unknown): Promise<unknown>;
+  remoteAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
   centerAgentResolveConnectorConnection?(input: unknown): Promise<unknown>;
+  centerAgentListConnectorServices?(input: unknown): Promise<unknown>;
   centerAgentEnableAgentProfile?(input: unknown): Promise<unknown>;
   centerAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
   centerAgentReadMemberComputers?(
@@ -579,6 +598,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadAgentActivityOverview?(
     input: CenterAgentReadAgentActivityToolRpcInput
   ): Promise<AgentActivityOverviewResponse>;
+  agentSessionHistory?(
+    input: import("@openmeld/schemas/types").SessionHistoryAgentRpcInput
+  ): Promise<import("@openmeld/schemas/types").SessionHistoryResult>;
   centerAgentSearchMemory?(
     input: CenterAgentSearchMemoryRpcInput
   ): Promise<CenterAgentSearchMemoryResponse>;
@@ -598,6 +620,7 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
+  centerAgentSpaceInputQueue?(input: unknown): Promise<unknown>;
   centerAgentRecordConnectorActionAudit?(
     input: CenterAgentRecordConnectorActionAuditBody & {
       context: OpenMeldRequestContext;
@@ -622,9 +645,11 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpace?(input: unknown): Promise<unknown>;
+  centerAgentWakeAgentProfilesInSpaces?(input: unknown): Promise<unknown>;
   personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
+  centerAgentContinueTaskSummary?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;
   executeExecutionRecovery?(input: unknown): Promise<unknown>;
   recordSpaceAttachment?(input: {
@@ -755,7 +780,7 @@ export function createRemoteAgentCallbackContext(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
 }): RemoteAgentCallbackContext {
   return {
-    computerIsolationVersion: 2,
+    computerIsolationVersion: 3,
     accepted: input.ack.accepted,
     acceptedAt: new Date(input.nowMs).toISOString(),
     ...(input.request.replyRecovery
@@ -774,6 +799,7 @@ export function createRemoteAgentCallbackContext(input: {
       ? { runtimeConversationId: input.request.runtimeConversation.id }
       : {}),
     dispatchId: input.request.dispatchId,
+    taskId: input.request.taskId,
     idempotencyKey: input.request.idempotencyKey,
     ...(input.request.v === 1 ? {} : { modelRoute: input.request.modelRoute }),
     organizationId: input.request.organizationId,
@@ -1926,6 +1952,9 @@ function resolveRemoteAgentResultFailureCode(
   if (isRemoteAgentToolResultTooLarge(result.error)) {
     return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE;
   }
+  if (isOrganizationSkillReleaseUnavailable(result.error)) {
+    return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE;
+  }
   if (
     result.failureReasonCode &&
     result.failureReasonCode !==
@@ -1948,6 +1977,8 @@ function resolveRemoteAgentFailureMessage(code: string): string {
       return CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE:
+      return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
       return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
@@ -2056,7 +2087,8 @@ function isRemoteAgentCallbackContext(
     candidate.v === 1 &&
     (candidate.computerIsolationVersion === undefined ||
       candidate.computerIsolationVersion === 1 ||
-      candidate.computerIsolationVersion === 2) &&
+      candidate.computerIsolationVersion === 2 ||
+      candidate.computerIsolationVersion === 3) &&
     typeof candidate.submissionId === "string" &&
     typeof candidate.idempotencyKey === "string" &&
     typeof candidate.organizationId === "string" &&

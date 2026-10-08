@@ -28,6 +28,7 @@ import {
 import type { OrganizationRole } from "#/lib/organizations/organization-types";
 import {
 	baseQueryOptions,
+	DISPLAY_REVISIT_GC_TIME_MS,
 	PERSISTED_DISPLAY_QUERY_GC_TIME_MS,
 	ROUTE_REVISIT_GC_TIME_MS,
 } from "#/query/query-config";
@@ -41,10 +42,20 @@ export const organizationQueryKeys = {
 			...organizationQueryKeys.organization(organizationId),
 			"directory",
 		] as const,
+	centerAgentDirectory: (organizationId: string) =>
+		[
+			...organizationQueryKeys.directory(organizationId),
+			"center-agent",
+		] as const,
 	profileDirectory: (organizationId: string) =>
 		[
 			...organizationQueryKeys.organization(organizationId),
 			"profile-directory",
+		] as const,
+	profileIdentityDirectory: (organizationId: string) =>
+		[
+			...organizationQueryKeys.profileDirectory(organizationId),
+			"identity",
 		] as const,
 	agentRuntimeOverview: (organizationId: string) =>
 		[
@@ -86,7 +97,10 @@ export function organizationDirectoryQueryFilters(input?: {
 }) {
 	return {
 		predicate: (query: { queryKey: QueryKey }) =>
-			query.queryKey.length === 3 &&
+			(query.queryKey.length === 3 ||
+				(query.queryKey.length === 4 &&
+					(query.queryKey[3] === "identity" ||
+						query.queryKey[3] === "center-agent"))) &&
 			query.queryKey[0] === organizationQueryKeys.all[0] &&
 			(input?.organizationId === undefined ||
 				query.queryKey[1] === input.organizationId) &&
@@ -185,18 +199,25 @@ export type OrganizationSpaceProfileCandidates = {
 export function organizationDirectoryQueryOptions(input: {
 	enabled: boolean;
 	organizationId: string;
+	centerAgentOnly?: boolean;
 }) {
 	return queryOptions<
 		OrganizationDirectoryResponse,
 		OrganizationDirectoryFailure
 	>({
 		enabled: input.enabled,
-		gcTime: ROUTE_REVISIT_GC_TIME_MS,
-		queryFn: async () =>
+		gcTime: input.centerAgentOnly
+			? DISPLAY_REVISIT_GC_TIME_MS
+			: ROUTE_REVISIT_GC_TIME_MS,
+		queryFn: async ({ signal }) =>
 			await readCurrentOrganizationDirectory({
 				organizationId: input.organizationId,
+				centerAgentOnly: input.centerAgentOnly,
+				signal,
 			}),
-		queryKey: organizationQueryKeys.directory(input.organizationId),
+		queryKey: input.centerAgentOnly
+			? organizationQueryKeys.centerAgentDirectory(input.organizationId)
+			: organizationQueryKeys.directory(input.organizationId),
 		refetchOnWindowFocus: true,
 		refetchInterval: 5 * 60_000,
 		refetchIntervalInBackground: false,
@@ -214,7 +235,7 @@ export function organizationProfileDirectoryQueryOptions(input: {
 		OrganizationDirectoryFailure
 	>({
 		enabled: input.enabled,
-		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 		queryFn: async ({ signal }) =>
 			await readCurrentOrganizationProfileDirectory({
 				organizationId: input.organizationId,
@@ -229,9 +250,37 @@ export function organizationProfileDirectoryQueryOptions(input: {
 	});
 }
 
+export function organizationProfileIdentityDirectoryQueryOptions(input: {
+	enabled: boolean;
+	organizationId: string;
+}) {
+	return queryOptions<
+		OrganizationProfileDirectoryResponse,
+		OrganizationDirectoryFailure
+	>({
+		enabled: input.enabled,
+		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		queryFn: async ({ signal }) =>
+			await readCurrentOrganizationProfileDirectory({
+				organizationId: input.organizationId,
+				signal,
+				identityOnly: true,
+			}),
+		queryKey: organizationQueryKeys.profileIdentityDirectory(
+			input.organizationId
+		),
+		refetchOnWindowFocus: true,
+		refetchInterval: 5 * 60_000,
+		refetchIntervalInBackground: false,
+		retry: baseQueryOptions.retry,
+		staleTime: 10_000,
+	});
+}
+
 export function organizationAgentRuntimeOverviewQueryOptions(input: {
 	enabled: boolean;
 	organizationId: string;
+	workloadProfileId?: string;
 }) {
 	return queryOptions<
 		OrganizationAgentRuntimeOverviewResponse,
@@ -242,9 +291,17 @@ export function organizationAgentRuntimeOverviewQueryOptions(input: {
 		queryFn: async ({ signal }) =>
 			await readCurrentOrganizationAgentRuntimeOverview({
 				organizationId: input.organizationId,
+				...(input.workloadProfileId
+					? { workloadProfileId: input.workloadProfileId }
+					: {}),
 				signal,
 			}),
-		queryKey: organizationQueryKeys.agentRuntimeOverview(input.organizationId),
+		queryKey: input.workloadProfileId
+			? [
+					...organizationQueryKeys.agentRuntimeOverview(input.organizationId),
+					input.workloadProfileId,
+				]
+			: organizationQueryKeys.agentRuntimeOverview(input.organizationId),
 		refetchInterval: 30_000,
 		refetchIntervalInBackground: false,
 		refetchOnWindowFocus: true,

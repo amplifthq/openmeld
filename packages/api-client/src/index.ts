@@ -76,6 +76,7 @@ export type {
   OpenMeldApiClientRequestOptions,
 } from "./client";
 export { createOpenMeldApiClient } from "./client";
+export { createCloudComputerApi } from "./cloud-computer";
 export { createComputerAuthorizationGrant } from "./computer-authorization";
 export { createComputerFileAccessApi } from "./computer-file-access/api";
 export {
@@ -139,6 +140,7 @@ export type {
 } from "./feedback/types";
 export type { FileRootLocation } from "./file-root/api";
 export { createFileRootApi } from "./file-root/api";
+export { createFirstWorkApi } from "./first-work";
 export { createInboxApi } from "./inbox/api";
 export { isInboxItemInOrganizationScope } from "./inbox/item-scope";
 export {
@@ -357,6 +359,7 @@ export type {
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
 export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
+export { createSessionHistoryApi } from "./session-history/api";
 export type {
   AddSpaceMembersInput,
   CreateSpaceDiagnosticReportBody,
@@ -391,6 +394,7 @@ export {
   uploadSpaceAttachment,
   uploadSpaceFile,
 } from "./space";
+export { readOrUpdateSpaceInputQueue } from "./space/input-queue";
 export {
   readOrUpdateSpaceFilePins,
   readOrUpdateSpaceMessagePins,

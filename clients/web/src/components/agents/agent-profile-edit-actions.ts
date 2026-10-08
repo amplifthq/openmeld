@@ -10,6 +10,7 @@ import type {
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
 	isOpenCodeAgentControllerRef,
 	openCodePermissionEquals,
@@ -143,12 +144,6 @@ export async function changeAgentProfileController(input: {
 		binding: primaryBindingResponse.binding,
 		context: input.context,
 	});
-	await refreshWebAgentReadinessFacts({
-		agentProfileIds: [input.context.profile.openMeldProfileId],
-		organizationId: input.context.organizationId,
-		queryClient: input.context.queryClient,
-		storageScope: input.context.storageScope,
-	});
 }
 
 export async function updateAgentProfileControllerCollaborationMode(input: {
@@ -175,7 +170,7 @@ export async function updateAgentProfileControllerPermissionMode(input: {
 	agentControllerPermissionMode: AgentControllerPermissionMode;
 	context: AgentProfileEditActionContext;
 }) {
-	await runAgentProfileBindingUpdate({
+	return await runAgentProfileBindingUpdate({
 		context: input.context,
 		matchesRequestedBinding: (binding) =>
 			binding.agentControllerPermissionMode ===
@@ -305,6 +300,7 @@ export function updateAgentProfileListCaches(input: {
 										...profile,
 										profileHandle: input.profile.profileHandle,
 										profileName: input.profile.profileName,
+										avatarStyle: input.profile.avatarStyle,
 										updatedAt: input.profile.updatedAt,
 									}
 								: profile
@@ -324,6 +320,7 @@ export function updateAgentProfileListCaches(input: {
 										...profile,
 										profileHandle: input.profile.profileHandle,
 										profileName: input.profile.profileName,
+										avatarStyle: input.profile.avatarStyle,
 										updatedAt: input.profile.updatedAt,
 									}
 								: profile
@@ -361,6 +358,7 @@ async function runAgentProfileBindingUpdate(input: {
 		binding: response.binding,
 		context: input.context,
 	});
+	return response.binding;
 }
 
 async function commitAgentProfileBindingUpdate(input: {
@@ -371,6 +369,8 @@ async function commitAgentProfileBindingUpdate(input: {
 		input.context.storageScope,
 		input.context.profile.openMeldProfileId
 	);
+	// A read started before the write must not overwrite its acknowledged result.
+	await input.context.queryClient.cancelQueries({ queryKey });
 	input.context.queryClient.setQueryData<GetAgentProfilePrimaryBindingResponse>(
 		queryKey,
 		{
@@ -380,7 +380,9 @@ async function commitAgentProfileBindingUpdate(input: {
 		}
 	);
 	input.context.onBindingUpdated?.(input.binding);
-	await Promise.all([
+	// The mutation response proves the save. Refreshing other views must neither
+	// hold the editor open nor turn a committed write into a reported failure.
+	Promise.all([
 		invalidateAgentProfilePrimaryBindingEditQueries({
 			queryClient: input.context.queryClient,
 			queryKey,
@@ -392,5 +394,13 @@ async function commitAgentProfileBindingUpdate(input: {
 			queryClient: input.context.queryClient,
 			storageScope: input.context.storageScope,
 		}),
-	]);
+	]).catch((error: unknown) => {
+		console.error(
+			"Agent settings were saved, but their refresh failed.",
+			error
+		);
+		toast.warning(
+			"Settings saved. Refresh the page to reload the latest status."
+		);
+	});
 }

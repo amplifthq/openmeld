@@ -1,6 +1,4 @@
-import { TeamHeader } from "./team-header";
-
-("use client");
+"use client";
 
 import type {
 	CenterAgentMemberResearchBatch,
@@ -36,6 +34,7 @@ import { useHumanPresence } from "#/components/profiles/human-presence";
 import { localPeopleSidebarFixtures } from "#/lib/dev/people-sidebar-fixtures";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { PeopleSidebar } from "./people-sidebar";
+import { TeamHeader } from "./team-header";
 import { TeamHome } from "./team-home";
 import { TeamHomeSkeleton } from "./team-home-skeleton";
 
@@ -158,6 +157,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
+			defaultModuleSidebarOpen={!!input.selectedProfileId}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			mainHeader={
 				input.selectedProfileId ? undefined : (
@@ -219,8 +219,10 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			{!selectedMember && showTeamHome && (
 				<TeamHome
 					activityNowMs={activityNowMs}
+					chatPending={input.state.directMessage === "pending"}
 					computerGroups={preview.computerGroups}
 					members={preview.members}
+					onChat={input.onOpenDirectMessage}
 					onSelect={input.onSelectProfile}
 				/>
 			)}

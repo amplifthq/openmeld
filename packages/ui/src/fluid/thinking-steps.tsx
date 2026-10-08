@@ -8,6 +8,7 @@ import {
   forwardRef,
   type HTMLAttributes,
   type ImgHTMLAttributes,
+  memo,
   type ReactNode,
 } from "react";
 import { Badge } from "#components/badge";
@@ -73,7 +74,7 @@ const ThinkingStepsHeader = forwardRef<
             : undefined)
         }
         className={cn(
-          "group/thinking-steps-trigger flex h-7 min-w-0 max-w-full items-center gap-1.5 px-1.5 text-left text-[13px] outline-none transition-colors",
+          "group/thinking-steps-trigger flex min-h-7 min-w-0 max-w-full items-center gap-1.5 px-1.5 text-left text-[13px] outline-none transition-colors",
           "text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
           shape.item,
           className
@@ -85,7 +86,7 @@ const ThinkingStepsHeader = forwardRef<
       >
         {children ? (
           <span
-            className="shrink-0 text-foreground"
+            className="min-w-0 text-foreground [overflow-wrap:anywhere]"
             data-slot="thinking-steps-header-label"
             style={{ fontVariationSettings: fontWeights.medium }}
           >
@@ -155,7 +156,8 @@ type ThinkingStepProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
   status?: ThinkingStepStatus;
 };
 
-function ThinkingStep({
+// Streaming text updates should not rerender unchanged step motion trees.
+const ThinkingStep = memo(function ThinkingStep({
   children,
   className,
   delay = 0.08,
@@ -213,7 +215,7 @@ function ThinkingStep({
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span
             className={cn(
-              "text-[13px]/tight text-foreground",
+              "text-[13px]/tight text-foreground [overflow-wrap:anywhere]",
               status === "active" && "shimmer-text",
               status === "failed" && "text-destructive"
             )}
@@ -224,7 +226,7 @@ function ThinkingStep({
           </span>
           {description ? (
             <span
-              className="text-[13px]/snug text-muted-foreground"
+              className="text-[13px]/snug text-muted-foreground [overflow-wrap:anywhere]"
               data-slot="thinking-step-description"
             >
               {description}
@@ -235,7 +237,7 @@ function ThinkingStep({
       </div>
     </motion.div>
   );
-}
+});
 ThinkingStep.displayName = "ThinkingStep";
 
 type ThinkingStepDetailsProps = Omit<

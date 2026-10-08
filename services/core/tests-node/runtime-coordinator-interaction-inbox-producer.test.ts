@@ -1,21 +1,80 @@
+import { readFile } from "node:fs/promises";
+import { URL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import {
   projectRuntimeCoordinatorInteractionInboxItem,
   resolveRuntimeCoordinatorInteractionInboxItem,
 } from "../src/runtime-transport/application/runtime-coordinator-interaction-inbox-producer";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("RuntimeCoordinator interaction Inbox producer", () => {
+  it.each([
+    "open",
+    "outcome",
+    "read",
+    "cleared",
+  ])("historical cleanup preserves %s state", async (state) => {
+    const harness = await createInboxHarness();
+    try {
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        inboxDb: harness.db,
+        spaceIndexDb: harness.db,
+        nowMs: 2100,
+        ownerUserId: "user_owner",
+        interaction: buildPermissionInteraction(),
+        runtimeCoordinatorExecutionId: "execution",
+        sourceSignalId: "signal_one",
+        spaceId: "space_one",
+        targetProfileName: "Agent",
+      });
+      if (state !== "open") {
+        await harness.query(
+          `UPDATE "openmeld"."inbox_items" SET resolution_status = 'resolved', resolved_at_ms = 2300`
+        );
+      }
+      if (state === "outcome") {
+        await harness.query(
+          `UPDATE "openmeld"."inbox_items" SET attention = 'update', kind = 'wake_outcome', source_kind = 'space_signal', resolution_status = 'not_applicable', resolved_at_ms = NULL`
+        );
+      }
+      if (state === "read" || state === "cleared") {
+        await harness.query(
+          `UPDATE "openmeld"."inbox_items" SET read_at_ms = 2200`
+        );
+      }
+      if (state === "cleared") {
+        await harness.query(
+          `UPDATE "openmeld"."inbox_items" SET cleared_at_ms = 2250`
+        );
+      }
+      const before = await harness.queryFirst({
+        text: `SELECT read_at_ms, cleared_at_ms, resolution_status, occurred_at_ms FROM "openmeld"."inbox_items"`,
+      });
+      await harness.query(
+        await readFile(
+          new URL(
+            "../../../packages/db/postgresql/migrations/0026_ended_inbox_requests.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+      );
+      expect(
+        await harness.queryFirst({
+          text: `SELECT read_at_ms, cleared_at_ms, resolution_status, occurred_at_ms FROM "openmeld"."inbox_items"`,
+        })
+      ).toEqual(before);
+    } finally {
+      await harness.close();
+    }
+  });
   it.each([
     "permission",
     "plan_review",
     "question",
   ] as const)("classifies %s from the source protocol, not the displayed title", async (kind) => {
-    const h = createInboxHarness();
+    const h = await createInboxHarness();
     try {
       await projectRuntimeCoordinatorInteractionInboxItem({
         inboxDb: h.db,
@@ -29,8 +88,8 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         targetProfileName: "Agent",
       });
       expect(
-        h.queryFirst({
-          sql: "SELECT importance, source_facts_json FROM inbox_items",
+        await h.queryFirst({
+          text: 'SELECT importance, source_facts_json FROM "openmeld"."inbox_items"',
         })
       ).toMatchObject({
         importance: "normal",
@@ -41,14 +100,16 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         }),
       });
       expect(
-        h.queryAll({ sql: "SELECT * FROM inbox_email_deliveries" })
+        await h.queryAll({
+          text: 'SELECT * FROM "openmeld"."inbox_email_deliveries"',
+        })
       ).toEqual([]);
     } finally {
-      h.close();
+      await h.close();
     }
   });
   it("repairs only an exact legacy source replay without resetting read, dismissal, end state or accepted email receipts", async () => {
-    const h = createInboxHarness();
+    const h = await createInboxHarness();
     try {
       const source = {
         inboxDb: h.db,
@@ -62,32 +123,36 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         targetProfileName: "Agent",
       };
       await projectRuntimeCoordinatorInteractionInboxItem(source);
-      h.run({
-        sql: "UPDATE inbox_items SET importance = 'urgent', source_facts_json = NULL, read_at_ms = 2200, cleared_at_ms = 2300, resolution_status = 'resolved', resolved_at_ms = 2400",
+      await h.query({
+        text: "UPDATE \"openmeld\".\"inbox_items\" SET importance = 'urgent', source_facts_json = NULL, read_at_ms = 2200, cleared_at_ms = 2300, resolution_status = 'resolved', resolved_at_ms = 2400",
       });
-      h.run({
-        sql: "INSERT INTO inbox_email_deliveries (id, inbox_item_id, state, attempt_count, next_attempt_at_ms, created_at_ms, updated_at_ms, message_id, sent_at_ms) SELECT 'receipt', id, 'sent', 1, 2000, 2000, 2100, 'accepted-by-provider', 2100 FROM inbox_items",
+      await h.query({
+        text: 'INSERT INTO "openmeld"."inbox_email_deliveries" (id, inbox_item_id, state, attempt_count, next_attempt_at_ms, created_at_ms, updated_at_ms, message_id, sent_at_ms) SELECT \'receipt\', id, \'sent\', 1, 2000, 2000, 2100, \'accepted-by-provider\', 2100 FROM "openmeld"."inbox_items"',
       });
-      const before = h.queryFirst({
-        sql: "SELECT id, created_at_ms, occurred_at_ms, read_at_ms, cleared_at_ms, resolved_at_ms, resolution_status FROM inbox_items",
+      const before = await h.queryFirst({
+        text: 'SELECT id, created_at_ms, occurred_at_ms, read_at_ms, cleared_at_ms, resolved_at_ms, resolution_status FROM "openmeld"."inbox_items"',
       });
-      const receipt = h.queryFirst({
-        sql: "SELECT * FROM inbox_email_deliveries",
+      const receipt = await h.queryFirst({
+        text: 'SELECT * FROM "openmeld"."inbox_email_deliveries"',
       });
       await projectRuntimeCoordinatorInteractionInboxItem({
         ...source,
         nowMs: 2600,
       });
       expect(
-        h.queryFirst({
-          sql: "SELECT id, created_at_ms, occurred_at_ms, read_at_ms, cleared_at_ms, resolved_at_ms, resolution_status FROM inbox_items",
+        await h.queryFirst({
+          text: 'SELECT id, created_at_ms, occurred_at_ms, read_at_ms, cleared_at_ms, resolved_at_ms, resolution_status FROM "openmeld"."inbox_items"',
         })
       ).toEqual(before);
       expect(
-        h.queryFirst({ sql: "SELECT * FROM inbox_email_deliveries" })
+        await h.queryFirst({
+          text: 'SELECT * FROM "openmeld"."inbox_email_deliveries"',
+        })
       ).toEqual(receipt);
       expect(
-        h.queryFirst({ sql: "SELECT importance FROM inbox_items" })
+        await h.queryFirst({
+          text: 'SELECT importance FROM "openmeld"."inbox_items"',
+        })
       ).toEqual({ importance: "normal" });
       await expect(
         projectRuntimeCoordinatorInteractionInboxItem({
@@ -96,11 +161,11 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         })
       ).rejects.toThrow();
     } finally {
-      h.close();
+      await h.close();
     }
   });
   it("creates one ordinary review for the exact Binding owner", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await projectRuntimeCoordinatorInteractionInboxItem({
         inboxDb: harness.db,
@@ -177,12 +242,15 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         unresolvedActionCount: 0,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
-  it("resolves the owner action when the interaction source completes", async () => {
-    const harness = createInboxHarness();
+  it.each([
+    "source",
+    "history",
+  ])("reads an ended interaction via %s without deleting its history", async (mode) => {
+    const harness = await createInboxHarness();
     try {
       const source = {
         interaction: buildPermissionInteraction(),
@@ -212,6 +280,20 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         spaceIndexDb: harness.db,
       });
 
+      if (mode === "history") {
+        await harness.query(`UPDATE "openmeld"."inbox_items" SET read_at_ms = NULL,
+          title = 'Approval required', preview = 'Old request'`);
+        const migration = await readFile(
+          new URL(
+            "../../../packages/db/postgresql/migrations/0026_ended_inbox_requests.sql",
+            import.meta.url
+          ),
+          "utf8"
+        );
+        await harness.query(migration);
+        await harness.query(migration);
+      }
+
       const inbox = createInboxService({ db: harness.db });
       await expect(
         inbox.list({
@@ -220,7 +302,14 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
           view: "all",
         })
       ).resolves.toMatchObject({
-        items: [{ resolutionStatus: "resolved" }],
+        items: [
+          {
+            resolutionStatus: "resolved",
+            readAt: new Date(2300).toISOString(),
+            title: "Request ended",
+            preview: "This request no longer needs a response.",
+          },
+        ],
       });
       await expect(
         inbox.summary({
@@ -229,24 +318,24 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         })
       ).resolves.toEqual({
         organizationId: "org_one",
-        totalUnreadCount: 1,
+        totalUnreadCount: 0,
         unreadUrgentUpdateCount: 0,
         unresolvedActionCount: 0,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not create a delayed interaction item after the owner loses Space access", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
-      harness.run({
-        params: [3000, 3000, "space_one", "profile_owner"],
-        sql: `
-          UPDATE space_index_memberships
-          SET status = 'removed', removed_at_ms = ?, source_updated_at_ms = ?
-          WHERE space_id = ? AND profile_id = ?
+      await harness.query({
+        values: [3000, 3000, "space_one", "profile_owner"],
+        text: `
+          UPDATE "openmeld"."space_index_memberships"
+          SET status = 'removed', removed_at_ms = $1, source_updated_at_ms = $2
+          WHERE space_id = $3 AND profile_id = $4
         `,
       });
 
@@ -264,12 +353,14 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         })
       ).resolves.toBeUndefined();
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_items",
-        })?.count
+        (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT count(*) AS count FROM "openmeld"."inbox_items"',
+          })
+        )?.count
       ).toBe(0);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
@@ -304,51 +395,24 @@ function buildPermissionInteraction() {
   };
 }
 
-function createInboxHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL
-      )
-    `,
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "openmeld_profiles",
-    "center_agent_designations",
-    "center_agent_tasks",
-    "space_index_spaces",
-    "space_index_memberships",
-    "inbox_items",
-    "inbox_email_deliveries",
-  ]);
-  harness.run({
-    params: ["org_one", "One", "one", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
+async function createInboxHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    values: ["org_one", "One", "one", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
   for (const [id, name, email] of [
     ["user_owner", "Owner", "owner@example.test"],
     ["user_other", "Other", "other@example.test"],
   ] as const) {
-    harness.run({
-      params: [id, name, email],
-      sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+    await harness.query({
+      values: [id, name, email],
+      text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
     });
   }
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "space_one",
       "org_one",
       "private",
@@ -357,8 +421,8 @@ function createInboxHarness() {
       1000,
       "projection_one",
     ],
-    sql: `
-      INSERT INTO space_index_spaces (
+    text: `
+      INSERT INTO "openmeld"."space_index_spaces" (
         space_id,
         organization_id,
         organization_visibility,
@@ -366,11 +430,11 @@ function createInboxHarness() {
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "space_one",
       "profile_owner",
       "Owner",
@@ -380,8 +444,8 @@ function createInboxHarness() {
       1000,
       "membership_projection_owner",
     ],
-    sql: `
-      INSERT INTO space_index_memberships (
+    text: `
+      INSERT INTO "openmeld"."space_index_memberships" (
         space_id,
         profile_id,
         profile_kind_snapshot,
@@ -393,7 +457,7 @@ function createInboxHarness() {
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, 'human', ?, ?, 'active', 'joined_directly', ?, ?, ?, ?)
+      ) VALUES ($1, $2, 'human', $3, $4, 'active', 'joined_directly', $5, $6, $7, $8)
     `,
   });
   return harness;

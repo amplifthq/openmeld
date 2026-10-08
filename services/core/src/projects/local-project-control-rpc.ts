@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   localProjectControlConnectCandidateRpcInputSchema,
   localProjectControlConnectDeclaredPathRpcInputSchema,
@@ -32,7 +33,7 @@ import {
   removeRuntimeTransportProjectConnection,
   setRuntimeTransportDefaultProjectConnection,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import { type CoreBindings, projectDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { readProjectRepositorySettingsRecord } from "./project-repository";
 import { prepareExpectedHumanProjectRequest } from "./project-request-preparation";
@@ -45,22 +46,18 @@ type LocalProjectControlCapability =
   | "removeConnection"
   | "removeMissingConnections"
   | "setDefaultConnection";
-
 type LocalProjectControlTarget = {
   deviceId: string;
   runtimeLane: "canary" | "dev-local" | "prod";
 };
-
 type ResolveCurrentLocalProjectControlTarget = (input: {
   capability: LocalProjectControlCapability;
   env: CoreBindings;
   userId: string;
 }) => Promise<LocalProjectControlTarget>;
-
 export type LocalProjectControlRpcDependencies = {
   resolveCurrentTarget: ResolveCurrentLocalProjectControlTarget;
 };
-
 export function createLocalProjectControlRpc(
   dependencies: LocalProjectControlRpcDependencies
 ) {
@@ -110,7 +107,6 @@ export function createLocalProjectControlRpc(
         })
       );
     },
-
     async connectDeclaredPath(
       env: CoreBindings,
       input: LocalProjectControlConnectDeclaredPathRpcInput
@@ -156,7 +152,6 @@ export function createLocalProjectControlRpc(
         })
       );
     },
-
     async discoverProjects(
       env: CoreBindings,
       input: LocalProjectControlDiscoverProjectsRpcInput
@@ -196,7 +191,6 @@ export function createLocalProjectControlRpc(
         })
       );
     },
-
     async removeConnection(
       env: CoreBindings,
       input: LocalProjectControlRemoveConnectionRpcInput
@@ -228,7 +222,6 @@ export function createLocalProjectControlRpc(
         })
       );
     },
-
     async removeMissingConnections(
       env: CoreBindings,
       input: LocalProjectControlRemoveMissingConnectionsRpcInput
@@ -262,7 +255,6 @@ export function createLocalProjectControlRpc(
         })
       );
     },
-
     async setDefaultConnection(
       env: CoreBindings,
       input: LocalProjectControlSetDefaultConnectionRpcInput
@@ -296,7 +288,6 @@ export function createLocalProjectControlRpc(
     },
   };
 }
-
 export function buildCanonicalLocalProjectDiscoveryRequest(input: {
   projects: readonly Project[];
   request: Pick<
@@ -316,7 +307,6 @@ export function buildCanonicalLocalProjectDiscoveryRequest(input: {
     })),
   };
 }
-
 export function buildCanonicalLocalProjectConnectRequest<
   TRequest extends
     | Omit<LocalProjectControlConnectCandidateRpcInput, "context">
@@ -342,7 +332,7 @@ async function requireProjectConnectionFingerprint(input: {
   project: Project;
   requestedFingerprint?: string;
 }): Promise<string | null> {
-  const db = projectDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "project.store_unavailable",
@@ -402,12 +392,14 @@ export function selectProjectConnectionFingerprint(input: {
     status: 409,
   });
 }
-
 async function prepareRequest(input: {
   context: LocalProjectControlDiscoverProjectsRpcInput["context"];
   env: CoreBindings;
   expectedOrganizationId: string;
-}): Promise<{ projects: Project[]; userId: string }> {
+}): Promise<{
+  projects: Project[];
+  userId: string;
+}> {
   const { authority, service } = await prepareExpectedHumanProjectRequest(
     input.env,
     {
@@ -418,7 +410,6 @@ async function prepareRequest(input: {
   const response = await service.list(authority);
   return { projects: response.projects, userId: authority.userId };
 }
-
 function requireActiveProject(
   projects: readonly Project[],
   projectId: string
@@ -435,7 +426,6 @@ function requireActiveProject(
   }
   return project;
 }
-
 function throwInvalidPayload(message: string): never {
   throw createCoreRpcHttpError({
     code: "invalid_payload",
@@ -443,7 +433,6 @@ function throwInvalidPayload(message: string): never {
     status: 400,
   });
 }
-
 function requireSuccess<T>(result: LocalProjectControlErrorResponse | T): T {
   if (!isLocalProjectControlErrorResponse(result)) {
     return result;
@@ -467,7 +456,6 @@ function requireSuccess<T>(result: LocalProjectControlErrorResponse | T): T {
     status,
   });
 }
-
 function requireConnectOutcome(
   result: LocalProjectControlConnectResponse | LocalProjectControlErrorResponse
 ): LocalProjectControlConnectOutcome {
@@ -486,7 +474,6 @@ function requireConnectOutcome(
   }
   return result;
 }
-
 function isDetailedLocalProjectControlPathConflictResponse(
   result: LocalProjectControlConnectResponse | LocalProjectControlErrorResponse
 ): result is LocalProjectControlPathConflictResponse {
@@ -496,7 +483,6 @@ function isDetailedLocalProjectControlPathConflictResponse(
     "moveConfirmationToken" in result
   );
 }
-
 function isLocalProjectControlErrorResponse(
   value: unknown
 ): value is LocalProjectControlErrorResponse {

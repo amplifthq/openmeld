@@ -357,6 +357,7 @@ export type SettingsLocalAgentRow = {
   muted?: boolean;
   summaryAccessory?: ReactNode;
   summaryMeta?: ReactNode;
+  summarySupplement?: ReactNode;
   summaryStatus?: SettingsLocalAgentRowSummaryStatus;
   summaryStatuses?: readonly SettingsLocalAgentRowSummaryStatus[];
 };
@@ -653,7 +654,7 @@ function UsageLimitPreview({
   return (
     <span className="flex w-28 flex-col items-center gap-1.5 whitespace-normal text-center text-[10px] leading-snug">
       {remainingPercent === null ? (
-        <span>{resolveMissingUsageCopy(limit.status)}</span>
+        <span>{resolveMissingUsageCopy(limit)}</span>
       ) : (
         <span className="relative grid size-12 place-items-center">
           <UsageLimitRing
@@ -772,8 +773,8 @@ export function SettingsLocalAgentUsageLimits({
       <div>
         <h4 className="font-medium text-sm">Usage limits</h4>
         <p className="mt-0.5 text-muted-foreground text-xs leading-5">
-          Capacity reported by each provider. OpenMeld checks supported limits
-          before starting new work.
+          Limits reported by your signed-in accounts. Availability varies by
+          provider and sign-in method.
         </p>
       </div>
       {usageContent}
@@ -875,7 +876,7 @@ function SettingsLocalAgentUnreportedLimits({
             <span
               className={resolveStatusToneSoftTextClassName(presentation.tone)}
             >
-              {resolveMissingUsageStatusLabel(presentation.label)}
+              {resolveMissingUsageStatusLabel(presentation.label, limit.reason)}
             </span>
           </p>
         );
@@ -896,7 +897,8 @@ function SettingsLocalAgentUnreportedProviders({
       continue;
     }
     const label = resolveMissingUsageStatusLabel(
-      resolveUsageLimitPresentation(firstLimit).label
+      resolveUsageLimitPresentation(firstLimit).label,
+      firstLimit.reason
     );
     const providerNames = rows.get(label);
     if (providerNames) {
@@ -1327,20 +1329,32 @@ function resolveUsageLimitSummaryPriority(
 }
 
 function resolveMissingUsageCopy(
-  status: AgentControllerUsageLimits[number]["status"]
+  limit: AgentControllerUsageLimits[number]
 ): string {
-  if (status === "unsupported") {
+  if (limit.reason) {
+    return resolveMissingUsageStatusLabel("Unavailable", limit.reason);
+  }
+  if (limit.status === "unsupported") {
     return "Not reported by provider.";
   }
-  if (status === "unavailable") {
-    return "Temporarily unavailable.";
+  if (limit.status === "unavailable") {
+    return "Usage not reported.";
   }
   return "Usage percentage not reported.";
 }
 
 function resolveMissingUsageStatusLabel(
-  label: UsageLimitPresentation["label"]
+  label: UsageLimitPresentation["label"],
+  reason?: AgentControllerUsageLimits[number]["reason"]
 ): string {
+  if (reason) {
+    return {
+      not_applicable: "Usage unavailable for this account",
+      not_authenticated: "Sign in to view usage",
+      not_reported: "Usage not reported",
+      refresh_failed: "Could not refresh usage",
+    }[reason];
+  }
   if (label === "Stale") {
     return "Stale usage report";
   }
@@ -1351,7 +1365,7 @@ function resolveMissingUsageStatusLabel(
     return "Usage not supported";
   }
   if (label === "Unavailable") {
-    return "Usage temporarily unavailable";
+    return "Usage not reported";
   }
   return "Usage not reported";
 }
@@ -1818,6 +1832,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
               {status.label}
             </span>
             {row.summaryAccessory}
+            {row.summarySupplement}
           </div>
           {row.summaryMeta ? (
             <p className="truncate text-muted-foreground text-xs">

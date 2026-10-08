@@ -1,24 +1,30 @@
 "use client";
 
-import { Badge } from "@openmeld/ui/components/badge";
-import { Button } from "@openmeld/ui/components/button";
-import { Input } from "@openmeld/ui/components/input";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
-import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
-import { CaretRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { buildOrganizationPluginPath } from "#/lib/organizations/organization-routes";
-import { organizationPluginConnectionCatalogQueryOptions } from "#/query/organizations/plugin-connections";
-import { AppLogo } from "./app-logo";
 import {
 	PLUGIN_CATEGORIES,
 	PLUGINS,
 	type PluginCategory,
 	type PluginDefinition,
-} from "./plugin-catalog";
+	pluginFromProvider,
+} from "@openmeld/product-catalog/plugins";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
+import { Badge } from "@openmeld/ui/components/badge";
+import { Button } from "@openmeld/ui/components/button";
+import { Input } from "@openmeld/ui/components/input";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
+import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
+import { CaretRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
+import { buildOrganizationPluginPath } from "#/lib/organizations/organization-routes";
+import {
+	organizationPluginConnectionCatalogQueryOptions,
+	organizationPluginProviderCatalogQueryOptions,
+} from "#/query/organizations/plugin-connections";
 import { usePluginScope } from "./plugin-scope-tabs";
 
 export function PluginsCatalogPanel(input: {
@@ -30,30 +36,28 @@ export function PluginsCatalogPanel(input: {
 	const scope = input.isPersonalWorkspace ? "personal" : selectedScope;
 	const [activeCategory, setActiveCategory] = useState<PluginCategory>("All");
 	const [searchQuery, setSearchQuery] = useState("");
+	const [visibleCount, setVisibleCount] = useState(40);
 	const queryClient = useQueryClient();
 	const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+	const providersQuery = useQuery(
+		organizationPluginProviderCatalogQueryOptions({
+			organizationId: input.organizationId,
+		})
+	);
 	const connectionsQuery = useQuery(
 		organizationPluginConnectionCatalogQueryOptions({
 			organizationId: input.organizationId,
 			queryClient,
 		})
 	);
-	const connectedServices = new Set<string>();
-	if (connectionsQuery.data) {
-		for (const connection of connectionsQuery.data.connections) {
-			if (
-				connection.status === "active" &&
-				(scope === "organization"
-					? connection.scope === "shared"
-					: connection.scope === "member" &&
-						connection.userId === connectionsQuery.data.currentUserId)
-			) {
-				connectedServices.add(connection.service);
-			}
-		}
-	}
+	const { connectedServices, reconnectServices } = connectionServices(
+		connectionsQuery.data,
+		scope
+	);
 	const connectionStatusIsPending = connectionsQuery.isPending;
-	const visiblePlugins = PLUGINS.filter((plugin) => {
+	const visiblePlugins = (
+		providersQuery.data?.providers.map(pluginFromProvider) ?? PLUGINS
+	).filter((plugin) => {
 		const matchesCategory =
 			activeCategory === "All" || plugin.category === activeCategory;
 		const matchesSearch =
@@ -80,7 +84,10 @@ export function PluginsCatalogPanel(input: {
 						<Button
 							aria-pressed={activeCategory === category}
 							key={category}
-							onClick={() => setActiveCategory(category)}
+							onClick={() => {
+								setActiveCategory(category);
+								setVisibleCount(40);
+							}}
 							size="xs"
 							type="button"
 							variant={activeCategory === category ? "secondary" : "outline"}
@@ -108,7 +115,10 @@ export function PluginsCatalogPanel(input: {
 						<Input
 							className="pl-8"
 							id="plugin-catalog-search"
-							onChange={(event) => setSearchQuery(event.target.value)}
+							onChange={(event) => {
+								setSearchQuery(event.target.value);
+								setVisibleCount(40);
+							}}
 							placeholder="Search Plugins"
 							type="search"
 							value={searchQuery}
@@ -141,7 +151,7 @@ export function PluginsCatalogPanel(input: {
 					className="grid gap-x-8 gap-y-1 sm:grid-cols-2"
 					role="list"
 				>
-					{visiblePlugins.map((plugin) => (
+					{visiblePlugins.slice(0, visibleCount).map((plugin) => (
 						<FluidCardItem
 							className="bg-transparent"
 							itemId={plugin.service}
@@ -157,6 +167,7 @@ export function PluginsCatalogPanel(input: {
 								connectionStatusIsPending={connectionStatusIsPending}
 								organizationSlug={input.organizationSlug}
 								plugin={plugin}
+								reconnectRequired={reconnectServices.has(plugin.service)}
 								scope={scope}
 							/>
 						</FluidCardItem>
@@ -172,18 +183,55 @@ export function PluginsCatalogPanel(input: {
 					</p>
 				</div>
 			)}
+			{visibleCount < visiblePlugins.length ? (
+				<Button
+					onClick={() => setVisibleCount((count) => count + 40)}
+					variant="outline"
+				>
+					Show more Plugins
+				</Button>
+			) : null}
 		</section>
 	);
 }
 
+function connectionServices(
+	connections:
+		| import("@openmeld/schemas/types").ConnectorConnectionListResponse
+		| undefined,
+	scope: "personal" | "organization"
+) {
+	const connectedServices = new Set<string>();
+	const reconnectServices = new Set<string>();
+	if (connections) {
+		for (const connection of connections.connections) {
+			if (
+				connection.status === "active" &&
+				(scope === "organization"
+					? connection.scope === "shared"
+					: connection.scope === "member" &&
+						connection.userId === connections.currentUserId)
+			) {
+				connectedServices.add(connection.service);
+				if (connection.health?.state === "reconnect_required") {
+					reconnectServices.add(connection.service);
+				}
+			}
+		}
+	}
+	return { connectedServices, reconnectServices };
+}
+
 function PluginCatalogCard(input: {
+	reconnectRequired?: boolean;
 	plugin: PluginDefinition;
 	connected: boolean | undefined;
 	connectionStatusIsPending: boolean;
 	organizationSlug: string;
 	scope: "personal" | "organization";
 }) {
-	return (
+	const href = `${buildOrganizationPluginPath({ orgSlug: input.organizationSlug, service: input.plugin.service })}?scope=${input.scope}`;
+	const card = (
 		<div className="h-full overflow-hidden rounded-md">
 			<Link
 				className="group flex h-full min-h-20 min-w-0 items-center gap-3 px-2 py-3 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
@@ -210,6 +258,7 @@ function PluginCatalogCard(input: {
 						connected={input.connected}
 						loading={input.connectionStatusIsPending}
 						plugin={input.plugin}
+						reconnectRequired={input.reconnectRequired}
 					/>
 				</span>
 				<CaretRightIcon
@@ -220,9 +269,15 @@ function PluginCatalogCard(input: {
 			</Link>
 		</div>
 	);
+	return (
+		<FluidContextMenu target={card}>
+			<ObjectMenuItems href={href} />
+		</FluidContextMenu>
+	);
 }
 
 export function PluginStatusBadge(input: {
+	reconnectRequired?: boolean;
 	plugin: PluginDefinition;
 	connected?: boolean;
 	loading?: boolean;
@@ -230,7 +285,7 @@ export function PluginStatusBadge(input: {
 	if (input.plugin.availability === "planned") {
 		return (
 			<Badge className="border-border bg-muted/40 text-muted-foreground">
-				Planned
+				Setup unavailable
 			</Badge>
 		);
 	}
@@ -243,6 +298,9 @@ export function PluginStatusBadge(input: {
 			/>
 		);
 	}
+	if (input.reconnectRequired) {
+		return <Badge variant="outline">Reconnect required</Badge>;
+	}
 	if (!input.connected) {
 		return input.connected === false ? (
 			<span className="text-muted-foreground text-xs">Not connected</span>
@@ -250,7 +308,7 @@ export function PluginStatusBadge(input: {
 	}
 	return (
 		<Badge className={resolveStatusToneProminentBadgeClassName("ready")}>
-			Connected
+			Account connected
 		</Badge>
 	);
 }

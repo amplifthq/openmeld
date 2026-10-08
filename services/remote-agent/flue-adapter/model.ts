@@ -22,12 +22,14 @@ import {
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
+import { createFlueMeteredFetch } from "./ai-usage";
 import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import {
   getRemoteAgentDeferredToolCount,
   getRemoteAgentExecutionSubmissionId,
 } from "./execution-context";
+import { resolveReviewedPromptPriceTierBoundary } from "./model-context-policy";
 import {
   projectProviderCompletion,
   providerCompletionOperation,
@@ -45,8 +47,28 @@ import { createRemoteAgentSqlStorage } from "./storage";
 
 const OPENROUTER_MODEL_METADATA_BASE_URL = "https://openrouter.ai/api/v1/model";
 const OPENAI_GPT_5_4_MINI_MODEL_ID = "openai/gpt-5.4-mini";
+// OpenRouter's documented Alibaba routes and current Model Studio cache support.
+// https://openrouter.ai/docs/guides/best-practices/prompt-caching
+// https://www.alibabacloud.com/help/en/model-studio/context-cache
+// Snapshot and open-weight Qwen endpoints do not inherit this capability.
+const OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS = new Set([
+  "deepseek/deepseek-v3.2",
+  "qwen/qwen-plus",
+  "qwen/qwen3-max",
+  "qwen/qwen3.6-plus",
+  "qwen/qwen3-coder-plus",
+  "qwen/qwen3-coder-flash",
+  "qwen/qwen3.6-flash",
+  "qwen/qwen3.7-max",
+  "qwen/qwen3.7-plus",
+  "qwen/qwen3.7-flash",
+  "qwen/qwen3.8-max-0902",
+  "qwen/qwen3.8-flash",
+]);
 export const REMOTE_AGENT_MODEL_METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS = 8000;
+export const REMOTE_AGENT_WORKING_CONTEXT_TOKENS = 48_000;
+export const REMOTE_AGENT_MAX_SUMMARY_TOKENS = 4096;
 const MODEL_METADATA_FETCH_TIMEOUT_MS = 3000;
 // Flue estimates context tokens, so compact before reaching a provider tier.
 const PRICE_TIER_COMPACTION_SAFETY_RATIO = 0.8;
@@ -84,6 +106,7 @@ const openRouterModelMetadataResponseSchema = z.object({
 });
 
 type RemoteAgentModelEnv = {
+  OPENMELD_CORE_WORKER?: unknown;
   OPENMELD_CENTER_AGENT_PERFORMANCE?: AnalyticsEngineDataset;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?: string;
@@ -110,8 +133,11 @@ export type RemoteAgentProviderStageObservation = {
 
 export type RemoteAgentModelRuntimeConfig = {
   compaction: {
+    workingContextHeadroomTokens: number;
     keepRecentTokens: number;
     reserveTokens: number;
+    workingContextTokens: number;
+    maxSummaryTokens: number;
   };
   contextWindow: number;
   maxTokens: number;
@@ -132,6 +158,7 @@ type FetchModelMetadata = (
 
 const modelRuntimeConfigCache = new Map<string, CachedModelRuntimeConfig>();
 type RegisteredRemoteAgentModelCapabilities = {
+  meterFetch: (fetch?: typeof globalThis.fetch) => typeof globalThis.fetch;
   reportCompletion: (
     completion: ReturnType<typeof projectProviderCompletion>
   ) => void;
@@ -170,6 +197,12 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     (model) => model.id === modelId && model.api === "openai-completions"
   ) as Model<"openai-completions"> | undefined;
   registeredRemoteAgentModelCapabilities.set(providerId, {
+    meterFetch: (fetch) =>
+      createFlueMeteredFetch({
+        coreWorker: input.env.OPENMELD_CORE_WORKER,
+        model: modelId,
+        fetch,
+      }),
     reportCompletion: (completion) => {
       const succeeded = providerCompletionSucceeded(completion);
       if (succeeded) {
@@ -190,11 +223,23 @@ export async function registerRemoteAgentCloudflareProvider(input: {
       supportsDeveloperRole:
         modelId.startsWith("anthropic/") || modelId.startsWith("openai/"),
       ...openRouterModel?.compat,
+      // Scoped provider IDs bypass pi-ai's OpenRouter cache detection.
+      cacheControlFormat:
+        modelId.startsWith("anthropic/") ||
+        OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS.has(modelId)
+          ? "anthropic"
+          : openRouterModel?.compat?.cacheControlFormat,
+      ...(OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS.has(modelId)
+        ? { supportsLongCacheRetention: false }
+        : {}),
       thinkingFormat: "openrouter",
     },
     contextCapacity: resolveRemoteAgentProviderContextCapacity({
       contextWindow,
-      reserveTokens: runtimeConfig.compaction.reserveTokens,
+      // Economic compaction is a soft trigger. The summarizer must still be
+      // able to read the history that crossed it; provider admission enforces
+      // the physical window, not the cheaper prompt-price band.
+      reserveTokens: resolveRemoteAgentCompactionReserveTokens(contextWindow),
     }),
     cost: openRouterModel?.cost,
     inputModalities: input.modelRoute?.inputModalities ?? ["text", "image"],
@@ -386,13 +431,13 @@ export function resolveRemoteAgentOpenRouterModelMetadataUrl(
 
 function resolveCompactionThreshold(input: {
   contextWindow: number;
-  pricingOverrides?: readonly OpenRouterPricingOverride[] | null;
+  priceTierBoundary: number | null;
 }): number {
   const baseReserve = resolveRemoteAgentCompactionReserveTokens(
     input.contextWindow
   );
   const baseThreshold = input.contextWindow - baseReserve;
-  const priceTierBoundary = resolvePriceTierBoundary(input.pricingOverrides);
+  const priceTierBoundary = input.priceTierBoundary;
   if (priceTierBoundary === null) {
     return baseThreshold;
   }
@@ -430,10 +475,27 @@ export async function resolveRemoteAgentModelRuntimeConfigForRegistration(input:
   if (input.modelRoute) {
     return {
       compaction: {
-        keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
-        reserveTokens: resolveRemoteAgentCompactionReserveTokens(
-          input.modelRoute.contextWindow
+        workingContextHeadroomTokens: Math.min(
+          8000,
+          Math.floor(input.modelRoute.contextWindow / 8)
         ),
+        workingContextTokens: Math.min(
+          REMOTE_AGENT_WORKING_CONTEXT_TOKENS,
+          input.modelRoute.contextWindow -
+            resolveRemoteAgentCompactionReserveTokens(
+              input.modelRoute.contextWindow
+            )
+        ),
+        maxSummaryTokens: REMOTE_AGENT_MAX_SUMMARY_TOKENS,
+        keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
+        reserveTokens:
+          input.modelRoute.contextWindow -
+          resolveCompactionThreshold({
+            contextWindow: input.modelRoute.contextWindow,
+            priceTierBoundary: resolveReviewedPromptPriceTierBoundary(
+              input.modelRoute.modelId
+            ),
+          }),
       },
       contextWindow: input.modelRoute.contextWindow,
       maxTokens: input.modelRoute.maxOutputTokens,
@@ -504,7 +566,13 @@ function resolveStaticRemoteAgentModelRuntimeConfig(input: {
       contextLength: 500_000,
       env: input.env,
       modelId: input.modelId,
-      pricingOverrides: [{ min_prompt_tokens: 200_000 }],
+      pricingOverrides: [
+        {
+          min_prompt_tokens: resolveReviewedPromptPriceTierBoundary(
+            input.modelId
+          ),
+        },
+      ],
       providerContextLength: 500_000,
       providerMaxCompletionTokens: null,
     });
@@ -565,6 +633,15 @@ function buildRemoteAgentModelRuntimeConfig(input: {
   );
   return {
     compaction: {
+      workingContextHeadroomTokens: Math.min(
+        8000,
+        Math.floor(contextWindow / 8)
+      ),
+      workingContextTokens: Math.min(
+        REMOTE_AGENT_WORKING_CONTEXT_TOKENS,
+        contextWindow - resolveRemoteAgentCompactionReserveTokens(contextWindow)
+      ),
+      maxSummaryTokens: REMOTE_AGENT_MAX_SUMMARY_TOKENS,
       keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
       // Flue interprets reserveTokens as the early-compaction band below the
       // context window. Price-aware bands may intentionally exceed the base
@@ -573,7 +650,7 @@ function buildRemoteAgentModelRuntimeConfig(input: {
         contextWindow -
         resolveCompactionThreshold({
           contextWindow,
-          pricingOverrides: input.pricingOverrides,
+          priceTierBoundary: resolvePriceTierBoundary(input.pricingOverrides),
         }),
     },
     contextWindow,
@@ -745,7 +822,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
         createAttempt: () =>
-          base.stream(resolvedModel, context, resolvedOptions),
+          base.stream(resolvedModel, context, {
+            ...resolvedOptions,
+            fetch: capabilities?.meterFetch(options?.fetch),
+          }),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });
@@ -769,7 +849,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
         createAttempt: () =>
-          base.streamSimple(resolvedModel, context, resolvedOptions),
+          base.streamSimple(resolvedModel, context, {
+            ...resolvedOptions,
+            fetch: capabilities?.meterFetch(options?.fetch),
+          }),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });
@@ -783,6 +866,33 @@ function logCompletedEmptyProviderRetry(modelId: string): void {
     modelId,
     submissionId: getRemoteAgentExecutionSubmissionId(),
   });
+}
+
+function normalizeRemoteAgentPromptCacheToolDefinitions(
+  payload: Record<string, unknown>,
+  modelId: string | undefined
+): Record<string, unknown> {
+  if (
+    !(
+      modelId &&
+      OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS.has(modelId) &&
+      Array.isArray(payload.tools)
+    )
+  ) {
+    return payload;
+  }
+  // Alibaba caches tool definitions through the message prefix; tool-level
+  // cache markers are a Claude contract, not an Alibaba cache breakpoint.
+  return {
+    ...payload,
+    tools: payload.tools.map((tool: unknown) =>
+      isRecord(tool)
+        ? Object.fromEntries(
+            Object.entries(tool).filter(([key]) => key !== "cache_control")
+          )
+        : tool
+    ),
+  };
 }
 
 export function withRemoteAgentProviderObservabilityAndSessionAffinity(
@@ -813,7 +923,10 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
           "Remote Agent OpenRouter request payload must be an object."
         );
       }
-      const preparedPayload = resolvedPayload;
+      const preparedPayload = normalizeRemoteAgentPromptCacheToolDefinitions(
+        resolvedPayload,
+        model?.id
+      );
       const durationMs = Date.now() - startedAtMs;
       const messageCount = Array.isArray(preparedPayload.messages)
         ? preparedPayload.messages.length

@@ -10,6 +10,10 @@ import {
   resolveAgentControllerUsageLimitSupport,
   resolveAgentWakeAdmissionBlockReasonCode,
 } from "@openmeld/agent-runtime";
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   builtinAgentControllerAllowsDistinctConversationId,
@@ -42,30 +46,31 @@ import type {
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLifecycleSnapshot,
+  SpaceThreadContext,
 } from "@openmeld/schemas/types";
 import { resolveCoreAgentExecutionReadinessForProfile } from "../../agent-execution/application/agent-execution-readiness-service";
 import {
   clearAgentExecutionReadinessImpactForExecutionSuccess,
   resolveAcceptedAgentExecutionReadinessImpactReasonCode,
   writeAcceptedAgentExecutionReadinessImpact,
-} from "../../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
+} from "../../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 import {
   clearProviderAccessFailureEvidenceForExecutionSuccess,
   writeAcceptedProviderAccessFailureEvidence,
-} from "../../agent-execution/infrastructure/d1/provider-access-evidence-repo";
+} from "../../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
 import {
   type AgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
   updatePrimaryAgentProfileBindingConversationId,
-} from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+} from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   CenterAgentModelResolutionError,
   resolveCenterAgentModelRouteForBinding,
 } from "../../center-agent/application/center-agent-model-service";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { readModelCatalog } from "../../config/model-catalog";
-import { type CoreBindings, localStateDb, projectDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { summarizeInformationProtectionError } from "../../organizations/organization-information-protection-observability";
 import { readOrganizationInformationProtectionPolicyForSpace } from "../../organizations/organization-information-protection-repository";
@@ -83,7 +88,7 @@ import {
 import {
   readRuntimeDeviceDisplayNameByRuntimeId,
   readRuntimeRegistryRecordByRuntimeId,
-} from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
+} from "../../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import {
   type RuntimeCoordinatorFinalizationSemantic,
   resolveRuntimeCoordinatorFinalizationSemantic,
@@ -91,21 +96,22 @@ import {
 import {
   type DispatchResultInboxRecord,
   updateDispatchResultInboxPublishState,
-} from "../../runtime-transport/infrastructure/d1/dispatch-result-inbox-repo";
+} from "../../runtime-transport/infrastructure/postgresql/dispatch-result-inbox-repo";
 import {
   buildRuntimeCoordinatorCreationDiagnostic,
   readRuntimeCoordinatorExecutionProjectionByDispatch,
   writeRuntimeCoordinatorCreationDiagnostic,
   writeRuntimeCoordinatorExecutionEventFromParts,
   writeRuntimeCoordinatorExecutionProjection,
-} from "../../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
+} from "../../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { emitCoreFinalVisibleOutcomeRuntimeEvidence } from "../../shared/observability/final-visible-outcome-evidence";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import type { SpaceBootstrapTimingCollector } from "../../space/application/space-bootstrap-timing";
 import { truncateSpaceTextToProtocolLimit } from "../../space/application/space-text";
 import type { FinalOutcomeWriteAuthority } from "../../space/application/types";
-import { readForgottenDeviceRecord } from "../../start/infrastructure/d1/forgotten-device-repo";
+import { readForgottenDeviceRecord } from "../../start/infrastructure/postgresql/forgotten-device-repo";
 import { RUNTIME_TRANSPORT_WAIT_RESULT_TIMEOUT_MS } from "../../strategy-constants";
+import { recordAcceptedLocalAiUsage } from "../../usage/local-ai-usage";
 import {
   claimFinalReplyEmission,
   claimReplyingHintEmission,
@@ -118,8 +124,7 @@ import {
   rollbackFinalReplyEmissionClaim,
   rollbackReplyingHintEmissionClaim,
   writeOpenMeldDaemonOpsDecision,
-} from "../infrastructure/d1/dispatch-ledger-d1";
-import { readDispatchSourceSignalContext } from "../infrastructure/d1/dispatch-source-signal-context";
+} from "../infrastructure/postgresql/dispatch-ledger-postgresql";
 import {
   type DispatchTargetProfileIdentity,
   DispatchTargetProfileIdentityUnavailableError,
@@ -152,6 +157,7 @@ import {
   isRuntimeTaskResultStatusSuccessLike,
   isSuccessfulRuntimeTaskResultPayload,
 } from "../rules/runtime-task-result-transition-contract";
+import { isDispatchRequestedByAgentOwner } from "./accepted-dispatch-snapshot";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
   buildDispatchResultRecord,
@@ -170,6 +176,7 @@ import {
   getDispatchResultByDispatchId,
   writeDispatchResult,
 } from "./dispatch-result-service";
+import { readDispatchSourceSignalContext } from "./dispatch-source-signal-context";
 import {
   buildDispatchContinuationSpaceAccess,
   buildDispatchSystemRequestContext,
@@ -192,7 +199,6 @@ import {
 type RuntimeTransportLookupRouteResult = Awaited<
   ReturnType<typeof lookupRuntimeTransportRoute>
 >;
-
 async function measureDispatchTiming<T>(input: {
   description: string;
   name: string;
@@ -210,12 +216,11 @@ async function measureDispatchTiming<T>(input: {
     input.read
   );
 }
-
 export type AgentTransportSpaceActionDeliveryReceipt = {
   emittedSignal: SignalEnvelope | null;
   finalReplySettled: boolean;
+  threadContext?: SpaceThreadContext | null;
 };
-
 export type AgentTransportSpaceActionDeliveryInput = {
   agentControllerConversationId: string | null;
   attemptId: string;
@@ -225,7 +230,9 @@ export type AgentTransportSpaceActionDeliveryInput = {
   messageEnvelope: MessageEnvelope | null;
   plan: Extract<
     DispatchPublicationPlan,
-    { kind: "message" | "status" | "system_notice" }
+    {
+      kind: "message" | "status" | "system_notice";
+    }
   >;
   profileHandle: string | null;
   resultRef: string | null;
@@ -235,11 +242,9 @@ export type AgentTransportSpaceActionDeliveryInput = {
   agentControllerConversation: AgentControllerConversationRef | null;
   workingDirectory: string | null;
 };
-
 export type AgentTransportSpaceActionDeliveryPort = (
   input: AgentTransportSpaceActionDeliveryInput
 ) => Promise<AgentTransportSpaceActionDeliveryReceipt>;
-
 export type EffectiveTargetBindingSnapshot = {
   bindingState: "bound" | "missing";
   bindingEnabled: boolean;
@@ -264,9 +269,7 @@ export type EffectiveTargetBindingSnapshot = {
   modelRoute?: CenterAgentModelRoute | null;
   openMeldServiceRuntimeId: string | null;
 };
-
 export type TargetBindingSource = "core_primary_binding";
-
 type RuntimeDispatchSuccessResult = {
   executionContextId?: string;
   agentControllerConversationId: string | null;
@@ -280,33 +283,33 @@ type RuntimeDispatchSuccessResult = {
 };
 type SuccessfulOpenMeldDaemonTaskResultPayload = Extract<
   OpenMeldDaemonTaskResultEnvelope["payload"],
-  { status: "success" | "partial_success" }
+  {
+    status: "success" | "partial_success";
+  }
 >;
-
 const isSuccessfulTaskResultPayload = (
   payload: OpenMeldDaemonTaskResultEnvelope["payload"]
 ): payload is SuccessfulOpenMeldDaemonTaskResultPayload =>
   payload.status === "success" || payload.status === "partial_success";
-
 type PreparedSuccessfulDispatchReply = {
   agentControllerConversationId: string | null;
   agentControllerRef: string;
   replyText: string;
   runtimeResult: RuntimeDispatchSuccessResult;
 };
-
 export type DeliveredDispatchContext = {
   correlatedAttemptId: string;
   deliveryStatus: Extract<
     RuntimeTransportDeliverDispatchResponse,
-    { accepted: true }
+    {
+      accepted: true;
+    }
   >["status"];
   executionContext: DispatchExecutionContext;
   profileHandle: string | null;
   targetProfileMentionLabel: string | null;
   targetProfileName: string | null;
 };
-
 export type DispatchExecutionContext = {
   attemptId: string;
   connectionGeneration: number | null;
@@ -314,19 +317,16 @@ export type DispatchExecutionContext = {
   leaseEpoch: number;
   replyingHintActive: boolean;
 };
-
 export type DispatchWaitPhaseOutcome = {
   executionContext: DispatchExecutionContext;
   finalizationHandledByRuntimeCoordinator: boolean;
   replyingHintTransitionHint: ReplyingHintTransitionHint | null;
 };
-
 type AcceptedDispatchFinalizationResult = {
   publishedSignalId: string | null;
   publishState: "invalid_space_action" | "reply_published";
   status: "already_final" | "finalized";
 };
-
 type DispatchExecutionLogBase = {
   attemptId: string;
   dispatchId: string;
@@ -335,14 +335,12 @@ type DispatchExecutionLogBase = {
   targetProfileId: string;
   taskId: string;
 };
-
 // The Auth owner's authoritative answer that the target profile id no longer
 // exists at all. Deliberately NOT set for soft-retired profiles
 // (status !== "active"): the Space membership liveness alarm re-verifies
 // against Auth before removal, and a disabled profile re-verifies as found —
 // its evidence would only be cleared again.
 type TargetProfileIdentityVerdict = "not_found";
-
 type ResolvedTargetBindingSnapshotResult =
   | {
       ok: true;
@@ -360,7 +358,6 @@ type ResolvedTargetBindingSnapshotResult =
       targetOwnerUserId?: string;
       targetProfileIdentityVerdict?: TargetProfileIdentityVerdict;
     };
-
 export type DispatchExecutionPreflightResult =
   | {
       ok: true;
@@ -384,13 +381,11 @@ export type DispatchExecutionPreflightResult =
       targetOwnerUserId?: string;
       targetProfileIdentityVerdict?: TargetProfileIdentityVerdict;
     };
-
 type ResolvedAwaitDispatchReplyTargetContext = {
   profileHandle: string | null;
   targetProfileMentionLabel: string | null;
   targetProfileName: string | null;
 };
-
 type DispatchExecutionLifecycleDecisionPayload = {
   attemptId: string;
   finalizationTimeoutMs: number;
@@ -407,29 +402,24 @@ type DispatchExecutionLifecycleDecisionPayload = {
   taskProgressEvidenceStaleAfterMs: number;
   waitWindowMs: number;
 };
-
 type DispatchOpenClawBindingDecisionPayload = {
   attemptId: string;
   bindingSource: "agent_profile" | null;
   classification: "canonical_owned" | "foreign" | "legacy" | "missing";
   upgradeApplied: boolean;
 };
-
 type PersistAgentControllerConversationIdResult = {
   bindingSource: "agent_profile" | null;
   updateApplied: boolean;
 };
-
 type WaitForDaemonDispatchCompletionResult = {
   lifecycle: RuntimeTransportDispatchLifecycleSnapshot | null;
   taskResult: OpenMeldDaemonTaskResultEnvelope;
 };
-
 const AUDIT_UNKNOWN_DAEMON_SESSION_ID = "unknown";
 const AUDIT_UNKNOWN_LEASE_EPOCH = -1;
 const RUNTIME_ERROR_CODE_PREFIX_RE = /^([a-z0-9][a-z0-9._-]{0,127}):/i;
 const DISPATCH_CONTINUITY_WARNING_TEXT_MAX_LENGTH = 220;
-
 export class DispatchExecutionValidationError extends Error {
   readonly code: string;
   readonly executionContext: DispatchExecutionContext | null;
@@ -437,7 +427,6 @@ export class DispatchExecutionValidationError extends Error {
   readonly terminalReplySettled: boolean;
   readonly waitDurationMs: number | null;
   readonly waitReasonCode: string | null;
-
   constructor(input: {
     code: string;
     message: string;
@@ -461,7 +450,6 @@ export class DispatchExecutionValidationError extends Error {
     this.name = "DispatchExecutionValidationError";
   }
 }
-
 const resolveTerminalReplyingHintTransitionHint = (
   executionContext?: DispatchExecutionContext | null
 ): ReplyingHintTransitionHint | null => {
@@ -469,7 +457,6 @@ const resolveTerminalReplyingHintTransitionHint = (
     ? "clear_for_terminal_reply"
     : null;
 };
-
 const buildDispatchExecutionValidationError = (input: {
   code: string;
   message: string;
@@ -492,19 +479,18 @@ const buildDispatchExecutionValidationError = (input: {
     waitReasonCode: input.waitReasonCode,
   });
 };
-
 // Physical DB split: dispatch reads/writes that target LOCAL-STATE tables must
 // run on the local-state binding, not the wake-evidence handle threaded as `db`.
 // Resolve the guarded handle once per entry function and thread it down.
 const resolveLocalStateDbHandleOrThrow = (
   env: CoreBindings,
   executionContext: DispatchExecutionContext
-): D1Database => {
-  const localStateDbHandle = localStateDb(env);
+): PostgresDatabase => {
+  const localStateDbHandle = getPostgresDatabase(env);
   if (!localStateDbHandle) {
     throw buildDispatchExecutionValidationError({
       code: "dispatch.storage.schema_missing",
-      message: "OPENMELD_LOCAL_STATE_DB binding is not configured",
+      message: "OPENMELD_POSTGRESQL binding is not configured",
       executionContext,
     });
   }
@@ -529,7 +515,7 @@ async function assertProjectWorkRepositoryAvailable(input: {
       executionContext: input.executionContext,
     });
   }
-  const db = projectDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw buildDispatchExecutionValidationError({
       code: "project.store_unavailable",
@@ -560,11 +546,10 @@ async function assertProjectWorkRepositoryAvailable(input: {
     });
   }
 }
-
 export const deliverDispatchMessageToDaemon = async (input: {
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
   targetOwnerUserId: string;
@@ -605,13 +590,11 @@ export const deliverDispatchMessageToDaemon = async (input: {
       replyingHintActive: false,
     };
   };
-
   const sourceSignal = await measureDispatchTiming({
     description: "Read the source signal context for delivery",
     name: "openmeld_dispatch_deliver_source_signal",
     read: () =>
       readDispatchSourceSignalContext({
-        db: input.db,
         message: input.message,
       }),
     timing: input.timing,
@@ -928,7 +911,7 @@ export const deliverDispatchMessageToDaemon = async (input: {
   const deliverRequest = await measureDispatchTiming({
     description: "Build the RuntimeTransport delivery request",
     name: "openmeld_dispatch_deliver_request_build",
-    read: () =>
+    read: async () =>
       buildRuntimeTransportDeliverDispatchRequest({
         attemptId: input.attemptId,
         agentControllerConversationId:
@@ -941,6 +924,13 @@ export const deliverDispatchMessageToDaemon = async (input: {
         message: input.message,
         organizationProtectedInformation,
         workingLanguage,
+        requesterIsAgentOwner: route.capabilities.verifiedRequesterContext
+          ? await isDispatchRequestedByAgentOwner({
+              env: input.env,
+              message: input.message,
+              targetOwnerUserId: input.targetOwnerUserId,
+            })
+          : undefined,
         sourceSignal,
         targetProfileIsCenterAgent,
         targetProfileMentionLabel,
@@ -1002,12 +992,10 @@ export const deliverDispatchMessageToDaemon = async (input: {
       executionContext: routeExecutionContext,
     });
   }
-
   const correlatedAttemptId = resolveDeliveredCorrelatedAttemptId({
     deliverResult,
     requestedAttemptId: input.attemptId,
   });
-
   return {
     correlatedAttemptId,
     deliveryStatus: deliverResult.status,
@@ -1022,10 +1010,9 @@ export const deliverDispatchMessageToDaemon = async (input: {
     targetProfileName,
   };
 };
-
 const recordRuntimeCoordinatorCreationDiagnosticForMessage = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   message: OpenMeldDaemonDispatchQueueMessage;
   reasonCode: string;
 }): Promise<void> => {
@@ -1055,11 +1042,12 @@ const recordRuntimeCoordinatorCreationDiagnosticForMessage = async (input: {
     );
   }
 };
-
 const resolveDeliveredCorrelatedAttemptId = (input: {
   deliverResult: Extract<
     RuntimeTransportDeliverDispatchResponse,
-    { accepted: true }
+    {
+      accepted: true;
+    }
   >;
   requestedAttemptId: string;
 }): string => {
@@ -1074,15 +1062,15 @@ const resolveDeliveredCorrelatedAttemptId = (input: {
       return input.requestedAttemptId;
   }
 };
-
 type OnlineRuntimeTransportRoute = Extract<
   RuntimeTransportLookupRouteResult,
-  { online: true }
+  {
+    online: true;
+  }
 >;
-
 const assertDaemonRouteMatchesPrimaryBinding = async (input: {
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
-  db: D1Database;
+  db: PostgresDatabase;
   executionContext: DispatchExecutionContext;
   executionLogBase: DispatchExecutionLogBase;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -1119,7 +1107,6 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
       executionContext: input.executionContext,
     });
   }
-
   if (binding.bindingState !== "enabled_primary") {
     throw buildDispatchExecutionValidationError({
       code: "agent_profile_binding.disabled",
@@ -1127,7 +1114,6 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
       executionContext: input.executionContext,
     });
   }
-
   const acceptedControllerSnapshot =
     input.acceptedDispatchSnapshot?.controllerSnapshot ??
     input.message.controllerSnapshot;
@@ -1169,7 +1155,6 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
       executionContext: input.executionContext,
     });
   }
-
   const agentControllerRef = parseAgentControllerRef(
     binding.agentControllerRef
   );
@@ -1181,7 +1166,6 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
       executionContext: input.executionContext,
     });
   }
-
   const runtimeResult = await readRuntimeRegistryRecordByRuntimeId({
     db: input.db,
     openMeldServiceRuntimeId:
@@ -1194,7 +1178,6 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
       executionContext: input.executionContext,
     });
   }
-
   const openMeldServiceRuntimeIdentity =
     runtimeResult.record.runtimeLookupInput;
   if (
@@ -1227,7 +1210,6 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
       executionContext: input.executionContext,
     });
   }
-
   assertDaemonRouteHasLiveBindingCapability({
     bindingAgentControllerRef:
       acceptedAgentControllerRef ?? binding.agentControllerRef,
@@ -1235,7 +1217,6 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
     executionLogBase: input.executionLogBase,
     route: input.route,
   });
-
   return {
     binding,
     executionIdentity: {
@@ -1258,7 +1239,6 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
     },
   };
 };
-
 const assertDaemonRouteHasLiveBindingCapability = (input: {
   bindingAgentControllerRef: string;
   executionContext: DispatchExecutionContext;
@@ -1304,7 +1284,6 @@ const assertDaemonRouteHasLiveBindingCapability = (input: {
     executionContext: input.executionContext,
   });
 };
-
 function assertDaemonRouteExecutionContextCapable(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   route: OnlineRuntimeTransportRoute;
@@ -1342,6 +1321,9 @@ function assertDaemonRouteExecutionContextCapable(input: {
     input.route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
+        (!input.message.executionContext?.permissionSource ||
+          adapter.capabilityDeclaration
+            .executionContextPermissionInheritance === true) &&
         (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
           requiredExecutionContextVersion
     )
@@ -1355,7 +1337,6 @@ function assertDaemonRouteExecutionContextCapable(input: {
     waitReasonCode: "execution_context.service_update_required",
   });
 }
-
 const assertDaemonRouteExecutionCompatible = (input: {
   executionContext: DispatchExecutionContext;
   executionLogBase: DispatchExecutionLogBase;
@@ -1384,7 +1365,6 @@ const assertDaemonRouteExecutionCompatible = (input: {
     waitReasonCode: input.route.executionCompatibility.reasonCode,
   });
 };
-
 const assertDaemonRouteLocalComponentsCurrent = (input: {
   executionContext: DispatchExecutionContext;
   executionLogBase: DispatchExecutionLogBase;
@@ -1422,7 +1402,6 @@ const assertDaemonRouteLocalComponentsCurrent = (input: {
     waitReasonCode,
   });
 };
-
 type RouteServiceUpdateBlocker = {
   expectedEpoch?: string | null;
   installedVersion?: string | null;
@@ -1431,9 +1410,8 @@ type RouteServiceUpdateBlocker = {
   reasonCode: string;
   requiredVersion?: string | null;
 };
-
 const resolveOfflineRouteServiceUpdateBlocker = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   ownerUserId: string;
   targetProfileId: string;
@@ -1449,7 +1427,6 @@ const resolveOfflineRouteServiceUpdateBlocker = async (input: {
   if (binding?.bindingState !== "enabled_primary") {
     return null;
   }
-
   const runtimeResult = await readRuntimeRegistryRecordByRuntimeId({
     db: input.db,
     openMeldServiceRuntimeId: binding.openMeldServiceRuntimeId,
@@ -1457,7 +1434,6 @@ const resolveOfflineRouteServiceUpdateBlocker = async (input: {
   if (runtimeResult.status !== "found") {
     return null;
   }
-
   const openMeldServiceRuntimeIdentity =
     runtimeResult.record.runtimeLookupInput;
   if (
@@ -1466,7 +1442,6 @@ const resolveOfflineRouteServiceUpdateBlocker = async (input: {
   ) {
     return null;
   }
-
   const ownerService = await lookupRuntimeTransportOwnerService({
     blockForgottenDevices: true,
     env: input.env,
@@ -1487,7 +1462,6 @@ const resolveOfflineRouteServiceUpdateBlocker = async (input: {
   if (!ownerService?.online) {
     return null;
   }
-
   const session = ownerService.sessions.find(
     (candidate) =>
       candidate.deviceId === openMeldServiceRuntimeIdentity.deviceId &&
@@ -1520,11 +1494,10 @@ const resolveOfflineRouteServiceUpdateBlocker = async (input: {
     requiredVersion: localComponents.service.requiredVersion,
   };
 };
-
 export const continueDispatchMessageAttempt = async (input: {
   attemptId: string;
   connectionGeneration: number;
-  db: D1Database;
+  db: PostgresDatabase;
   daemonSessionId: string;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -1551,9 +1524,8 @@ export const continueDispatchMessageAttempt = async (input: {
     targetOwnerUserId: input.targetOwnerUserId,
   });
 };
-
 const finalizeExistingAcceptedDispatchResult = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   existingResult: NonNullable<
     Awaited<ReturnType<typeof getDispatchResultByDispatchId>>
@@ -1590,10 +1562,9 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
     status: "already_final",
   };
 };
-
 const markDispatchSucceeded = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   idempotencyKey: string;
 }): Promise<void> => {
   await markDispatchStatus({
@@ -1605,15 +1576,13 @@ const markDispatchSucceeded = async (input: {
     status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
   });
 };
-
 export type ConfirmedAcceptedDispatchSuccess = {
   kind: "published_signal";
   publishedSignalId: string;
 };
-
 export const recordConfirmedAcceptedDispatchSuccess = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   idempotencyKey: string;
   outcome: ConfirmedAcceptedDispatchSuccess;
 }): Promise<void> => {
@@ -1628,10 +1597,9 @@ export const recordConfirmedAcceptedDispatchSuccess = async (input: {
     idempotencyKey: input.idempotencyKey,
   });
 };
-
 export const recordConfirmedAcceptedDispatchFailure = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   errorCode: string;
   errorMessage?: string | null;
   idempotencyKey: string;
@@ -1653,9 +1621,8 @@ export const recordConfirmedAcceptedDispatchFailure = async (input: {
     status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
   });
 };
-
 export const finalizeAcceptedDispatchResult = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   deliverAgentTransportSpaceAction?: AgentTransportSpaceActionDeliveryPort;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
@@ -1667,6 +1634,15 @@ export const finalizeAcceptedDispatchResult = async (input: {
   targetProfileMentionLabel?: string | null;
   targetProfileName?: string | null;
 }): Promise<AcceptedDispatchFinalizationResult> => {
+  const usageIdentityDb = getPostgresDatabase(input.env);
+  if (usageIdentityDb) {
+    await recordAcceptedLocalAiUsage({
+      db: input.db,
+      identityDb: usageIdentityDb,
+      dispatchMessage: input.dispatchMessage,
+      inboxRecord: input.inboxRecord,
+    });
+  }
   const existingResult = await getDispatchResultByDispatchId({
     db: input.db,
     dispatchId: input.dispatchMessage.dispatchId,
@@ -1680,7 +1656,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
       recordPublicationProjection: input.recordPublicationProjection ?? true,
     });
   }
-
   const executionContext = buildDispatchExecutionContext({
     attemptId: input.inboxRecord.attemptId,
     connectionGeneration: input.inboxRecord.submittedConnectionGeneration,
@@ -1704,7 +1679,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
         "accepted dispatch result does not match the stored dispatch outbox record",
     });
   }
-
   const executionLogBase: DispatchExecutionLogBase = {
     attemptId: input.inboxRecord.attemptId,
     dispatchId: input.dispatchMessage.dispatchId,
@@ -1722,7 +1696,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
       targetProfileMentionLabel: input.targetProfileMentionLabel,
       targetProfileName: input.targetProfileName,
     });
-
   await emitDispatchStreamingTelemetryDecision({
     attemptId: input.inboxRecord.attemptId,
     db: input.db,
@@ -1741,7 +1714,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
     dispatchId: input.dispatchMessage.dispatchId,
     taskResult: input.inboxRecord.taskResult,
   });
-
   assertRuntimeTransportTaskResultCorrelation({
     executionContext,
     expected: {
@@ -1752,7 +1724,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
     },
     taskResult: input.inboxRecord.taskResult,
   });
-
   if (input.inboxRecord.taskResult.payload.status === "failed") {
     await recordProviderAccessEvidenceFromAcceptedFailure({
       db: input.db,
@@ -1829,7 +1800,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
       status: "finalized",
     };
   }
-
   await clearProviderAccessEvidenceFromAcceptedSuccess({
     db: input.db,
     localStateDb: localStateDbHandle,
@@ -1842,7 +1812,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
     dispatchMessage: input.dispatchMessage,
     inboxRecord: input.inboxRecord,
   });
-
   const preparedReply = await prepareSuccessfulDispatchReply({
     attemptId: input.inboxRecord.attemptId,
     db: input.db,
@@ -1880,10 +1849,9 @@ export const finalizeAcceptedDispatchResult = async (input: {
     status: "finalized",
   };
 };
-
 async function recordProviderAccessEvidenceFromAcceptedFailure(input: {
-  db: D1Database;
-  localStateDb: D1Database;
+  db: PostgresDatabase;
+  localStateDb: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   inboxRecord: DispatchResultInboxRecord;
 }): Promise<void> {
@@ -1936,7 +1904,6 @@ async function recordProviderAccessEvidenceFromAcceptedFailure(input: {
   if (!providerAccessEvidence) {
     return;
   }
-
   try {
     const result = await writeAcceptedProviderAccessFailureEvidence({
       agentProfileId: input.dispatchMessage.targetProfileId,
@@ -1969,7 +1936,6 @@ async function recordProviderAccessEvidenceFromAcceptedFailure(input: {
     );
   }
 }
-
 function createStructuredUsageExhaustedEvidence(input: {
   agentControllerRef: string;
   observedAtMs: number;
@@ -1996,10 +1962,9 @@ function createStructuredUsageExhaustedEvidence(input: {
     source: "wake_failure",
   };
 }
-
 async function clearProviderAccessEvidenceFromAcceptedSuccess(input: {
-  db: D1Database;
-  localStateDb: D1Database;
+  db: PostgresDatabase;
+  localStateDb: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   inboxRecord: DispatchResultInboxRecord;
 }): Promise<void> {
@@ -2017,7 +1982,6 @@ async function clearProviderAccessEvidenceFromAcceptedSuccess(input: {
   if (!executionIdentity) {
     return;
   }
-
   try {
     await clearProviderAccessFailureEvidenceForExecutionSuccess({
       agentProfileId: input.dispatchMessage.targetProfileId,
@@ -2039,10 +2003,9 @@ async function clearProviderAccessEvidenceFromAcceptedSuccess(input: {
     );
   }
 }
-
 async function recordReadinessImpactFromAcceptedFailure(input: {
-  db: D1Database;
-  localStateDb: D1Database;
+  db: PostgresDatabase;
+  localStateDb: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   inboxRecord: DispatchResultInboxRecord;
 }): Promise<void> {
@@ -2075,7 +2038,6 @@ async function recordReadinessImpactFromAcceptedFailure(input: {
   if (!executionIdentity) {
     return;
   }
-
   try {
     const result = await writeAcceptedAgentExecutionReadinessImpact({
       agentProfileId: input.dispatchMessage.targetProfileId,
@@ -2104,10 +2066,9 @@ async function recordReadinessImpactFromAcceptedFailure(input: {
     });
   }
 }
-
 async function clearReadinessImpactFromAcceptedSuccess(input: {
-  db: D1Database;
-  localStateDb: D1Database;
+  db: PostgresDatabase;
+  localStateDb: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   inboxRecord: DispatchResultInboxRecord;
 }): Promise<void> {
@@ -2125,7 +2086,6 @@ async function clearReadinessImpactFromAcceptedSuccess(input: {
   if (!executionIdentity) {
     return;
   }
-
   try {
     await clearAgentExecutionReadinessImpactForExecutionSuccess({
       agentProfileId: input.dispatchMessage.targetProfileId,
@@ -2143,15 +2103,13 @@ async function clearReadinessImpactFromAcceptedSuccess(input: {
     });
   }
 }
-
 type AcceptedResultExecutionIdentityDiagnostic = {
   provider: string | null;
   reasonCode: string;
   subject: "provider_access_evidence" | "readiness_impact";
 };
-
 async function readMatchingDispatchAttemptExecutionIdentity(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   diagnostic: AcceptedResultExecutionIdentityDiagnostic;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   inboxRecord: DispatchResultInboxRecord;
@@ -2201,18 +2159,16 @@ async function readMatchingDispatchAttemptExecutionIdentity(input: {
     );
     return null;
   }
-
   return {
     bindingId: ownership.bindingId,
     agentControllerRef: ownership.agentControllerRef,
     openMeldServiceRuntimeId: ownership.openMeldServiceRuntimeId,
   };
 }
-
 const awaitDispatchResultAndEmitReply = async (input: {
   attemptId: string;
   connectionGeneration?: number | null;
-  db: D1Database;
+  db: PostgresDatabase;
   daemonSessionId: string;
   env: CoreBindings;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -2299,7 +2255,6 @@ const awaitDispatchResultAndEmitReply = async (input: {
     },
     taskResult: waitResult.taskResult,
   });
-
   console.info(
     "[core.openMeldDaemon.dispatch_execution.finalization_command_observed]",
     {
@@ -2320,10 +2275,9 @@ const awaitDispatchResultAndEmitReply = async (input: {
       : null,
   };
 };
-
 const waitForDaemonDispatchCompletion = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   executionContext: DispatchExecutionContext;
   executionLogBase: DispatchExecutionLogBase;
@@ -2340,9 +2294,7 @@ const waitForDaemonDispatchCompletion = async (input: {
       leaseEpoch: input.executionContext.leaseEpoch,
       timeoutMs: RUNTIME_TRANSPORT_WAIT_RESULT_TIMEOUT_MS,
     });
-
     const waitDurationMs = Date.now() - input.waitStartedAtMs;
-
     if (waitResult.state === "pending") {
       await emitDispatchExecutionLifecycleDecision({
         attemptId: input.attemptId,
@@ -2363,7 +2315,6 @@ const waitForDaemonDispatchCompletion = async (input: {
       });
       continue;
     }
-
     if (waitResult.state === "failed") {
       if (waitResult.lifecycle) {
         await emitDispatchExecutionLifecycleDecision({
@@ -2394,7 +2345,6 @@ const waitForDaemonDispatchCompletion = async (input: {
         waitReasonCode: waitResult.reasonCode,
       });
     }
-
     if (waitResult.lifecycle) {
       await emitDispatchExecutionLifecycleDecision({
         attemptId: input.attemptId,
@@ -2419,12 +2369,11 @@ const waitForDaemonDispatchCompletion = async (input: {
     };
   }
 };
-
 const deliverPublicationPlanWithClaim = async (input: {
   agentControllerConversationId: string | null;
   attemptId: string;
   agentControllerRef: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   deliverAgentTransportSpaceAction: AgentTransportSpaceActionDeliveryPort;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   executionContext: DispatchExecutionContext;
@@ -2432,7 +2381,9 @@ const deliverPublicationPlanWithClaim = async (input: {
   messageEnvelope: MessageEnvelope | null;
   plan: Extract<
     DispatchPublicationPlan,
-    { kind: "message" | "status" | "system_notice" }
+    {
+      kind: "message" | "status" | "system_notice";
+    }
   >;
   profileHandle: string | null;
   resultRef: string | null;
@@ -2448,7 +2399,6 @@ const deliverPublicationPlanWithClaim = async (input: {
     idempotencyKey: input.dispatchMessage.idempotencyKey,
     nowMs: replyClaimedAtMs,
   });
-
   let shouldRollbackReplyClaim = replyClaimState === "claimed";
   try {
     const delivery = await input.deliverAgentTransportSpaceAction({
@@ -2484,10 +2434,9 @@ const deliverPublicationPlanWithClaim = async (input: {
     });
   }
 };
-
 const deliverFailedDispatchPublicationPlan = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   deliverAgentTransportSpaceAction: AgentTransportSpaceActionDeliveryPort;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
@@ -2496,11 +2445,15 @@ const deliverFailedDispatchPublicationPlan = async (input: {
   finalOutcomeAuthority?: FinalOutcomeWriteAuthority;
   payload: Extract<
     OpenMeldDaemonTaskResultEnvelope["payload"],
-    { status: "failed" }
+    {
+      status: "failed";
+    }
   >;
   plan: Extract<
     DispatchPublicationPlan,
-    { kind: "message" | "status" | "system_notice" }
+    {
+      kind: "message" | "status" | "system_notice";
+    }
   >;
   profileHandle: string | null;
   recordPublicationProjection: boolean;
@@ -2557,6 +2510,7 @@ const deliverFailedDispatchPublicationPlan = async (input: {
       executionContext: input.executionContext,
       executionLogBase: input.executionLogBase,
       plan: input.plan,
+      publishedThreadContext: emission.threadContext,
       recordPublicationProjection: input.recordPublicationProjection,
       runtimeOutput: resolveArchivedDispatchReplyText({
         plan: input.plan,
@@ -2587,10 +2541,9 @@ const deliverFailedDispatchPublicationPlan = async (input: {
     terminalReplySettled: emission.finalReplySettled,
   };
 };
-
 const emitFailedDispatchReplySignalsIfNeeded = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   deliverAgentTransportSpaceAction?: AgentTransportSpaceActionDeliveryPort;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
@@ -2614,7 +2567,6 @@ const emitFailedDispatchReplySignalsIfNeeded = async (input: {
       terminalReplySettled: false,
     };
   }
-
   const publicationPlan = resolveDispatchPublicationPlan({
     actorName: input.targetProfileName,
     dispatchMessage: input.dispatchMessage,
@@ -2622,7 +2574,6 @@ const emitFailedDispatchReplySignalsIfNeeded = async (input: {
     replyText: null,
     targetProfileName: input.targetProfileName,
   });
-
   if (publicationPlan.blockedExplicitAction) {
     await writeOpenMeldDaemonOpsDecision({
       db: input.db,
@@ -2638,7 +2589,6 @@ const emitFailedDispatchReplySignalsIfNeeded = async (input: {
       correlationId: input.dispatchMessage.dispatchId,
     }).catch(() => undefined);
   }
-
   const agentControllerConversation =
     resolveRuntimeAgentControllerConversation(payload);
   const workingDirectory = resolveRuntimeWorkingDirectory(payload);
@@ -2667,7 +2617,6 @@ const emitFailedDispatchReplySignalsIfNeeded = async (input: {
       workingDirectory,
     });
   }
-
   if (publicationPlan.kind === "system_notice") {
     const emission = await emitSystemNoticeReplySignal({
       attemptId: input.attemptId,
@@ -2721,14 +2670,12 @@ const emitFailedDispatchReplySignalsIfNeeded = async (input: {
       terminalReplySettled: emission.finalReplySettled,
     };
   }
-
   if (publicationPlan.kind !== "status") {
     return {
       publishedSignalId: null,
       terminalReplySettled: false,
     };
   }
-
   const emission = await emitStatusReplySignal({
     agentControllerConversationId: normalizeOptionalText(
       payload.agentControllerConversationId
@@ -2793,10 +2740,9 @@ const emitFailedDispatchReplySignalsIfNeeded = async (input: {
     terminalReplySettled: emission.finalReplySettled,
   };
 };
-
 const finalizePublishedDispatchReply = async (input: {
   archivedMessageEnvelope: MessageEnvelope | null;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   emittedSignal: SignalEnvelope | null;
   env: CoreBindings;
@@ -2804,8 +2750,11 @@ const finalizePublishedDispatchReply = async (input: {
   executionLogBase: Record<string, string>;
   plan: Extract<
     DispatchPublicationPlan,
-    { kind: "message" | "status" | "system_notice" }
+    {
+      kind: "message" | "status" | "system_notice";
+    }
   >;
+  publishedThreadContext?: SpaceThreadContext | null;
   recordPublicationProjection: boolean;
   runtimeOutput: string;
   targetProfileName: string | null;
@@ -2814,7 +2763,6 @@ const finalizePublishedDispatchReply = async (input: {
   if (!input.emittedSignal) {
     return;
   }
-
   const archivedReplyToSignalId = resolveArchivedReplyToSignalId({
     dispatchReplyToSignalId:
       input.dispatchMessage.replyToSnapshot?.signalId ?? null,
@@ -2833,7 +2781,10 @@ const finalizePublishedDispatchReply = async (input: {
     targetProfileName: input.targetProfileName,
     plan: input.plan,
     spaceId: input.dispatchMessage.spaceId,
-    threadContext: input.dispatchMessage.threadContext ?? null,
+    threadContext:
+      input.publishedThreadContext === undefined
+        ? (input.dispatchMessage.threadContext ?? null)
+        : input.publishedThreadContext,
   });
   if (dispatchResult) {
     await writeDispatchResult({
@@ -2849,7 +2800,6 @@ const finalizePublishedDispatchReply = async (input: {
       spaceId: input.dispatchMessage.spaceId,
     });
   }
-
   await emitConversationContinuityWarningIfNeeded({
     dispatchMessage: input.dispatchMessage,
     env: input.env,
@@ -2901,10 +2851,9 @@ const finalizePublishedDispatchReply = async (input: {
     });
   }
 };
-
 const recordDispatchResultInboxPublicationProjection = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   executionSemantic?: RuntimeCoordinatorFinalizationSemantic;
   publicationErrorCode?: string | null;
@@ -2950,10 +2899,9 @@ const recordDispatchResultInboxPublicationProjection = async (input: {
   }
   return recordRuntimeCoordinatorPublicationProjection(input);
 };
-
 const recordDispatchResultInboxPublicationFailureProjection = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   errorCode: string;
   spaceId: string;
@@ -2969,10 +2917,9 @@ const recordDispatchResultInboxPublicationFailureProjection = async (input: {
     targetProfileId: input.targetProfileId,
   });
 };
-
 const recordRuntimeCoordinatorPublicationProjection = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   executionSemantic?: RuntimeCoordinatorFinalizationSemantic;
   publicationErrorCode?: string | null;
@@ -3052,7 +2999,6 @@ const recordRuntimeCoordinatorPublicationProjection = async (input: {
     runtimeCoordinatorExecutionId: existing.runtimeCoordinatorExecutionId,
   };
 };
-
 const resolveRuntimeCoordinatorPublicationStatus = (
   publishState:
     | "reply_published"
@@ -3067,7 +3013,6 @@ const resolveRuntimeCoordinatorPublicationStatus = (
   }
   return "failed_retryable";
 };
-
 const resolveRuntimeCoordinatorTerminalOutcomeKind = (
   status: ReturnType<typeof resolveRuntimeCoordinatorPublicationStatus>
 ) => {
@@ -3079,11 +3024,12 @@ const resolveRuntimeCoordinatorTerminalOutcomeKind = (
   }
   return "failed_retryable";
 };
-
 const resolvePublicationPlanFinalMessageKind = (
   plan: Extract<
     DispatchPublicationPlan,
-    { kind: "message" | "status" | "system_notice" }
+    {
+      kind: "message" | "status" | "system_notice";
+    }
   >
 ): "failure_notice" | "stay_silent" | "success_reply" => {
   if (plan.kind !== "system_notice") {
@@ -3091,7 +3037,6 @@ const resolvePublicationPlanFinalMessageKind = (
   }
   return plan.noticeType === "stay_silent" ? "stay_silent" : "failure_notice";
 };
-
 const resolveArchivedFinalMessageKind = (
   publicOutcome: DispatchResult["publicOutcome"]
 ): "failure_notice" | "stay_silent" | "success_reply" | "unknown" => {
@@ -3106,7 +3051,6 @@ const resolveArchivedFinalMessageKind = (
   }
   return "success_reply";
 };
-
 export const normalizePostPublicationDispatchError = (input: {
   emittedSignal: SignalEnvelope | null;
   error: unknown;
@@ -3118,11 +3062,12 @@ export const normalizePostPublicationDispatchError = (input: {
     terminalReplySettled: input.emittedSignal !== null,
   });
 };
-
 const resolveArchivedDispatchReplyText = (input: {
   plan: Extract<
     DispatchPublicationPlan,
-    { kind: "message" | "status" | "system_notice" }
+    {
+      kind: "message" | "status" | "system_notice";
+    }
   >;
   payload: OpenMeldDaemonTaskResultEnvelope["payload"];
 }): string => {
@@ -3131,7 +3076,6 @@ const resolveArchivedDispatchReplyText = (input: {
   }
   return input.plan.text;
 };
-
 const buildDispatchExecutionContext = (input: {
   attemptId: string;
   connectionGeneration?: number | null;
@@ -3157,7 +3101,6 @@ const buildDispatchExecutionContext = (input: {
     replyingHintActive: input.replyingHintActive === true,
   };
 };
-
 const resolveDispatchTargetProfileIdentityUnavailableDetails = (
   error: unknown
 ): {
@@ -3172,14 +3115,12 @@ const resolveDispatchTargetProfileIdentityUnavailableDetails = (
       upstreamCode: error.upstreamCode,
     };
   }
-
   return {
     message: toErrorMessage(error),
     reasonCode: "dispatch.target_profile_identity.unknown_error",
     upstreamCode: null,
   };
 };
-
 const logDispatchTargetProfileIdentityUnavailable = (
   error: unknown,
   logContext: Record<string, unknown>
@@ -3199,7 +3140,6 @@ const logDispatchTargetProfileIdentityUnavailable = (
   );
   return details;
 };
-
 const resolveDispatchTargetProfileIdentityOrThrowValidationError =
   async (input: {
     authRpc?: CoreBindings["OPENMELD_AUTH_WORKER"];
@@ -3224,10 +3164,9 @@ const resolveDispatchTargetProfileIdentityOrThrowValidationError =
       });
     }
   };
-
 const resolveAwaitDispatchReplyTargetContext = async (input: {
   authRpc?: CoreBindings["OPENMELD_AUTH_WORKER"];
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   profileHandle?: string | null;
   targetProfileName?: string | null;
@@ -3255,11 +3194,9 @@ const resolveAwaitDispatchReplyTargetContext = async (input: {
           },
           targetProfileId: input.dispatchMessage.targetProfileId,
         });
-
   const profileHandle =
     normalizeOptionalText(input.profileHandle) ??
     fallbackTargetProfileIdentity.profileHandle;
-
   return {
     profileHandle,
     targetProfileMentionLabel:
@@ -3279,7 +3216,6 @@ const resolveAwaitDispatchReplyTargetContext = async (input: {
       fallbackTargetProfileIdentity.profileName,
   };
 };
-
 export const runDispatchExecutionPreflightGate = async (input: {
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -3297,7 +3233,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
     };
   }
-
   const targetBindingResolution = await (input.timing?.measure(
     {
       description: "Resolve Core-owned target Binding and owner",
@@ -3331,7 +3266,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
   }
   const targetBindingSnapshot = targetBindingResolution.snapshot;
   const targetOwnerUserId = targetBindingSnapshot.ownerUserId ?? undefined;
-
   if (
     message.deviceWait &&
     !deviceWaitTargetMatches({
@@ -3353,7 +3287,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
       bindingSource: targetBindingResolution.source,
     };
   }
-
   if (targetBindingSnapshot.bindingState === "missing") {
     return {
       ok: false,
@@ -3364,7 +3297,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
       targetOwnerUserId,
     };
   }
-
   if (!targetBindingSnapshot.bindingEnabled) {
     return {
       ok: false,
@@ -3375,7 +3307,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
       targetOwnerUserId,
     };
   }
-
   if (
     !targetBindingSnapshot.ownerUserId &&
     targetBindingSnapshot.runtimeKind !== "hosted_center_agent"
@@ -3388,7 +3319,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
       bindingSource: targetBindingResolution.source,
     };
   }
-
   const canonicalReadinessPromise =
     targetBindingSnapshot.runtimeKind === "openmeld_service"
       ? measureDispatchTiming({
@@ -3448,7 +3378,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
       return readinessDecision;
     }
   }
-
   // Auto-relay revisits are allowed by policy: agents may loop
   // (A -> B -> A -> ...) without a human turn between rounds. The chain
   // telemetry that used to feed the removed cycle gate (dispatchChainId,
@@ -3472,7 +3401,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
     bindingSource: targetBindingResolution.source,
   };
 };
-
 function resolveCanonicalDispatchPreflight(input: {
   bindingSource: TargetBindingSource;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -3609,7 +3537,6 @@ function canAdmitContextWithUnavailableDefaultFolder(input: {
     ].length === 0
   );
 }
-
 export const applyEffectiveTargetBindingSnapshotToMessage = (input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   snapshot: EffectiveTargetBindingSnapshot;
@@ -3624,7 +3551,6 @@ export const applyEffectiveTargetBindingSnapshotToMessage = (input: {
     leftAgentControllerRef: currentAgentControllerRef,
     rightAgentControllerRef: input.snapshot.agentControllerRef,
   });
-
   const needsUpdate =
     input.message.controllerSnapshot.bindingId !== input.snapshot.bindingId ||
     input.message.controllerSnapshot.configurationRevision !==
@@ -3635,7 +3561,6 @@ export const applyEffectiveTargetBindingSnapshotToMessage = (input: {
   if (!needsUpdate) {
     return input.message;
   }
-
   return {
     ...input.message,
     controllerSnapshot: {
@@ -3655,7 +3580,6 @@ export const applyEffectiveTargetBindingSnapshotToMessage = (input: {
     },
   };
 };
-
 const areControllerSnapshotsEquivalent = (input: {
   leftAgentControllerRef: string | null;
   rightAgentControllerRef: string | null;
@@ -3667,7 +3591,6 @@ const areControllerSnapshotsEquivalent = (input: {
   const right = parseAgentControllerRef(input.rightAgentControllerRef);
   return Boolean(left && right && left.ref === right.ref);
 };
-
 export const resolveDispatchTargetProfileName = async (input: {
   authRpc?: CoreBindings["OPENMELD_AUTH_WORKER"];
   targetProfileId: string;
@@ -3687,7 +3610,6 @@ export const resolveDispatchTargetProfileName = async (input: {
     return null;
   }
 };
-
 const buildDispatchReplyText = (input: {
   executionContext: DispatchExecutionContext;
   runtimeOutput: string;
@@ -3702,7 +3624,6 @@ const buildDispatchReplyText = (input: {
   }
   return truncateSpaceTextToProtocolLimit(replyBody);
 };
-
 const assertDispatchReplyIdentityMetadata: (input: {
   agentControllerConversationId: string | null;
   agentControllerRef: string | null;
@@ -3721,11 +3642,10 @@ const assertDispatchReplyIdentityMetadata: (input: {
     });
   }
 };
-
 const prepareSuccessfulDispatchReply = async (input: {
   attemptId: string;
-  db: D1Database;
-  localStateDb: D1Database;
+  db: PostgresDatabase;
+  localStateDb: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionContext: DispatchExecutionContext;
@@ -3795,7 +3715,6 @@ const prepareSuccessfulDispatchReply = async (input: {
     runtimeResult,
   };
 };
-
 const assertRuntimeConversationMetadata = (input: {
   agentControllerConversationId: string | null;
   agentControllerRef: string;
@@ -3805,7 +3724,6 @@ const assertRuntimeConversationMetadata = (input: {
   if (!input.agentControllerConversation) {
     return;
   }
-
   const allowsDistinctAgentControllerConversationId =
     builtinAgentControllerAllowsDistinctConversationId(
       normalizeKnownBuiltinAgentControllerId(
@@ -3825,7 +3743,6 @@ const assertRuntimeConversationMetadata = (input: {
       executionContext: input.executionContext,
     });
   }
-
   const expectedConversationKind =
     resolveBuiltinAgentControllerConversationKind(
       input.agentControllerConversation.agentControllerRef
@@ -3842,7 +3759,6 @@ const assertRuntimeConversationMetadata = (input: {
       executionContext: input.executionContext,
     });
   }
-
   const builtinControllerProviderId = normalizeKnownBuiltinAgentControllerId(
     input.agentControllerRef
   );
@@ -3860,7 +3776,6 @@ const assertRuntimeConversationMetadata = (input: {
     });
   }
 };
-
 const mapFailedTaskResultToErrorCode = (errorType: string): string => {
   if (errorType === "network") {
     return "network.transient";
@@ -3882,7 +3797,6 @@ const mapFailedTaskResultToErrorCode = (errorType: string): string => {
   }
   return "dispatch.execution_failed";
 };
-
 const extractErrorCodeFromMessage = (
   value: string | undefined
 ): string | null => {
@@ -3900,7 +3814,6 @@ const extractErrorCodeFromMessage = (
   }
   return extractedErrorCode.toLowerCase();
 };
-
 const isLegacyRuntimeTaskDedupedMessage = (
   value: string | undefined
 ): boolean => {
@@ -3910,14 +3823,12 @@ const isLegacyRuntimeTaskDedupedMessage = (
   if (normalized.length === 0) {
     return false;
   }
-
   return (
     normalized.startsWith("task deduped") ||
     normalized.includes("task has already been dispatched") ||
     normalized.includes("task deduped within")
   );
 };
-
 const resolveFailedTaskResultErrorCode = (input: {
   errorCode: string | undefined;
   errorMessage: string | undefined;
@@ -3943,26 +3854,22 @@ const resolveFailedTaskResultErrorCode = (input: {
   }
   return mapFailedTaskResultToErrorCode(input.errorType);
 };
-
 const resolveRuntimeAgentControllerConversation = (
   payload: OpenMeldDaemonTaskResultEnvelope["payload"]
 ): AgentControllerConversationRef | null =>
   "agentControllerConversation" in payload
     ? (payload.agentControllerConversation ?? null)
     : null;
-
 const resolveRuntimeBootstrapTemplateFacts = (
   payload: OpenMeldDaemonTaskResultEnvelope["payload"]
 ): BootstrapTemplateFacts | null =>
   "bootstrapTemplateFacts" in payload
     ? (payload.bootstrapTemplateFacts ?? null)
     : null;
-
 const resolveRuntimeDispatchExecution = (
   payload: OpenMeldDaemonTaskResultEnvelope["payload"]
 ): DispatchExecution | null =>
   "dispatchExecution" in payload ? (payload.dispatchExecution ?? null) : null;
-
 const resolveRuntimeWorkingDirectory = (
   payload: OpenMeldDaemonTaskResultEnvelope["payload"]
 ): string | null =>
@@ -3971,7 +3878,6 @@ const resolveRuntimeWorkingDirectory = (
         payload.effectiveRuntimeWorkingDirectory
       ) ?? null)
     : null;
-
 const parseSuccessfulRuntimeTransportTaskResult = (
   executionContext: DispatchExecutionContext,
   payload: SuccessfulOpenMeldDaemonTaskResultPayload
@@ -3985,11 +3891,9 @@ const parseSuccessfulRuntimeTransportTaskResult = (
       executionContext,
     });
   }
-
   const agentControllerConversationId = normalizeOptionalText(
     payload.agentControllerConversationId
   );
-
   const output = normalizeOptionalText(payload.output);
   if (!output) {
     throw buildDispatchExecutionValidationError({
@@ -3998,7 +3902,6 @@ const parseSuccessfulRuntimeTransportTaskResult = (
       executionContext,
     });
   }
-
   const agentControllerConversation =
     resolveRuntimeAgentControllerConversation(payload);
   const bootstrapTemplateFacts = resolveRuntimeBootstrapTemplateFacts(payload);
@@ -4010,7 +3913,6 @@ const parseSuccessfulRuntimeTransportTaskResult = (
     executionContext,
     agentControllerConversation,
   });
-
   return {
     ...("executionContextId" in payload && payload.executionContextId
       ? { executionContextId: payload.executionContextId }
@@ -4027,7 +3929,6 @@ const parseSuccessfulRuntimeTransportTaskResult = (
       : {}),
   };
 };
-
 const parseRuntimeTransportTaskResult = (input: {
   executionContext: DispatchExecutionContext;
   expected: {
@@ -4039,7 +3940,6 @@ const parseRuntimeTransportTaskResult = (input: {
   taskResult: OpenMeldDaemonTaskResultEnvelope;
 }): RuntimeDispatchSuccessResult => {
   assertRuntimeTransportTaskResultCorrelation(input);
-
   const payload = input.taskResult.payload;
   if (isSuccessfulRuntimeTaskResultPayload(payload)) {
     return parseSuccessfulRuntimeTransportTaskResult(
@@ -4047,13 +3947,11 @@ const parseRuntimeTransportTaskResult = (input: {
       payload
     );
   }
-
   throw buildFailedTaskResultExecutionError({
     executionContext: input.executionContext,
     payload,
   });
 };
-
 const assertRuntimeTransportTaskResultCorrelation = (input: {
   executionContext: DispatchExecutionContext;
   expected: {
@@ -4096,11 +3994,12 @@ const assertRuntimeTransportTaskResultCorrelation = (input: {
     });
   }
 };
-
 const classifyFailedTaskResultPayload = (
   payload: Extract<
     OpenMeldDaemonTaskResultEnvelope["payload"],
-    { status: "failed" }
+    {
+      status: "failed";
+    }
   >
 ): {
   errorCode: string;
@@ -4117,12 +4016,13 @@ const classifyFailedTaskResultPayload = (
     terminalNoticeEligible: errorCode !== RUNTIME_TASK_DEDUPED_ERROR_CODE,
   };
 };
-
 const buildFailedTaskResultExecutionError = (input: {
   executionContext: DispatchExecutionContext;
   payload: Extract<
     OpenMeldDaemonTaskResultEnvelope["payload"],
-    { status: "failed" }
+    {
+      status: "failed";
+    }
   >;
   terminalReplySettled?: boolean;
 }): DispatchExecutionValidationError => {
@@ -4140,7 +4040,6 @@ const buildFailedTaskResultExecutionError = (input: {
     terminalReplySettled: input.terminalReplySettled,
   });
 };
-
 const wrapDispatchExecutionError = (input: {
   error: unknown;
   executionContext: DispatchExecutionContext;
@@ -4161,7 +4060,6 @@ const wrapDispatchExecutionError = (input: {
       waitReasonCode: input.error.waitReasonCode,
     });
   }
-
   return buildDispatchExecutionValidationError({
     code: resolveDispatchExecutionErrorCode(input.error),
     message: toErrorMessage(input.error),
@@ -4170,18 +4068,18 @@ const wrapDispatchExecutionError = (input: {
     terminalReplySettled: input.terminalReplySettled,
   });
 };
-
 const resolveTaskResultAttemptId = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): string | null => {
-  const payload = taskResult.payload as { attemptId?: unknown };
+  const payload = taskResult.payload as {
+    attemptId?: unknown;
+  };
   if (typeof payload.attemptId !== "string") {
     return null;
   }
   const normalized = payload.attemptId.trim();
   return normalized.length > 0 ? normalized : null;
 };
-
 const resolveTaskResultPromptTrace = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): {
@@ -4189,18 +4087,32 @@ const resolveTaskResultPromptTrace = (
   length: number | null;
   preview: string | null;
 } | null => {
-  const payload = taskResult.payload as { promptTrace?: unknown };
+  const payload = taskResult.payload as {
+    promptTrace?: unknown;
+  };
   const promptTrace = payload.promptTrace;
   if (!promptTrace || typeof promptTrace !== "object") {
     return null;
   }
   const fingerprint = normalizeOptionalText(
-    (promptTrace as { fingerprint?: unknown }).fingerprint
+    (
+      promptTrace as {
+        fingerprint?: unknown;
+      }
+    ).fingerprint
   );
   const preview = normalizeOptionalText(
-    (promptTrace as { preview?: unknown }).preview
+    (
+      promptTrace as {
+        preview?: unknown;
+      }
+    ).preview
   );
-  const rawLength = (promptTrace as { length?: unknown }).length;
+  const rawLength = (
+    promptTrace as {
+      length?: unknown;
+    }
+  ).length;
   const length =
     typeof rawLength === "number" &&
     Number.isInteger(rawLength) &&
@@ -4216,7 +4128,6 @@ const resolveTaskResultPromptTrace = (
     preview,
   };
 };
-
 const resolveTaskResultAgentControllerConversationId = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): string | null => {
@@ -4225,7 +4136,6 @@ const resolveTaskResultAgentControllerConversationId = (
   };
   return normalizeOptionalText(payload.agentControllerConversationId);
 };
-
 const resolveTaskResultAgentControllerConversation = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): AgentControllerConversationRef | null => {
@@ -4240,8 +4150,11 @@ const resolveTaskResultAgentControllerConversation = (
     return null;
   }
   const agentControllerRef = normalizeOptionalText(
-    (agentControllerConversation as { agentControllerRef?: unknown })
-      .agentControllerRef
+    (
+      agentControllerConversation as {
+        agentControllerRef?: unknown;
+      }
+    ).agentControllerRef
   );
   const agentControllerConversationKind = normalizeOptionalText(
     (
@@ -4277,7 +4190,6 @@ const resolveTaskResultAgentControllerConversation = (
     agentControllerConversationId,
   } as AgentControllerConversationRef;
 };
-
 const resolveTaskResultWorkingDirectory = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): string | null => {
@@ -4286,7 +4198,6 @@ const resolveTaskResultWorkingDirectory = (
   };
   return normalizeOptionalText(payload.effectiveRuntimeWorkingDirectory);
 };
-
 const resolveTaskResultRuntimeWorkspaceFingerprint = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): string | null => {
@@ -4295,7 +4206,6 @@ const resolveTaskResultRuntimeWorkspaceFingerprint = (
   };
   return normalizeOptionalText(payload.runtimeWorkspaceFingerprint);
 };
-
 const resolveTaskResultOpenClawGatewayVisibility = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): {
@@ -4303,16 +4213,26 @@ const resolveTaskResultOpenClawGatewayVisibility = (
   gatewayRestartAttempted: boolean | null;
   gatewayVisibility: string | null;
 } | null => {
-  const payload = taskResult.payload as { openClawGatewayVisibility?: unknown };
+  const payload = taskResult.payload as {
+    openClawGatewayVisibility?: unknown;
+  };
   const rawVisibility = payload.openClawGatewayVisibility;
   if (!rawVisibility || typeof rawVisibility !== "object") {
     return null;
   }
   const agentId = normalizeOptionalText(
-    (rawVisibility as { agentId?: unknown }).agentId
+    (
+      rawVisibility as {
+        agentId?: unknown;
+      }
+    ).agentId
   );
   const gatewayVisibility = normalizeOptionalText(
-    (rawVisibility as { gatewayVisibility?: unknown }).gatewayVisibility
+    (
+      rawVisibility as {
+        gatewayVisibility?: unknown;
+      }
+    ).gatewayVisibility
   );
   const rawGatewayRestartAttempted = (
     rawVisibility as {
@@ -4332,17 +4252,22 @@ const resolveTaskResultOpenClawGatewayVisibility = (
     gatewayVisibility,
   };
 };
-
 const resolveTaskResultOpenClawBinding = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): DispatchOpenClawBindingDecisionPayload["classification"] | null => {
-  const payload = taskResult.payload as { openClawBinding?: unknown };
+  const payload = taskResult.payload as {
+    openClawBinding?: unknown;
+  };
   const rawBinding = payload.openClawBinding;
   if (!rawBinding || typeof rawBinding !== "object") {
     return null;
   }
   const classification = normalizeOptionalText(
-    (rawBinding as { classification?: unknown }).classification
+    (
+      rawBinding as {
+        classification?: unknown;
+      }
+    ).classification
   );
   switch (classification) {
     case "canonical_owned":
@@ -4354,10 +4279,9 @@ const resolveTaskResultOpenClawBinding = (
       return null;
   }
 };
-
 const emitDispatchStreamingTelemetryDecision = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   taskResult: OpenMeldDaemonTaskResultEnvelope;
 }): Promise<void> => {
@@ -4391,10 +4315,9 @@ const emitDispatchStreamingTelemetryDecision = async (input: {
     );
   }
 };
-
 const emitDispatchExecutionLifecycleDecision = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   lifecycle: RuntimeTransportDispatchLifecycleSnapshot;
   progressEvidenceState: "active" | "stalled" | "unknown";
@@ -4433,10 +4356,9 @@ const emitDispatchExecutionLifecycleDecision = async (input: {
     );
   }
 };
-
 const emitDispatchRuntimeTelemetryDecision = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   taskResult: OpenMeldDaemonTaskResultEnvelope;
 }): Promise<void> => {
@@ -4505,10 +4427,9 @@ const emitDispatchRuntimeTelemetryDecision = async (input: {
     );
   }
 };
-
 const emitDispatchRuntimeTelemetryMissingDecision = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   taskResult: OpenMeldDaemonTaskResultEnvelope;
 }): Promise<void> => {
@@ -4547,10 +4468,9 @@ const emitDispatchRuntimeTelemetryMissingDecision = async (input: {
     );
   }
 };
-
 const emitDispatchStructuredActionFailureDecision = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   taskResult: OpenMeldDaemonTaskResultEnvelope;
 }): Promise<void> => {
@@ -4566,7 +4486,6 @@ const emitDispatchStructuredActionFailureDecision = async (input: {
   ) {
     return;
   }
-
   try {
     await writeOpenMeldDaemonOpsDecision({
       db: input.db,
@@ -4593,10 +4512,9 @@ const emitDispatchStructuredActionFailureDecision = async (input: {
     );
   }
 };
-
 const emitDispatchExecutionProjectionDecision = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   runtimeResult: RuntimeDispatchSuccessResult;
 }): Promise<void> => {
@@ -4629,11 +4547,10 @@ const emitDispatchExecutionProjectionDecision = async (input: {
     );
   }
 };
-
 const emitDispatchOpenClawBindingDecision = async (input: {
   attemptId: string;
   bindingDiagnostics: DispatchOpenClawBindingDecisionPayload;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
 }): Promise<void> => {
   try {
@@ -4664,10 +4581,9 @@ const emitDispatchOpenClawBindingDecision = async (input: {
     );
   }
 };
-
 const emitDispatchOpenClawBindingDecisionForFailure = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   taskResult: OpenMeldDaemonTaskResultEnvelope;
@@ -4688,12 +4604,11 @@ const emitDispatchOpenClawBindingDecisionForFailure = async (input: {
     dispatchId: input.dispatchId,
   });
 };
-
 const emitDispatchOpenClawBindingDecisionForSuccess = async (input: {
   attemptId: string;
   binding: DispatchOpenClawBindingDecisionPayload["classification"] | null;
   bindingPersistence: PersistAgentControllerConversationIdResult;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchId: string;
 }): Promise<void> => {
   if (!input.binding) {
@@ -4712,7 +4627,6 @@ const emitDispatchOpenClawBindingDecisionForSuccess = async (input: {
     dispatchId: input.dispatchId,
   });
 };
-
 const resolveTaskResultTelemetry = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): {
@@ -4792,7 +4706,6 @@ const resolveTaskResultTelemetry = (
     timeoutTriggeredAtMs: toTelemetryTimestamp(telemetry.timeoutTriggeredAtMs),
   };
 };
-
 const shouldEmitConversationContinuityWarning = (
   taskResult: OpenMeldDaemonTaskResultEnvelope
 ): boolean => {
@@ -4808,7 +4721,6 @@ const shouldEmitConversationContinuityWarning = (
     "replaced_by_provider"
   );
 };
-
 const buildConversationContinuityWarningText = (input: {
   targetProfileLabel: string;
 }): string => {
@@ -4819,12 +4731,11 @@ const buildConversationContinuityWarningText = (input: {
     ? baseText
     : `${baseText.slice(0, DISPATCH_CONTINUITY_WARNING_TEXT_MAX_LENGTH - 3).trimEnd()}...`;
 };
-
 const persistAgentControllerConversationId = async (input: {
   env: CoreBindings;
   agentControllerConversationId: string | null;
   agentControllerRef: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   executionContext: DispatchExecutionContext;
   executionLogBase: Record<string, string>;
@@ -4858,7 +4769,6 @@ const persistAgentControllerConversationId = async (input: {
       updateApplied: false,
     };
   }
-
   const operationId = `legacy-conversation:${crypto.randomUUID()}`;
   const mutation =
     await acquireRuntimeTransportAgentProfileLegacyConversationMutation({
@@ -4952,18 +4862,30 @@ const persistAgentControllerConversationId = async (input: {
         updateApplied: false,
       };
     }
-
-    await updatePrimaryAgentProfileBindingConversationId({
-      agentControllerConversationId: nextConversationId,
-      agentProfileId: input.dispatchMessage.targetProfileId,
-      bindingId: currentBinding.bindingId,
-      db: input.db,
-      owner: {
-        id: input.targetOwnerUserId,
-        kind: "owner_account",
-      },
-      updatedAtMs: Date.now(),
-    });
+    const updatedBinding = await updatePrimaryAgentProfileBindingConversationId(
+      {
+        agentControllerConversationId: nextConversationId,
+        agentProfileId: input.dispatchMessage.targetProfileId,
+        bindingId: currentBinding.bindingId,
+        db: input.db,
+        owner: {
+          id: input.targetOwnerUserId,
+          kind: "owner_account",
+        },
+        updatedAtMs: Date.now(),
+      }
+    );
+    if (!updatedBinding) {
+      console.warn(
+        "[core.openMeldDaemon.dispatch_execution.agent_controller_conversation_update_blocked]",
+        {
+          ...input.executionLogBase,
+          reason: "binding_update_conflict",
+          agentControllerRef: input.agentControllerRef,
+        }
+      );
+      return { bindingSource: null, updateApplied: false };
+    }
     console.info(
       "[core.openMeldDaemon.dispatch_execution.agent_controller_conversation_update_succeeded]",
       {
@@ -5001,12 +4923,19 @@ const persistAgentControllerConversationId = async (input: {
     });
   }
 };
-
+function resolveDeliveredThreadContext(
+  receipt: AgentTransportSpaceActionDeliveryReceipt,
+  sourceThreadContext: SpaceThreadContext | null
+): SpaceThreadContext | null {
+  return receipt.threadContext === undefined
+    ? sourceThreadContext
+    : receipt.threadContext;
+}
 const emitDispatchReplySignals = async (input: {
   agentControllerConversationId: string | null;
   attemptId: string;
   agentControllerRef: string;
-  db: D1Database;
+  db: PostgresDatabase;
   deliverAgentTransportSpaceAction?: AgentTransportSpaceActionDeliveryPort;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
@@ -5033,7 +4962,6 @@ const emitDispatchReplySignals = async (input: {
       executionContext: input.executionContext,
     });
   }
-
   const publicationPlan = resolveDispatchPublicationPlan({
     actorName: input.targetProfileName,
     dispatchMessage: input.dispatchMessage,
@@ -5041,7 +4969,6 @@ const emitDispatchReplySignals = async (input: {
     replyText: input.replyText,
     targetProfileName: input.targetProfileName,
   });
-
   if (publicationPlan.blockedExplicitAction) {
     await writeOpenMeldDaemonOpsDecision({
       db: input.db,
@@ -5057,7 +4984,6 @@ const emitDispatchReplySignals = async (input: {
       correlationId: input.dispatchMessage.dispatchId,
     }).catch(() => undefined);
   }
-
   const resultRef = publicationPlan.shouldArchive
     ? buildDispatchResultRef(input.dispatchMessage.dispatchId)
     : null;
@@ -5073,7 +4999,7 @@ const emitDispatchReplySignals = async (input: {
         })
       : null;
   let emittedSignal: SignalEnvelope | null = null;
-
+  let publishedThreadContext = input.dispatchMessage.threadContext ?? null;
   if (
     input.deliverAgentTransportSpaceAction &&
     (publicationPlan.kind === "message" ||
@@ -5100,6 +5026,10 @@ const emitDispatchReplySignals = async (input: {
       workingDirectory,
     });
     emittedSignal = emission.emittedSignal;
+    publishedThreadContext = resolveDeliveredThreadContext(
+      emission,
+      publishedThreadContext
+    );
   } else if (publicationPlan.kind === "message") {
     emittedSignal = await emitDispatchTextReplySignal({
       ...input,
@@ -5180,6 +5110,7 @@ const emitDispatchReplySignals = async (input: {
       executionLogBase: input.executionLogBase,
       archivedMessageEnvelope,
       plan: publicationPlan,
+      publishedThreadContext,
       recordPublicationProjection: input.recordPublicationProjection,
       runtimeOutput: payload.output,
       targetProfileName: input.targetProfileName,
@@ -5209,7 +5140,6 @@ const emitDispatchReplySignals = async (input: {
         ? "reply_published"
         : "invalid_space_action",
   };
-
   function resolvePublicationMessageEnvelopeMode(input: {
     payload: OpenMeldDaemonTaskResultEnvelope["payload"];
     publicationPlan: DispatchPublicationPlan;
@@ -5229,14 +5159,18 @@ const emitDispatchReplySignals = async (input: {
     return "synthesized";
   }
 };
-
 const emitSystemNoticeReplySignal = async (input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   finalOutcomeAuthority?: FinalOutcomeWriteAuthority;
-  plan: Extract<DispatchPublicationPlan, { kind: "system_notice" }>;
+  plan: Extract<
+    DispatchPublicationPlan,
+    {
+      kind: "system_notice";
+    }
+  >;
   resultRef: string | null;
   targetProfileName: string | null;
   agentControllerConversation: AgentControllerConversationRef | null;
@@ -5257,7 +5191,6 @@ const emitSystemNoticeReplySignal = async (input: {
       finalReplySettled: true,
     };
   }
-
   let shouldRollbackReplyClaim = replyClaimState === "claimed";
   try {
     const requestContext = buildDispatchSystemRequestContext({
@@ -5325,19 +5258,23 @@ const emitSystemNoticeReplySignal = async (input: {
     throw error;
   }
 };
-
 const emitStatusReplySignal = async (input: {
   agentControllerConversationId: string | null;
   attemptId: string;
   agentControllerRef: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionContext: DispatchExecutionContext;
   finalOutcomeAuthority?: FinalOutcomeWriteAuthority;
   agentControllerConversation: AgentControllerConversationRef | null;
   workingDirectory: string | null;
-  plan: Extract<DispatchPublicationPlan, { kind: "status" }>;
+  plan: Extract<
+    DispatchPublicationPlan,
+    {
+      kind: "status";
+    }
+  >;
   resultRef: string | null;
   targetOwnerUserId: string;
   profileHandle: string | null;
@@ -5359,7 +5296,6 @@ const emitStatusReplySignal = async (input: {
       finalReplySettled: true,
     };
   }
-
   let shouldRollbackReplyClaim = replyClaimState === "claimed";
   const targetProfileId =
     input.plan.targetProfileId ??
@@ -5377,7 +5313,6 @@ const emitStatusReplySignal = async (input: {
       agentControllerConversation: input.agentControllerConversation,
       workingDirectory: input.workingDirectory,
     });
-
     const requestContext = buildDispatchReplyContext({
       message: input.dispatchMessage,
       targetProfileName: input.targetProfileName,
@@ -5432,7 +5367,6 @@ const emitStatusReplySignal = async (input: {
     throw error;
   }
 };
-
 const emitConversationContinuityWarningIfNeeded = async (input: {
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
@@ -5486,13 +5420,11 @@ const emitConversationContinuityWarningIfNeeded = async (input: {
     );
   }
 };
-
 const toTelemetryTimestamp = (value: unknown): number | null => {
   return typeof value === "number" && Number.isInteger(value) && value >= 0
     ? value
     : null;
 };
-
 const resolveLifecyclePhaseEnteredAtMs = (
   lifecycle: RuntimeTransportDispatchLifecycleSnapshot
 ): number | null => {
@@ -5507,7 +5439,6 @@ const resolveLifecyclePhaseEnteredAtMs = (
       return lifecycle.createdAtMs;
   }
 };
-
 const isLifecycleFailureReason = (reasonCode: string): boolean => {
   return (
     reasonCode === "daemon.delivery.execution_stalled" ||
@@ -5515,7 +5446,6 @@ const isLifecycleFailureReason = (reasonCode: string): boolean => {
     reasonCode === "daemon.delivery.start_timeout"
   );
 };
-
 const normalizeRuntimeTransportRouteErrorCode = (
   reasonCode: string
 ): string => {
@@ -5527,7 +5457,6 @@ const normalizeRuntimeTransportRouteErrorCode = (
   }
   return reasonCode;
 };
-
 const normalizeRuntimeTransportDeliveryErrorCode = (
   reasonCode: string | undefined
 ): string => {
@@ -5536,27 +5465,28 @@ const normalizeRuntimeTransportDeliveryErrorCode = (
   }
   return reasonCode;
 };
-
 const normalizeRuntimeTransportWaitErrorCode = (reasonCode: string): string => {
   if (reasonCode === "daemon.session.stale_lease") {
     return "stale_lease_result_rejected";
   }
   return reasonCode;
 };
-
 const resolveDispatchExecutionErrorCode = (error: unknown): string => {
   if (error && typeof error === "object") {
-    const code = (error as { code?: unknown }).code;
+    const code = (
+      error as {
+        code?: unknown;
+      }
+    ).code;
     if (typeof code === "string" && code.trim().length > 0) {
       return code.trim();
     }
   }
   return "dispatch.execution_failed";
 };
-
 export const emitDispatchReplyingHintSignal = async (input: {
-  db: D1Database;
-  localStateDb: D1Database | null;
+  db: PostgresDatabase;
+  localStateDb: PostgresDatabase | null;
   env: CoreBindings;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   targetProfileName: string | null;
@@ -5584,7 +5514,6 @@ export const emitDispatchReplyingHintSignal = async (input: {
     );
     return "claim_failed";
   }
-
   if (hintClaimState !== "claimed") {
     if (hintClaimState === "missing_ledger_row") {
       console.warn(
@@ -5599,7 +5528,6 @@ export const emitDispatchReplyingHintSignal = async (input: {
     }
     return "already_active";
   }
-
   const hintText = buildReplyingHintText(targetProfileLabel);
   const runtimeDeviceDisplayName = input.localStateDb
     ? await readReplyingHintRuntimeDeviceDisplayName({
@@ -5618,7 +5546,6 @@ export const emitDispatchReplyingHintSignal = async (input: {
       targetProfileName: input.targetProfileName,
     });
   };
-
   let emitError: unknown | null = null;
   try {
     await emitReplyingHint();
@@ -5641,7 +5568,6 @@ export const emitDispatchReplyingHintSignal = async (input: {
       );
     }
   }
-
   try {
     await rollbackReplyingHintEmissionClaim({
       db: input.db,
@@ -5659,7 +5585,6 @@ export const emitDispatchReplyingHintSignal = async (input: {
       }
     );
   }
-
   console.warn(
     "[core.openMeldDaemon.dispatch_queue.replying_hint_emit_failed]",
     {
@@ -5671,10 +5596,9 @@ export const emitDispatchReplyingHintSignal = async (input: {
   );
   return "emit_failed";
 };
-
 async function readReplyingHintRuntimeDeviceDisplayName(input: {
-  db: D1Database;
-  localStateDb: D1Database;
+  db: PostgresDatabase;
+  localStateDb: PostgresDatabase;
   message: OpenMeldDaemonDispatchQueueMessage;
 }): Promise<string | null> {
   try {
@@ -5705,14 +5629,13 @@ async function readReplyingHintRuntimeDeviceDisplayName(input: {
     return null;
   }
 }
-
 const resolveEffectiveTargetBindingSnapshot = async (input: {
   authRpc?: CoreBindings["OPENMELD_AUTH_WORKER"];
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
   timing?: SpaceBootstrapTimingCollector;
 }): Promise<ResolvedTargetBindingSnapshotResult> => {
-  const localStateDbHandle = localStateDb(input.env);
+  const localStateDbHandle = getPostgresDatabase(input.env);
   if (!localStateDbHandle) {
     return {
       ok: false,
@@ -5723,7 +5646,6 @@ const resolveEffectiveTargetBindingSnapshot = async (input: {
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     };
   }
-
   const dispatchOwnerUserId =
     input.message.dispatchOwner?.kind === "owner_account"
       ? normalizeOptionalText(input.message.dispatchOwner.id)
@@ -5771,7 +5693,6 @@ const resolveEffectiveTargetBindingSnapshot = async (input: {
         ownerResolution.targetProfileIdentityVerdict,
     };
   }
-
   try {
     let coreBindingSnapshot: EffectiveTargetBindingSnapshot | undefined;
     if (
@@ -5830,7 +5751,6 @@ const resolveEffectiveTargetBindingSnapshot = async (input: {
     };
   }
 };
-
 const resolveHostedStoredAgentControllerRefStatus = (
   agentControllerRef: AgentProfileBindingRecord["agentControllerRef"]
 ) => {
@@ -5840,9 +5760,8 @@ const resolveHostedStoredAgentControllerRefStatus = (
   }
   return parsedAgentControllerRef ? ("stale" as const) : ("malformed" as const);
 };
-
 const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
-  db?: D1Database;
+  db?: PostgresDatabase;
   message: OpenMeldDaemonDispatchQueueMessage;
   ownerUserId: string | null;
   owner: AgentProfileBindingRecord["owner"];
@@ -5850,7 +5769,6 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
   if (!input.db) {
     return undefined;
   }
-
   const binding = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.message.targetProfileId,
     db: input.db,
@@ -5872,7 +5790,6 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
       ownerUserId: input.ownerUserId,
     };
   }
-
   const runtimeKind = binding.runtimeKind ?? "openmeld_service";
   if (runtimeKind === "hosted_remote_agent") {
     if (!isPersonalRemoteAgentBinding(binding)) {
@@ -5960,7 +5877,6 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
           catalog: readModelCatalog(),
         })
       : null;
-
   return {
     bindingState: "bound",
     bindingEnabled,
@@ -5976,7 +5892,6 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
     runtimeKind,
   };
 };
-
 function parseHostedRuntimeIdentity(
   value: string | null | undefined
 ): HostedCenterAgentRuntimeIdentity | null {
@@ -5991,7 +5906,6 @@ function parseHostedRuntimeIdentity(
     return null;
   }
 }
-
 type TargetBindingOrganizationScopeResult =
   | {
       ok: true;
@@ -6009,7 +5923,6 @@ type TargetBindingOrganizationScopeResult =
         | typeof OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
         | typeof OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal;
     };
-
 export const resolveTargetBindingOrganizationScope = async (input: {
   bindingId: string | null;
   env: CoreBindings;
@@ -6024,8 +5937,7 @@ export const resolveTargetBindingOrganizationScope = async (input: {
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     };
   }
-
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return {
       ok: false,
@@ -6035,7 +5947,6 @@ export const resolveTargetBindingOrganizationScope = async (input: {
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     };
   }
-
   try {
     const organizationIdSnapshot = normalizeOptionalText(
       input.message.organizationId
@@ -6060,18 +5971,21 @@ export const resolveTargetBindingOrganizationScope = async (input: {
       );
     }
     const row = await db
-      .prepare(
-        organizationIdSnapshot
+      .query<{
+        organization_id?: string | null;
+        profile_organization_id: string | null;
+      }>({
+        text: organizationIdSnapshot
           ? `
           SELECT
             profiles.organization_id AS profile_organization_id
-          FROM openMeldDaemon_agent_profile_bindings AS bindings
-          LEFT JOIN openmeld_profiles AS profiles
+          FROM "openmeld"."openMeldDaemon_agent_profile_bindings" AS bindings
+          LEFT JOIN "openmeld"."openmeld_profiles" AS profiles
             ON profiles.profile_id = bindings.agent_profile_id
             AND profiles.profile_kind = 'agent'
             AND profiles.status = 'active'
-          WHERE bindings.binding_id = ?
-            AND bindings.agent_profile_id = ?
+          WHERE bindings.binding_id = $1
+            AND bindings.agent_profile_id = $2
             AND bindings.binding_state = 'enabled_primary'
           LIMIT 1
         `
@@ -6079,28 +5993,25 @@ export const resolveTargetBindingOrganizationScope = async (input: {
           SELECT
             spaces.organization_id AS organization_id,
             profiles.organization_id AS profile_organization_id
-          FROM space_index_spaces AS spaces
-          LEFT JOIN openMeldDaemon_agent_profile_bindings AS bindings
-            ON bindings.binding_id = ?
-            AND bindings.agent_profile_id = ?
+          FROM "openmeld"."space_index_spaces" AS spaces
+          LEFT JOIN "openmeld"."openMeldDaemon_agent_profile_bindings" AS bindings
+            ON bindings.binding_id = $1
+            AND bindings.agent_profile_id = $2
             AND bindings.binding_state = 'enabled_primary'
-          LEFT JOIN openmeld_profiles AS profiles
+          LEFT JOIN "openmeld"."openmeld_profiles" AS profiles
             ON profiles.profile_id = bindings.agent_profile_id
             AND profiles.profile_kind = 'agent'
             AND profiles.status = 'active'
-          WHERE spaces.space_id = ?
+          WHERE spaces.space_id = $3
           LIMIT 1
-        `
-      )
-      .bind(
-        input.bindingId,
-        input.message.targetProfileId,
-        ...(organizationIdSnapshot ? [] : [input.message.spaceId])
-      )
-      .first<{
-        organization_id?: string | null;
-        profile_organization_id: string | null;
-      }>();
+        `,
+        values: [
+          input.bindingId,
+          input.message.targetProfileId,
+          ...(organizationIdSnapshot ? [] : [input.message.spaceId]),
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
     const organizationId =
       organizationIdSnapshot ?? normalizeOptionalText(row?.organization_id);
     if (!organizationId) {
@@ -6161,10 +6072,9 @@ export const resolveTargetBindingOrganizationScope = async (input: {
     };
   }
 };
-
 const resolveTargetProfileIsCurrentCenterAgent = async (input: {
   bindingId: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   executionLogBase: DispatchExecutionLogBase;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -6186,7 +6096,6 @@ const resolveTargetProfileIsCurrentCenterAgent = async (input: {
     );
     return false;
   }
-
   try {
     const designation = await readCenterAgentDesignationRecord({
       db: input.db,
@@ -6207,7 +6116,6 @@ const resolveTargetProfileIsCurrentCenterAgent = async (input: {
     return false;
   }
 };
-
 type TargetProfileOwnerResolution =
   | {
       ok: true;
@@ -6224,11 +6132,9 @@ type TargetProfileOwnerResolution =
       targetOwnerUserId?: string;
       targetProfileIdentityVerdict?: TargetProfileIdentityVerdict;
     };
-
 type ResolveProfileByIdRpc = NonNullable<
   NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>["resolveProfileById"]
 >;
-
 const resolveCurrentTargetProfileOwner = async (input: {
   authRpc?: CoreBindings["OPENMELD_AUTH_WORKER"];
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -6288,7 +6194,6 @@ const resolveCurrentTargetProfileOwner = async (input: {
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
     };
   }
-
   const ownerUserId = normalizeOptionalText(result.profile.ownerUserId);
   if (
     result.profile.managedRole === "center_agent" &&
@@ -6309,7 +6214,6 @@ const resolveCurrentTargetProfileOwner = async (input: {
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     };
   }
-
   const dispatchOwner = input.message.dispatchOwner;
   if (dispatchOwner?.kind === "owner_account") {
     const dispatchOwnerId = normalizeOptionalText(dispatchOwner.id);
@@ -6323,23 +6227,19 @@ const resolveCurrentTargetProfileOwner = async (input: {
       };
     }
   }
-
   return {
     ok: true,
     ownerUserId,
     owner: { id: ownerUserId, kind: "owner_account" },
   };
 };
-
 const normalizeText = (value: unknown): string => {
   return String(value ?? "").trim();
 };
-
 const normalizeOptionalText = (value: unknown): string | null => {
   const normalized = normalizeText(value);
   return normalized.length > 0 ? normalized : null;
 };
-
 const toErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;

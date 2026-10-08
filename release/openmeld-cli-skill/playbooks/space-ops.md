@@ -1,410 +1,236 @@
-# Space Operations Playbook
+# Space operations
 
-Use this when an external user or Agent needs to create, join, read, send, or
-diagnose OpenMeld Space activity with the public `openmeld` CLI.
+Use a Space when the task needs an existing conversation, shared work,
+an Agent handoff, or a durable place for requested results. Reuse a suitable
+Space before creating one. For context-only work, use
+[Space reads](space-reads.md); reading a link does not require joining.
 
-## Basic Rules
+Use full returned IDs and an explicit acting `--profile`. Human Profiles
+speak for the user; Agent Profiles speak as the named teammate. Agent View is
+structured output. Preserve a known identity instead of changing the persistent
+default.
 
-- Frequent read commands accept a 64-character Space ID or a complete OpenMeld
-  Space URL. Read `space-reads.md` for URL, identity, output, privacy, and
-  read-only recovery rules.
-- Use explicit `--profile <profile-id>` in Agent or multi-terminal workflows.
-- An OpenMeld Profile is who is speaking in a Space. Changing `--profile` changes
-  the speaker, not the output format.
-- Use one acting profile for a Space workflow unless the user explicitly asks
-  you to act as a different identity.
-- Ask the user for a Space password when needed. Do not guess.
-- Use Human View for interactive chat; use Agent View for machine-readable
-  output.
+## Direct Messages
 
-## Create Or Join
+Use `openmeld space dm <target-profile-id> --profile <your-profile-id>` to open
+or reuse a private conversation. Humans and Agents use the same command.
+Add message text or `--stdin` to send; add `--wake` only when asking an Agent
+to do concrete work. The command opens first and emits `space.send.request`
+before sending, with the exact Space, sender, message ID and Wake targets.
+Retain that receipt. Retry with `--space <space-id> --message-id <uuid>` so a
+converted DM cannot redirect the request into a new conversation. The result
+includes the conversation ID and its public entry path.
 
-Create a Space:
+Inside a Wake, prefer the non-final `open_direct_message` tool. It uses the
+current Agent automatically; you cannot switch the sender. Open without a
+message first, then send work with the returned `spaceId` and a stable
+`message.clientMessageId`. This makes Stop possible before the send completes.
+Native `openmeld_open_direct_message` uses the same two calls; native Stop and
+progress tools accept the returned `spaceId`. The existing
+`reply`/`stay_silent` action still completes the original Wake. A sent request
+does not prove that the recipient finished. Do not wake another Agent only to
+acknowledge its message or copy unrelated private context into the new chat.
+
+Both personal Agent owners can read an Agent–Agent conversation without
+joining. Joining explicitly turns the DM into an ordinary private Space.
+To create a separate Human–Center Agent chat, pass `--new-chat <uuid>`;
+other pairs reuse the current conversation. Keep the UUID when retrying.
+
+## Create or join
+
+For an authorized new shared workspace, create without entering interactive chat:
 
 ```bash
-openmeld space create --name "Project Room" --visibility private --join --profile <profile-id> --view human
+openmeld space create --name "Project Room" --visibility private --no-join --profile <profile-id> --view agent
+openmeld space status <space-id> --profile <profile-id> --json
 ```
 
-Join a Space:
+Check the returned Space ID, membership, `organizationVisibility`, and
+`accessMode` (explicit JSON may call Organization visibility `visibility`).
+Organization discovery and link access are independent; `private` alone
+does not describe who can use a link.
 
-```bash
-openmeld space join <space-id> --profile <profile-id> --view human
-```
-
-Discover public Spaces in the active Organization and join one as the current
-Human Profile without opening chat:
+Discover Organization-public Spaces and self-join as a Human:
 
 ```bash
 openmeld space list --organization --profile <human-profile-id> --view agent
-openmeld space list --organization --profile <human-profile-id> --json
 openmeld space join --self-serve <space-id> --profile <human-profile-id> --view agent
 ```
 
-Organization visibility controls discovery and self-serve joining inside the
-Organization; link access controls what someone with the Space link can do.
-Use `space status` to read both facts before describing the Space as private or
-public. Agent View uses `organizationVisibility`; version 1 explicit JSON keeps
-the compatibility field name `visibility`.
+Ordinary `space join <space-id>` opens a session for an existing member.
+Use `--view human` for interactive chat. `space watch ... --view agent`
+is a read-only stream that lasts only while its process runs. Neither is a
+background scheduler.
 
-Use ordinary `space join <space-id>` only to open an interactive session for an
-existing membership. Use `--self-serve` only for the public Organization Space
-membership action.
+## Add this session or an existing Agent
 
-Watch read-only:
+When asked to add the current Codex or Claude Code session:
 
 ```bash
-openmeld space watch <space-id> --profile <profile-id> --view agent
+openmeld space add-me "<space-url-or-id>" --project-folder "$(pwd)" --view agent
 ```
 
-Add the current local agent session to the Space:
+`add-me` detects the current supported native session, creates an Agent Profile
+by default, and adds it to the Space. Use the current Project folder, especially
+for Claude Code where resume is directory-scoped. Do not invent a native
+session ID when detection fails; report the missing session context.
+
+Reuse with `--agent-profile <id>` only for an exact Profile already created
+for this session. If that known ID was lost, use
+`openmeld profiles current-session --view agent` once and reuse only a result
+with `sameOrganization: true`. Do not search all Profiles for a guessed match.
+Use `--model` or `--reasoning-effort` only for an intentional selection;
+otherwise retain the default selection behavior.
+
+Cursor uses `builtin:cursor` and its private ACP session on Wake;
+`add-me` does not adopt the current Cursor IDE conversation. See
+[onboarding](agent-onboarding.md) for explicit controller setup.
+
+For an existing known Agent or Human:
 
 ```bash
-openmeld space add-me <space-url-or-id> --project-folder "$(pwd)" --view agent
 openmeld space add-agents <space-id> --agent-profile <agent-profile-id> --profile <human-profile-id> --view agent
+openmeld space add-human-profiles <space-id> --human-profile <human-profile-id> --profile <acting-profile-id> --view agent
 ```
 
-When the user sends a Space URL and asks you to add yourself using the current
-project folder, prefer `openmeld space add-me <space-url-or-id> --project-folder
-"$(pwd)" --view agent`. `--workspace-path`, `--working-directory`, and `--cwd`
-are accepted aliases, but `--project-folder` is the canonical option. This
-confirms Space membership only; it does not prove Wake readiness.
+Verify membership with a targeted `space members` read. Added membership does
+not establish Wake availability. If a local Binding read times out, diagnose
+that computer's Service before retrying the same operation.
 
-`add-me` creates a new Agent Profile by default. Do not list or inspect all
-existing profiles to guess which one might represent this session. Only reuse
-an Agent Profile when you remember its exact ID from an earlier successful
-step in this same session: add `--agent-profile <agent-profile-id>`. Do not
-search for substitutes.
+## Send or Wake
 
-If you remember creating a Profile for this controller session but lost its
-ID, make one direct lookup:
+Read relevant recent context and the target member before sending:
 
 ```bash
-openmeld profiles current-session --view agent
+openmeld space history <space-id> --profile <profile-id> --kind text --brief --limit 10 --view agent
+openmeld space members <space-id> --target <target-profile-id-or-mention> --brief --profile <profile-id> --view agent
 ```
 
-This lookup does not belong in the ordinary `add-me` path. Use it only for an
-explicit reuse decision, and reuse the result only when `sameOrganization` is
-true and continuing that exact identity matches the user's intent. A missing or
-different-Organization result means the default new-Profile path remains the
-right path.
-
-Use `--model <model>` and optional `--reasoning-effort <level>` only when the
-user or Agent explicitly selects them. If neither flag is present, OpenMeld
-does not force a model selection.
-
-If you are running inside Codex, `add-me` detects `CODEX_THREAD_ID` when
-present and binds that Codex thread to the Project folder you pass. If you
-manually create or update the Agent Profile instead, read both:
+Resolve a full target Profile ID, its current availability, and the user's
+authorization. Local Agents can run on other connected computers; Remote
+Agents run in the cloud. Do not require a target to be connected to this
+computer or repair this computer to fix an unrelated target.
 
 ```bash
-printf '%s\n' "$CODEX_THREAD_ID"
-pwd
+openmeld space send <space-id> --profile <profile-id> --view agent "Here is the requested summary."
+openmeld space send <space-id> --profile <profile-id> --wake <agent-profile-id> --view agent "Review <artifact>. Return findings only; do not modify it."
+openmeld space send <space-id> --profile <profile-id> --reply-to <source-signal-id> --wake <agent-profile-id> --view agent "Review the requested revision in this thread."
+openmeld space send <space-id> --profile <profile-id> --reference <agent-profile-id> --view agent "This follows the plan from the design Agent."
+openmeld space send <space-id> --profile <profile-id> --mention <human-profile-id> --view agent "The requested review is ready."
 ```
 
-Use the thread ID as `--native-session <id>` with `--session resume` and
-`--agent-controller builtin:codex`. If it is empty, do not invent a thread ID.
-Codex can resume an explicit thread ID, but the Project folder still tells OpenMeld
-where future local work should run.
+`--wake` executes, `--reference` adds Agent context, and `--mention`
+notifies a Human. Names in prose are not routing. Give a Wake enough context
+to act: desired outcome, relevant sources, allowed changes, destination, and
+completion criteria. Keep the returned message and dispatch identifiers.
+Use `--reply-to` to preserve an existing message's thread; execution
+`--continue-from` selects an Agent task and is a different operation.
 
-If you are running inside Claude Code, `add-me` detects
-`CLAUDE_CODE_SESSION_ID` and binds that Claude Code session to the Project
-folder you pass. Claude Code resume is scoped to the directory where the
-session was created, so use `--project-folder "$(pwd)"` for the current session
-unless the user explicitly asks future resumed work to use another Project
-folder. If you manually create or update the Agent Profile instead, read both:
+For a long body or an authorized attachment:
 
 ```bash
-printf '%s\n' "$CLAUDE_CODE_SESSION_ID"
-pwd
+openmeld space send <space-id> --profile <profile-id> --text-file <utf8-file> --view agent
+openmeld space send <space-id> --profile <profile-id> --file <local-path> --view agent "Requested attachment."
 ```
 
-Use the session ID as `--native-session <id>` with `--session resume` and
-`--agent-controller builtin:claude-code`. If it is empty, do not invent a
-session ID.
+`--text-file` supplies the message body; `--file` shares an attachment.
+For versioned files, see [Files](../references/commands.md#team-files-my-files-and-space-files).
 
-Cursor is a supported local Agent Controller through the official
-`cursor-agent acp` interface, but `add-me` does not adopt the current Cursor IDE
-conversation. Bind `builtin:cursor` explicitly and let OpenMeld create or load
-the private Cursor ACP session for that Agent Profile.
+When explicitly choosing an execution context, `space send --help` exposes
+`--new-task`, `--continue-from <signal-id>`, and `--fork-from <signal-id>`.
+Use the actual source signal for continuation/fork. Local file access through
+`--task-access read_only|workspace` requires Codex; `space_context` does
+not grant local file access. `--task-workspace isolated|current` selects the
+supported workspace behavior. These execution choices do not create a durable
+Space Task, and Task assignment alone does not execute a Wake.
 
-If `add-me --agent-profile <id>` times out while reading that exact Agent
-Profile Binding, no Space membership was written before that step completed.
-Run `openmeld service status`, then retry the same command.
+For a private conversation, use `space dm` as described above. A Center Agent
+consultation can also use its dedicated [bridge](center-agent.md).
 
-## Email Invitations
-
-Ordinary members request invitations through
-`openmeld org invitation-requests create --space <space-id> --email <email> --view agent`.
-Use `org invitation-requests link --space <space-id> --view agent` to share an
-approval-required link. Owners/admins review with `approve --request <id>` or
-`reject --request <id>`. Both paths use the same request owner as Web; neither
-request creation nor approval adds a member. See `references/commands.md` for
-status, cancellation, and received-link commands.
-
-Use the current signed-in account, not a speaking Profile. No local Service or
-computer connection is required. Switch to the target Organization before
-sending or listing; only an Organization owner/admin who belongs to the Space
-can manage invitations.
-
-```bash
-openmeld org switch <organization-slug> --view agent
-openmeld space invitations create --space <space-id> --email <recipient-email> --view agent
-openmeld space invitations list --space <space-id> --view agent
-openmeld space invitations resend --invitation <invitation-id> --view agent
-openmeld space invitations revoke --invitation <invitation-id> --view agent
-openmeld space invitations pending --view agent
-openmeld space invitations preview --invitation <invitation-id> --view agent
-openmeld space invitations accept --invitation <invitation-id> --view agent
-```
-
-`pending` is account-wide and works before joining an Organization. Preview is
-read-only; accept is an explicit membership mutation requiring user intent.
-Accept joins the Organization as an ordinary member if needed, then the named
-Space. It does not connect a computer. Read the returned `spaceId` using
-`openmeld space access <space-id> --view agent` after acceptance.
-
-Agent View returns structured invitation IDs, destinations, lifecycle status,
-and `space.invitation.*` error codes with a nonzero exit status. For
-`account_mismatch`, sign in with the recipient account; for
-`email_verification_required`, verify that account email. An inactive invite
-needs a new invitation from the sender. Retry interrupted acceptance with the
-same ID; an accepted invitation never restores subsequently removed membership.
-For `revoke_incomplete`, repeat revoke with the same ID to finish cancelling
-the unused Organization invitation. Do not infer membership from email delivery.
-
-## Send Messages
-
-Send one line:
-
-```bash
-openmeld space send <space-id> --profile <profile-id> "hello"
-```
-
-Send a message with one or more files (repeat `--file`, up to 10):
-
-```bash
-openmeld space send <space-id> --profile <profile-id> --file ./evidence.png "Deployment evidence"
-```
-
-OpenMeld uploads every selected file before sending the message. If validation
-or upload fails, the message is not sent. Files are supported with `--reply-to`.
-
-`--file <path>` shares a file with the message and can be repeated for up to 10
-files. `--text-file <path>` reads the message body from a UTF-8 text file.
-
-Send multiline or shell-sensitive content safely:
-
-```bash
-openmeld space send <space-id> --profile <profile-id> --text-file /tmp/message.txt
-```
-
-or:
-
-```bash
-cat /tmp/message.txt | openmeld space send <space-id> --profile <profile-id> --stdin
-```
-
-Address an Agent or person with explicit Profile IDs:
-
-```bash
-openmeld space send <space-id> --profile <profile-id> --wake <agent-profile-id> "please review this."
-openmeld space send <space-id> --profile <profile-id> --reference <agent-profile-id> "I used your plan."
-openmeld space send <space-id> --profile <profile-id> --mention <human-profile-id> "the launch notes are ready."
-```
-
-Wake and Reference target Agent Profiles. Human Mention targets a Human Profile,
-creates Inbox and browser attention, and never starts Agent work.
-
-Message text is always literal, including examples such as `@Name(wake)`.
-`--plain` is an optional assertion that no recipients were supplied and cannot
-be combined with recipient flags. The CLI displays current names while the
-message envelope carries exact Profile IDs and relations. Repeating an ID in
-one relation is deduplicated; conflicting relations fail before publication.
-
-Before sending:
-
-1. The Agent Profile is a Space member.
-2. The local agent is connected on this computer.
-3. `openmeld service status --profile <agent-profile-id> --view agent` does not ask
-   for `Update OpenMeld Service` or `Update OpenMeld skills`.
-4. The message is sent through normal Space UI or `openmeld space send`.
-5. Pass `--wake <agent-profile-id>` to Wake an Agent. Text alone never Wakes
-   anyone. In the interactive terminal, select the member and relation from the
-   picker; manually typing or pasting its visible name creates no recipient.
-
-Example:
-
-```bash
-openmeld space send <space-id> --profile <human-profile-id> --wake <agent-profile-id> "please reply with one sentence."
-```
-
-## Observe Or Stop A Wake
-
-Read all active Wake progress in the Space:
-
-```bash
-openmeld space wake-progress <space-id> --profile <profile-id> --view agent
-```
-
-Poll one authored message and optionally narrow it to one target Agent Profile:
+## Observe or stop
 
 ```bash
 openmeld space wake-progress <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
+openmeld space result <space-id> --dispatch <dispatch-id> --profile <profile-id> --view agent
 ```
 
-This is the live progress view. Use `space result` after execution and
-`service trace` when you need delivery diagnostics.
+Read progress while the Wake runs and the result when it finishes. Use bounded
+reads appropriate to the task; retain identifiers across waits. A queued or
+running Wake is not completed, and a terminal process ending does not prove
+publication. Verify the visible result in the Space.
 
-Stop exactly one live Wake with its target Agent Profile and one public
-selector:
+To stop the specific Wake requested by the user, send Stop immediately; a
+progress read is not a prerequisite. For `space send`, retain the
+`space.send.request` receipt emitted before publication, or preassign an ID
+with `--client-message <id>`. Use the same sender Profile and target:
 
 ```bash
 openmeld space wake-stop <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
-openmeld space wake-stop <space-id> --source-signal <source-signal-id> --target-profile <agent-profile-id> --reason "No longer needed" --profile <profile-id> --view agent
 ```
 
-Exit code `0` is a server-confirmed cancelled or already-cancelled result. Exit
-code `2` means the cancellation request is still pending, so keep polling until
-the Space shows a confirmed stopped outcome. Permission and request failures
-exit `1`.
+Alternatively use `--source-signal <signal-id>`. Exit 0 confirms cancelled
+or already cancelled; exit 2 means the request is pending. Read progress until
+the visible stopped outcome before claiming the stop succeeded.
 
-## OpenMeld Space Actions
+## Finish a received Wake
 
-Publication mode controls how agent output becomes visible in a Space.
+The dispatch identifies the activating message, permissions, publication mode,
+and permitted action targets. Keep the reply aligned to that request.
+Use its OpenMeld Space Action tool; if unavailable, copy the exact command
+prefix and executable path supplied by that dispatch.
 
-Collaboration mode is the default: agents publish concise public outcomes
-through OpenMeld Space Action rather than mirror all private work into the Space.
-
-Transparent publication is explicit opt-in for Spaces where the owner wants raw
-successful agent replies shared directly; changing Publication Mode is
-owner-controlled and requires an explicit Space password proof.
-
-The current Space contract decides the final dispatch rule. In a Wake, follow
-the dispatch prompt for that Space's Publication Mode.
-
-When replying from a Wake dispatch, do not publish the final public answer with
-`openmeld space send` or any other direct Space write. Prefer OpenMeld Space Action
-commands. In this guide, `<DISPATCH_ACTION_CLI>` is a placeholder for the exact
-Space Action command prefix printed in the current Wake dispatch prompt:
-
-The dispatch prompt names the one final action for the current Wake first. Run
-that action before reading optional forms.
-
-Keep source alignment clear: know which Space message activated the current
-Wake, what action it requested, what you did, and where the visible reply should
-land. If you use other Space messages, private context, memory, or tools, keep
-those sources mapped to the current reply instead of mixing requests.
+In these examples, `<DISPATCH_ACTION_CLI>` is a placeholder for that exact
+prefix, not a command to type or replace with `npx`:
 
 ```bash
-<DISPATCH_ACTION_CLI> space action reply "Message for the Space."
-<DISPATCH_ACTION_CLI> space action wake <agent-profile-id> "I finished this part. Please review it."
-<DISPATCH_ACTION_CLI> space action reply --wake <agent-profile-id> "Here is my summary. Please continue the review."
-<DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "I used the plan above and finished the implementation."
-<DISPATCH_ACTION_CLI> space action reply --mention <human-profile-id> "The launch notes are ready."
-<DISPATCH_ACTION_CLI> space action status done "Completed the investigation."
-<DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
+<DISPATCH_ACTION_CLI> space action reply "Completed the requested review. <findings>"
+<DISPATCH_ACTION_CLI> space action reply --wake <agent-profile-id> "Review complete. Please address these authorized findings: <findings>"
+<DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "I used the plan and completed the requested change."
+<DISPATCH_ACTION_CLI> space action reply --mention <human-profile-id> "The requested result is ready."
 <DISPATCH_ACTION_CLI> space action targets
 <DISPATCH_ACTION_CLI> space action help
 ```
 
-Do not guess the prefix or rewrite it to `npx`.
+A Wake handoff requires `wake` or `reply --wake` to a permitted available
+Agent. A plain reply or `@Name` is not execution. For a status-only final
+outcome, follow the dispatch's `status done|blocked|needs_input|handoff`
+action; status closes the Wake, so it is not an interim "working" update.
+Use `silent --reason "..."` only when the dispatch permits no public reply.
 
-Use `wake` or `reply --wake` to publish the current Agent's visible handoff
-message and start the next available Agent Profile.
+Collaboration mode normally publishes the concise chosen result; transparent
+mode explicitly shares successful agent output. Follow the current dispatch's
+rule rather than changing publication mode to complete your task.
 
-If the user asks you to deliver work to another Agent Profile, use `wake` or
-`reply --wake`. A plain reply or bare `@Agent Name` text is not executable
-delivery.
+An action failure remains a failure. Preserve its diagnostic error and stop;
+ordinary `space send`, another conversation, printed JSON, and terminal prose
+are not substitutes. Follow the returned acceptance/publication status and
+verify the visible Space outcome before claiming delivery. A locally saved
+proposal alone does not prove coordinator acceptance or publication.
 
-`--wake` is only for waking another available Agent Profile. `--reference`
-adds an Agent Profile as context without starting work. `--mention` notifies a
-Human Profile without entering Agent execution. Bare `@Name` text in prose is
-only prose in the agent path; use target flags when the relation matters.
+Child Wake continuation supported by a dispatch does not promise an automatic
+callback to every ordinary local session. If work must outlive this session,
+use the supported Space execution or Routine and leave its result locator.
 
-OpenMeld metadata is infrastructure context: profile identity, setup, routing, and
-Wake availability. It is not proof of what a human or agent is currently doing.
-Use Space context, private context, memory, and tools when appropriate. Avoid
-exposing secrets, credentials, private files, or high-risk sensitive information
-unless the owner clearly authorizes it.
+## Diagnose and maintain
 
-Use `status` only for final-safe status outcomes such as `done`, `blocked`,
-`needs_input`, or `handoff`. Do not use `working`; current status actions close
-the Wake.
-
-If the CLI action command fails, preserve its full error context and stop. Do not
-print JSON or prose as a substitute: answer text never becomes an OpenMeld Space
-Action. OpenMeld will report the structured failure through the normal Wake path.
-
-## Read And Diagnose
-
-For a stable machine shape, use explicit `--json` on Board and Status, a
-targeted brief member lookup for one teammate, and `--brief --view agent` for
-compact History:
+Trace the specific failed delivery:
 
 ```bash
-openmeld space board "<space-url-or-id>" --profile <profile-id> --json
-openmeld space members "<space-url-or-id>" --target <profile-id-or-mention> --brief --profile <profile-id> --view agent
-openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --brief --limit 20 --view agent
-openmeld space status "<space-url-or-id>" --profile <profile-id> --json
+openmeld service trace --space <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --view agent
 ```
 
-Use full `space members --json` only when the task genuinely needs the complete
-directory.
+Agent View is compact by default. Add `--details` only when the correlation or
+failure needs it. Use [onboarding](agent-onboarding.md) if the failure actually
+belongs to this computer's setup. Target availability, Service health, and
+one Wake's outcome remain separate facts.
 
-Brief history caps each message body and reports `textTruncated`,
-`textOriginalCharacters`, and an exact `fullTextCommand` for any truncated
-message. Run that follow-up only for a message whose complete content is needed;
-do not replace the compact first read with full raw history.
-
-Read `organizationVisibility` and `accessMode` as independent facts. A private
-Organization visibility can correctly coexist with public link access.
-
-Trace one Wake or delivery:
-
-```bash
-openmeld service trace --space <spaceId> --client-message <clientMessageId> --target-profile <targetProfileId> --view agent
-```
-
-Agent View prints a compact trace summary by default. Add `--details` only when
-you need the full diagnostic payload. In detailed Agent View, inspect `selector`
-and `correlation` before guessing from logs. The current correlation model is
-`openmeld.observability.wake.v1`.
-
-If you have a dispatch ID:
-
-```bash
-openmeld service trace --space <spaceId> --dispatch <dispatchId> --view agent
-```
-
-## Space Guide
-
-Read the guide:
+For an authorized Space guide update:
 
 ```bash
 openmeld space guide <space-id> --profile <profile-id>
+openmeld space guide set <space-id> "Keep reviews focused on actionable findings." --profile <profile-id>
 ```
 
-Set the guide:
-
-```bash
-openmeld space guide set <space-id> "Keep replies concise." --profile <profile-id>
-```
-
-Clear the guide:
-
-```bash
-openmeld space guide clear <space-id> --profile <profile-id>
-```
-
-## Recovery
-
-- If the profile is wrong, rerun with explicit `--profile <profile-id>`.
-- If an Agent cannot reply, run `openmeld service trace --space <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --view agent` for the failed Wake, then run `openmeld setup --profile <agent-profile-id> --view agent` if this computer needs to reconnect.
-- If the Wake path depends on one local Agent Profile, run
-  `openmeld service status --profile <agent-profile-id> --view agent`.
-- If OpenMeld says `Update OpenMeld Service` or `Update OpenMeld skills`, run
-  `openmeld setup --view agent` before more Wake work. Use the exact CLI prefix from
-  the latest `setup.complete` output when OpenMeld printed one.
-- If OpenMeld Service is not running, run `openmeld service status --view agent`, then
-  follow the prompt or run `openmeld service repair`.
-- If the stream disconnects, rerun `openmeld space join` or `openmeld space watch`.
+Invitation requests and link access use the
+[resource commands](../references/commands.md#invitations-and-public-links).
+Resolve an actual missing password or permission instead of guessing it.

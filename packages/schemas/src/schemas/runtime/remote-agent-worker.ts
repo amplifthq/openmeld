@@ -13,6 +13,7 @@ import {
 } from "../http/space-files";
 import {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
+  agentStreamRecoveryPartSchema,
   agentStreamToolPartSchema,
 } from "../protocol/agent-stream";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
@@ -48,6 +49,70 @@ const REMOTE_AGENT_LOGICAL_CONVERSATION_ID_MAX_CHARS = 1024;
 const REMOTE_AGENT_RUNTIME_CONVERSATION_ID_MAX_CHARS = 2048;
 const contentHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
+
+/** Diagnostic evidence only; never admission, retry or execution authority. */
+export const remoteAgentAdmissionAttemptEvidenceSchema = z.strictObject({
+  v: z.literal(1),
+  deliveryId: nonEmptyStringSchema,
+  dispatchId: nonEmptyStringSchema,
+  idempotencyKey: nonEmptyStringSchema,
+  attempt: z.number().int().positive(),
+  deliveryCreatedAtMs: z.number().int().nonnegative(),
+  currentAttemptSubmittedAtMs: z.number().int().nonnegative().nullable(),
+  observedAtMs: z.number().int().nonnegative(),
+  retryDueAtMs: z.number().int().nonnegative().nullable(),
+  elapsedMs: z.number().int().nonnegative().optional(),
+  accepted: z.boolean().optional(),
+  submissionId: nonEmptyStringSchema.optional(),
+  outcome: z
+    .enum([
+      "acknowledged",
+      "rejected",
+      "outcome_unknown",
+      "protocol_error",
+      "receiver_unavailable",
+      "unexpected_error",
+    ])
+    .optional(),
+  phase: z.enum([
+    "preparing",
+    "sending",
+    "acknowledged",
+    "rejected",
+    "outcome_unknown",
+    "protocol_error",
+    "receiver_unavailable",
+    "unexpected_error",
+    "timed_out",
+    "retry_scheduled",
+    "retry_claimed",
+    "postprocessing_started",
+    "postprocessing_finished",
+    "admission_finished",
+  ]),
+});
+
+/** Correlated timings from existing continuation owners, never task state. */
+export const remoteAgentTaskContinuationEvidenceSchema = z.strictObject({
+  v: z.literal(1),
+  idempotencyKey: nonEmptyStringSchema,
+  subscriptionId: nonEmptyStringSchema,
+  observedAtMs: z.number().int().nonnegative(),
+  subscriptionCreatedAtMs: z.number().int().nonnegative().optional(),
+  enqueuedAtMs: z.number().int().nonnegative().optional(),
+  elapsedMs: z.number().int().nonnegative().optional(),
+  stage: z.enum([
+    "queue_received",
+    "claimed",
+    "preparation",
+    "turn_context",
+    "memory",
+    "skill_selection",
+    "watchdog_enqueue",
+    "source_dispatch",
+  ]),
+  event: z.enum(["started", "finished", "failed"]),
+});
 
 /** A personal Agent's Space conversation must not share a runtime with another Agent. */
 export function buildPersonalRemoteAgentConversationId(input: {
@@ -240,6 +305,8 @@ export const REMOTE_AGENT_RPC_OPERATIONS = {
   RECEIVE_EXECUTION_INPUT: "receiveExecutionInput",
   READ_EXECUTION_INPUT: "readExecutionInput",
   READ_EXECUTION_STATE: "readExecutionState",
+  READ_ADMISSION: "readAdmission",
+  READ_ADMISSION_STOP: "readAdmissionStop",
   RECONCILE_EXECUTION: "reconcileExecution",
   READ_RUNTIME_DIAGNOSTICS: "readRuntimeDiagnostics",
   READ_USAGE_DIAGNOSTICS: "readUsageDiagnostics",
@@ -297,6 +364,30 @@ export const remoteAgentWorkerSubmitMessagesResultSchema = z.strictObject({
   completedAt: z.number().finite().optional(),
   accepted: z.boolean(),
 });
+
+export const remoteAgentWorkerSubmitCapabilitiesRequestSchema = z.strictObject({
+  v: z.literal(1),
+});
+
+export const remoteAgentWorkerSubmitCapabilitiesSchema = z.strictObject({
+  v: z.literal(1),
+  taskId: z.literal(true),
+});
+
+/** A missing or unfinished receipt never proves that execution did not occur. */
+export const remoteAgentWorkerReadAdmissionResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({ v: z.literal(1), status: z.literal("not_found") }),
+    z.strictObject({ v: z.literal(1), status: z.literal("unconfirmed") }),
+    z.strictObject({
+      v: z.literal(1),
+      status: z.literal("found"),
+      ack: remoteAgentWorkerSubmitMessagesResultSchema.extend({
+        accepted: z.literal(false),
+        idempotencyKey: nonEmptyStringSchema,
+      }),
+    }),
+  ]);
 
 export const remoteAgentWorkerAdmissionRejectionCodeSchema = z.enum([
   "remote_agent.conversation_history_limit_exceeded",
@@ -395,6 +486,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   bindingId: nonEmptyStringSchema,
   triggerMessageId: nonEmptyStringSchema,
   dispatchId: nonEmptyStringSchema,
+  taskId: nonEmptyStringSchema.optional(),
   sourceClientMessageId: nullableNonEmptyStringSchema.optional(),
   idempotencyKey: nonEmptyStringSchema,
   // Deprecated compatibility field. Current workers ignore total execution
@@ -575,6 +667,36 @@ export const remoteAgentWorkerExecutionQuerySchema = z.strictObject({
   conversationId: optionalNonEmptyStringSchema,
 });
 
+// Native Stop intent is not an admission ACK or an execution lifecycle row.
+// It survives an absent submission and fences the original idempotency identity.
+export const remoteAgentWorkerAdmissionStopIntentSchema = z.strictObject({
+  v: z.literal(1),
+  organizationId: nonEmptyStringSchema,
+  spaceId: nonEmptyStringSchema,
+  idempotencyKey: nonEmptyStringSchema,
+  requestedAtMs: z.number().int().nonnegative(),
+  reason: nonEmptyStringSchema.max(512).nullable(),
+  summaryRecoveryId: optionalNonEmptyStringSchema,
+});
+
+// This read receipt proves only that the native admission fence exists. It is
+// neither an execution ACK nor evidence that an earlier external write settled.
+export const remoteAgentWorkerReadAdmissionStopResponseSchema = z.union([
+  z.strictObject({
+    v: z.literal(1),
+    status: z.literal("found"),
+    stopIntent: remoteAgentWorkerAdmissionStopIntentSchema,
+    summaryOnlySupported: z.literal(true).optional(),
+    summaryRecoveryFenceSupported: z.literal(true).optional(),
+  }),
+  z.strictObject({
+    v: z.literal(1),
+    status: z.literal("not_found"),
+    summaryOnlySupported: z.literal(true).optional(),
+    summaryRecoveryFenceSupported: z.literal(true).optional(),
+  }),
+]);
+
 export const remoteAgentWorkerExecutionStateSchema = z.strictObject({
   ...remoteAgentWorkerExecutionIdentitySchema,
   status: remoteAgentWorkerExecutionStatusSchema,
@@ -601,6 +723,7 @@ export const remoteAgentWorkerCancellationRequestSchema = z.strictObject({
   ...remoteAgentWorkerExecutionIdentitySchema,
   conversationId: optionalNonEmptyStringSchema,
   reason: nonEmptyStringSchema.max(512).optional(),
+  summaryRecoveryId: optionalNonEmptyStringSchema,
 });
 
 export const remoteAgentWorkerCancellationResponseSchema = z.union([
@@ -699,6 +822,7 @@ const remoteAgentRuntimeScheduleDiagnosticSchema = z.strictObject({
 });
 
 const remoteAgentRuntimeCallbackContextDiagnosticSchema = z.strictObject({
+  conversationCompaction: conversationCompactionMarkerSchema.optional(),
   callbackAttempts: z.number().int().nonnegative(),
   callbackCompletedAt: z.iso.datetime({ offset: true }).nullable(),
   callbackNextAttemptAt: z.iso.datetime({ offset: true }).nullable(),
@@ -754,6 +878,8 @@ export const remoteAgentTurnRuntimeEvidenceSchema = z.strictObject({
   firstProviderResponseHeadersAtMs: nullableNonNegativeIntegerSchema,
   firstVisibleContentAtMs: nullableNonNegativeIntegerSchema,
   lastModelCompletedAtMs: nullableNonNegativeIntegerSchema,
+  // Legacy wire name: counts completed agent prompt operations, including
+  // their tool loop. providerRequestCount counts individual provider requests.
   modelCallCount: z.number().int().nonnegative(),
   modelId: nullableNonEmptyStringSchema,
   providerAvailableToolCount: z.number().int().nonnegative(),
@@ -859,6 +985,12 @@ const remoteAgentStreamDeltaCallbackIdentitySchema = {
   dispatchId: nonEmptyStringSchema,
 };
 
+// Sent by the admitted native execution before it prepares model/tools/Computer.
+// This confirms the existing admission; it never starts or authorizes a new turn.
+export const remoteAgentCoreAdmissionCallbackSchema = z.strictObject({
+  ...remoteAgentStreamDeltaCallbackIdentitySchema,
+});
+
 const legacyRemoteAgentStreamDeltaCallbackBodySchema = z.strictObject({
   v: z.literal(1),
   streamId: nonEmptyStringSchema,
@@ -899,15 +1031,22 @@ export const remoteAgentStreamDeltaCallbackBodySchema = z.union([
   }),
 ]);
 
-export const remoteAgentStreamPartCallbackBodySchema = z.strictObject({
-  v: z.literal(1),
-  streamId: nonEmptyStringSchema,
-  sequence: z.number().int().positive(),
-  ...remoteAgentStreamDeltaCallbackIdentitySchema,
-  source: z.literal("flue.tool"),
-  part: agentStreamToolPartSchema,
-  observedAtMs: z.number().int().nonnegative(),
-});
+export const remoteAgentStreamPartCallbackBodySchema = z
+  .strictObject({
+    v: z.literal(1),
+    streamId: nonEmptyStringSchema,
+    sequence: z.number().int().positive(),
+    ...remoteAgentStreamDeltaCallbackIdentitySchema,
+    source: z.enum(["flue.tool", "flue.model_recovery"]),
+    part: z.union([agentStreamToolPartSchema, agentStreamRecoveryPartSchema]),
+    observedAtMs: z.number().int().nonnegative(),
+  })
+  .refine(
+    (value) =>
+      (value.source === "flue.model_recovery") ===
+      (value.part.type === "recovery"),
+    { message: "Stream part must match its source", path: ["source"] }
+  );
 
 const remoteAgentStreamLastSequenceSchema = z.number().int().nonnegative();
 const remoteAgentRetryAfterMsSchema = z

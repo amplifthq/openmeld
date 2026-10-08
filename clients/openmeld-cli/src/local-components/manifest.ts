@@ -38,6 +38,7 @@ import { hashBundledSkillAssets } from "../skills/bundled-assets";
 import { computeDirectoryContentHash } from "../skills/content-hash";
 import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
 import { loadSelectedSkillAssets } from "../skills/official-release";
+import { resolveLocalComponentsInstallationSource } from "./installation-source";
 import { readManagedCliInstallation } from "./managed-install";
 
 export const OPENMELD_CLI_COMMAND_CONTRACT_VERSION =
@@ -168,6 +169,9 @@ export async function resolveLocalComponentsStatus(
       resolveOpenMeldToolsUpdateOperationProjection(),
     ]);
   const resolvedCli = await resolveCliComponentStatus(input);
+  const installationSource = await resolveLocalComponentsInstallationSource({
+    expectedVersion: resolvedCli.packageVersion,
+  });
   const cli = updateProjection?.failureCode
     ? {
         ...resolvedCli,
@@ -188,6 +192,7 @@ export async function resolveLocalComponentsStatus(
     schemaVersion: LOCAL_COMPONENTS_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     entrypoint: "setup",
+    ...(installationSource ? { installationSource } : {}),
     summaryLabel: formatLocalComponentsSummaryLabel({
       cliStatus: cli.status,
       setupAction,

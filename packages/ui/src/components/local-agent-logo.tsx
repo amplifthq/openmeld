@@ -5,6 +5,7 @@ import ClaudeColor from "@lobehub/icons/es/Claude/components/Color.js";
 import CodexColor from "@lobehub/icons/es/Codex/components/Color.js";
 import CursorMono from "@lobehub/icons/es/Cursor/components/Mono.js";
 import GrokMono from "@lobehub/icons/es/Grok/components/Mono.js";
+import OpenAIMono from "@lobehub/icons/es/OpenAI/components/Mono.js";
 import OpenClawColor from "@lobehub/icons/es/OpenClaw/components/Color.js";
 import OpenCodeMono from "@lobehub/icons/es/OpenCode/components/Mono.js";
 import {
@@ -34,6 +35,7 @@ const LOCAL_AGENT_LOGO_SIZE_CLASS_NAMES = {
 } as const;
 
 type LocalAgentLogoProps = {
+  codexLogo?: "codex" | "openai";
   agentId: string;
   className?: string;
   size?: keyof typeof LOCAL_AGENT_LOGO_SIZE_CLASS_NAMES;
@@ -41,6 +43,7 @@ type LocalAgentLogoProps = {
 };
 
 export function LocalAgentLogo({
+  codexLogo = "codex",
   agentId,
   className,
   size = "sm",
@@ -50,7 +53,11 @@ export function LocalAgentLogo({
   if (!brand) {
     return null;
   }
-  const { Icon, inset } = LOCAL_AGENT_LOGOS[brand.controllerId];
+  const { Icon: AgentIcon, inset } = LOCAL_AGENT_LOGOS[brand.controllerId];
+  const Icon =
+    brand.controllerId === "codex" && codexLogo === "openai"
+      ? OpenAIMono
+      : AgentIcon;
   return (
     <span
       aria-hidden="true"

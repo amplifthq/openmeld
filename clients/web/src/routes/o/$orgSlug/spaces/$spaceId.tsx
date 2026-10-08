@@ -25,6 +25,7 @@ import {
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
 import { ConversationsSidebar } from "#/components/spaces/conversations-sidebar";
+import { SpaceCreationRoute } from "#/components/spaces/space-creation-conversation";
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
@@ -64,14 +65,11 @@ import {
 	writeLastUsedHumanProfileId,
 } from "#/lib/spaces/last-used-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
-import { organizationSpacesQueryOptions } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { isQueryCancellationError } from "#/query/query-cancellation";
-import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import { spaceConversationDisplaySnapshotQueryOptions } from "#/query/spaces/display-snapshot";
-import { spaceHistoryQueryOptions } from "#/query/spaces/history";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
 
 const appSpaceRouteSearchSchema = z.object({
@@ -109,6 +107,9 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 	// SSR-read persisted rail/sidebar geometry so the shell renders at the
 	// remembered sizes with no first-paint flash.
 	loader: async ({ context, deps, location, params, preload }) => {
+		if (params.spaceId.startsWith("creating-")) {
+			return { sidebarStates: APP_SIDEBAR_DEFAULT_STATES };
+		}
 		const sidebarStates = getAppSidebarStatesForRoute("spaces");
 		const prefetchKey = JSON.stringify([
 			params.orgSlug,
@@ -122,17 +123,7 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 				prefetch: readSpacePrefetch(prefetchKey),
 			});
 		}
-		await restoreSpaceConversationRouteData({
-			organizationSlug: params.orgSlug,
-			profileId: deps.profileId,
-			queryClient: context.queryClient,
-			queryPersistence: context.queryPersistence,
-			routeFamily: location.href,
-			spaceId: params.spaceId,
-		});
-		prefetchSpaceConversationRouteData({
-			focusSignalId: deps.focusSignalId,
-			focusThreadRootSignalId: deps.focusThreadRootSignalId,
+		restoreSpaceConversationRouteData({
 			organizationSlug: params.orgSlug,
 			profileId: deps.profileId,
 			queryClient: context.queryClient,
@@ -140,6 +131,18 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 			routeFamily: location.href,
 			spaceId: params.spaceId,
 		})
+			.then(() =>
+				prefetchSpaceConversationRouteData({
+					focusSignalId: deps.focusSignalId,
+					focusThreadRootSignalId: deps.focusThreadRootSignalId,
+					organizationSlug: params.orgSlug,
+					profileId: deps.profileId,
+					queryClient: context.queryClient,
+					queryPersistence: context.queryPersistence,
+					routeFamily: location.href,
+					spaceId: params.spaceId,
+				})
+			)
 			.then(() => {
 				if (preload) {
 					recordSpacePrefetch(prefetchKey, "complete");
@@ -161,20 +164,22 @@ function AppSpaceConversationPendingRoute() {
 	const { spaceId } = Route.useParams();
 	const membersPanel = useSpacePanelWidth({ panel: "members", spaceId });
 	return (
-		<SpaceWindowShell
-			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
-			initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
-			sidebar={<ConversationsSidebar />}
-			sidebarPreferenceKey="spaces"
-		>
-			<AppMainContent bodyClassName="flex" showHeader={false}>
-				<SpaceLandingLoadingShell
-					membersPanelWidth={membersPanel.width}
-					spaceId={spaceId}
-					threadOpen={Boolean(search.focusThreadRootSignalId)}
-				/>
-			</AppMainContent>
-		</SpaceWindowShell>
+		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
+			<SpaceWindowShell
+				initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
+				initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
+				sidebar={<ConversationsSidebar />}
+				sidebarPreferenceKey="spaces"
+			>
+				<AppMainContent bodyClassName="flex" showHeader={false}>
+					<SpaceLandingLoadingShell
+						membersPanelWidth={membersPanel.width}
+						spaceId={spaceId}
+						threadOpen={Boolean(search.focusThreadRootSignalId)}
+					/>
+				</AppMainContent>
+			</SpaceWindowShell>
+		</SpaceCreationRoute>
 	);
 }
 
@@ -187,16 +192,18 @@ function AppSpaceEntryRoute() {
 	});
 
 	return (
-		<AppSpaceEntryContent
-			focusInteractionId={search.focusInteractionId}
-			focusRequestId={focusRequestId}
-			focusSignalId={search.focusSignalId}
-			focusThreadRootSignalId={search.focusThreadRootSignalId}
-			initialSidebarStates={sidebarStates}
-			orgSlug={orgSlug}
-			profileId={search.profileId}
-			spaceId={spaceId}
-		/>
+		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
+			<AppSpaceEntryContent
+				focusInteractionId={search.focusInteractionId}
+				focusRequestId={focusRequestId}
+				focusSignalId={search.focusSignalId}
+				focusThreadRootSignalId={search.focusThreadRootSignalId}
+				initialSidebarStates={sidebarStates}
+				orgSlug={orgSlug}
+				profileId={search.profileId}
+				spaceId={spaceId}
+			/>
+		</SpaceCreationRoute>
 	);
 }
 
@@ -588,7 +595,6 @@ function ResolvedAppSpaceEntryContent(
 			orgSlug={input.orgSlug}
 			profileId={input.profileId}
 			spaceId={input.spaceId}
-			threadOpen={Boolean(input.focusThreadRootSignalId)}
 		>
 			{allowedContent}
 		</AppSpaceAccessGate>
@@ -603,15 +609,10 @@ function AppSpaceAccessGate(
 		orgSlug: string;
 		profileId: string;
 		spaceId: string;
-		threadOpen: boolean;
 	} & Pick<AppSpaceFocusSearch, "focusSignalId" | "focusThreadRootSignalId">
 ) {
 	const organization = useAppOrganization();
 	const queryClient = useQueryClient();
-	const membersPanel = useSpacePanelWidth({
-		panel: "members",
-		spaceId: input.spaceId,
-	});
 	// SSR loader hydration does not rerun the route loader in the browser.
 	// Activate here too, after the account, Organization, and Profile checks.
 	useEffect(() => {
@@ -635,43 +636,6 @@ function AppSpaceAccessGate(
 		input.spaceId,
 		input.profileId,
 	]);
-	const display = useQuery(
-		spaceConversationDisplaySnapshotQueryOptions({
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-		})
-	);
-	const accountSpaces = useQuery(
-		accountSpaceItemsQueryOptions({
-			profileId: input.profileId,
-			enabled: false,
-		})
-	);
-	const directory = useQuery(
-		organizationSpacesQueryOptions({
-			organizationId: organization.currentOrganization.id,
-			enabled: false,
-		})
-	);
-	const knownTitle =
-		display.data?.status.name ??
-		[
-			...(accountSpaces.data?.pinnedItems ?? []),
-			...(accountSpaces.data?.spaceItems ?? []),
-		].find(
-			(space) =>
-				space.spaceId === input.spaceId &&
-				space.organizationId === organization.currentOrganization.id
-		)?.spaceName ??
-		directory.data?.spaces.find((space) => space.spaceId === input.spaceId)
-			?.name;
-	const history = useQuery(
-		spaceHistoryQueryOptions({
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-			enabled: false,
-		})
-	);
 	const onAccessRejected = useCallback(() => {
 		clearSpaceConversationPositions(
 			`${input.profileId}:space-conversation:${input.spaceId}`
@@ -708,23 +672,14 @@ function AppSpaceAccessGate(
 		}),
 		spaceId: input.spaceId,
 	});
-	const pendingContent = (
-		<SpaceLandingLoadingShell
-			membersPanelWidth={membersPanel.width}
-			spaceId={input.spaceId}
-			threadOpen={input.threadOpen}
-			title={knownTitle}
-		/>
-	);
 	return (
 		<SpaceEntryGate
 			backHref={buildOrganizationSpacesPath(input.orgSlug)}
+			draftContent={input.children}
 			onAccessRejected={onAccessRejected}
 			openMeldProfileId={input.profileId}
-			pendingContent={pendingContent}
 			renderFrame={(content) => (
 				<AppSpaceEntryShell
-					conversationLayout={content === pendingContent}
 					initialSidebarStates={input.initialSidebarStates}
 					navigationSurface={input.navigationSurface}
 					spaceId={input.spaceId}
@@ -733,9 +688,6 @@ function AppSpaceAccessGate(
 					{content}
 				</AppSpaceEntryShell>
 			)}
-			restoredContent={
-				display.data && history.data ? input.children : undefined
-			}
 			signalId={input.focusSignalId}
 			signInHref={`/login?redirect=${encodeURIComponent(appTarget)}`}
 			spaceId={input.spaceId}

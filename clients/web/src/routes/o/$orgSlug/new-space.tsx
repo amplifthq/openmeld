@@ -4,6 +4,7 @@ import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppMainContent } from "#/components/app/app-main-content";
+import { AppModuleSidebarToggle } from "#/components/app/app-module-sidebar";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import {
@@ -88,12 +89,18 @@ export function AppNewSpaceContent(input: {
 			browseSpacesActive={false}
 			currentProfileId={profileId}
 			currentSpaceId=""
+			defaultModuleSidebarOpen={hasCurrentOrganizationSpaces}
 			initialOuterSidebarState={outerState}
 			initialSidebarState={innerState}
 			showSpacesSidebar={hasCurrentOrganizationSpaces}
 		>
 			<AppMainContent
-				header={<NewSpaceHeader orgSlug={currentOrganization.slug} />}
+				header={
+					<NewSpaceHeader
+						orgSlug={currentOrganization.slug}
+						showSidebarToggle={hasCurrentOrganizationSpaces}
+					/>
+				}
 				headerClassName={
 					hasCurrentOrganizationSpaces ? undefined : "border-b-0"
 				}
@@ -105,9 +112,13 @@ export function AppNewSpaceContent(input: {
 	);
 }
 
-function NewSpaceHeader(input: { orgSlug: string }) {
+function NewSpaceHeader(input: {
+	orgSlug: string;
+	showSidebarToggle?: boolean;
+}) {
 	return (
-		<div className="flex h-full items-center px-4">
+		<div className="flex h-full min-w-0 items-center gap-2 px-4">
+			{input.showSidebarToggle ? <AppModuleSidebarToggle /> : null}
 			<TooltipHint content="Back to Spaces">
 				<Link
 					aria-label="Back to Spaces"

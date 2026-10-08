@@ -59,6 +59,12 @@ describe("Space-owned native reply placement", () => {
       expect(result.threadContext).toBeNull();
     } else {
       expect(result.threadContext?.rootSignalId).toBe("source");
+      const sibling = await stub.rpcResolveNativeReplyPlacement({
+        ...request,
+        dispatchId: "dispatch-sibling",
+        profileId: "agt_44444444-4444-4444-8444-444444444444",
+      });
+      expect(sibling.threadContext).toEqual(result.threadContext);
     }
     expect(await stub.rpcResolveNativeReplyPlacement(request)).toEqual(result);
     await runInDurableObject(stub, async (instance) => {
@@ -119,5 +125,55 @@ describe("Space-owned native reply placement", () => {
       placement: "conversation",
     });
     expect(mainFromThread.threadContext).toBeNull();
+
+    const movable = { ...request, dispatchId: "dispatch-movable", lock: false };
+    await stub.rpcResolveNativeReplyPlacement({
+      ...movable,
+      placement: "thread",
+    });
+    await stub.rpcApplyAgentStreamDelta({
+      v: 1,
+      spaceId,
+      dispatchId: movable.dispatchId,
+      triggerMessageId: "source",
+      profileId: PROFILE_ID,
+      streamId: "movable-stream",
+      sequence: 1,
+      kind: "text",
+      textSnapshot: "Partial answer",
+    });
+    // Receiving answer text must not freeze the Agent's choice.
+    const mainChoice = await stub.rpcResolveNativeReplyPlacement({
+      ...movable,
+      placement: "conversation",
+    });
+    expect(mainChoice).toMatchObject({ threadContext: null, locked: false });
+    expect(
+      (
+        await stub.rpcResolveNativeReplyPlacement({
+          ...movable,
+          placement: "thread",
+        })
+      ).threadContext
+    ).toEqual(thread.threadContext);
+    await stub.rpcResolveNativeReplyPlacement({
+      ...movable,
+      placement: "conversation",
+      lock: true,
+    });
+    const terminal = await stub.rpcCloseAgentStream({
+      spaceId,
+      streamId: "movable-stream",
+      terminal: { kind: "final_message", publishedSignalId: "final-reply" },
+    });
+    expect(terminal?.replyThreadRootSignalId).toBeNull();
+    await runInDurableObject(stub, async (instance) => {
+      await expect(
+        instance.rpcResolveNativeReplyPlacement({
+          ...movable,
+          placement: "thread",
+        })
+      ).rejects.toThrow("already_started");
+    });
   });
 });

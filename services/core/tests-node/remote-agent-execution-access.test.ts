@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { resolveRemoteAgentExecutionScope } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
@@ -12,17 +13,21 @@ const owners = vi.hoisted(() => ({
   directory: vi.fn(),
   agent: vi.fn(),
   connection: vi.fn(),
+  delegated: vi.fn(),
+  computer: vi.fn(),
 }));
-vi.mock("../src/lib/bindings", () => ({ wakeEvidenceDb: () => ({}) }));
+vi.mock("../src/computer/personal-computer", () => ({
+  ensurePersonalComputer: owners.computer,
+}));
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
+  "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo",
   () => ({ readRemoteAgentNativeDeliveryBySubmissionId: owners.delivery })
 );
 vi.mock("../src/remote-agent/application/remote-agent-tool-caller", () => ({
   requireRemoteAgentToolCaller: owners.caller,
 }));
 vi.mock(
-  "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo",
+  "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo",
   () => ({ readPrimaryAgentProfileBindingRecord: owners.binding })
 );
 vi.mock("../src/organizations/organization-context", () => ({
@@ -37,6 +42,9 @@ vi.mock(
 );
 vi.mock("../src/connectors/plugin-access", () => ({
   requireRemotePluginConnection: owners.connection,
+}));
+vi.mock("../src/remote-agent/application/delegated-requester", () => ({
+  readRemoteAgentDelegatedRequester: owners.delegated,
 }));
 
 const request = createSubmitTurnRequest();
@@ -76,7 +84,12 @@ describe("current execution access is an owner projection, not a cached grant", 
       mock.mockReset();
     }
     owners.delivery.mockResolvedValue(record);
-    owners.caller.mockResolvedValue({ db: {} });
+    owners.caller.mockResolvedValue({
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+      }),
+    });
     owners.binding.mockResolvedValue({
       bindingState: "enabled_primary",
       bindingId: request.bindingId,
@@ -84,6 +97,79 @@ describe("current execution access is an owner projection, not a cached grant", 
     owners.membership.mockResolvedValue({ ok: true });
     owners.directory.mockResolvedValue(directory);
     owners.connection.mockResolvedValue({ updatedAtMs: 42 });
+    owners.delegated.mockResolvedValue(null);
+    owners.computer.mockImplementation(
+      async (_db, ownerUserId) =>
+        await Promise.resolve({
+          id: `computer-${ownerUserId}`,
+          ownerUserId,
+          provider: "cloudflare",
+          createdAtMs: 1,
+        })
+    );
+  });
+
+  it.each([
+    { personal: false, agentSender: false, expectedOwner: "user_1" },
+    { personal: true, agentSender: false, expectedOwner: "remote-owner" },
+    { personal: true, agentSender: true, expectedOwner: "remote-owner" },
+    { personal: false, agentSender: true, expectedOwner: null },
+  ])("resolves the Computer from trusted execution ownership: %j", async ({
+    personal,
+    agentSender,
+    expectedOwner,
+  }) => {
+    const executionRequest = {
+      ...request,
+      agentProfileOwnerUserId: "remote-owner",
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        ...(agentSender
+          ? {
+              sender: {
+                kind: "agent_profile",
+                id: request.author.profileId,
+                profileId: request.author.profileId,
+                verified: true,
+                displayName: "Requester",
+              },
+            }
+          : {}),
+      },
+    };
+    owners.delivery.mockResolvedValue({
+      ...record,
+      workerSubmitRequest: executionRequest,
+    });
+    if (personal) {
+      owners.caller.mockResolvedValue({
+        db: {},
+        personalExecution: { directory },
+      });
+    }
+    owners.agent.mockResolvedValue(true);
+    const response = await authorizeRemoteAgentExecutionAccess(
+      {
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+        },
+      } as CoreBindings,
+      { ...input, includeComputer: true }
+    );
+    expect(response.computer).toEqual(
+      expectedOwner
+        ? {
+            id: `computer-${expectedOwner}`,
+            ownerUserId: expectedOwner,
+            provider: "cloudflare",
+            createdAtMs: 1,
+          }
+        : null
+    );
+    if (!expectedOwner) {
+      expect(owners.computer).not.toHaveBeenCalled();
+    }
   });
 
   it.each([
@@ -92,7 +178,15 @@ describe("current execution access is an owner projection, not a cached grant", 
   ])("derives the scope for %s and rechecks current binding, membership and Space participation", async (status) => {
     owners.delivery.mockResolvedValue({ ...record, status });
     expect(
-      await authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
+      await authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        input
+      )
     ).toEqual({
       submissionId: "submission-1",
       scope: resolveRemoteAgentExecutionScope(request),
@@ -123,7 +217,15 @@ describe("current execution access is an owner projection, not a cached grant", 
   ])("rejects inactive or mismatched evidence: %j", async (change) => {
     owners.delivery.mockResolvedValue({ ...record, ...change });
     await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        input
+      )
     ).rejects.toThrow("execution_not_active");
     expect(owners.caller).not.toHaveBeenCalled();
   });
@@ -134,14 +236,30 @@ describe("current execution access is an owner projection, not a cached grant", 
       bindingId: "new-binding",
     });
     await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        input
+      )
     ).rejects.toThrow("binding_changed");
     owners.membership.mockResolvedValueOnce({
       ok: false,
       code: "membership_revoked",
     });
     await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        input
+      )
     ).rejects.toThrow("membership_revoked");
   });
 
@@ -150,23 +268,160 @@ describe("current execution access is an owner projection, not a cached grant", 
       members: [{ profileId: request.agentProfileId }],
     });
     await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        input
+      )
     ).rejects.toThrow("space_membership_revoked");
     owners.directory.mockResolvedValueOnce({
       members: [{ profileId: request.author.profileId }],
     });
     await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        input
+      )
     ).rejects.toThrow("space_membership_revoked");
+  });
+
+  it("keeps the actual Agent audience while exposing opted-in delegated identity and authorizing only source reads", async () => {
+    const delegatedRequester = {
+      delegationId: "delegation-1",
+      parentDeliveryId: "parent-1",
+      memberId: "member_123",
+      userId: "user_1",
+      profileId: "human-1",
+    };
+    const delegatedRequest = {
+      ...request,
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        sender: {
+          kind: "agent_profile",
+          id: request.author.profileId,
+          profileId: request.author.profileId,
+          verified: true,
+          displayName: "Center",
+        },
+      },
+    };
+    owners.delivery.mockResolvedValue({
+      ...record,
+      workerSubmitRequest: delegatedRequest,
+    });
+    owners.caller.mockResolvedValue({
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+      }),
+      personalExecution: { directory },
+    });
+    owners.agent.mockResolvedValue(true);
+    owners.delegated.mockResolvedValue(delegatedRequester);
+    const source = {
+      kind: "plugin_connection",
+      service: "github",
+      connectionName: "exact-account",
+      connectionUpdatedAtMs: 42,
+    };
+    const response = await authorizeRemoteAgentExecutionAccess(
+      {
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+        },
+      } as CoreBindings,
+      { ...input, includeDelegatedRequester: true, sources: [source] }
+    );
+    expect(response.delegatedRequester).toEqual(delegatedRequester);
+    expect(response.delegatedRequesterSupported).toBe(true);
+    expect(response.scope.principal).toEqual({
+      kind: "agent",
+      profileId: request.author.profileId,
+    });
+    expect(owners.connection).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requesterUserId: "user_1",
+        connectionName: "exact-account",
+        effect: "read",
+      })
+    );
+    const legacy = await authorizeRemoteAgentExecutionAccess(
+      {
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+        },
+      } as CoreBindings,
+      input
+    );
+    expect(legacy).not.toHaveProperty("delegatedRequester");
+    expect(legacy).not.toHaveProperty("delegatedRequesterSupported");
+    owners.connection.mockClear();
+    await expect(
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        {
+          ...input,
+          includeDelegatedRequester: true,
+          effect: "write",
+          sources: [source],
+        }
+      )
+    ).rejects.toThrow("delegated_read_only");
+    expect(owners.connection).not.toHaveBeenCalled();
+    owners.delegated.mockResolvedValue(null);
+    await expect(
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        {
+          ...input,
+          includeDelegatedRequester: true,
+          sources: [source],
+        }
+      )
+    ).rejects.toThrow("delegated_requester_unavailable");
+    expect(owners.connection).not.toHaveBeenCalled();
   });
 
   it("uses the personal execution owner's authorized directory rather than issuing an unscoped second read", async () => {
     owners.caller.mockResolvedValue({
-      db: {},
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+      }),
       personalExecution: { directory },
     });
     await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        input
+      )
     ).resolves.toHaveProperty("submissionId", "submission-1");
     expect(owners.binding).not.toHaveBeenCalled();
     expect(owners.directory).not.toHaveBeenCalled();
@@ -185,16 +440,32 @@ describe("current execution access is an owner projection, not a cached grant", 
       connectionName: "selected",
       connectionUpdatedAtMs: 42,
     };
-    await authorizeRemoteAgentExecutionAccess({} as CoreBindings, {
-      ...input,
-      sources: [source],
-    });
-    await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, {
+    await authorizeRemoteAgentExecutionAccess(
+      {
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+        },
+      } as CoreBindings,
+      {
         ...input,
         sources: [source],
-        effect: "write",
-      })
+      }
+    );
+    await expect(
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        {
+          ...input,
+          sources: [source],
+          effect: "write",
+        }
+      )
     ).rejects.toThrow("plugin.action_forbidden");
     expect(owners.connection).toHaveBeenLastCalledWith(
       expect.objectContaining({ connectionName: "selected", effect: "write" })
@@ -217,7 +488,15 @@ describe("current execution access is an owner projection, not a cached grant", 
         },
       ],
     };
-    await authorizeRemoteAgentExecutionAccess({} as CoreBindings, withSource);
+    await authorizeRemoteAgentExecutionAccess(
+      {
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+        },
+      } as CoreBindings,
+      withSource
+    );
     expect(owners.connection).toHaveBeenCalledWith(
       expect.objectContaining({
         requesterUserId: "user_1",
@@ -227,13 +506,29 @@ describe("current execution access is an owner projection, not a cached grant", 
     );
     owners.connection.mockResolvedValueOnce({ updatedAtMs: 43 });
     await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, withSource)
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        withSource
+      )
     ).rejects.toThrow("result_connection_changed");
     owners.connection.mockRejectedValueOnce(
       new Error("plugin.action_forbidden")
     );
     await expect(
-      authorizeRemoteAgentExecutionAccess({} as CoreBindings, withSource)
+      authorizeRemoteAgentExecutionAccess(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        withSource
+      )
     ).rejects.toThrow("plugin.action_forbidden");
   });
 });

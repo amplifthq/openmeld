@@ -1,16 +1,14 @@
 import { desc, sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 import { organizationDocumentFolders } from "./organization-document-folder.schema.ts";
 
-export const organizationDocuments = sqliteTable(
+export const organizationDocuments = applicationTable(
   "organization_documents",
   {
     id: text("id").primaryKey(),
@@ -33,13 +31,13 @@ export const organizationDocuments = sqliteTable(
     content: text("content").default("").notNull(),
     draftContent: text("draft_content"),
     draftCreatedBy: text("draft_created_by"),
-    draftCreatedAt: integer("draft_created_at", { mode: "timestamp_ms" }),
+    draftCreatedAt: epochMilliseconds("draft_created_at"),
     lastMemberResearchTaskId: text("last_member_research_task_id"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [

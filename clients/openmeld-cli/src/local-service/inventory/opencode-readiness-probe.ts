@@ -1,4 +1,5 @@
 import { type ChildProcessByStdio, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { homedir, loadavg } from "node:os";
@@ -14,7 +15,11 @@ import {
   createUnsupportedProviderUsageLimits,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
-import { parseOpenCodeGoUsageResponse } from "@openmeld/adapter-opencode";
+import {
+  parseOpenCodeGoUsageResponse,
+  parseOpenRouterUsageResponse,
+  readOpenCode2Inventory,
+} from "@openmeld/adapter-opencode";
 import type {
   AgentControllerInterfaceAuthSnapshot,
   AgentControllerInterfaceModel,
@@ -33,6 +38,7 @@ const OPENCODE_SERVER_URL_RE = /on\s+(https?:\/\/[^\s]+)/u;
 const ANSI_ESCAPE = String.fromCharCode(27);
 const OPENCODE_GO_PROVIDER_ID = "opencode-go";
 const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
+const TRAILING_SLASH_RE = /\/$/u;
 
 export type OpenCodeReadinessProbeResult = {
   auth: AgentControllerInterfaceAuthSnapshot;
@@ -59,6 +65,26 @@ export async function probeOpenCodeReadiness(input: {
       launchContract: input.launchContract,
       timeoutMs: input.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
     });
+    if (server.apiMajor === 2) {
+      const models = await readOpenCode2Inventory({
+        baseUrl: server.url,
+        password: server.password,
+        directory: input.workingDirectory,
+        timeoutMs: SDK_READ_TIMEOUT_MS,
+      });
+      return {
+        auth: { status: "unknown" },
+        message: models.length
+          ? null
+          : "OpenCode has no enabled models. Connect a provider in OpenCode.",
+        models,
+        probeCompleted: true,
+        status: models.length ? "ready" : "unavailable",
+        usageLimits: createUnsupportedProviderUsageLimits(
+          new Date().toISOString()
+        ),
+      };
+    }
     const client = createOpencodeClient({
       baseUrl: server.url,
       directory: input.workingDirectory,
@@ -101,6 +127,7 @@ export async function probeOpenCodeReadiness(input: {
 
 export async function readOpenCodeProviderUsageLimits(input: {
   authContent?: string | null;
+  environment?: NodeJS.ProcessEnv;
   fetchFn?: typeof fetch;
   observedAt: string;
   providerList: ProviderListResponse;
@@ -123,64 +150,130 @@ export async function readOpenCodeProviderUsageLimits(input: {
 
   const usageLimits = await Promise.all(
     providers.map(async (provider) => {
-      if (provider.id !== OPENCODE_GO_PROVIDER_ID) {
+      if (
+        provider.id !== OPENCODE_GO_PROVIDER_ID &&
+        provider.id !== "openrouter"
+      ) {
         return createUnsupportedProviderUsageLimits(input.observedAt, provider);
       }
-      const apiKey = await resolveOpenCodeProviderApiKey({
-        authContent: input.authContent,
-        providerId: provider.id,
-        readAuthFile: input.readAuthFile,
-      });
+      const config = input.providerList.all.find(
+        (item) => item.id === provider.id
+      );
+      const defaultBaseUrl =
+        provider.id === "openrouter"
+          ? "https://openrouter.ai/api/v1"
+          : "https://opencode.ai/zen/go/v1";
+      if (
+        typeof config?.options.baseURL === "string" &&
+        config.options.baseURL.replace(TRAILING_SLASH_RE, "") !== defaultBaseUrl
+      ) {
+        return createUnavailableProviderUsageLimits(
+          input.observedAt,
+          provider,
+          { reason: "not_applicable" }
+        );
+      }
+      const apiKey =
+        normalizeOptionalText(config?.key) ??
+        (await resolveOpenCodeProviderApiKey({
+          authContent: input.authContent,
+          environment: input.environment,
+          providerId: provider.id,
+          readAuthFile: input.readAuthFile,
+        }));
       if (!apiKey) {
-        return createUnavailableProviderUsageLimits(input.observedAt, provider);
+        return createUnavailableProviderUsageLimits(
+          input.observedAt,
+          provider,
+          { reason: "not_authenticated" }
+        );
       }
       try {
-        const response = await (input.fetchFn ?? fetch)(OPENCODE_GO_USAGE_URL, {
-          headers: { authorization: `Bearer ${apiKey}` },
-          signal: AbortSignal.timeout(SDK_READ_TIMEOUT_MS),
-        });
+        const response = await (input.fetchFn ?? fetch)(
+          provider.id === "openrouter"
+            ? "https://openrouter.ai/api/v1/key"
+            : OPENCODE_GO_USAGE_URL,
+          {
+            redirect: "error",
+            headers: { authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(SDK_READ_TIMEOUT_MS),
+          }
+        );
         if (!response.ok) {
           return createUnavailableProviderUsageLimits(
             input.observedAt,
-            provider
+            provider,
+            {
+              reason: usageRequestFailureReason(response.status),
+            }
           );
         }
-        return parseOpenCodeGoUsageResponse({
+        return (
+          provider.id === "openrouter"
+            ? parseOpenRouterUsageResponse
+            : parseOpenCodeGoUsageResponse
+        )({
           observedAt: input.observedAt,
           value: await response.json(),
         });
       } catch {
-        return createUnavailableProviderUsageLimits(input.observedAt, provider);
+        return createUnavailableProviderUsageLimits(
+          input.observedAt,
+          provider,
+          { reason: "refresh_failed" }
+        );
       }
     })
   );
   return usageLimits.flat().slice(0, 32);
 }
 
+function usageRequestFailureReason(
+  status: number
+): "not_applicable" | "not_authenticated" | "refresh_failed" {
+  if (status === 403) {
+    return "not_applicable";
+  }
+  return status === 401 ? "not_authenticated" : "refresh_failed";
+}
+
 async function resolveOpenCodeProviderApiKey(input: {
   authContent?: string | null;
+  environment?: NodeJS.ProcessEnv;
   providerId: string;
   readAuthFile?: (path: string) => Promise<string>;
 }): Promise<string | null> {
-  let authContent = input.authContent ?? process.env.OPENCODE_AUTH_CONTENT;
+  const environment = input.environment ?? process.env;
+  let authContent = input.authContent ?? environment.OPENCODE_AUTH_CONTENT;
   if (!authContent) {
     try {
       const authPath = resolveOpenCodeAuthPath({
         homeDir: homedir(),
-        xdgDataHome: process.env.XDG_DATA_HOME,
+        xdgDataHome: environment.XDG_DATA_HOME,
       });
       authContent = input.readAuthFile
         ? await input.readAuthFile(authPath)
         : await readFile(authPath, "utf8");
     } catch {
-      return null;
+      authContent = "{}";
     }
   }
   try {
     const providerAuth = toRecord(JSON.parse(authContent)?.[input.providerId]);
-    return providerAuth?.type === "api"
-      ? normalizeOptionalText(providerAuth.key)
-      : null;
+    if (providerAuth?.type === "api") {
+      return normalizeOptionalText(providerAuth.key);
+    }
+    // Stored OAuth or another auth mode is not the environment API key account.
+    if (providerAuth) {
+      return null;
+    }
+    return normalizeOptionalText(
+      environment[
+        input.providerId === OPENCODE_GO_PROVIDER_ID
+          ? "OPENCODE_API_KEY"
+          : "OPENROUTER_API_KEY"
+      ]
+    );
   } catch {
     return null;
   }
@@ -189,6 +282,8 @@ async function resolveOpenCodeProviderApiKey(input: {
 type OpenCodeProbeServer = {
   child: OpenCodeProbeChild;
   url: string;
+  apiMajor: 1 | 2;
+  password: string;
 };
 
 type OpenCodeProbeChild = ChildProcessByStdio<null, Readable, Readable>;
@@ -199,6 +294,9 @@ async function startOpenCodeProbeServer(input: {
   timeoutMs: number;
 }): Promise<OpenCodeProbeServer> {
   const port = await findAvailableLocalPort();
+  const password = randomUUID();
+  const safeOutput = (value: string) =>
+    createProviderOriginalError(value.replaceAll(password, "[redacted]"));
   const invocation = buildCliLaunchInvocation({
     args: ["serve", `--hostname=${OPENCODE_PROBE_HOSTNAME}`, `--port=${port}`],
     launchContract: input.launchContract,
@@ -208,7 +306,7 @@ async function startOpenCodeProbeServer(input: {
     const child = spawn(invocation.bin, invocation.args, {
       cwd: input.workingDirectory,
       detached: process.platform !== "win32",
-      env: process.env,
+      env: { ...process.env, OPENCODE_PASSWORD: password },
       shell: invocation.shell ?? false,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -241,8 +339,7 @@ async function startOpenCodeProbeServer(input: {
           [
             `Timed out waiting for OpenCode server start after ${input.timeoutMs}ms.`,
             `Startup evidence: pid=${child.pid ?? "unknown"}, elapsedMs=${Date.now() - spawnedAtMs}, stdoutBytes=${stdoutBytes}, stderrBytes=${stderrBytes}, load1m=${loadavg()[0]?.toFixed(2) ?? "unavailable"}.`,
-            createProviderOriginalError(stderr) ||
-              createProviderOriginalError(stdout),
+            safeOutput(stderr) || safeOutput(stdout),
           ]
             .filter(Boolean)
             .join(" ")
@@ -255,7 +352,12 @@ async function startOpenCodeProbeServer(input: {
       stdout = appendProbeOutput(stdout, chunk);
       const url = parseOpenCodeServerUrlFromOutput(stdout);
       if (url) {
-        finish({ server: { child, url } });
+        const apiMajor = stripAnsi(stdout)
+          .split("\n")
+          .some((line) => line.startsWith("server listening on "))
+          ? 2
+          : 1;
+        finish({ server: { child, url, apiMajor, password } });
       }
     });
     child.stderr.on("data", (chunk) => {
@@ -277,8 +379,8 @@ async function startOpenCodeProbeServer(input: {
             `OpenCode server exited before startup completed (code: ${
               typeof code === "number" ? code : "unknown"
             }).`,
-            stdout.trim() ? `stdout: ${stdout.trim()}` : null,
-            stderr.trim() ? `stderr: ${stderr.trim()}` : null,
+            stdout.trim() ? `stdout: ${safeOutput(stdout)}` : null,
+            stderr.trim() ? `stderr: ${safeOutput(stderr)}` : null,
           ]
             .filter(Boolean)
             .join(" ")
@@ -377,7 +479,12 @@ function findAvailableLocalPort(): Promise<number> {
 
 function parseOpenCodeServerUrlFromOutput(output: string): string | null {
   for (const line of stripAnsi(output).split("\n")) {
-    if (!line.startsWith(OPENCODE_SERVER_READY_PREFIX)) {
+    if (
+      !(
+        line.startsWith(OPENCODE_SERVER_READY_PREFIX) ||
+        line.startsWith("server listening on ")
+      )
+    ) {
       continue;
     }
     const match = line.match(OPENCODE_SERVER_URL_RE);

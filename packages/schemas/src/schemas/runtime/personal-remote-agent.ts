@@ -1,6 +1,25 @@
 import * as z from "zod/v4";
+import { spaceThreadEvidenceRequestSchema } from "../../space-evidence";
 import { centerAgentContextManifestEntrySchema } from "../http/center-agent-context-manifest";
 import { spaceBoardResponseSchema } from "../http/space-board";
+import {
+  spaceMessageEvidenceResponseSchema,
+  spaceThreadEvidenceResponseSchema,
+} from "../http/space-evidence";
+import {
+  getSpaceWakeProgressInputSchema,
+  getSpaceWakeProgressResponseSchema,
+} from "../http/space-wake-progress";
+import {
+  postSpaceWakeStopBodySchema,
+  postSpaceWakeStopResponseSchema,
+} from "../http/space-wake-stop";
+import { clientMessageIdSchema } from "../protocol/client-message-id";
+import {
+  agentReplyPlacementSchema,
+  nativeReplyPlacementSchema,
+} from "../space-mesh/agent-reply-placement";
+import { spaceMessageEvidenceRequestSchema } from "../space-mesh/space-message-evidence";
 
 const identifier = z.string().trim().min(1).max(256);
 
@@ -10,13 +29,46 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     z.strictObject({ kind: z.literal("authorize") }),
     z.strictObject({ kind: z.literal("members") }),
     z.strictObject({ kind: z.literal("messages") }),
+    spaceMessageEvidenceRequestSchema.safeExtend({
+      kind: z.literal("evidence"),
+    }),
+    spaceThreadEvidenceRequestSchema.safeExtend({
+      kind: z.literal("thread_evidence"),
+    }),
+    z.strictObject({
+      kind: z.literal("file_evidence"),
+      fileId: identifier,
+      revision: z.int().positive(),
+      offset: z.int().nonnegative().max(1_048_576).optional(),
+    }),
+    z.strictObject({
+      kind: z.literal("thread"),
+      threadId: identifier,
+      afterSignalId: identifier.optional(),
+      limit: z.int().min(1).max(30).optional(),
+    }),
     z.strictObject({ kind: z.literal("board") }),
+    z.strictObject({
+      kind: z.literal("wake_progress"),
+      spaceId: identifier.optional(),
+      query: getSpaceWakeProgressInputSchema.omit({ spaceId: true }),
+    }),
+    z.strictObject({
+      kind: z.literal("wake_stop"),
+      spaceId: identifier.optional(),
+      body: postSpaceWakeStopBodySchema,
+    }),
+    z.strictObject({
+      kind: z.literal("reply_placement"),
+      placement: agentReplyPlacementSchema,
+    }),
     z.strictObject({
       kind: z.literal("updates"),
       afterSignalId: identifier.optional(),
     }),
     z.strictObject({
       kind: z.literal("wake"),
+      clientMessageId: clientMessageIdSchema.optional(),
       agentProfileId: identifier,
       text: z.string().trim().min(1).max(8000),
     }),
@@ -27,6 +79,39 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
   "kind",
   [
     z.strictObject({ kind: z.literal("authorize") }),
+    spaceThreadEvidenceResponseSchema.extend({
+      kind: z.literal("thread_evidence"),
+    }),
+    z.strictObject({
+      kind: z.literal("file_evidence"),
+      fileId: identifier,
+      revision: z.int().positive(),
+      offset: z.int().nonnegative(),
+      nextOffset: z.int().positive().nullable(),
+      text: z.string().max(8000),
+    }),
+    spaceMessageEvidenceResponseSchema.extend({
+      kind: z.literal("evidence"),
+    }),
+    z.strictObject({
+      kind: z.literal("thread"),
+      threadId: identifier,
+      messages: z.array(centerAgentContextManifestEntrySchema).max(30),
+      nextAfterSignalId: identifier.nullable(),
+      truncated: z.boolean(),
+    }),
+    z.strictObject({
+      kind: z.literal("wake_progress"),
+      progress: getSpaceWakeProgressResponseSchema,
+    }),
+    z.strictObject({
+      kind: z.literal("wake_stop"),
+      response: postSpaceWakeStopResponseSchema,
+    }),
+    z.strictObject({
+      kind: z.literal("reply_placement"),
+      placement: nativeReplyPlacementSchema,
+    }),
     z.strictObject({
       kind: z.literal("board"),
       board: spaceBoardResponseSchema,
@@ -68,6 +153,7 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
     z.strictObject({
       kind: z.literal("wake"),
       signalId: identifier,
+      clientMessageId: clientMessageIdSchema.optional(),
       agentProfileId: identifier,
     }),
   ]

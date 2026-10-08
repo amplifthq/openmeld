@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import { expect, it } from "vitest";
 import {
   OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV,
@@ -16,7 +17,10 @@ import {
   writeDispatchSpaceActionRecord,
 } from "../src/runtime/dispatch-space-action-context";
 
-it("discovers every packaged Wake tool before recording a reply", async () => {
+it.each([
+  false,
+  true,
+])("discovers the exact packaged Wake tools (delivery-only=%s) before recording a reply", async (deliveryOnly) => {
   const root = mkdtempSync(join(tmpdir(), "openmeld-action-discovery-"));
   const { context, contextPath } = createDispatchSpaceActionContext({
     attemptId: "attempt-1",
@@ -49,6 +53,7 @@ it("discovers every packaged Wake tool before recording a reply", async () => {
       PATH: process.env.PATH ?? "",
       OPENMELD_HOME: root,
       OPENMELD_SPACE_ACTION_CONTEXT_PATH: contextPath,
+      OPENMELD_SPACE_ACTION_DELIVERY_ONLY: deliveryOnly ? "1" : "0",
     },
     stderr: "pipe",
   });
@@ -56,30 +61,47 @@ it("discovers every packaged Wake tool before recording a reply", async () => {
   try {
     await client.connect(transport);
     const catalog = await client.listTools();
-    expect(catalog.tools.map((tool) => tool.name).sort()).toEqual([
-      "cancel_task",
-      "create_task",
-      "list_tasks",
-      "read_file",
-      "read_history",
-      "read_receipt",
-      "read_result",
-      "reply",
-      "review_task",
-      "start_task",
-      "stay_silent",
-      "submit_task_result",
-      "working_copy",
-    ]);
-    expect(
-      catalog.tools.find((tool) => tool.name === "read_file")?.inputSchema
-    ).toMatchObject({
-      properties: {
-        fileId: { type: "string", minLength: 1, maxLength: 128 },
-        revision: { type: "integer", minimum: 1 },
-      },
-      required: ["fileId"],
-    });
+    if (deliveryOnly) {
+      expect(catalog.tools.map((tool) => tool.name).sort()).toEqual([
+        "read_receipt",
+        "reply",
+        "stay_silent",
+      ]);
+    } else {
+      expect(catalog.tools.map((tool) => tool.name).sort()).toEqual([
+        "cancel_task",
+        "create_task",
+        "list_tasks",
+        "open_direct_message",
+        "read_documents",
+        "read_evidence",
+        "read_file",
+        "read_history",
+        "read_receipt",
+        "read_result",
+        "read_skills",
+        "read_thread",
+        "reply",
+        "report_progress",
+        "review_task",
+        "start_task",
+        "stay_silent",
+        "submit_task_result",
+        "working_copy",
+      ]);
+      expect(catalog.tools.map((tool) => tool.name).sort()).toEqual(
+        [...OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES].sort()
+      );
+      expect(
+        catalog.tools.find((tool) => tool.name === "read_file")?.inputSchema
+      ).toMatchObject({
+        properties: {
+          fileId: { type: "string", minLength: 1, maxLength: 128 },
+          revision: { type: "integer", minimum: 1 },
+        },
+        required: ["fileId"],
+      });
+    }
     const result = await client.callTool({
       name: "reply",
       arguments: { message: "Packaged tools ready." },

@@ -1,3 +1,8 @@
+import type {
+  PostgresDatabase,
+  QueryConfig,
+  QueryResult,
+} from "@openmeld/db/postgresql";
 import type { MessageChannelProvider } from "@openmeld/schemas/types";
 import {
   prepareEnsureInboxItemStatements,
@@ -10,19 +15,20 @@ const MESSAGE_CHANNEL_PROVIDER_NAMES: Record<MessageChannelProvider, string> = {
   lark: "Lark",
   slack: "Slack",
 };
-
 type SetupRequestRecord = {
   createdAtMs: number;
   id: string;
 };
-
 export async function createMessageChannelSetupRequest(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   provider: MessageChannelProvider;
   recipients: readonly string[];
-  requester: { displayName: string; userId: string };
+  requester: {
+    displayName: string;
+    userId: string;
+  };
 }): Promise<{
   recipientCount: number;
   requestId: string;
@@ -32,7 +38,6 @@ export async function createMessageChannelSetupRequest(input: {
   if (recipients.length === 0) {
     throw new TypeError("At least one setup-request recipient is required");
   }
-
   const existing = await readOpenSetupRequest(input);
   if (existing) {
     await ensureRecipientInboxItems({
@@ -46,7 +51,6 @@ export async function createMessageChannelSetupRequest(input: {
       status: "already_requested",
     };
   }
-
   const request = { createdAtMs: input.nowMs, id: crypto.randomUUID() };
   const inboxStatements = await prepareRecipientInboxStatements({
     ...input,
@@ -54,11 +58,11 @@ export async function createMessageChannelSetupRequest(input: {
     request,
   });
   try {
-    await input.db.batch([
-      input.db
-        .prepare(
-          `
-            INSERT INTO organization_message_channel_setup_requests (
+    await input.db.transaction(async (client) =>
+      Promise.all([
+        client.query({
+          text: `
+            INSERT INTO "openmeld"."organization_message_channel_setup_requests" (
               id,
               organization_id,
               requester_user_id,
@@ -67,19 +71,20 @@ export async function createMessageChannelSetupRequest(input: {
               created_at_ms,
               updated_at_ms,
               resolved_at_ms
-            ) VALUES (?, ?, ?, ?, 'open', ?, ?, NULL)
-          `
-        )
-        .bind(
-          request.id,
-          input.organizationId,
-          input.requester.userId,
-          input.provider,
-          input.nowMs,
-          input.nowMs
-        ),
-      ...inboxStatements,
-    ]);
+            ) VALUES ($1, $2, $3, $4, 'open', $5, $6, NULL)
+          `,
+          values: [
+            request.id,
+            input.organizationId,
+            input.requester.userId,
+            input.provider,
+            input.nowMs,
+            input.nowMs,
+          ],
+        }),
+        ...inboxStatements.map((query) => client.query(query)),
+      ])
+    );
   } catch (error) {
     const raced = await readOpenSetupRequest(input);
     if (!raced) {
@@ -92,60 +97,56 @@ export async function createMessageChannelSetupRequest(input: {
       status: "already_requested",
     };
   }
-
   return {
     recipientCount: recipients.length,
     requestId: request.id,
     status: "created",
   };
 }
-
 export async function resolveMessageChannelSetupRequests(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   provider: MessageChannelProvider;
   resolvedAtMs: number;
 }): Promise<number> {
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<{
+    id: string;
+  }>({
+    text: `
         SELECT id
-        FROM organization_message_channel_setup_requests
-        WHERE organization_id = ?
-          AND provider = ?
+        FROM "openmeld"."organization_message_channel_setup_requests"
+        WHERE organization_id = $1
+          AND provider = $2
           AND status = 'open'
-        ORDER BY created_at_ms ASC, id ASC
-      `
-    )
-    .bind(input.organizationId, input.provider)
-    .all<{ id: string }>();
-  const requestIds = rows.results.map((row) => row.id);
+        ORDER BY created_at_ms ASC NULLS FIRST, id ASC NULLS FIRST
+      `,
+    values: [input.organizationId, input.provider],
+  });
+  const requestIds = rows.rows.map((row) => row.id);
   if (requestIds.length === 0) {
     return 0;
   }
-
   const statements = requestIds.flatMap((requestId) => [
-    input.db
-      .prepare(
-        `
-          UPDATE organization_message_channel_setup_requests
+    {
+      text: `
+          UPDATE "openmeld"."organization_message_channel_setup_requests"
           SET
             status = 'resolved',
-            resolved_at_ms = ?,
-            updated_at_ms = max(updated_at_ms, ?)
-          WHERE id = ?
-            AND organization_id = ?
-            AND provider = ?
+            resolved_at_ms = $1,
+            updated_at_ms = GREATEST(updated_at_ms, $2)
+          WHERE id = $3
+            AND organization_id = $4
+            AND provider = $5
             AND status = 'open'
-        `
-      )
-      .bind(
+        `,
+      values: [
         input.resolvedAtMs,
         input.resolvedAtMs,
         requestId,
         input.organizationId,
-        input.provider
-      ),
+        input.provider,
+      ],
+    },
     ...prepareResolveInboxItemsBySourceStatements({
       db: input.db,
       organizationId: input.organizationId,
@@ -154,52 +155,69 @@ export async function resolveMessageChannelSetupRequests(input: {
       sourceKind: INBOX_SOURCE_KIND,
     }),
   ]);
-  const results = await input.db.batch(statements);
+  const results = await input.db.transaction(async (client) => {
+    const results: QueryResult[] = [];
+    for (const query of statements) {
+      results.push(await client.query(query));
+    }
+    return results;
+  });
   return results.reduce(
     (count, result, index) =>
-      index % 3 === 0 ? count + Number(result.meta.changes ?? 0) : count,
+      index % 3 === 0 ? count + Number(result.rowCount ?? 0) : count,
     0
   );
 }
-
 async function readOpenSetupRequest(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   provider: MessageChannelProvider;
-  requester: { userId: string };
+  requester: {
+    userId: string;
+  };
 }): Promise<SetupRequestRecord | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      created_at_ms: number;
+      id: string;
+    }>({
+      text: `
         SELECT id, created_at_ms
-        FROM organization_message_channel_setup_requests
-        WHERE organization_id = ?
-          AND requester_user_id = ?
-          AND provider = ?
+        FROM "openmeld"."organization_message_channel_setup_requests"
+        WHERE organization_id = $1
+          AND requester_user_id = $2
+          AND provider = $3
           AND status = 'open'
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.requester.userId, input.provider)
-    .first<{ created_at_ms: number; id: string }>();
+      `,
+      values: [input.organizationId, input.requester.userId, input.provider],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? { createdAtMs: row.created_at_ms, id: row.id } : null;
 }
-
 async function ensureRecipientInboxItems(
   input: Parameters<typeof prepareRecipientInboxStatements>[0]
 ): Promise<void> {
-  await input.db.batch(await prepareRecipientInboxStatements(input));
+  await input.db.transaction(async (client) => {
+    const results: QueryResult[] = [];
+    for (const query of await prepareRecipientInboxStatements(input)) {
+      results.push(await client.query(query));
+    }
+    return results;
+  });
 }
-
 async function prepareRecipientInboxStatements(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   provider: MessageChannelProvider;
   recipients: readonly string[];
   request: SetupRequestRecord;
-  requester: { displayName: string; userId: string };
-}): Promise<D1PreparedStatement[]> {
+  requester: {
+    displayName: string;
+    userId: string;
+  };
+}): Promise<QueryConfig[]> {
   const providerName = formatMessageChannelProviderName(input.provider);
   const writes = await Promise.all(
     input.recipients.map((recipientUserId) =>
@@ -225,7 +243,6 @@ async function prepareRecipientInboxStatements(input: {
   );
   return writes.flatMap((write) => write.statements);
 }
-
 export function formatMessageChannelProviderName(
   provider: MessageChannelProvider
 ): string {

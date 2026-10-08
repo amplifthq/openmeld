@@ -12,9 +12,11 @@ import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import { SpaceVisibilityPicker } from "#/components/spaces/space-visibility-picker";
+import type { SpaceCreationInput } from "#/query/spaces/space-creation";
 import { WelcomeLayout } from "./welcome-layout";
 
 const SPACE_NAME_INPUT_ID = "welcome-space-name-input";
@@ -37,6 +39,8 @@ export type WelcomeJoinableSpace = {
 export type WelcomeJoinableStatus = "loading" | "error" | "ready";
 
 export type WelcomeSpaceScreenProps = {
+	defaultName?: string;
+	initialDraft?: SpaceCreationInput;
 	onDiscover?: () => void;
 	contextKind?: "organization" | "personal";
 	computerSetupActions?: {
@@ -92,7 +96,9 @@ function joinDescriptionFor(
 }
 
 export function WelcomeSpaceScreen(props: WelcomeSpaceScreenProps) {
-	const [mode, setMode] = useState<SpaceMode>("choices");
+	const [mode, setMode] = useState<SpaceMode>(
+		props.initialDraft ? "create" : "choices"
+	);
 	const [query, setQuery] = useState("");
 	const hasJoinableSpaces = props.joinableSpaces.length > 0;
 	// Loading and settled-empty are dead ends (disabled); an error is actionable
@@ -163,7 +169,9 @@ function WelcomeSpaceModeContent(input: {
 		return (
 			<CreateSpaceForm
 				contextKind={input.props.contextKind ?? "organization"}
+				defaultName={input.props.defaultName}
 				errorMessage={input.props.errorMessage}
+				initialDraft={input.props.initialDraft}
 				isPending={input.props.isPending}
 				onCreate={input.props.onCreate}
 			/>
@@ -183,6 +191,7 @@ function WelcomeSpaceModeContent(input: {
 				icon={<PlusIcon aria-hidden="true" className="size-5 shrink-0" />}
 				onClick={() => input.setMode("create")}
 				title="Create a Space"
+				walkthroughTarget="create-space"
 			/>
 			<SpaceChoiceCard
 				description={input.joinDescription}
@@ -243,17 +252,30 @@ function WelcomeJoinSpaceList(input: {
 }
 
 function CreateSpaceForm(props: {
+	defaultName?: string;
+	initialDraft?: SpaceCreationInput;
 	contextKind: "organization" | "personal";
 	errorMessage?: string | null;
 	isPending: boolean;
 	onCreate: WelcomeSpaceScreenProps["onCreate"];
 }) {
 	const createStartedRef = useRef(false);
-	const [name, setName] = useState("");
-	const [visibility, setVisibility] =
-		useState<SpaceOrganizationVisibility>("private");
+	const [draftName, setName] = useState<string | null>(
+		props.initialDraft?.name ?? null
+	);
+	const name = draftName ?? props.defaultName ?? "";
+	const [visibility, setVisibility] = useState<SpaceOrganizationVisibility>(
+		props.initialDraft?.visibility ?? "private"
+	);
 	const trimmedName = name.trim();
 	const canCreate = trimmedName.length > 0 && !props.isPending;
+	useLayoutEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(
+				() => name.length > 0 || visibility !== "private" || props.isPending
+			),
+		[name, visibility, props.isPending]
+	);
 
 	useEffect(() => {
 		if (!props.isPending) {
@@ -280,7 +302,11 @@ function CreateSpaceForm(props: {
 	};
 
 	return (
-		<form className="grid gap-4" onSubmit={handleCreate}>
+		<form
+			className="grid gap-4"
+			data-walkthrough="create-space-form"
+			onSubmit={handleCreate}
+		>
 			<div className="grid gap-2">
 				<Label htmlFor={SPACE_NAME_INPUT_ID}>Name</Label>
 				<Input
@@ -306,8 +332,14 @@ function CreateSpaceForm(props: {
 					/>
 				</div>
 			) : null}
-			<Button className="w-full" disabled={!canCreate} size="lg" type="submit">
-				Create
+			<Button
+				aria-busy={props.isPending}
+				className="w-full"
+				disabled={!canCreate}
+				size="lg"
+				type="submit"
+			>
+				{props.isPending ? "Creating…" : "Create"}
 			</Button>
 			{props.errorMessage ? (
 				<p aria-live="polite" className="text-destructive text-xs">
@@ -334,6 +366,7 @@ function AddComputerChoiceCard(props: {
 }
 
 function SpaceChoiceCard(props: {
+	walkthroughTarget?: string;
 	title: string;
 	description: string;
 	icon: ReactNode;
@@ -352,6 +385,7 @@ function SpaceChoiceCard(props: {
 		>
 			<button
 				className="flex w-full items-start gap-3 rounded-md border border-transparent p-4 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed"
+				data-walkthrough={props.walkthroughTarget}
 				disabled={props.disabled}
 				onClick={props.onClick}
 				type="button"

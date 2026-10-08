@@ -1,3 +1,7 @@
+import {
+  isPostgresUniqueViolation,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { buildRepositoryFingerprint } from "@openmeld/projects";
 import {
   ACTIVE_PROJECT_LIMIT,
@@ -12,7 +16,6 @@ import type {
   ProjectIssueRouting,
   ProjectRepositorySettings,
 } from "@openmeld/schemas/types";
-
 export type StoredProject = Omit<
   Project,
   "canArchive" | "canManage" | "repositoryUrl"
@@ -21,7 +24,6 @@ export type StoredProject = Omit<
   creationRequestSignature?: string | null;
   repositoryUrl: string | null;
 };
-
 type ProjectRow = {
   archived_at_ms: number | null;
   created_at_ms: number;
@@ -36,55 +38,45 @@ type ProjectRow = {
   slug: string;
   updated_at_ms: number;
 };
-
 type ArchiveDiagnosticRow = Pick<
   ProjectRow,
   "archived_at_ms" | "created_by_user_id" | "has_activity" | "updated_at_ms"
 >;
-
 export type ArchiveProjectOutcome =
   | "archived"
   | "conflict"
   | "has_activity"
   | "not_found";
-
+// A newest-event probe uses the existing project/time index even before VACUUM
+// marks recent pages all-visible. An unordered EXISTS can choose a sequential
+// scan, then read the entire event table for every project with no activity.
 const PROJECT_ACTIVITY_EVIDENCE = `
-  EXISTS (
-    SELECT 1 FROM agent_activity_events events
+  (SELECT true FROM "openmeld"."agent_activity_events" events
     WHERE events.organization_id = projects.organization_id
       AND events.project_id = projects.id
-  )
+    ORDER BY events.observed_at_ms DESC LIMIT 1
+  ) IS TRUE
   OR EXISTS (
-    SELECT 1 FROM agent_activity_sessions sessions
+    SELECT 1 FROM "openmeld"."agent_activity_sessions" sessions
     WHERE sessions.organization_id = projects.organization_id
       AND sessions.project_id = projects.id
   )
   OR EXISTS (
-    SELECT 1 FROM agent_activity_digests digests
+    SELECT 1 FROM "openmeld"."agent_activity_digests" digests
     WHERE digests.organization_id = projects.organization_id
       AND digests.project_id = projects.id
   )
   OR EXISTS (
-    SELECT 1 FROM agent_activity_daily_aggregates daily_aggregates
+    SELECT 1 FROM "openmeld"."agent_activity_daily_aggregates" daily_aggregates
     WHERE daily_aggregates.organization_id = projects.organization_id
       AND daily_aggregates.project_id = projects.id
   )
   OR EXISTS (
-    SELECT 1 FROM agent_activity_daily_session_keys daily_session_keys
+    SELECT 1 FROM "openmeld"."agent_activity_daily_session_keys" daily_session_keys
     WHERE daily_session_keys.organization_id = projects.organization_id
       AND daily_session_keys.project_id = projects.id
   )
-  OR EXISTS (
-    SELECT 1
-    FROM agent_activity_execution_links execution_links
-    INNER JOIN agent_activity_sessions linked_sessions
-      ON linked_sessions.id = execution_links.activity_session_id
-    WHERE execution_links.organization_id = projects.organization_id
-      AND linked_sessions.organization_id = projects.organization_id
-      AND linked_sessions.project_id = projects.id
-  )
 `;
-
 const PROJECT_SELECT = `
   SELECT
     id,
@@ -99,88 +91,81 @@ const PROJECT_SELECT = `
     updated_at_ms,
     archived_at_ms,
     CASE WHEN ${PROJECT_ACTIVITY_EVIDENCE} THEN 1 ELSE 0 END AS has_activity
-  FROM projects
+  FROM "openmeld"."projects"
 `;
-
 export async function listProjectRecords(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<StoredProject[]> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<ProjectRow>({
+    text: `
         ${PROJECT_SELECT}
-        WHERE organization_id = ?
+        WHERE organization_id = $1
           AND archived_at_ms IS NULL
-        ORDER BY updated_at_ms DESC, id DESC
-        LIMIT ?
-      `
-    )
-    .bind(input.organizationId, ACTIVE_PROJECT_LIMIT)
-    .all<ProjectRow>();
-  return (result.results ?? []).map(mapProjectRow);
+        ORDER BY updated_at_ms DESC NULLS LAST, id DESC NULLS LAST
+        LIMIT $2
+      `,
+    values: [input.organizationId, ACTIVE_PROJECT_LIMIT],
+  });
+  return (result.rows ?? []).map(mapProjectRow);
 }
-
 export async function listActivitySnapshotProjectRecords(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<StoredProject[]> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<ProjectRow>({
+    text: `
         ${PROJECT_SELECT}
-        WHERE organization_id = ?
+        WHERE organization_id = $1
           AND (
             archived_at_ms IS NULL
             OR ${PROJECT_ACTIVITY_EVIDENCE}
           )
         ORDER BY
-          CASE WHEN archived_at_ms IS NULL THEN 0 ELSE 1 END ASC,
-          updated_at_ms DESC,
-          id DESC
-        LIMIT ?
-      `
-    )
-    .bind(input.organizationId, AGENT_ACTIVITY_SNAPSHOT_PROJECT_LIMIT)
-    .all<ProjectRow>();
-  return (result.results ?? []).map(mapProjectRow);
+          CASE WHEN archived_at_ms IS NULL THEN 0 ELSE 1 END ASC NULLS FIRST,
+          updated_at_ms DESC NULLS LAST,
+          id DESC NULLS LAST
+        LIMIT $2
+      `,
+    values: [input.organizationId, AGENT_ACTIVITY_SNAPSHOT_PROJECT_LIMIT],
+  });
+  return (result.rows ?? []).map(mapProjectRow);
 }
-
 export async function readProjectRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   projectId: string;
 }): Promise<StoredProject | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<ProjectRow>({
+      text: `
         ${PROJECT_SELECT}
-        WHERE id = ? AND organization_id = ?
+        WHERE id = $1 AND organization_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.projectId, input.organizationId)
-    .first<ProjectRow>();
+      `,
+      values: [input.projectId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapProjectRow(row) : null;
 }
 
 export async function readActiveProjectIds(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   projectIds: string[];
 }): Promise<string[]> {
   if (input.projectIds.length === 0) {
     return [];
   }
-  const placeholders = input.projectIds.map(() => "?").join(", ");
-  const rows = await input.db
-    .prepare(
-      `SELECT id FROM projects WHERE organization_id = ?
-         AND archived_at_ms IS NULL AND id IN (${placeholders})`
-    )
-    .bind(input.organizationId, ...input.projectIds)
-    .all<{ id: string }>();
-  return (rows.results ?? []).map((row) => row.id);
+  const placeholders = input.projectIds
+    .map((_, index) => `$${index + 2}`)
+    .join(", ");
+  const rows = await input.db.query<{ id: string }>({
+    text: `SELECT id FROM "openmeld"."projects" WHERE organization_id = $1
+         AND archived_at_ms IS NULL AND id IN (${placeholders})`,
+    values: [input.organizationId, ...input.projectIds],
+  });
+  return (rows.rows ?? []).map((row) => row.id);
 }
 
 type IssueRoutingRow = {
@@ -200,21 +185,21 @@ type RepositorySettingsRow = {
 };
 
 export async function readProjectRepositorySettingsRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   projectId: string;
 }): Promise<ProjectRepositorySettings | null> {
   const row = await input.db
-    .prepare(
-      `SELECT repository_url, repository_fingerprint,
+    .query<RepositorySettingsRow>({
+      text: `SELECT repository_url, repository_fingerprint,
               additional_repository_urls_json, repository_settings_revision,
               repository_settings_updated_at_ms,
               repository_settings_updated_by_user_id
-       FROM projects WHERE id = ? AND organization_id = ?
-         AND archived_at_ms IS NULL LIMIT 1`
-    )
-    .bind(input.projectId, input.organizationId)
-    .first<RepositorySettingsRow>();
+       FROM "openmeld"."projects" WHERE id = $1 AND organization_id = $2
+         AND archived_at_ms IS NULL LIMIT 1`,
+      values: [input.projectId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -252,7 +237,7 @@ export async function readProjectRepositorySettingsRecord(input: {
 
 export async function updateProjectRepositorySettingsRecord(input: {
   additionalRepositoryUrls: string[];
-  db: D1Database;
+  db: PostgresDatabase;
   defaultRepositoryFingerprint: string | null;
   defaultRepositoryUrl: string | null;
   expectedRevision: number;
@@ -261,19 +246,17 @@ export async function updateProjectRepositorySettingsRecord(input: {
   projectId: string;
   userId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `UPDATE projects SET
-         repository_url = ?, repository_fingerprint = ?,
-         additional_repository_urls_json = ?,
+  const result = await input.db.query({
+    text: `UPDATE "openmeld"."projects" SET
+         repository_url = $1, repository_fingerprint = $2,
+         additional_repository_urls_json = $3,
          repository_settings_revision = repository_settings_revision + 1,
-         repository_settings_updated_at_ms = MAX(COALESCE(repository_settings_updated_at_ms, 0) + 1, ?),
-         repository_settings_updated_by_user_id = ?,
-         updated_at_ms = MAX(updated_at_ms + 1, ?)
-       WHERE id = ? AND organization_id = ? AND archived_at_ms IS NULL
-         AND repository_settings_revision = ?`
-    )
-    .bind(
+         repository_settings_updated_at_ms = GREATEST(COALESCE(repository_settings_updated_at_ms, 0) + 1, $4),
+         repository_settings_updated_by_user_id = $5,
+         updated_at_ms = GREATEST(updated_at_ms + 1, $6)
+       WHERE id = $7 AND organization_id = $8 AND archived_at_ms IS NULL
+         AND repository_settings_revision = $9`,
+    values: [
       input.defaultRepositoryUrl,
       input.defaultRepositoryFingerprint,
       JSON.stringify(input.additionalRepositoryUrls),
@@ -282,10 +265,10 @@ export async function updateProjectRepositorySettingsRecord(input: {
       input.nowMs,
       input.projectId,
       input.organizationId,
-      input.expectedRevision
-    )
-    .run();
-  return Number(result.meta.changes ?? 0) === 1;
+      input.expectedRevision,
+    ],
+  });
+  return Number(result.rowCount ?? 0) === 1;
 }
 
 type CommonAgentsRow = {
@@ -296,19 +279,19 @@ type CommonAgentsRow = {
 };
 
 export async function readProjectCommonAgentsRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   projectId: string;
 }): Promise<ProjectCommonAgents | null> {
   const row = await input.db
-    .prepare(
-      `SELECT common_agent_profile_ids_json, common_agents_revision,
+    .query<CommonAgentsRow>({
+      text: `SELECT common_agent_profile_ids_json, common_agents_revision,
               common_agents_updated_at_ms, common_agents_updated_by_user_id
-       FROM projects WHERE id = ? AND organization_id = ?
-         AND archived_at_ms IS NULL LIMIT 1`
-    )
-    .bind(input.projectId, input.organizationId)
-    .first<CommonAgentsRow>();
+       FROM "openmeld"."projects" WHERE id = $1 AND organization_id = $2
+         AND archived_at_ms IS NULL LIMIT 1`,
+      values: [input.projectId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -326,56 +309,54 @@ export async function readProjectCommonAgentsRecord(input: {
 }
 
 export async function readActiveAgentProfileIds(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileIds: string[];
 }): Promise<string[]> {
   if (input.profileIds.length === 0) {
     return [];
   }
-  const placeholders = input.profileIds.map(() => "?").join(", ");
-  const result = await input.db
-    .prepare(
-      `SELECT profile_id FROM openmeld_profiles
-       WHERE organization_id = ? AND profile_kind = 'agent'
-         AND status = 'active' AND profile_id IN (${placeholders})`
-    )
-    .bind(input.organizationId, ...input.profileIds)
-    .all<{ profile_id: string }>();
-  return (result.results ?? []).map((row) => row.profile_id);
+  const placeholders = input.profileIds
+    .map((_, index) => `$${index + 2}`)
+    .join(", ");
+  const result = await input.db.query<{ profile_id: string }>({
+    text: `SELECT profile_id FROM "openmeld"."openmeld_profiles"
+       WHERE organization_id = $1 AND profile_kind = 'agent'
+         AND status = 'active' AND profile_id IN (${placeholders})`,
+    values: [input.organizationId, ...input.profileIds],
+  });
+  return (result.rows ?? []).map((row) => row.profile_id);
 }
 
 export async function updateProjectCommonAgentsRecord(input: {
   agentProfileIds: string[];
-  db: D1Database;
+  db: PostgresDatabase;
   expectedRevision: number;
   nowMs: number;
   organizationId: string;
   projectId: string;
   userId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `UPDATE projects SET
-         common_agent_profile_ids_json = ?,
+  const result = await input.db.query({
+    text: `UPDATE "openmeld"."projects" SET
+         common_agent_profile_ids_json = $1,
          common_agents_revision = common_agents_revision + 1,
-         common_agents_updated_at_ms = MAX(COALESCE(common_agents_updated_at_ms, 0) + 1, ?),
-         common_agents_updated_by_user_id = ?,
-         updated_at_ms = MAX(updated_at_ms + 1, ?)
-       WHERE id = ? AND organization_id = ? AND archived_at_ms IS NULL
-         AND common_agents_revision = ?`
-    )
-    .bind(
+         common_agents_updated_at_ms = GREATEST(COALESCE(common_agents_updated_at_ms, 0) + 1, $2),
+         common_agents_updated_by_user_id = $3,
+         updated_at_ms = GREATEST(updated_at_ms + 1, $4)
+       WHERE id = $5 AND organization_id = $6 AND archived_at_ms IS NULL
+         AND common_agents_revision = $7`,
+    values: [
       JSON.stringify(input.agentProfileIds),
       input.nowMs,
       input.userId,
       input.nowMs,
       input.projectId,
       input.organizationId,
-      input.expectedRevision
-    )
-    .run();
-  return Number(result.meta.changes ?? 0) === 1;
+      input.expectedRevision,
+    ],
+  });
+  return Number(result.rowCount ?? 0) === 1;
 }
 
 function parseStringArray(value: string, message: string): string[] {
@@ -403,29 +384,27 @@ export type ProjectIssueRoutingCandidate = {
 };
 
 export async function listProjectIssueRoutingCandidates(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<ProjectIssueRoutingCandidate[]> {
-  const rows = await input.db
-    .prepare(
-      `SELECT id, name, slug, repository_url, additional_repository_urls_json,
+  const rows = await input.db.query<
+    IssueRoutingRow & {
+      id: string;
+      name: string;
+      slug: string;
+      repository_url: string | null;
+      additional_repository_urls_json: string;
+    }
+  >({
+    text: `SELECT id, name, slug, repository_url, additional_repository_urls_json,
               issue_destination_json, issue_destination_revision,
               issue_destination_updated_at_ms,
               issue_destination_updated_by_user_id
-       FROM projects WHERE organization_id = ? AND archived_at_ms IS NULL
-       ORDER BY id LIMIT ?`
-    )
-    .bind(input.organizationId, ACTIVE_PROJECT_LIMIT)
-    .all<
-      IssueRoutingRow & {
-        id: string;
-        name: string;
-        slug: string;
-        repository_url: string | null;
-        additional_repository_urls_json: string;
-      }
-    >();
-  return (rows.results ?? []).map((row) => ({
+       FROM "openmeld"."projects" WHERE organization_id = $1 AND archived_at_ms IS NULL
+       ORDER BY id LIMIT $2`,
+    values: [input.organizationId, ACTIVE_PROJECT_LIMIT],
+  });
+  return (rows.rows ?? []).map((row) => ({
     id: row.id,
     name: row.name,
     slug: row.slug,
@@ -442,20 +421,20 @@ export async function listProjectIssueRoutingCandidates(input: {
 }
 
 export async function readProjectIssueRoutingRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   projectId: string;
 }): Promise<ProjectIssueRouting | null> {
   const row = await input.db
-    .prepare(
-      `SELECT issue_destination_json, issue_destination_revision,
+    .query<IssueRoutingRow>({
+      text: `SELECT issue_destination_json, issue_destination_revision,
               issue_destination_updated_at_ms,
               issue_destination_updated_by_user_id
-       FROM projects WHERE id = ? AND organization_id = ?
-         AND archived_at_ms IS NULL LIMIT 1`
-    )
-    .bind(input.projectId, input.organizationId)
-    .first<IssueRoutingRow>();
+       FROM "openmeld"."projects" WHERE id = $1 AND organization_id = $2
+         AND archived_at_ms IS NULL LIMIT 1`,
+      values: [input.projectId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -490,7 +469,7 @@ function mapIssueRoutingRow(
 }
 
 export async function updateProjectIssueRoutingRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   destination: ProjectIssueDestination | null;
   expectedRevision: number;
   nowMs: number;
@@ -498,38 +477,40 @@ export async function updateProjectIssueRoutingRecord(input: {
   projectId: string;
   userId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `UPDATE projects
-       SET issue_destination_json = ?,
+  const result = await input.db.query({
+    text: `UPDATE "openmeld"."projects"
+       SET issue_destination_json = $1,
            issue_destination_revision = issue_destination_revision + 1,
-           issue_destination_updated_at_ms = MAX(COALESCE(issue_destination_updated_at_ms, 0) + 1, ?),
-           issue_destination_updated_by_user_id = ?,
-           updated_at_ms = MAX(updated_at_ms + 1, ?)
-       WHERE id = ? AND organization_id = ?
-         AND archived_at_ms IS NULL AND issue_destination_revision = ?`
-    )
-    .bind(
+           issue_destination_updated_at_ms = GREATEST(COALESCE(issue_destination_updated_at_ms, 0) + 1, $2),
+           issue_destination_updated_by_user_id = $3,
+           updated_at_ms = GREATEST(updated_at_ms + 1, $4)
+       WHERE id = $5 AND organization_id = $6
+         AND archived_at_ms IS NULL AND issue_destination_revision = $7`,
+    values: [
       input.destination === null ? null : JSON.stringify(input.destination),
       input.nowMs,
       input.userId,
       input.nowMs,
       input.projectId,
       input.organizationId,
-      input.expectedRevision
-    )
-    .run();
-  return Number(result.meta.changes ?? 0) === 1;
+      input.expectedRevision,
+    ],
+  });
+  return Number(result.rowCount ?? 0) === 1;
 }
-
 export async function insertProjectRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   project: StoredProject;
 }): Promise<"inserted" | "limit_reached"> {
-  const result = await input.db
-    .prepare(
-      `
-        INSERT INTO projects (
+  const result = await input.db.transaction(async (client) => {
+    // Serialize the Organization's active Project limit before inserting.
+    await client.query({
+      text: 'SELECT id FROM "openmeld"."organizations" WHERE id = $1 FOR UPDATE',
+      values: [input.project.organizationId],
+    });
+    return client.query({
+      text: `
+        INSERT INTO "openmeld"."projects" (
           id,
           organization_id,
           name,
@@ -542,69 +523,69 @@ export async function insertProjectRecord(input: {
           updated_at_ms,
           archived_at_ms
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
         WHERE (
           SELECT COUNT(*)
-          FROM projects
-          WHERE organization_id = ? AND archived_at_ms IS NULL
-        ) < ?
-      `
-    )
-    .bind(
-      input.project.id,
-      input.project.organizationId,
-      input.project.name,
-      input.project.slug,
-      input.project.repositoryFingerprint,
-      input.project.repositoryUrl,
-      input.project.creationRequestSignature ?? null,
-      input.project.createdByUserId,
-      input.project.createdAtMs,
-      input.project.updatedAtMs,
-      input.project.archivedAtMs,
-      input.project.organizationId,
-      ACTIVE_PROJECT_LIMIT
-    )
-    .run();
-  return Number(result.meta.changes ?? 0) === 1 ? "inserted" : "limit_reached";
+          FROM "openmeld"."projects"
+          WHERE organization_id = $12 AND archived_at_ms IS NULL
+        ) < $13
+      `,
+      values: [
+        input.project.id,
+        input.project.organizationId,
+        input.project.name,
+        input.project.slug,
+        input.project.repositoryFingerprint,
+        input.project.repositoryUrl,
+        input.project.creationRequestSignature ?? null,
+        input.project.createdByUserId,
+        input.project.createdAtMs,
+        input.project.updatedAtMs,
+        input.project.archivedAtMs,
+        input.project.organizationId,
+        ACTIVE_PROJECT_LIMIT,
+      ],
+    });
+  });
+  return result.rowCount === 1 ? "inserted" : "limit_reached";
 }
-
 export async function updateProjectRecord(input: {
   additionalRepositoryUrls?: string[];
   currentUpdatedAtMs: number;
-  db: D1Database;
+  db: PostgresDatabase;
   project: StoredProject;
   userId: string;
 }): Promise<"not_updated" | "updated"> {
   const repositorySettingsUpdate = input.additionalRepositoryUrls
     ? `,
-          additional_repository_urls_json = ?,
+          additional_repository_urls_json = $9,
           repository_settings_revision = repository_settings_revision + 1,
-          repository_settings_updated_by_user_id = ?,
-          repository_settings_updated_at_ms = MAX(COALESCE(repository_settings_updated_at_ms, 0) + 1, ?)`
+          repository_settings_updated_by_user_id = $10,
+          repository_settings_updated_at_ms = GREATEST(COALESCE(repository_settings_updated_at_ms, 0) + 1, $11)`
     : "";
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE projects
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."projects"
         SET
-          name = ?,
-          slug = ?,
-          repository_fingerprint = ?,
-          repository_url = ?,
-          updated_at_ms = ?${repositorySettingsUpdate}
-        WHERE id = ?
-          AND organization_id = ?
-          AND updated_at_ms = ?
+          name = $1,
+          slug = $2,
+          repository_fingerprint = $3,
+          repository_url = $4,
+          updated_at_ms = $5${repositorySettingsUpdate}
+        WHERE id = $6
+          AND organization_id = $7
+          AND updated_at_ms = $8
           AND archived_at_ms IS NULL
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.project.name,
       input.project.slug,
       input.project.repositoryFingerprint,
       input.project.repositoryUrl,
       input.project.updatedAtMs,
+      input.project.id,
+      input.project.organizationId,
+      input.currentUpdatedAtMs,
       ...(input.additionalRepositoryUrls
         ? [
             JSON.stringify(input.additionalRepositoryUrls),
@@ -612,18 +593,14 @@ export async function updateProjectRecord(input: {
             input.project.updatedAtMs,
           ]
         : []),
-      input.project.id,
-      input.project.organizationId,
-      input.currentUpdatedAtMs
-    )
-    .run();
-  return Number(result.meta.changes ?? 0) === 1 ? "updated" : "not_updated";
+    ],
+  });
+  return Number(result.rowCount ?? 0) === 1 ? "updated" : "not_updated";
 }
-
 export async function archiveProjectRecord(input: {
   authorityMode: "creator_grace" | "owner";
   currentUpdatedAtMs: number;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   projectId: string;
@@ -632,7 +609,7 @@ export async function archiveProjectRecord(input: {
   const creatorConditions =
     input.authorityMode === "creator_grace"
       ? `
-          AND created_by_user_id = ?
+          AND created_by_user_id = $6
           AND NOT (${PROJECT_ACTIVITY_EVIDENCE})
         `
       : "";
@@ -644,39 +621,36 @@ export async function archiveProjectRecord(input: {
     input.currentUpdatedAtMs,
     ...(input.authorityMode === "creator_grace" ? [input.userId] : []),
   ];
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE projects
-        SET archived_at_ms = ?, updated_at_ms = ?
-        WHERE id = ?
-          AND organization_id = ?
-          AND updated_at_ms = ?
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."projects"
+        SET archived_at_ms = $1, updated_at_ms = $2
+        WHERE id = $3
+          AND organization_id = $4
+          AND updated_at_ms = $5
           AND archived_at_ms IS NULL
           ${creatorConditions}
-      `
-    )
-    .bind(...bindings)
-    .run();
-  if (Number(result.meta.changes ?? 0) === 1) {
+      `,
+    values: [...bindings],
+  });
+  if (Number(result.rowCount ?? 0) === 1) {
     return "archived";
   }
-
   const diagnostic = await input.db
-    .prepare(
-      `
+    .query<ArchiveDiagnosticRow>({
+      text: `
         SELECT
           archived_at_ms,
           created_by_user_id,
           updated_at_ms,
           CASE WHEN ${PROJECT_ACTIVITY_EVIDENCE} THEN 1 ELSE 0 END AS has_activity
-        FROM projects
-        WHERE id = ? AND organization_id = ?
+        FROM "openmeld"."projects"
+        WHERE id = $1 AND organization_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.projectId, input.organizationId)
-    .first<ArchiveDiagnosticRow>();
+      `,
+      values: [input.projectId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!diagnostic) {
     return "not_found";
   }
@@ -691,16 +665,9 @@ export async function archiveProjectRecord(input: {
   }
   return "conflict";
 }
-
 export function isProjectSlugConflict(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.includes(
-      "UNIQUE constraint failed: projects.organization_id, projects.slug"
-    )
-  );
+  return isPostgresUniqueViolation(error, "projects_org_slug_unique");
 }
-
 function mapProjectRow(row: ProjectRow): StoredProject {
   return {
     archivedAtMs:

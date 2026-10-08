@@ -68,6 +68,7 @@ export async function resolveOrganizationDirectoryAgentProfiles(input: {
   try {
     result = await resolveAgentProfiles({
       additionalAgentProfileIds,
+      includeAvatarStyle: true,
       organizationId: input.organizationId,
     });
   } catch (error) {

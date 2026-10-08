@@ -77,7 +77,11 @@ describe("HumanProfileDetailsPopover", () => {
 		expect(dialog.getByText("Computer connected")).toBeTruthy();
 		expect(dialog.getByText("5 of 6")).toBeTruthy();
 		const list = dialog.getByRole("list", { name: "Monica Cheng's Agents" });
-		expect(list.className).toContain("overflow-x-auto");
+		expect(
+			list
+				.closest('[data-slot="scroll-area-viewport"]')
+				?.getAttribute("data-orientation")
+		).toBe("horizontal");
 		expect(
 			dialog.getByRole("link", { name: "Open Monica Agent 6" })
 		).toBeTruthy();
@@ -134,7 +138,7 @@ describe("HumanProfileDetailsPopover", () => {
 		expect(dialog.querySelector(".border-t")).toBeNull();
 	});
 
-	it("stops presenting an expired Computer connection as current in the member popover", async () => {
+	it("keeps the last successful Computer connection while the member popover query refreshes", () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
@@ -166,10 +170,12 @@ describe("HumanProfileDetailsPopover", () => {
 				refetchType: "none",
 			});
 		});
-		await waitFor(() => {
-			expect(screen.getByText("Computer status unavailable")).toBeTruthy();
-		});
-		expect(screen.queryByText("Computer connected")).toBeNull();
+		expect(
+			queryClient.getQueryState(organizationQueryKeys.computers("org-acme"))
+				?.isInvalidated
+		).toBe(true);
+		expect(screen.getByText("Computer connected")).toBeTruthy();
+		expect(screen.queryByText("Computer status unavailable")).toBeNull();
 	});
 
 	it("uses the same compact avatar and primary action for Agent details", () => {

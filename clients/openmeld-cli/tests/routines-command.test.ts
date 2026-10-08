@@ -4,9 +4,10 @@ import {
   deleteCenterAgentRoutineResponseSchema,
   gatewayErrorEnvelopeSchema,
   listCenterAgentRoutineRunsResponseSchema,
-  listCenterAgentRoutinesResponseSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
+  routineManagementSchema,
   updateCenterAgentRoutineResponseSchema,
 } from "@openmeld/schemas";
 import type {
@@ -79,7 +80,7 @@ const ROUTINE_SUCCESS_CONTRACT_CASES: RoutineSuccessContractCase[] = [
   {
     code: "routines.list",
     humanText: "Routines (1)",
-    responseSchema: listCenterAgentRoutinesResponseSchema,
+    responseSchema: listRoutineManagementResponseSchema,
     run: (mode) => runRoutinesList(routineOutputOptions(mode)),
   },
   {
@@ -99,7 +100,7 @@ const ROUTINE_SUCCESS_CONTRACT_CASES: RoutineSuccessContractCase[] = [
   {
     code: "routines.show",
     humanText: "Routine Configuration",
-    responseSchema: createCenterAgentRoutineResponseSchema,
+    responseSchema: z.strictObject({ routine: routineManagementSchema }),
     run: (mode) =>
       runRoutinesShow({
         routineId: "routine-1",
@@ -210,7 +211,7 @@ describe("routines commands", () => {
         body: null,
         method: "GET",
         pathname: "/v1/organizations/current/routines",
-        search: "?contract=practical-v2",
+        search: "?contract=routines-v3",
       },
     ]);
   });
@@ -319,13 +320,15 @@ describe("routines commands", () => {
     });
   });
 
-  it("creates a Routine from a validated raw five-field cron expression", async () => {
+  it("creates a team Routine for the selected Agent with a raw five-field cron", async () => {
     const calls = mockRoutinesFetch({ routines: [] });
 
     await withTempHome(async () => {
       await writeSignedInSession();
       const result = await runCommandAndCapture(() =>
         runRoutinesCreate({
+          agentProfileId: "local-agent-1",
+          scope: "team",
           cronExpression: "0 9 * * *",
           instructions: "Triage the Feedback Inbox.",
           name: "Daily feedback triage",
@@ -342,6 +345,8 @@ describe("routines commands", () => {
 
     expect(routineApiCalls(calls)).toContainEqual({
       body: {
+        agentProfileId: "local-agent-1",
+        scope: "team",
         cronExpression: "0 9 * * *",
         destinationKind: "space",
         instructions: "Triage the Feedback Inbox.",
@@ -389,6 +394,7 @@ describe("routines commands", () => {
 
     expect(routineApiCalls(calls)).toContainEqual({
       body: {
+        scope: "personal",
         cronExpression: "5 9 * * *",
         destinationKind: "space",
         instructions: "Triage the Feedback Inbox.",
@@ -431,6 +437,7 @@ describe("routines commands", () => {
 
     expect(routineApiCalls(calls)).toContainEqual({
       body: {
+        scope: "personal",
         cronExpression: null,
         destinationKind: "space",
         instructions: "Confirm the release is healthy.",
@@ -452,6 +459,11 @@ describe("routines commands", () => {
   });
 
   it.each([
+    {
+      name: "invalid visibility",
+      input: { scope: "public" },
+      code: "routine.scope_invalid",
+    },
     {
       name: "raw and daily conflict",
       input: { cronExpression: "0 9 * * *", dailyTime: "09:00" },
@@ -1440,7 +1452,27 @@ function mockRoutinesFetch(input: {
           input.listResponse ?? {
             currentUserId: "user-1",
             organizationId: ACTIVE_ORGANIZATION.id,
-            routines: input.routines ?? [],
+            routines: (input.routines ?? []).map((routine) => ({
+              ...routine,
+              scope: "personal",
+              agentProfileId: null,
+              executorKind: "center_agent",
+              executorName: "Center Agent",
+              capabilityState: {
+                approvedKnowledge: false,
+                canRepair: false,
+                externalActionPolicy: "standard",
+                slackChannelReport: false,
+              },
+              creationAttribution: { displayName: "Test member" },
+            })),
+            executors: [
+              {
+                agentProfileId: null,
+                kind: "center_agent",
+                name: "Center Agent",
+              },
+            ],
           },
           input.listRequestId
             ? { "x-openmeld-request-id": input.listRequestId }

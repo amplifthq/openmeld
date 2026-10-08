@@ -65,8 +65,6 @@ import {
   toErrorMessage,
 } from "../core/logger";
 import type {
-  CurrentDaemonSocketRef,
-  LedgerPaths,
   MutableRouteCatalogState,
   ParsedDaemonFrame,
   PendingFrameWaiters,
@@ -76,11 +74,6 @@ import type {
 import { DaemonServiceRunError } from "../core/types";
 import { emitReconcileCompletedEvidence } from "../diagnostics/service-evidence-trace";
 import { emitDaemonDispatchJournalEvent } from "../dispatch/daemon-dispatch-journal";
-import {
-  flushDispatchResultOutbox,
-  listDispatchResultOutboxPendingAcknowledgementKeys,
-  waitForDispatchResultOutboxAcknowledgement,
-} from "../dispatch/dispatch-result-outbox";
 import type { ExecutionHostPort } from "../execution-host/port";
 import { createExecutionHostSocketLink } from "../execution-host/socket-link";
 import { handleComputerFileAccessFrame } from "../file-access/computer-file-access-handler";
@@ -258,40 +251,31 @@ function classifyDaemonSocketDisconnect(input: {
   return "abnormal_socket_close";
 }
 
-function _replayStartupResultsBeforeDispatchAdmission(input: {
-  currentSocketRef: CurrentDaemonSocketRef;
-  ledgerPaths: LedgerPaths;
-  onAdmissionOpen: (replayedResultCount: number) => void;
+function handleSessionHistorySocketFrame(input: {
+  computerFileAccessStorePath: string;
+  ownerUserId: string;
+  deviceId: string;
   presenter: Presenter;
-  shouldOpenAdmission: () => boolean;
-  waitForClose: Promise<void>;
+  frame: ParsedDaemonFrame;
+  socket: WsClient;
 }): boolean {
-  const recordKeys = listDispatchResultOutboxPendingAcknowledgementKeys({
-    ledgerPaths: input.ledgerPaths,
-  });
-  const abortController = new AbortController();
-  input.waitForClose.then(() => {
-    abortController.abort();
-  });
-  const replayCompleted = waitForDispatchResultOutboxAcknowledgement({
-    abortSignal: abortController.signal,
-    ledgerPaths: input.ledgerPaths,
-    recordKeys,
-  });
-  flushDispatchResultOutbox({
-    currentSocketRef: input.currentSocketRef,
-    ledgerPaths: input.ledgerPaths,
-    presenter: input.presenter,
-  });
-  if (recordKeys.length === 0) {
+  if (input.frame.code !== "daemon.session_history.request") {
+    return false;
+  }
+  const parsed = sessionHistoryRequestFrameSchema.safeParse(input.frame);
+  if (!parsed.success) {
     return true;
   }
-  replayCompleted.then(() => {
-    if (input.shouldOpenAdmission()) {
-      input.onAdmissionOpen(recordKeys.length);
-    }
-  });
-  return false;
+  handleSessionHistoryFrame({ ...input, frame: parsed.data })
+    .then((frame) => input.socket.send(JSON.stringify(frame)))
+    .catch(() => {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.session_history_failed",
+        text: "Session history request failed. No transcript content was logged.",
+      });
+    });
+  return true;
 }
 
 function handleComputerFileAccessSocketFrame(input: {
@@ -816,9 +800,16 @@ export async function runDaemonSocketSession(input: {
     options: {
       advanceIdleCadence?: boolean;
       publishAdmissionAfterInFlight?: boolean;
+      requireAcknowledgement?: boolean;
     } = {}
   ): Promise<void> {
     if (closed) {
+      if (options.requireAcknowledgement) {
+        throw new DaemonServiceRunError({
+          code: "daemon.run.socket_closed",
+          message: "Transport closed before the final heartbeat.",
+        });
+      }
       return;
     }
     if (heartbeatInFlight) {
@@ -893,6 +884,12 @@ export async function runDaemonSocketSession(input: {
         timeoutMs: HEARTBEAT_RESPONSE_TIMEOUT_MS,
         waiters,
       });
+      if (!heartbeatResponse.ok) {
+        throw new DaemonServiceRunError({
+          code: "daemon.run.heartbeat_rejected",
+          message: "Core rejected the service heartbeat.",
+        });
+      }
       pruneStaleLeases({
         leasesByProfileId,
         staleLeases: heartbeatResponse.staleLeases,
@@ -953,7 +950,7 @@ export async function runDaemonSocketSession(input: {
       startRouteCatalogSyncIfDue();
       startSupplementalEvidenceSyncs();
     } catch (error) {
-      if (recordHeartbeatFailure(error)) {
+      if (recordHeartbeatFailure(error) && !options.requireAcknowledgement) {
         admissionHeartbeatPending = false;
         input.socket.terminate();
         return;
@@ -966,6 +963,9 @@ export async function runDaemonSocketSession(input: {
         delayMs: MIN_HEARTBEAT_INTERVAL_MS,
         reason: "heartbeat_retry",
       });
+      if (options.requireAcknowledgement) {
+        throw error;
+      }
     } finally {
       heartbeatInFlight = false;
       const publishPendingAdmission = admissionHeartbeatPending;
@@ -1170,7 +1170,7 @@ export async function runDaemonSocketSession(input: {
         runtimeContract: {
           epoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
         },
-        connectedAtMs: Date.now(),
+        connectedAtMs: socketConnectedAtMs,
       });
     if (!registerPayload.success) {
       throw new DaemonServiceRunError({
@@ -1932,6 +1932,7 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     const handledCurrentComputerControl =
+      handleSessionHistorySocketFrame({ ...input, frame: parsedFrame }) ||
       handleLocalFolderPickerSocketFrame({
         deviceId: input.deviceId,
         frame: parsedFrame,
@@ -2077,12 +2078,19 @@ export async function runDaemonSocketSession(input: {
       code: "daemon.run.controlled_shutdown_inflight_heartbeat_completed",
       text: "Controlled shutdown finished waiting for the active heartbeat.",
     });
-    await sendHeartbeat();
-    emitRunLine({
-      presenter: input.presenter,
-      code: "daemon.run.controlled_shutdown_final_heartbeat_completed",
-      text: "Controlled shutdown completed its final heartbeat.",
-    });
+    let finalHeartbeatError: unknown;
+    try {
+      await sendHeartbeat({ requireAcknowledgement: true });
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.controlled_shutdown_final_heartbeat_completed",
+        text: "Controlled shutdown completed its final heartbeat.",
+      });
+    } catch (error) {
+      // Failure to publish a stop must not interrupt already accepted work.
+      // Preserve the failed acknowledgement until the existing drain finishes.
+      finalHeartbeatError = error;
+    }
     emitRunLine({
       presenter: input.presenter,
       code: "daemon.run.controlled_shutdown_draining",
@@ -2090,6 +2098,9 @@ export async function runDaemonSocketSession(input: {
     });
     await input.executionHost.call("drain", {}, { timeoutMs: null });
     const result = await input.executionHost.call("settleResults", {});
+    if (finalHeartbeatError) {
+      throw finalHeartbeatError;
+    }
     if (result.status === "connection_closed") {
       return false;
     }
@@ -2135,16 +2146,22 @@ export async function runDaemonSocketSession(input: {
           stopCause,
         })) ?? new Promise<never>(() => undefined),
       ]);
-  if (sessionExit.kind === "shutdown_requested" && !closed) {
-    controlledShutdownCompleted = await finishControlledShutdown(
-      sessionExit.stopCause
-    );
+  try {
+    if (sessionExit.kind === "shutdown_requested" && !closed) {
+      controlledShutdownCompleted = await finishControlledShutdown(
+        sessionExit.stopCause
+      );
+    }
+  } catch (error) {
+    input.socket.terminate();
+    throw error;
+  } finally {
+    hostLink.detach().catch(reportHostFailure);
+    input.attachRouteCatalogSyncInvoker?.(null);
+    clearHeartbeatTimer();
+    keepalive.stop();
+    clearCatalogSyncSignalTimer();
   }
-  hostLink.detach().catch(reportHostFailure);
-  input.attachRouteCatalogSyncInvoker?.(null);
-  clearHeartbeatTimer();
-  keepalive.stop();
-  clearCatalogSyncSignalTimer();
   const shouldDrainBeforeExit =
     controlledShutdownCompleted ||
     (closeCode === 1000 && closeReason === "shutdown");
@@ -2382,15 +2399,6 @@ function normalizeFrameInteger(value: unknown): number | null {
   return value;
 }
 
-function _resolveLocalAgentEnabledErrorCode(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "agents.unexpected_error";
-  }
-  const [code] = error.message.split(":", 1);
-  const normalized = code?.trim();
-  return normalized?.includes(".") ? normalized : "agents.unexpected_error";
-}
-
 function resolveProfileWorkspaceControlErrorCode(error: unknown): string {
   if (error instanceof Error) {
     const codedError = error as Error & { code?: unknown };
@@ -2400,3 +2408,6 @@ function resolveProfileWorkspaceControlErrorCode(error: unknown): string {
   }
   return "profile.workspace.update_failed";
 }
+
+import { sessionHistoryRequestFrameSchema } from "@openmeld/schemas";
+import { handleSessionHistoryFrame } from "../session-history/session-history-handler";

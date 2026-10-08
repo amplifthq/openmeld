@@ -1,9 +1,11 @@
 import {
-  CENTER_AGENT_APP_CONNECTOR_SERVICES,
   CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
   centerAgentConnectorConnectionSelectionSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentRecordConnectorActionOperationResponseSchema,
+  connectorActionOutcomeUnknownSchema,
+  connectorActionTerminalReceiptSchema,
+  connectorServicesResponseSchema,
   isLinearIssueCreateAction,
   readLinearIssueReference,
 } from "@openmeld/schemas";
@@ -11,7 +13,6 @@ import type {
   CenterAgentRecordConnectorActionOperationBody,
   ConnectorService,
   OpenConnectorRuntimeAction,
-  RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import {
@@ -40,21 +41,27 @@ import {
   runOpenConnectorAction,
   searchOpenConnectorActions,
 } from "../connectors/open-connector-runtime";
+import { describePluginConnection } from "../connectors/plugin-connection";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "./callback-context";
-import { recordRemoteAgentNavigationTarget } from "./callback-context";
+import {
+  readRemoteAgentCallbackContext,
+  recordRemoteAgentNavigationTarget,
+} from "./callback-context";
 import {
   type CenterAgentAppConnectorService,
   getConnectedAppDisplayName,
 } from "./connector-service-presentation";
+import { CONNECTOR_WRITE_RECOVERY_GUIDANCE } from "./connector-write-recovery";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
 import {
   resolveRemoteAgentDestructiveAuthorization,
   resolveRemoteAgentRoutineDestructiveActionBlock,
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
+import { readRemoteAgentExecutionAccess } from "./execution-access";
 import {
   issueRoutingDecisionForClaim,
   readLinearIssueDestination,
@@ -71,9 +78,18 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 const GITHUB_DEDICATED_ACTION_INSTRUCTION =
   "This Plugins list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.";
-// OpenConnector retains action idempotency responses for 24 hours. Leave a
-// safety margin for clock skew and provider-side expiration before replay.
-const LINEAR_ISSUE_REPLAY_MAX_AGE_MS = 23 * 60 * 60 * 1000;
+function knownConnectionUsability(
+  stored: boolean,
+  state?: string
+): boolean | null {
+  if (!stored || state === "reconnect_required") {
+    return false;
+  }
+  if (state === "ready") {
+    return true;
+  }
+  return null;
+}
 export const REMOTE_AGENT_CONNECTOR_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
@@ -90,7 +106,49 @@ type ConnectorToolDependencies = {
   storage: RemoteAgentStorage;
   submissionId: string;
 };
+type ConnectorToolContext = Awaited<
+  ReturnType<typeof buildRemoteAgentToolContext>
+> & {
+  delegatedRequester?: NonNullable<
+    Awaited<
+      ReturnType<typeof readRemoteAgentExecutionAccess>
+    >["delegatedRequester"]
+  >;
+  pluginDelegations?: Awaited<
+    ReturnType<typeof readRemoteAgentExecutionAccess>
+  >["pluginDelegations"];
+};
+
+export async function buildConnectorToolContext(
+  input: Parameters<typeof buildRemoteAgentToolContext>[0] & {
+    coreWorker: RemoteAgentCoreWorkerBinding;
+  }
+): Promise<ConnectorToolContext> {
+  const context = await buildRemoteAgentToolContext(input);
+  if (context.turnEnvelope?.sender.kind !== "agent_profile") {
+    return context;
+  }
+  const callback = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.submissionId
+  );
+  if (!callback) {
+    throw new Error("remote_agent.execution_context_unavailable");
+  }
+  const access = await readRemoteAgentExecutionAccess({
+    context: callback,
+    coreWorker: input.coreWorker,
+    includeDelegatedRequester: true,
+    includePluginDelegations: true,
+  });
+  return {
+    ...context,
+    delegatedRequester: access.delegatedRequester,
+    pluginDelegations: access.pluginDelegations,
+  };
+}
 type ConnectorActionOperationRequest = {
+  verificationOf?: { operationId: string; actionId: string };
   actionId: string;
   connectionPreference?: "requester" | "shared";
   input: Record<string, unknown>;
@@ -103,8 +161,11 @@ type ExecuteAppActionRequest = ConnectorActionOperationRequest & {
   service: CenterAgentAppConnectorService;
 };
 
-const connectorServiceInputSchema = picklist(
-  CENTER_AGENT_APP_CONNECTOR_SERVICES
+const connectorServiceInputSchema = pipe(
+  string(),
+  trim(),
+  minLength(1),
+  maxLength(100)
 );
 const listAppActionsInputSchema = object({
   limit: optional(pipe(number(), integer(), minValue(1), maxValue(500))),
@@ -113,6 +174,12 @@ const listAppActionsInputSchema = object({
   service: connectorServiceInputSchema,
 });
 const executeAppActionInputSchema = object({
+  verificationOf: optional(
+    object({
+      operationId: pipe(string(), trim(), minLength(1), maxLength(256)),
+      actionId: pipe(string(), trim(), minLength(1), maxLength(160)),
+    })
+  ),
   actionId: pipe(string(), trim(), minLength(1), maxLength(160)),
   connectionPreference: optional(picklist(["requester", "shared"])),
   destructiveConfirmationToken: optional(
@@ -133,31 +200,74 @@ export function getRemoteAgentConnectorToolDefinitions(
         "List the non-GitHub Plugins available to this Agent for the current requester, subject to each account's Agent access settings. Verified member requests can use their own connection; personal Remote Agents can use a personal connection only for their owner's request. Shared connections follow Organization access. Connected Message Channel members use shared access only. Routines use their verified delegated member identity.",
       input: object({}),
       execute: async () => {
-        const toolContext = await buildRemoteAgentToolContext({
+        const toolContext = await buildConnectorToolContext({
+          coreWorker: input.coreWorker,
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_connected_apps",
         });
-        const requester = resolveConnectorTurnRequester(
-          toolContext.turnEnvelope
+        const requester = resolveConnectorTurnRequester(toolContext);
+        const { services } = connectorServicesResponseSchema.parse(
+          await requireCoreRpc(
+            input.coreWorker.centerAgentListConnectorServices,
+            "centerAgentListConnectorServices"
+          )({
+            context: toolContext.context,
+            requesterUserId: requester.requesterUserId,
+            ...(toolContext.delegatedRequester
+              ? { includeDelegatedRequester: true }
+              : {}),
+          })
         );
         const apps = await Promise.all(
-          CENTER_AGENT_APP_CONNECTOR_SERVICES.map(async (service) => {
-            const selection = await resolveConnectorConnection({
-              connectionPreference: requester.connectionPreference,
-              coreWorker: input.coreWorker,
-              requesterUserId: requester.requesterUserId,
-              service,
-              toolContext,
-            });
-            return {
-              connected: Boolean(selection.connection),
-              name: getConnectedAppDisplayName(service),
-              scope: selection.connection?.scope ?? null,
-              selection: selection.selection,
-              service,
-            };
-          })
+          services
+            .filter((service) => service !== "github")
+            .filter(
+              (service) =>
+                !toolContext.delegatedRequester ||
+                toolContext.pluginDelegations?.some(
+                  (grant) => grant.service === service
+                )
+            )
+            .map(async (service) => {
+              const selection = await resolveConnectorConnection({
+                connectionPreference: requester.connectionPreference,
+                coreWorker: input.coreWorker,
+                requesterUserId: requester.requesterUserId,
+                service,
+                toolContext,
+              });
+              let descriptionUnavailable = false;
+              const description =
+                selection.connection && input.connectorExecution
+                  ? await describePluginConnection({
+                      service,
+                      connectionName: selection.connection.connectionName,
+                      connectorExecution: input.connectorExecution,
+                    }).catch(() => {
+                      descriptionUnavailable = true;
+                      return null;
+                    })
+                  : null;
+              return {
+                connected: knownConnectionUsability(
+                  Boolean(selection.connection),
+                  description?.connection?.health.state
+                ),
+                connectionStored: Boolean(selection.connection),
+                descriptionUnavailable,
+                health: description?.connection?.health ?? { state: "unknown" },
+                nativeHttp: description?.nativeHttp ?? null,
+                nextAction:
+                  description?.connection?.health.state === "reconnect_required"
+                    ? "Reconnect this same account in Plugins."
+                    : "Use Plugin actions, or computer_plugin_connection for the declared native reads. Unknown health is not a failed connection; execution verifies and refreshes credentials when supported.",
+                name: getConnectedAppDisplayName(service),
+                scope: selection.connection?.scope ?? null,
+                selection: selection.selection,
+                service,
+              };
+            })
         );
         return {
           apps,
@@ -180,14 +290,13 @@ export function getRemoteAgentConnectorToolDefinitions(
           query?: string;
           service: CenterAgentAppConnectorService;
         };
-        const toolContext = await buildRemoteAgentToolContext({
+        const toolContext = await buildConnectorToolContext({
+          coreWorker: input.coreWorker,
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_app_actions",
         });
-        const requester = resolveConnectorTurnRequester(
-          toolContext.turnEnvelope
-        );
+        const requester = resolveConnectorTurnRequester(toolContext);
         const connection = await requireAvailableConnectorConnection({
           storage: input.storage,
           submissionId: input.submissionId,
@@ -206,8 +315,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     },
     {
       name: "openmeld_execute_app_action",
-      description:
-        "Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write. A successful execution returns provider data and the action catalog's outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. An interactive destructive action requires linked OpenMeld identity and returns an exact action preview and token. If the verified user already authorized that action and target, use the token with unchanged input now; otherwise ask first. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId and reuse it when retrying this exact action. Set connectionPreference to requester or shared when the user explicitly chooses their own or the Organization account; do not substitute another account. A connection continuation may pin the exact account on the server. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.",
+      description: `Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write. A successful execution returns provider data and its outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. An interactive destructive action requires linked OpenMeld identity and returns an exact action preview and token. If the verified user already authorized that action and target, use the token with unchanged input now; otherwise ask first. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId. ${CONNECTOR_WRITE_RECOVERY_GUIDANCE} Set connectionPreference to requester or shared when the user explicitly chooses their own or the Organization account; do not substitute another account. A connection continuation may pin the exact account on the server. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.`,
       input: executeAppActionInputSchema,
       execute: (payload) =>
         executeAppAction({
@@ -223,7 +331,8 @@ async function executeAppAction(input: {
   dependencies: ConnectorToolDependencies;
   request: ExecuteAppActionRequest;
 }) {
-  const toolContext = await buildRemoteAgentToolContext({
+  const toolContext = await buildConnectorToolContext({
+    coreWorker: input.dependencies.coreWorker,
     storage: input.dependencies.storage,
     submissionId: input.dependencies.submissionId,
     toolName: "openmeld_execute_app_action",
@@ -285,10 +394,22 @@ async function executeAppAction(input: {
           service: input.request.service,
         })))
       : undefined;
-  let executionAction = routineAction ?? policyAction;
-  let issueResolution: Awaited<
-    ReturnType<typeof requireProjectIssueActionDestination>
-  > | null = null;
+  const executionAction =
+    routineAction ??
+    policyAction ??
+    (await requireOpenConnectorAction({
+      actionId: input.request.actionId,
+      connectorExecution: input.dependencies.connectorExecution,
+      service: input.request.service,
+    }));
+  const issueResolution = existingOperation
+    ? null
+    : await resolveNewLinearIssueRouting({
+        action: executionAction,
+        dependencies: input.dependencies,
+        request: input.request,
+        toolContext,
+      });
   if (routineAction && requiresHighRiskConnectorActionPolicy(routineAction)) {
     const block = resolveRemoteAgentRoutineDestructiveActionBlock(toolContext);
     if (!block) {
@@ -304,131 +425,122 @@ async function executeAppAction(input: {
   let confirmedSelection:
     | Awaited<ReturnType<typeof requireAvailableConnectorConnection>>
     | undefined;
-  if (!existingOperation) {
-    executionAction =
-      routineAction ??
-      (await requireOpenConnectorAction({
-        actionId: input.request.actionId,
-        connectorExecution: input.dependencies.connectorExecution,
-        service: input.request.service,
-      }));
-    issueResolution = await resolveNewLinearIssueRouting({
-      action: executionAction,
-      dependencies: input.dependencies,
-      request: input.request,
+  if (
+    !existingOperation &&
+    requiresHighRiskConnectorActionPolicy(executionAction)
+  ) {
+    const requester = resolveConnectorTurnRequester(
+      toolContext,
+      input.request.connectionPreference
+    );
+    confirmedSelection = await requireAvailableConnectorConnection({
+      storage: input.dependencies.storage,
+      submissionId: input.dependencies.submissionId,
+      connectionPreference: requester.connectionPreference,
+      coreWorker: input.dependencies.coreWorker,
+      requesterUserId: requester.requesterUserId,
+      service: input.request.service,
       toolContext,
     });
-    if (requiresHighRiskConnectorActionPolicy(executionAction)) {
-      const requester = resolveConnectorTurnRequester(
-        toolContext.turnEnvelope,
-        input.request.connectionPreference
-      );
-      confirmedSelection = await requireAvailableConnectorConnection({
-        storage: input.dependencies.storage,
-        submissionId: input.dependencies.submissionId,
-        connectionPreference: requester.connectionPreference,
-        coreWorker: input.dependencies.coreWorker,
-        requesterUserId: requester.requesterUserId,
+    const authorization = await resolveRemoteAgentDestructiveAuthorization({
+      actionDescription: `${executionAction.name}: ${executionAction.description}, using ${executionAction.id} with input ${JSON.stringify(
+        input.request.input
+      )}`,
+      actionId: executionAction.id,
+      actionInput: {
+        input: input.request.input,
         service: input.request.service,
-        toolContext,
-      });
-      const authorization = await resolveRemoteAgentDestructiveAuthorization({
-        actionDescription: `${executionAction.name}: ${executionAction.description}, using ${executionAction.id} with input ${JSON.stringify(
-          input.request.input
-        )}`,
+      },
+      executionIdentity: {
+        connectionName: confirmedSelection.connection.connectionName,
+        ownerUserId: confirmedSelection.connection.userId,
+      },
+      storage: input.dependencies.storage,
+      submissionId: input.dependencies.submissionId,
+      token: input.request.destructiveConfirmationToken,
+      tokenFieldName: "destructiveConfirmationToken",
+      toolContext,
+    });
+    if (!authorization.authorized) {
+      return {
         actionId: executionAction.id,
-        actionInput: {
-          input: input.request.input,
-          service: input.request.service,
-        },
-        executionIdentity: {
-          connectionName: confirmedSelection.connection.connectionName,
-          ownerUserId: confirmedSelection.connection.userId,
-        },
-        storage: input.dependencies.storage,
-        submissionId: input.dependencies.submissionId,
-        token: input.request.destructiveConfirmationToken,
-        tokenFieldName: "destructiveConfirmationToken",
-        toolContext,
-      });
-      if (!authorization.authorized) {
-        return {
-          actionId: executionAction.id,
-          ...authorization.result,
-        };
-      }
+        ...authorization.result,
+      };
     }
   }
-  const operation = await prepareConnectorActionOperation({
-    ...input,
-    confirmedSelection,
-    existingOperation,
-    effect: resolveActionEffect(executionAction),
-    issueResolution,
-    toolContext,
-  });
+  let operation: Awaited<ReturnType<typeof prepareConnectorActionOperation>>;
+  try {
+    operation = await prepareConnectorActionOperation({
+      ...input,
+      confirmedSelection,
+      existingOperation,
+      effect: resolveActionEffect(executionAction),
+      issueResolution,
+      toolContext,
+    });
+  } catch (error) {
+    if (
+      !(
+        error instanceof ConnectorActionTerminalReceipt &&
+        error.result.status === "completed" &&
+        error.result.operationId === existingOperation?.operationId &&
+        input.request.service === "linear" &&
+        isLinearIssueCreateAction(input.request.actionId) &&
+        existingOperation?.status === "completed"
+      )
+    ) {
+      throw error;
+    }
+    const attribution = buildConnectorActionAttribution(
+      {
+        connectionName: existingOperation.connectionName,
+        executionConnection: existingOperation.executionConnection ?? null,
+        selection: undefined,
+      },
+      input.request.service
+    );
+    const receipt = existingOperation.linearIssueReceipt ?? null;
+    const data = receipt
+      ? {
+          id: receipt.id,
+          identifier: receipt.identifier,
+          ticket_url: receipt.url,
+        }
+      : null;
+    const spaceTask = {
+      linked: false,
+      reason: receipt
+        ? "This operation already created the exact Linear issue. If a Task still needs the link, use attach_linear_external_work_item with this receipt; do not create the issue again."
+        : "This operation already created a Linear issue, but its exact reference was not saved. Recover the issue from the original provider result and link that issue to the Task; do not create it again.",
+      task: null,
+    };
+    return tagRemoteAgentResultSources(
+      {
+        actionId: input.request.actionId,
+        attribution,
+        data,
+        operationId: input.request.operationId,
+        providerExecutionId: existingOperation.providerExecutionId ?? null,
+        replayed: true,
+        spaceTask,
+      },
+      [
+        {
+          kind: "plugin_connection",
+          service: input.request.service,
+          connectionName: existingOperation.connectionName,
+        },
+      ]
+    );
+  }
   const attribution = buildConnectorActionAttribution(
     operation,
     input.request.service
   );
-  if (
-    input.request.service === "linear" &&
-    isLinearIssueCreateAction(input.request.actionId) &&
-    existingOperation
-  ) {
-    if (existingOperation.status === "completed") {
-      const receipt = existingOperation.linearIssueReceipt ?? null;
-      const data = receipt
-        ? {
-            id: receipt.id,
-            identifier: receipt.identifier,
-            ticket_url: receipt.url,
-          }
-        : null;
-      const spaceTask = {
-        linked: false,
-        reason: receipt
-          ? "This operation already created the exact Linear issue. If a Task still needs the link, use attach_linear_external_work_item with this receipt; do not create the issue again."
-          : "This operation already created a Linear issue, but its exact reference was not saved. Recover the issue from the original provider result and link that issue to the Task; do not create it again.",
-        task: null,
-      };
-      return tagRemoteAgentResultSources(
-        {
-          actionId: input.request.actionId,
-          attribution,
-          data,
-          operationId: input.request.operationId,
-          providerExecutionId: existingOperation.providerExecutionId ?? null,
-          replayed: true,
-          spaceTask,
-        },
-        [
-          {
-            kind: "plugin_connection",
-            service: input.request.service,
-            connectionName: operation.connectionName,
-          },
-        ]
-      );
-    }
-    if (existingOperation.status === "failed") {
-      throw new Error(
-        "linear.issue_operation_failed: This operation has a final failure. Correct the request and use a new operationId; do not replay a failed operation."
-      );
-    }
-    if (
-      existingOperation.createdAtMs === undefined ||
-      Date.now() - existingOperation.createdAtMs >=
-        LINEAR_ISSUE_REPLAY_MAX_AGE_MS
-    ) {
-      throw new Error(
-        "linear.issue_outcome_needs_reconciliation: This operation may already have created an issue, and provider deduplication cannot be relied on. Reconcile the original issue before any new create action."
-      );
-    }
-  }
   const run = await runAndFinalizeConnectorAction({
     ...input,
     ...operation,
+    effect: resolveActionEffect(executionAction),
     toolContext,
   });
   const spaceTask = await attachLinearIssueSpaceTaskBestEffort({
@@ -444,10 +556,16 @@ async function executeAppAction(input: {
       attribution,
       data: run.data,
       operationId: input.request.operationId,
-      outputSchema: executionAction?.outputSchema,
+      outputSchema: resolveConnectorActionOutputSchema(
+        run.outputSchema,
+        executionAction.outputSchema
+      ),
       providerExecutionId: run.providerExecutionId,
       replayed: operation.coreOperationReplayed,
       ...(spaceTask ? { spaceTask } : {}),
+      ...(operation.verificationOf
+        ? { verificationOf: operation.verificationOf }
+        : {}),
     },
     [
       {
@@ -461,7 +579,10 @@ async function executeAppAction(input: {
 }
 
 function buildConnectorActionAttribution(
-  operation: Awaited<ReturnType<typeof prepareConnectorActionOperation>>,
+  operation: Pick<
+    Awaited<ReturnType<typeof prepareConnectorActionOperation>>,
+    "connectionName" | "selection" | "executionConnection"
+  >,
   service: ConnectorService
 ) {
   return (() => {
@@ -572,7 +693,7 @@ export async function requireMemberResearchReadOnlyConnectorAction(input: {
   actionId: string;
   connectorExecution?: ConnectorExecutionConfig;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }): Promise<void> {
   if (input.toolContext.turnEnvelope?.trigger.source !== "member_research") {
     return;
@@ -590,7 +711,7 @@ export async function resolveConnectedMessageChannelActionPolicy(input: {
   actionId: string;
   connectorExecution?: ConnectorExecutionConfig;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }): Promise<{
   action?: OpenConnectorRuntimeAction;
   blockedResult?: {
@@ -635,7 +756,7 @@ async function prepareConnectorActionOperation(input: {
     ReturnType<typeof requireProjectIssueActionDestination>
   > | null;
   request: ExecuteAppActionRequest;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }) {
   let connectionName = input.existingOperation?.connectionName;
   let selection = input.confirmedSelection as
@@ -644,7 +765,7 @@ async function prepareConnectorActionOperation(input: {
   if (!input.existingOperation) {
     if (!selection) {
       const requester = resolveConnectorTurnRequester(
-        input.toolContext.turnEnvelope,
+        input.toolContext,
         input.request.connectionPreference
       );
       selection = await requireAvailableConnectorConnection({
@@ -671,6 +792,7 @@ async function prepareConnectorActionOperation(input: {
     service: input.request.service,
   });
   const claim = await recordConnectorActionOperation({
+    verificationOf: input.request.verificationOf,
     actionId: input.request.actionId,
     effect: input.effect,
     connectionName,
@@ -683,9 +805,17 @@ async function prepareConnectorActionOperation(input: {
     service: input.request.service,
     toolContext: input.toolContext,
   });
+  if (input.request.verificationOf && !claim.verificationOf) {
+    throw new Error(
+      "plugin.verification_unavailable: Core did not bind this read to the original operation."
+    );
+  }
   return {
     connectionName,
+    operationReplayed: Boolean(input.existingOperation) || claim.replayed,
+    operationReplayExpiresAtMs: claim.operationReplayExpiresAtMs,
     coreOperationReplayed: claim.replayed,
+    verificationOf: claim.verificationOf,
     executionConnection:
       input.existingOperation?.executionConnection ??
       claim.executionConnection ??
@@ -695,13 +825,172 @@ async function prepareConnectorActionOperation(input: {
   };
 }
 
+export class ConnectorActionTerminalReceipt extends Error {
+  readonly result;
+
+  constructor(
+    input: ReturnType<
+      typeof centerAgentRecordConnectorActionOperationResponseSchema.parse
+    > & { actionId: string }
+  ) {
+    const message = `Operation ${input.operationId} is already ${input.status}. No new provider request was sent. Its result data is not retained here; use a read tool to check the original target if needed.`;
+    super(message);
+    this.name = "ConnectorActionTerminalReceipt";
+    this.result = connectorActionTerminalReceiptSchema.parse({
+      ...input,
+      message,
+    });
+  }
+}
+
+export class ConnectorActionOutcomeUnknownError extends OpenConnectorActionError {
+  readonly result;
+
+  constructor(input: {
+    actionId: string;
+    cause: unknown;
+    input?: Record<string, unknown>;
+    operationId: string;
+    operationReplayExpiresAtMs?: number;
+    operationReplayed?: boolean;
+    providerExecutionId?: string;
+    replay?: ReturnType<
+      typeof connectorActionOutcomeUnknownSchema.parse
+    >["replay"];
+  }) {
+    const outcome = input.providerExecutionId
+      ? "The provider confirmed this action, but OpenMeld could not save its completion."
+      : "This action's outcome is not confirmed. The write may already have succeeded.";
+    const target = connectorActionVerificationTarget(input);
+    const remainingMs =
+      input.operationReplayExpiresAtMs === undefined
+        ? null
+        : Math.max(
+            0,
+            Math.floor(input.operationReplayExpiresAtMs - performance.now())
+          );
+    const replayPermission = (() => {
+      if (input.operationReplayed) {
+        return { allowed: false as const, reason: "already_replayed" as const };
+      }
+      if (!input.replay?.allowed) {
+        return (
+          input.replay ?? {
+            allowed: false as const,
+            reason: "window_unverified" as const,
+          }
+        );
+      }
+      if (remainingMs === null) {
+        return {
+          allowed: false as const,
+          reason: "window_unverified" as const,
+        };
+      }
+      if (remainingMs === 0) {
+        return { allowed: false as const, reason: "window_expired" as const };
+      }
+      return {
+        allowed: true as const,
+        remainingWindowMs: Math.min(
+          remainingMs,
+          input.replay.remainingWindowMs
+        ),
+        maxAttempts: 1 as const,
+      };
+    })();
+    let replay = replayPermission.allowed
+      ? "You may retry exactly once with the original operationId, account, and unchanged input inside the verified original provider window; the provider reserved this request before executing it."
+      : "Do not retry this write: Core has not granted an available replay allowance for this operation.";
+    if (input.operationReplayed) {
+      replay =
+        "Do not retry this write again: the exact replay has already been attempted.";
+    }
+    const message = `${outcome} ${replay} Never repeat the write with a new operationId. Next use a read tool to verify it ${target ? `at ${target}` : "at the action's target in the connected App"}. Only if it remains uncertain, explain this result in the final reply and include its target. Original operationId: ${input.operationId}.`;
+    super({
+      cause: input.cause,
+      message,
+      outcome: "outcome_unknown",
+      providerExecutionId: input.providerExecutionId,
+    });
+    this.name = "ConnectorActionOutcomeUnknownError";
+    this.result = connectorActionOutcomeUnknownSchema.parse({
+      status: "outcome_unknown",
+      actionId: input.actionId,
+      operationId: input.operationId,
+      executionConfirmation: input.providerExecutionId ? "executed" : "unknown",
+      providerExecutionId: input.providerExecutionId ?? null,
+      replay: replayPermission,
+      message,
+    });
+  }
+}
+
+const GITHUB_VERIFICATION_REPOSITORY_PART = /^[a-z\d][a-z\d_.-]*$/iu;
+
+function connectorActionVerificationTarget(input: {
+  actionId: string;
+  input?: Record<string, unknown>;
+}): string | null {
+  const { owner, repo, issueNumber, pullNumber } = input.input ?? {};
+  if (
+    !input.actionId.startsWith("github.") ||
+    typeof owner !== "string" ||
+    typeof repo !== "string" ||
+    !GITHUB_VERIFICATION_REPOSITORY_PART.test(owner) ||
+    !GITHUB_VERIFICATION_REPOSITORY_PART.test(repo)
+  ) {
+    return null;
+  }
+  const repository = `https://github.com/${owner}/${repo}`;
+  if (
+    typeof issueNumber === "number" &&
+    Number.isSafeInteger(issueNumber) &&
+    issueNumber > 0
+  ) {
+    return `${repository}/issues/${issueNumber}`;
+  }
+  if (
+    typeof pullNumber === "number" &&
+    Number.isSafeInteger(pullNumber) &&
+    pullNumber > 0
+  ) {
+    return `${repository}/pull/${pullNumber}`;
+  }
+  return repository;
+}
+
+export function resolveConnectorActionOutputSchema(
+  executionOutputSchema: Record<string, unknown> | undefined,
+  catalogOutputSchema: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  return executionOutputSchema ?? catalogOutputSchema;
+}
+
 export async function runAndFinalizeConnectorAction(input: {
   connectionName: string;
   dependencies: ConnectorToolDependencies;
+  effect?: OpenConnectorRuntimeAction["effect"] | "unspecified";
+  operationReplayExpiresAtMs?: number;
+  operationReplayed?: boolean;
   request: ConnectorActionOperationRequest;
   requestSignature: string;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }): Promise<OpenConnectorActionRun> {
+  if (
+    input.effect !== "read" &&
+    input.operationReplayed &&
+    (input.operationReplayExpiresAtMs === undefined ||
+      performance.now() >= input.operationReplayExpiresAtMs)
+  ) {
+    throw new ConnectorActionOutcomeUnknownError({
+      ...input.request,
+      operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
+      cause: new Error(
+        "The original provider deduplication window has expired."
+      ),
+    });
+  }
   let run: OpenConnectorActionRun;
   try {
     run = await runOpenConnectorAction({
@@ -713,7 +1002,25 @@ export async function runAndFinalizeConnectorAction(input: {
       input: input.request.input,
     });
   } catch (error) {
-    await finalizeFailedConnectorAction({ ...input, error });
+    if (
+      error instanceof OpenConnectorOperationPendingError &&
+      input.effect === "read"
+    ) {
+      throw error;
+    }
+    // Pending is an unknown final provider outcome. Persist that evidence
+    // before exposing permission to consume the single replay allowance.
+    try {
+      await finalizeFailedConnectorAction({ ...input, error });
+    } catch (finalizationError) {
+      throw await buildUnknownConnectorReceipt(input, finalizationError);
+    }
+    if (
+      !(error instanceof OpenConnectorActionError) ||
+      error.outcome === "outcome_unknown"
+    ) {
+      throw await buildUnknownConnectorReceipt(input, error);
+    }
     throw error;
   }
   try {
@@ -738,12 +1045,34 @@ export async function runAndFinalizeConnectorAction(input: {
       toolContext: input.toolContext,
     });
   } catch (finalizationError) {
-    throw new Error(
-      `OpenConnector action ${input.request.actionId} completed at the provider, but OpenMeld could not finalize operation ${input.request.operationId}. Retry this exact action with the same operationId.`,
-      { cause: finalizationError }
+    throw await buildUnknownConnectorReceipt(
+      input,
+      finalizationError,
+      run.providerExecutionId
     );
   }
   return run;
+}
+
+async function buildUnknownConnectorReceipt(
+  input: Parameters<typeof runAndFinalizeConnectorAction>[0],
+  cause: unknown,
+  providerExecutionId?: string
+) {
+  // A failed receipt read grants no replay; a local timer is not permission.
+  const receipt = await readConnectorActionOperation({
+    ...input.request,
+    coreWorker: input.dependencies.coreWorker,
+    toolContext: input.toolContext,
+  }).catch(() => null);
+  return new ConnectorActionOutcomeUnknownError({
+    ...input.request,
+    cause,
+    providerExecutionId,
+    operationReplayed: input.operationReplayed,
+    operationReplayExpiresAtMs: receipt?.operationReplayExpiresAtMs,
+    replay: receipt?.replay,
+  });
 }
 
 async function finalizeFailedConnectorAction(input: {
@@ -752,11 +1081,8 @@ async function finalizeFailedConnectorAction(input: {
   error: unknown;
   request: ConnectorActionOperationRequest;
   requestSignature: string;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }): Promise<void> {
-  if (input.error instanceof OpenConnectorOperationPendingError) {
-    throw input.error;
-  }
   try {
     await recordConnectorActionOperation({
       actionId: input.request.actionId,
@@ -777,7 +1103,7 @@ async function finalizeFailedConnectorAction(input: {
     });
   } catch (finalizationError) {
     throw new Error(
-      `OpenConnector action ${input.request.actionId} did not complete cleanly, and OpenMeld could not finalize operation ${input.request.operationId}. Retry this exact action with the same operationId.`,
+      `OpenConnector action ${input.request.actionId} did not complete cleanly, and OpenMeld could not finalize operation ${input.request.operationId}. Its result is not confirmed.`,
       {
         cause: new AggregateError(
           [input.error, finalizationError],
@@ -858,7 +1184,7 @@ async function resolveConnectorConnection(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   requesterUserId: string | null;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }) {
   const resolveConnection = requireCoreRpc(
     input.coreWorker.centerAgentResolveConnectorConnection,
@@ -867,7 +1193,10 @@ async function resolveConnectorConnection(input: {
   const selection = centerAgentConnectorConnectionSelectionSchema.parse(
     await resolveConnection({
       includeAccessPolicy: true,
-      connectionPreference: input.connectionPreference,
+      ...(input.toolContext.delegatedRequester
+        ? { includeDelegatedRequester: true as const }
+        : {}),
+      connectionPreference: delegatedConnectionPreference(input),
       context: input.toolContext.context,
       requesterUserId: input.requesterUserId,
       service: input.service,
@@ -885,7 +1214,27 @@ async function resolveConnectorConnection(input: {
   return selection;
 }
 
-async function requireAvailableConnectorConnection(
+function delegatedConnectionPreference(
+  input: Parameters<typeof resolveConnectorConnection>[0]
+) {
+  if (
+    !input.toolContext.delegatedRequester ||
+    input.connectionPreference !== "automatic"
+  ) {
+    return input.connectionPreference;
+  }
+  const scopes = new Set(
+    input.toolContext.pluginDelegations
+      ?.filter((grant) => grant.service === input.service)
+      .map((grant) => grant.connectionScope)
+  );
+  if (scopes.size !== 1) {
+    return input.connectionPreference;
+  }
+  return scopes.has("shared") ? "shared" : "requester";
+}
+
+export async function requireAvailableConnectorConnection(
   input: Parameters<typeof resolveConnectorConnection>[0] &
     Pick<ConnectorToolDependencies, "storage" | "submissionId">
 ) {
@@ -913,13 +1262,20 @@ async function requireAvailableConnectorConnection(
   };
 }
 
-function resolveConnectorTurnRequester(
-  turnEnvelope: RemoteAgentTurnEnvelope | undefined,
+export function resolveConnectorTurnRequester(
+  context: ConnectorToolContext,
   requested?: "requester" | "shared"
 ): {
   connectionPreference: "automatic" | "requester" | "shared";
   requesterUserId: string | null;
 } {
+  const { turnEnvelope, delegatedRequester } = context;
+  if (delegatedRequester) {
+    return {
+      connectionPreference: requested ?? "automatic",
+      requesterUserId: delegatedRequester.userId,
+    };
+  }
   if (turnEnvelope?.trigger.source === "member_research") {
     if (requested === "requester") {
       throw new Error("plugin.requester_identity_unavailable");
@@ -963,15 +1319,18 @@ export async function readConnectorActionOperation(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   operationId: string;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }) {
   const speakerMember = requireConnectorActionSpeaker(input.toolContext);
-  return centerAgentReadConnectorActionOperationResponseSchema.parse(
+  const startedAtMs = performance.now();
+  const response = centerAgentReadConnectorActionOperationResponseSchema.parse(
     await callCoreRpc(
       input.coreWorker,
       "centerAgentReadConnectorActionOperation",
       {
         actionId: input.actionId,
+        includeRecoveryWindow: true,
+        includeExecutionPermit: true as const,
         context: input.toolContext.context,
         operationId: input.operationId,
         service: input.service,
@@ -980,10 +1339,20 @@ export async function readConnectorActionOperation(input: {
       (binding, payload) =>
         binding.centerAgentReadConnectorActionOperation?.(payload)
     )
-  ).operation;
+  );
+  return response.operation
+    ? {
+        ...response.operation,
+        operationReplayExpiresAtMs:
+          response.operation.replayWindowRemainingMs === undefined
+            ? undefined
+            : startedAtMs + response.operation.replayWindowRemainingMs,
+      }
+    : null;
 }
 
 export async function recordConnectorActionOperation(input: {
+  verificationOf?: { operationId: string; actionId: string };
   actionId: string;
   effect?: "read" | "write" | "destructive" | "unspecified";
   connectionName: string;
@@ -995,40 +1364,80 @@ export async function recordConnectorActionOperation(input: {
   issueRoutingDecision?: CenterAgentRecordConnectorActionOperationBody["issueRoutingDecision"];
   linearIssueReceipt?: CenterAgentRecordConnectorActionOperationBody["linearIssueReceipt"];
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }) {
   const speakerMember = requireConnectorActionSpeaker(input.toolContext);
-  return centerAgentRecordConnectorActionOperationResponseSchema.parse(
-    await callCoreRpc(
-      input.coreWorker,
-      "centerAgentRecordConnectorActionOperation",
-      {
+  const startedAtMs = performance.now();
+  const response =
+    centerAgentRecordConnectorActionOperationResponseSchema.parse(
+      await callCoreRpc(
+        input.coreWorker,
+        "centerAgentRecordConnectorActionOperation",
+        {
+          actionId: input.actionId,
+          verificationOf: input.verificationOf,
+          includeRecoveryWindow: true,
+          includeExecutionPermit: true as const,
+          effect: input.effect,
+          connectionName: input.connectionName,
+          context: input.toolContext.context,
+          operationId: input.operationId,
+          outcome: input.outcome,
+          providerExecutionId: input.providerExecutionId,
+          requestSignature: input.requestSignature,
+          ...(input.issueRoutingDecision
+            ? { issueRoutingDecision: input.issueRoutingDecision }
+            : {}),
+          ...(input.linearIssueReceipt
+            ? { linearIssueReceipt: input.linearIssueReceipt }
+            : {}),
+          service: input.service,
+          speakerMember,
+        },
+        (binding, payload) =>
+          binding.centerAgentRecordConnectorActionOperation?.(payload)
+      )
+    );
+  const result = {
+    ...response,
+    // Anchor at request start, so time spent obtaining the receipt consumes
+    // the window. Use a monotonic local clock, not cross-service timestamps.
+    operationReplayExpiresAtMs:
+      response.replayWindowRemainingMs === undefined
+        ? undefined
+        : startedAtMs + response.replayWindowRemainingMs,
+  };
+  if (
+    input.outcome === "attempted" &&
+    input.effect !== "read" &&
+    response.executionAllowed !== true
+  ) {
+    if (response.status === "completed" || response.status === "failed") {
+      throw new ConnectorActionTerminalReceipt({
+        ...response,
+        executionAllowed: false,
         actionId: input.actionId,
-        effect: input.effect,
-        connectionName: input.connectionName,
-        context: input.toolContext.context,
-        operationId: input.operationId,
-        outcome: input.outcome,
-        providerExecutionId: input.providerExecutionId,
-        requestSignature: input.requestSignature,
-        ...(input.issueRoutingDecision
-          ? { issueRoutingDecision: input.issueRoutingDecision }
-          : {}),
-        ...(input.linearIssueReceipt
-          ? { linearIssueReceipt: input.linearIssueReceipt }
-          : {}),
-        service: input.service,
-        speakerMember,
-      },
-      (binding, payload) =>
-        binding.centerAgentRecordConnectorActionOperation?.(payload)
-    )
-  );
+      });
+    }
+    throw new ConnectorActionOutcomeUnknownError({
+      ...result,
+      actionId: input.actionId,
+      cause: new Error(
+        `Core did not admit another execution of operation ${response.operationId}.`
+      ),
+      providerExecutionId: response.providerExecutionId ?? undefined,
+    });
+  }
+  return result;
 }
 
-function requireConnectorActionSpeaker(
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>
-) {
+function requireConnectorActionSpeaker(toolContext: ConnectorToolContext) {
+  if (toolContext.delegatedRequester) {
+    return {
+      memberId: toolContext.delegatedRequester.memberId,
+      userId: toolContext.delegatedRequester.userId,
+    };
+  }
   const speakerMember = resolveOrganizationMemberTurnEnvelopeSpeaker(
     toolContext.turnEnvelope
   );

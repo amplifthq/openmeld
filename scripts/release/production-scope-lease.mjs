@@ -511,7 +511,7 @@ export function createProductionScopeLeaseGitEnvironment(
   });
 }
 
-function resolveHostedLeaseRemote(environment) {
+export function resolveHostedLeaseRemote(environment) {
   const repository = environment.OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY;
   const serverUrl = environment.OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL;
   if (!(repository || serverUrl)) {
@@ -685,7 +685,10 @@ function main(argv) {
   releaseProductionScopeLease(options);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   try {
     main(process.argv.slice(2));
   } catch (error) {

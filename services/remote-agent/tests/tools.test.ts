@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildPersonalRemoteAgentConversationId,
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   centerAgentCheckAgentProfileReadinessResponseSchema,
   centerAgentOrganizationDirectoryPageSchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   FEEDBACK_ISSUE_INVALID_TRANSITION_ERROR_CODE,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   organizationDirectoryResponseSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
@@ -28,7 +30,10 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
-import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
+import {
+  buildOrganizationDocumentReadContext,
+  buildRemoteAgentCoreContext,
+} from "../agent-core/tool-context";
 import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
   getRemoteAgentOpenMeldToolDefinitions as buildRemoteAgentOpenMeldToolDefinitions,
@@ -38,6 +43,7 @@ import {
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
+  createSubmitTurnRequestV2,
   TEST_CENTER_AGENT_MODEL_ROUTE,
   TEST_NOW_MS,
   TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
@@ -114,6 +120,109 @@ type ToolPayloadScenario = {
 };
 
 describe("remote agent OpenMeld tool catalog", () => {
+  it("reads delegated documents as the receiving personal Agent for both directory and body", async () => {
+    const base = createSubmitTurnRequestV2();
+    const conversationId = buildPersonalRemoteAgentConversationId(base);
+    const request: RemoteAgentWorkerSubmitTurnRequest = {
+      ...base,
+      v: 4,
+      conversationId,
+      runtimeConversation: { generation: 0, id: conversationId },
+      conversationIdentity: {
+        kind: "personal_agent",
+        agentProfileId: base.agentProfileId,
+      },
+      spaceDispatchContext: {
+        dispatchChainId: "chain",
+        autoRelayDepth: 0,
+        visitedProfileIds: [],
+        visitedProfileIdsHash: "hash",
+      },
+      author: {
+        profileId: AGENT_PROFILE_ID,
+        profileKind: "agent",
+        displayName: "Delegator",
+      },
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          kind: "agent_profile",
+          id: AGENT_PROFILE_ID,
+          displayName: "Delegator",
+          ownerUserId: "other_owner",
+          verified: true,
+        },
+        space: {
+          ...base.turnEnvelope.space,
+          kind: "space",
+          isCenterAgentDm: false,
+        },
+        trigger: { source: "space_wake" },
+        interactionEnvironment: "organization_shared",
+      },
+    };
+    const storage = await createStorageWithPendingContext(request);
+    const callback = await readRemoteAgentCallbackContext(
+      storage,
+      ACK.submissionId
+    );
+    if (!callback) {
+      throw new Error("Expected the admitted callback fixture.");
+    }
+    const directoryContext = buildOrganizationDocumentReadContext({
+      context: buildRemoteAgentCoreContext(callback, "directory"),
+      turnEnvelope: callback.turnEnvelope,
+    });
+    expect(directoryContext).not.toHaveProperty("speakerMember");
+    expect(directoryContext.context.actorContext).toMatchObject({
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      openMeldProfileId: base.agentProfileId,
+      callerPrincipalId: "user_1",
+      ownerUserId: "user_1",
+    });
+    const body = {
+      action: "get" as const,
+      organizationId: "org_123",
+      document: {
+        id: "document-1",
+        folderId: null,
+        kind: "knowledge" as const,
+        subjectUserId: null,
+        title: "Review policy",
+        content: "Use release B.",
+        updatedAt: ISO_NOW,
+      },
+    };
+    const readDocuments: NonNullable<
+      RemoteAgentCoreWorkerBinding["centerAgentReadOrganizationDocuments"]
+    > = vi.fn(async (input) =>
+      input.action === "list" ? organizationDocumentsListResponse() : body
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      storage,
+      coreWorker: { centerAgentReadOrganizationDocuments: readDocuments },
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_org_documents", { action: "list" })
+    ).resolves.toMatchObject({ documents: [{ id: "document-1" }] });
+    await expect(
+      executeTool(tools, "openmeld_read_org_documents", {
+        action: "get",
+        documentId: "document-1",
+      })
+    ).resolves.toEqual(body);
+    expect(readDocuments).toHaveBeenLastCalledWith({
+      action: "get",
+      documentId: "document-1",
+      context: {
+        ...directoryContext.context,
+        actorContext: {
+          ...directoryContext.context.actorContext,
+          requestId: `remote-agent-tool:openmeld_read_org_documents:${ACK.submissionId}`,
+        },
+      },
+    });
+  });
   it("pages a large authorized directory without losing member or Agent fields", async () => {
     // Captured Core team-safe contract: null is redacted/unknown, while the
     // binding source remains not_checked. Pagination must retain that evidence.
@@ -124,6 +233,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       source: "not_checked",
     };
     teamReadiness.primaryBinding = null;
+    teamReadiness.wakeRouteEvidence = {
+      observedAt: ISO_NOW,
+      reasonCode: "not_requested",
+      status: "unavailable",
+    };
     const directory = organizationDirectoryResponseSchema.parse({
       ...organizationDirectoryResponse(),
       members: Array.from({ length: 19 }, (_, index) => ({
@@ -187,6 +301,33 @@ describe("remote agent OpenMeld tool catalog", () => {
       ).toBe(true);
       expect(page.totalMembers).toBe(19);
       expect(page.totalAgentProfiles).toBe(1);
+      const progressValue = tools.find(
+        (tool) => tool.name === "openmeld_read_organization_directory"
+      )?.progressValue;
+      expect(progressValue).toBeDefined();
+      expect(progressValue?.(page)).toEqual(
+        progressValue?.({
+          ...page,
+          generatedAt: "2026-10-07T14:00:00.000Z",
+          agentProfiles: page.agentProfiles.map((agent) => ({
+            ...agent,
+            readiness: {
+              ...agent.readiness,
+              generatedAt: "2026-10-07T14:00:00.000Z",
+              wakeRouteEvidence: {
+                ...agent.readiness.wakeRouteEvidence,
+                observedAt: "2026-10-07T14:00:00.000Z",
+              },
+            },
+          })),
+        })
+      );
+      expect(progressValue?.(page)).not.toEqual(
+        progressValue?.({
+          ...page,
+          totalMembers: page.totalMembers + 1,
+        })
+      );
       members.push(...page.members);
       agents.push(...page.agentProfiles);
       cursor = page.nextCursor ?? undefined;
@@ -268,8 +409,10 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     expect(disabled).not.toContain("openmeld_read_agent_activity");
     expect(disabled).not.toContain("openmeld_list_agent_activity_sessions");
+    expect(disabled).not.toContain("openmeld_read_session_history");
     expect(enabled).toContain("openmeld_read_agent_activity");
     expect(enabled).toContain("openmeld_list_agent_activity_sessions");
+    expect(enabled).toContain("openmeld_read_session_history");
   });
 
   it("enables the Agent Activity read-tool fence in every Remote Agent wrangler env", () => {
@@ -3062,6 +3205,143 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.not.toHaveProperty("navigationTarget");
   });
 
+  it("opens a DM as the native Agent and attaches its trusted navigation target", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        organization: {
+          ...baseRequest.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const remoteAgentOpenDirectMessageSpace = vi.fn(async () => ({
+      organizationId: request.organizationId,
+      memberProfileId: request.agentProfileId,
+      targetProfileId: HUMAN_PROFILE_ID,
+      spaceId: SPACE_ID,
+      created: true,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { remoteAgentOpenDirectMessageSpace },
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    const creationId = "00000000-0000-4000-8000-000000000080";
+    const response = await executeTool(tools, "openmeld_open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId,
+    });
+    expect(remoteAgentOpenDirectMessageSpace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetProfileId: HUMAN_PROFILE_ID,
+        creationId,
+        context: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: request.agentProfileId,
+            profileKind: "agent",
+          }),
+        }),
+      })
+    );
+    expect(response).toMatchObject({ spaceId: SPACE_ID, created: true });
+    const message = {
+      clientMessageId: "00000000-0000-4000-8000-000000000081",
+      text: "Here is the plan.",
+      wake: false,
+    };
+    await executeTool(tools, "openmeld_open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      spaceId: SPACE_ID,
+      message,
+    });
+    expect(remoteAgentOpenDirectMessageSpace).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        targetProfileId: HUMAN_PROFILE_ID,
+        spaceId: SPACE_ID,
+        message,
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).resolves.toMatchObject({
+      navigationTarget: { kind: "space", spaceId: SPACE_ID },
+    });
+  });
+
+  it("lets an Agent-origin Center turn control its own DM work without a Human speaker", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          kind: "agent_profile",
+          id: "peer-agent",
+          displayName: "Peer Agent",
+          profileId: "peer-agent",
+          verified: true,
+        },
+      },
+    });
+    const progress = {
+      query: { spaceId: SPACE_ID, targetProfileId: null },
+      items: [],
+    };
+    const stopped = {
+      ok: true,
+      runtimeCoordinatorExecutionId: null,
+      status: "cancelled",
+      stopMode: "openmeld_owned_pre_agent",
+      targetProfileId: AGENT_PROFILE_ID,
+      cancellationState: {
+        observedAtMs: TEST_NOW_MS,
+        reasonCode: "space.wake_stopped_before_send",
+        status: "cancelled",
+      },
+    };
+    const read = vi.fn(async (_request: unknown) => progress);
+    const stop = vi.fn(async (_request: unknown) => stopped);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentReadSpaceWakeProgress: read,
+        centerAgentStopSpaceWake: stop,
+      },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_space_wake_progress", {
+        spaceId: SPACE_ID,
+      })
+    ).resolves.toEqual(progress);
+    await expect(
+      executeTool(tools, "openmeld_stop_space_wake", {
+        spaceId: SPACE_ID,
+        target: {
+          by: "client_message",
+          clientMessageId: "00000000-0000-4000-8000-000000000093",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      })
+    ).resolves.toEqual(stopped);
+    for (const call of [read, stop]) {
+      expect(call).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          spaceId: SPACE_ID,
+          context: expect.objectContaining({
+            actorContext: expect.objectContaining({
+              openMeldProfileId: request.agentProfileId,
+              agentControllerRef: "hosted:center-agent",
+            }),
+          }),
+        })
+      );
+      expect(call.mock.calls[0]?.[0]).not.toHaveProperty("speakerMember");
+    }
+  });
+
   it("creates a private Space with members-only access when access settings are omitted", async () => {
     const centerAgentCreateSpace = vi.fn(async () => createSpaceResponse());
     const tools = getRemoteAgentOpenMeldToolDefinitions({
@@ -3532,6 +3812,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       agentProfileIds: [AGENT_PROFILE_ID],
       completionMode: "child_reports_directly",
       computerFilePaths: ["launch/checklist.md"],
+      replyLanguageTag: "zh-Hans",
       mentionProfileIds: [],
       referenceProfileIds: [],
       spaceId: SPACE_ID,
@@ -3541,6 +3822,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(readTextFiles).toHaveBeenCalledWith(["launch/checklist.md"]);
     expect(centerAgentWakeAgentProfilesInSpace).toHaveBeenCalledWith(
       expect.objectContaining({
+        replyLanguageTag: "zh-Hans",
         text: [
           "Finish the approved launch checklist on the workstation.",
           "",
@@ -3664,6 +3946,60 @@ describe("remote agent OpenMeld tool catalog", () => {
         completionMode: "child_reports_directly",
       })
     ).toBe(false);
+  });
+
+  it.each([
+    true,
+    false,
+  ])("accepts a multi-Space delegation only when all destinations are acknowledged (%s)", async (complete) => {
+    const destinations = ["alpha", "beta"].map((spaceId) => ({
+      spaceId,
+      agentProfileIds: [AGENT_PROFILE_ID],
+      text: `Review ${spaceId}.`,
+      mentionProfileIds: [],
+      referenceProfileIds: [],
+    }));
+    const response = {
+      delegationId: "delegation-batch",
+      status: "queued" as const,
+      childTasks: destinations.map((destination, index) => ({
+        completionCondition: "terminal" as const,
+        subscriptionId: `subscription-${index}`,
+        task: {
+          kind: "space_wake" as const,
+          v: 1 as const,
+          sourceClientMessageId: `child-${index}`,
+          spaceId: complete ? destination.spaceId : "alpha",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      })),
+    };
+    const centerAgentWakeAgentProfilesInSpaces = vi.fn(async () => response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentWakeAgentProfilesInSpaces },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    const result = executeTool(
+      tools,
+      "openmeld_wake_agent_profiles_in_spaces",
+      { destinations }
+    );
+    if (!complete) {
+      await expect(result).rejects.toThrow(
+        "Core did not acknowledge the complete Wake batch"
+      );
+      return;
+    }
+    await expect(result).resolves.toEqual(response);
+    expect(centerAgentWakeAgentProfilesInSpaces).toHaveBeenCalledOnce();
+    expect(centerAgentWakeAgentProfilesInSpaces).toHaveBeenCalledWith(
+      expect.objectContaining({ destinations })
+    );
+    expect(
+      tools
+        .find((tool) => tool.name === "openmeld_wake_agent_profiles_in_spaces")
+        ?.endsTurnAfter?.(await result)
+    ).toBe(true);
   });
 
   it("returns a durably queued Wake without treating it as a tool failure", async () => {
@@ -3833,6 +4169,87 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("offers an owned manual summary and ends the turn only after queue acknowledgement", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentContinueTaskSummary = vi.fn(
+      async (input: { inspectOnly?: boolean }) => ({
+        status: input.inspectOnly ? "available" : "queued",
+        sourceSubscriptionId: "original-subscription",
+        subscriptionId: input.inspectOnly
+          ? null
+          : "summary:original-subscription",
+        reasonCode: null,
+      })
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentContinueTaskSummary },
+      storage: await createStorageWithPendingContext(request),
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "openmeld_continue_task_summary"
+    );
+    const available = await executeTool(
+      tools,
+      "openmeld_continue_task_summary",
+      { sourceSubscriptionId: "original-subscription", inspectOnly: true }
+    );
+    expect(definition?.endsTurnAfter?.(available)).toBe(false);
+    const queued = await executeTool(tools, "openmeld_continue_task_summary", {
+      sourceSubscriptionId: "original-subscription",
+      inspectOnly: false,
+      replyLanguageTag: "zh-Hans",
+    });
+    expect(definition?.endsTurnAfter?.(queued)).toBe(true);
+    expect(centerAgentContinueTaskSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+        sourceSubscriptionId: "original-subscription",
+        replyLanguageTag: "zh-Hans",
+      })
+    );
+  });
+
+  it.each([
+    "cancelled",
+    "failed",
+    "completed",
+  ] as const)("does not end the turn to wait for a %s summary recovery", async (state) => {
+    const receipt = {
+      status: "unavailable",
+      sourceSubscriptionId: "original-subscription",
+      subscriptionId: "summary:original-subscription",
+      reasonCode: `task_summary_recovery.${state}`,
+      ...(state === "completed"
+        ? {
+            publishedResult: {
+              spaceId: "space-parent",
+              signalId: "summary-result",
+            },
+          }
+        : {}),
+    };
+    const rpc = vi.fn(() => Promise.resolve(receipt));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentContinueTaskSummary: rpc },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "openmeld_continue_task_summary"
+    );
+    const result = await executeTool(tools, "openmeld_continue_task_summary", {
+      sourceSubscriptionId: "original-subscription",
+      inspectOnly: false,
+    });
+    expect(result).toEqual(receipt);
+    expect(definition?.endsTurnAfter?.(result)).toBe(false);
+    expect(rpc).toHaveBeenCalledWith(
+      expect.objectContaining({ includePublishedResult: true })
+    );
+    expect(definition?.description).toContain(
+      "An unavailable recovery is not pending work"
+    );
+  });
+
   it("registers an exact task watch without polling or reducing it to an Agent Profile", async () => {
     const request = createSubmitTurnRequest();
     const centerAgentWatchAgentTask = vi.fn(async () => ({
@@ -3867,6 +4284,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     const watchResult = await executeTool(tools, "openmeld_watch_agent_task", {
       completionCondition: "terminal",
       instruction: "Continue the release after this exact task completes.",
+      replyLanguageTag: "zh-Hans",
       task: {
         deliveryId: "delivery-parallel-1",
         kind: "native_delivery",
@@ -3880,6 +4298,9 @@ describe("remote agent OpenMeld tool catalog", () => {
         kind: "native_delivery",
       },
     });
+    expect(centerAgentWatchAgentTask).toHaveBeenCalledWith(
+      expect.objectContaining({ replyLanguageTag: "zh-Hans" })
+    );
     expect(watchTool?.endsTurnAfter?.(watchResult)).toBe(true);
     expect(
       watchTool?.endsTurnAfter?.({
@@ -5311,6 +5732,21 @@ describe("remote agent OpenMeld tool catalog", () => {
         targetOwnerUserId: "user_1",
       })
     ).resolves.toEqual(response);
+    const description = tools.find(
+      (tool) => tool.name === "openmeld_create_agent_profile_request"
+    )?.description;
+    expect(description).toContain(
+      'connectionSelection must be { kind: "remote" }'
+    );
+    expect(description).toContain(
+      "Fork requires canFork; Resume requires canResume and an unbound Session"
+    );
+    expect(description).toContain(
+      "createdAgentProfileId proves identity creation, not current reply readiness"
+    );
+    expect(description).toContain(
+      "recover its setup rather than creating another"
+    );
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         configuration: {
@@ -6401,6 +6837,20 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
+        spaceId: SPACE_ID,
+        mutation: { action: "delete", inputId: "queued-input" },
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        mutation: { action: "delete", inputId: "queued-input" },
+      },
+      response: { items: [] },
+      rpcName: "centerAgentSpaceInputQueue",
+      toolName: "openmeld_space_input_queue",
+    },
+    {
+      expectedPayload: {
         body: {
           target: {
             by: "source_signal",
@@ -6646,6 +7096,42 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         spaceId: SPACE_ID,
       },
       response: readSourceSpaceContextResponse(),
+      rpcName: "centerAgentReadSpaceContext",
+      toolName: "openmeld_read_space_context",
+    },
+    {
+      expectedPayload: {
+        requestedAddressingModel: "wake_reference_mention",
+        scope: "thread_evidence",
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        spaceId: SPACE_ID,
+        offset: 20,
+        version: `sha256:${"a".repeat(64)}`,
+      },
+      input: {
+        scope: "thread_evidence",
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        spaceId: SPACE_ID,
+        offset: 20,
+        version: `sha256:${"a".repeat(64)}`,
+      },
+      response: {
+        organizationId: "org_123",
+        spaceId: SPACE_ID,
+        context: {
+          scope: "thread_evidence",
+          sourceRef: {
+            kind: "thread",
+            spaceId: SPACE_ID,
+            threadId: "thr_11111111-1111-4111-8111-111111111111",
+            version: `sha256:${"a".repeat(64)}`,
+          },
+          messages: [],
+          offset: 20,
+          nextOffset: null,
+          truncated: false,
+        },
+      },
       rpcName: "centerAgentReadSpaceContext",
       toolName: "openmeld_read_space_context",
     },

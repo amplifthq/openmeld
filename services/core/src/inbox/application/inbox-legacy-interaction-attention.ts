@@ -1,11 +1,11 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { InboxSourceCandidate } from "@openmeld/schemas/types";
-import type { InboxItemRecord } from "../infrastructure/d1/inbox-item-repo";
-
+import type { InboxItemRecord } from "../infrastructure/postgresql/inbox-item-repo";
 /** Only the original source replay may enrich its old request-kind facts. */
 export async function repairLegacyInteractionAttention(input: {
   candidate: InboxSourceCandidate;
   existing: InboxItemRecord;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
 }): Promise<boolean> {
   const { candidate, existing } = input;
@@ -37,10 +37,12 @@ export async function repairLegacyInteractionAttention(input: {
   ) {
     return false;
   }
-  const guard = `id = ? AND organization_id = ? AND recipient_user_id = ?
-    AND source_kind = ? AND source_key = ?
-    AND kind = ? AND attention = 'action_required'
-    AND source_facts_json IS NULL AND source_target_json = ? AND occurred_at_ms = ?`;
+  const guard = (
+    offset: number
+  ) => `id = $${offset + 1} AND organization_id = $${offset + 2} AND recipient_user_id = $${offset + 3}
+    AND source_kind = $${offset + 4} AND source_key = $${offset + 5}
+    AND kind = $${offset + 6} AND attention = 'action_required'
+    AND source_facts_json IS NULL AND source_target_json = $${offset + 7} AND occurred_at_ms = $${offset + 8}`;
   const bindings = [
     existing.id,
     candidate.organizationId,
@@ -51,21 +53,26 @@ export async function repairLegacyInteractionAttention(input: {
     existing.sourceTargetJson,
     candidate.occurredAtMs,
   ];
-  const results = await input.db.batch([
-    input.db
-      .prepare(`UPDATE inbox_email_deliveries SET state = 'suppressed', suppressed_reason = 'item_not_urgent',
-      suppressed_at_ms = ?, updated_at_ms = max(updated_at_ms, ?), claim_id = NULL, claim_expires_at_ms = NULL
-      WHERE state = 'pending' AND ? = 'normal' AND inbox_item_id IN (SELECT id FROM inbox_items WHERE ${guard})`)
-      .bind(input.nowMs, input.nowMs, candidate.importance, ...bindings),
-    input.db
-      .prepare(
-        `UPDATE inbox_items SET importance = ?, source_facts_json = ? WHERE ${guard}`
-      )
-      .bind(
-        candidate.importance,
-        candidate.sourceFacts ? JSON.stringify(candidate.sourceFacts) : null,
-        ...bindings
-      ),
-  ]);
-  return Number(results[1]?.meta.changes ?? 0) > 0;
+  const results = await input.db.transaction(
+    async (client) =>
+      [
+        await client.query({
+          text: `UPDATE "openmeld"."inbox_email_deliveries" SET state = 'suppressed', suppressed_reason = 'item_not_urgent',
+      suppressed_at_ms = $1, updated_at_ms = GREATEST(updated_at_ms, $2), claim_id = NULL, claim_expires_at_ms = NULL
+      WHERE state = 'pending' AND $3 = 'normal' AND inbox_item_id IN (SELECT id FROM "openmeld"."inbox_items" WHERE ${guard(3)})`,
+          values: [input.nowMs, input.nowMs, candidate.importance, ...bindings],
+        }),
+        await client.query({
+          text: `UPDATE "openmeld"."inbox_items" SET importance = $1, source_facts_json = $2 WHERE ${guard(2)}`,
+          values: [
+            candidate.importance,
+            candidate.sourceFacts
+              ? JSON.stringify(candidate.sourceFacts)
+              : null,
+            ...bindings,
+          ],
+        }),
+      ] as const
+  );
+  return Number(results[1].rowCount ?? 0) > 0;
 }

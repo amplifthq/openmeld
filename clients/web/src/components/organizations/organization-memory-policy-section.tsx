@@ -110,8 +110,8 @@ export function OrganizationMemoryPolicySection(input: {
 					</p>
 					<p className="mt-1 text-muted-foreground text-xs leading-5">
 						{input.isPersonalWorkspace
-							? "Center Agent can use useful details from Spaces and connected channels in future replies. Private chats use your personal memory instead."
-							: "Center Agent can use useful details from shared Spaces and connected channels in future replies. Private chats are not included."}
+							? "Use saved Workspace memory in future replies. Shared chats are saved only when you ask. Private chats use your personal memory instead."
+							: "Use saved team memory in future replies. Shared chats are saved only when you ask to remember something for the team. Private chats are not included."}
 					</p>
 					{memoryPolicyMutation.isPending ? (
 						<p
@@ -183,7 +183,7 @@ function OrganizationMemoryPolicyCard(input: {
 	}
 	return (
 		<AgentConfigurationCard
-			description="Uses details from shared Spaces and channels. Private chats stay out."
+			description="Uses saved team memory. Shared chats are saved only when you ask to remember something for the team."
 			icon={<BrainIcon aria-hidden="true" />}
 			inlineContent={
 				<>

@@ -36,6 +36,8 @@ import {
   markSpaceInboxReadThroughResponseSchema,
   mutateInboxFeedBodySchema,
   mutateInboxFeedResponseSchema,
+  mutateSpaceInboxReadBodySchema,
+  mutateSpaceInboxReadResponseSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
@@ -114,11 +116,24 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       route: INBOX_FEED_ROUTE,
       responseSchema: inboxFeedResponseSchema,
-      execute: () =>
-        c.var.coreRpc.listInboxFeed({
-          ...query.data,
-          context: buildCoreRpcContext(c),
-        }),
+      execute: async () => {
+        const response = inboxFeedResponseSchema.parse(
+          await c.var.coreRpc.listInboxFeed({
+            ...query.data,
+            context: buildCoreRpcContext(c),
+          })
+        );
+        return {
+          ...response,
+          rows: response.rows.map((row) => ({
+            ...row,
+            item: projectPluginRequestForClient(
+              row.item,
+              resolveInboxSourceTargetVersion(c)
+            ),
+          })),
+        };
+      },
     });
   });
   app.post(INBOX_FEED_STATE_ROUTE, async (c) => {
@@ -272,6 +287,9 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getSpaceInboxUnreadTargets({
+          ...(c.req.query("includeItemIds") === "true"
+            ? { includeItemIds: true }
+            : {}),
           context: buildCoreRpcContext(c),
           spaceId: params.data.spaceId,
         }),
@@ -304,6 +322,30 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
+  app.post("/v1/inbox/spaces/read", async (c) => {
+    const route = "/v1/inbox/spaces/read";
+    const body = await parseBody(
+      c,
+      route,
+      "POST",
+      mutateSpaceInboxReadBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      method: "POST",
+      route,
+      responseSchema: mutateSpaceInboxReadResponseSchema,
+      execute: () =>
+        c.var.coreRpc.mutateSpaceInboxRead({
+          body: body.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
   app.get(INBOX_ROUTE, (c) => {
     const query = listInboxItemsQuerySchema.safeParse(c.req.query());
     if (!query.success) {
@@ -320,7 +362,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.listInboxItems({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
-          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
+          includeAccountItems: supportsInboxAccountItems(c),
           ...query.data,
           context: buildCoreRpcContext(c),
         }),
@@ -350,7 +392,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getInboxSummary({
-          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
+          includeAccountItems: supportsInboxAccountItems(c),
           context: buildCoreRpcContext(c),
           ...query.data,
         }),
@@ -369,7 +411,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
           c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? "";
         const response =
           requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION &&
-          resolveInboxSourceTargetVersion(c) === "current"
+          supportsInboxAccountItems(c)
             ? parsed
             : legacyResponse;
         if (requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION) {
@@ -406,7 +448,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.getInboxItem({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
-          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
+          includeAccountItems: supportsInboxAccountItems(c),
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
         }),
@@ -437,7 +479,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.dismissInboxItem({
-          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
+          includeAccountItems: supportsInboxAccountItems(c),
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
         }),
@@ -472,7 +514,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.markInboxItemRead({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
-          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
+          includeAccountItems: supportsInboxAccountItems(c),
           ...body.data,
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
@@ -602,6 +644,7 @@ function resolveInboxItemResponse(input: {
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
 type InboxItemKindClientVersion = "current" | "legacy";
 type InboxSourceTargetClientVersion =
+  | "request_unaware"
   | "account_unaware"
   | "attention_unaware"
   | "reply_unaware"
@@ -611,11 +654,15 @@ type InboxSourceTargetClientVersion =
   | "thread_unaware"
   | "conversation_unaware";
 
-function projectInboxItemForClient(input: {
+function projectInboxItemForClient(value: {
   item: InboxItem;
   itemKindVersion: InboxItemKindClientVersion;
   sourceTargetVersion: InboxSourceTargetClientVersion;
 }): z.infer<typeof listInboxItemsWireResponseSchema>["items"][number] {
+  const input = {
+    ...value,
+    item: projectPluginRequestForClient(value.item, value.sourceTargetVersion),
+  };
   if (
     input.itemKindVersion === "current" &&
     input.sourceTargetVersion === "current"
@@ -628,6 +675,7 @@ function projectInboxItemForClient(input: {
   }
   if (
     input.sourceTargetVersion === "current" ||
+    input.sourceTargetVersion === "request_unaware" ||
     input.sourceTargetVersion === "account_unaware"
   ) {
     return kind === input.item.kind ? input.item : { ...input.item, kind };
@@ -664,6 +712,27 @@ function projectInboxItemForClient(input: {
   };
 }
 
+function projectPluginRequestForClient(
+  item: InboxItem,
+  version: InboxSourceTargetClientVersion
+): InboxItem {
+  if (
+    version === "current" ||
+    item.sourceTarget.kind !== "plugin_action_request"
+  ) {
+    return item;
+  }
+  // Old clients cannot render or authorize this private source. Keep their
+  // Inbox readable and direct the recipient to the current Web experience.
+  return {
+    ...item,
+    sourceTarget: { kind: "settings", section: "notifications" },
+    title: "Plugin confirmation is available in OpenMeld Web",
+    preview:
+      "Open your Inbox in the current OpenMeld Web app to review this request. This client cannot approve it.",
+  };
+}
+
 function projectInboxSpaceTargetForClient(
   sourceTarget: Extract<InboxItem["sourceTarget"], { kind: "space" }>,
   version: Exclude<InboxSourceTargetClientVersion, "current">
@@ -695,12 +764,20 @@ function resolveInboxItemKindVersion(
   return "legacy";
 }
 
+function supportsInboxAccountItems(c: Context<HonoBindings>): boolean {
+  const version = resolveInboxSourceTargetVersion(c);
+  return version === "current" || version === "request_unaware";
+}
+
 function resolveInboxSourceTargetVersion(
   c: Context<HonoBindings>
 ): InboxSourceTargetClientVersion {
   const version = c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION);
   if (version === OPENMELD_INBOX_SOURCE_TARGET_VERSION) {
     return "current";
+  }
+  if (version === "9") {
+    return "request_unaware";
   }
   if (version === "8") {
     return "account_unaware";

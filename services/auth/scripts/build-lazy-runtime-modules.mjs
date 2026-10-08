@@ -26,6 +26,9 @@ export async function buildLazyRuntimeModules(
 ) {
   const outputPath = path.join(outputDirectory, "better-auth.mjs");
   const result = await build({
+    banner: {
+      js: 'import { createRequire } from "node:module"; const require = createRequire("/better-auth.mjs");',
+    },
     bundle: true,
     define: {
       "process.env.NODE_ENV": '"production"',
@@ -37,7 +40,7 @@ export async function buildLazyRuntimeModules(
     metafile: true,
     minify: true,
     outfile: outputPath,
-    platform: "browser",
+    platform: "node",
     target: "es2022",
     write: false,
   });

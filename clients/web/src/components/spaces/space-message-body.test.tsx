@@ -302,9 +302,9 @@ describe("SpaceMessageBody", () => {
 		);
 
 		const referenceButton = screen.getByRole("button", {
-			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Mention only)`,
+			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Reference)`,
 		});
-		expect(within(referenceButton).getByText("Mention only")).toBeTruthy();
+		expect(within(referenceButton).getByText("Reference")).toBeTruthy();
 		fireEvent.click(referenceButton);
 		expect(onOpenProfile).toHaveBeenCalledWith(REFERENCE_TARGET_PROFILE_ID);
 	});
@@ -332,7 +332,7 @@ describe("SpaceMessageBody", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByText("Mention only", {
+			screen.getByText("Reference", {
 				selector: '[data-slot="space-message-profile-mention"] span',
 			})
 		).toBeTruthy();
@@ -645,7 +645,7 @@ describe("SpaceMessageBody", () => {
 		expect(messageBody?.classList.contains("content-space-message")).toBe(true);
 	});
 
-	it("animates words while an agent reply is streaming", () => {
+	it("shows restored streaming text without replaying its entrance", () => {
 		const view = render(
 			<SpaceMessageBody
 				item={{
@@ -661,9 +661,8 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(
-			view.container.querySelectorAll("span[data-sd-animate]").length
-		).toBeGreaterThan(0);
+		expect(view.container.textContent).toContain("Words arrive smoothly");
+		expect(view.container.querySelector("[data-sd-animate]")).toBeNull();
 	});
 
 	it("paces newly accumulated agent text instead of revealing the whole snapshot", async () => {
@@ -721,7 +720,10 @@ describe("SpaceMessageBody", () => {
 		);
 	});
 
-	it("shows the complete accumulated text immediately when the stream ends", () => {
+	it.each([
+		"published",
+		"stopped",
+	] as const)("preserves the visible reply contract when a stream is %s", async (outcome) => {
 		vi.useFakeTimers();
 		const view = render(
 			<SpaceMessageBody
@@ -760,21 +762,33 @@ describe("SpaceMessageBody", () => {
 		view.rerender(
 			<SpaceMessageBody
 				item={{
-					agentStreamState: {
-						reasonCode: "agent_stopped",
-						sequence: 3,
-						status: "stopped",
-						streamId: "stream-1",
-					},
+					agentStreamState:
+						outcome === "stopped"
+							? {
+									reasonCode: "agent_stopped",
+									sequence: 3,
+									status: "stopped",
+									streamId: "stream-1",
+								}
+							: undefined,
 					isAgentFinalReply: true,
 					text: "Working through the remaining details.",
 				}}
 			/>
 		);
 
-		expect(view.container.textContent).toContain(
-			"Working through the remaining details."
-		);
+		await act(async () => {
+			// Flush React's Markdown transition without advancing the pacing timer.
+		});
+		if (outcome === "published") {
+			expect(view.container.textContent).toContain(
+				"Working through the remaining details."
+			);
+		} else {
+			expect(view.container.textContent).toContain("Working");
+			expect(view.container.textContent).toContain("(Request stopped)");
+			expect(view.container.textContent).not.toContain("remaining details");
+		}
 		expect(view.container.querySelector("[data-sd-animate]")).toBeNull();
 	});
 
@@ -848,7 +862,9 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(view.container.querySelector("[data-sd-animate]")).toBeTruthy();
+		expect(view.container.textContent).toContain(
+			'const chunk = "inside code";'
+		);
 		expect(view.container.querySelector("code [data-sd-animate]")).toBeNull();
 	});
 

@@ -62,7 +62,7 @@ export class RemoteAgentNoProgressError extends Error {
 
   constructor(toolName: string, attempt?: RemoteAgentToolAttempt) {
     super(
-      "This exact read returned unchanged data three times. Do not run it again with the same input. Use different arguments or another source, or finish with the evidence already available."
+      "This read returned unchanged data three times. Recover prior retained results with openmeld_read_tool_result (omit fields to list references). For Computer work, use computer_command list/poll with the original key; do not restart it. Reconcile the evidence already collected, then address a specific unresolved question or report what remains unknown. Changing arguments alone is not new progress."
     );
     this.name = "RemoteAgentNoProgressError";
     this.toolName = toolName;
@@ -165,6 +165,7 @@ export async function recordRemoteAgentToolResultProgress(input: {
   attempt: RemoteAgentToolAttempt;
   nowMs?: number;
   result: unknown;
+  progressValue?: (result: unknown) => unknown;
   storage: RemoteAgentStorage;
   submissionId: string;
 }): Promise<void> {
@@ -173,7 +174,11 @@ export async function recordRemoteAgentToolResultProgress(input: {
     return;
   }
   const nowMs = input.nowMs ?? Date.now();
-  const resultFingerprint = await digestCanonicalJson({ result: input.result });
+  const resultFingerprint = await digestCanonicalJson({
+    result: input.progressValue
+      ? input.progressValue(input.result)
+      : input.result,
+  });
   const expiresAtMs = Number.MAX_SAFE_INTEGER;
   const repeatCount = await updateRemoteAgentToolProgressState({
     expiresAtMs,

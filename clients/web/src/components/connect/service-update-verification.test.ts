@@ -71,7 +71,7 @@ describe("resolveServiceUpdateVerificationState", () => {
 		).toMatchObject({ status: "confirming" });
 	});
 
-	it("confirms once both service and CLI projections clear update_required", () => {
+	it("confirms once both service and CLI projections are current and unblocked", () => {
 		expect(
 			resolveServiceUpdateVerificationState({
 				cli: buildCliProjection(),
@@ -131,7 +131,7 @@ describe("resolveServiceUpdateVerificationState", () => {
 		).toMatchObject({ cli: null, service: null, status: "timed_out" });
 	});
 
-	it("confirms once both projections arrive and clear update_required, even past the timeout window", () => {
+	it("confirms once both projections arrive and are current and unblocked, even past the timeout window", () => {
 		expect(
 			resolveServiceUpdateVerificationState({
 				cli: buildCliProjection(),
@@ -183,6 +183,49 @@ describe("resolveServiceUpdateVerificationState", () => {
 });
 
 describe("isServiceUpdateStillRequired", () => {
+	it.each([
+		"update_available",
+		"unknown",
+	] as const)("does not confirm a completed terminal when a component is %s", (status) => {
+		for (const component of ["cli", "service"] as const) {
+			const cli = buildCliProjection(component === "cli" ? { status } : {});
+			const service = buildServiceProjection(
+				component === "service" ? { status } : {}
+			);
+			expect(isServiceUpdateStillRequired(cli, service)).toBe(true);
+			for (const elapsed of [0, TIMEOUT_MS]) {
+				expect(
+					resolveServiceUpdateVerificationState({
+						cli,
+						service,
+						mode: "update_service",
+						elapsedSinceCompletionMs: elapsed,
+						timeoutMs: TIMEOUT_MS,
+					}).status
+				).toBe(elapsed === 0 ? "confirming" : "timed_out");
+			}
+		}
+	});
+
+	it("does not accept current labels without installed versions or with a blocker", () => {
+		for (const cli of [
+			buildCliProjection({ installedPackageVersion: null }),
+			buildCliProjection({ wakeBlocked: true }),
+		]) {
+			expect(isServiceUpdateStillRequired(cli, buildServiceProjection())).toBe(
+				true
+			);
+		}
+		for (const service of [
+			buildServiceProjection({ installedVersion: null }),
+			buildServiceProjection({ wakeBlocked: true }),
+		]) {
+			expect(isServiceUpdateStillRequired(buildCliProjection(), service)).toBe(
+				true
+			);
+		}
+	});
+
 	it("is still required when neither projection has arrived yet (query cold start)", () => {
 		expect(isServiceUpdateStillRequired(undefined, undefined)).toBe(true);
 	});
@@ -203,7 +246,7 @@ describe("isServiceUpdateStillRequired", () => {
 		).toBe(true);
 	});
 
-	it("is not required once both projections arrive and clear update_required", () => {
+	it("is not required once both projections arrive and are current and unblocked", () => {
 		expect(
 			isServiceUpdateStillRequired(
 				buildCliProjection(),
@@ -227,11 +270,12 @@ describe("formatServiceUpdateVerificationFailureDetail", () => {
 		});
 
 		expect(detail).toContain(
-			"This computer reports OpenMeld Service v0.2.20, but v0.2.21 is required."
+			"This computer reports OpenMeld Service v0.2.20; its update status still calls for v0.2.21."
 		);
-		expect(detail).toContain("not something you did");
-		expect(detail).toContain("Running setup again will not fix this");
-		expect(detail).toContain("try again later");
+		expect(detail).toContain(
+			"Check this computer's connection and update status"
+		);
+		expect(detail).not.toContain("release side");
 	});
 
 	it("describes an outdated CLI package version separately from the service", () => {
@@ -246,7 +290,7 @@ describe("formatServiceUpdateVerificationFailureDetail", () => {
 		});
 
 		expect(detail).toContain(
-			"This computer reports OpenMeld CLI v0.2.20, but v0.2.21 is required."
+			"This computer reports OpenMeld CLI v0.2.20; its update status still calls for v0.2.21."
 		);
 		expect(detail).not.toContain("OpenMeld Service v");
 	});
@@ -265,7 +309,7 @@ describe("formatServiceUpdateVerificationFailureDetail", () => {
 		});
 
 		expect(detail).toContain(
-			"This computer reports OpenMeld Service an unreported version, but a newer version is required."
+			"This computer reports OpenMeld Service an unreported version; its update status still calls for a newer version."
 		);
 	});
 
@@ -277,17 +321,41 @@ describe("formatServiceUpdateVerificationFailureDetail", () => {
 		});
 
 		expect(detail).toContain(
-			"Could not confirm this computer reached the required version."
+			"Could not confirm the installed OpenMeld Service and CLI versions."
 		);
 		expect(detail).not.toContain("vnull");
 		expect(detail).not.toContain("vundefined");
-		expect(detail).toContain("not something you did");
-		expect(detail).toContain("Running setup again will not fix this");
-		expect(detail).toContain("try again later");
+		expect(detail).toContain(
+			"Check this computer's connection and update status"
+		);
+		expect(detail).not.toContain("release side");
 	});
 });
 
 describe("formatServiceUpdateVerificationSuccessDetail", () => {
+	it("does not format a success for unresolved or stale verification", () => {
+		for (const status of [
+			"confirming",
+			"timed_out",
+			"not_applicable",
+		] as const) {
+			expect(
+				formatServiceUpdateVerificationSuccessDetail({
+					cli: buildCliProjection(),
+					service: buildServiceProjection(),
+					status,
+				})
+			).toBeNull();
+		}
+		expect(
+			formatServiceUpdateVerificationSuccessDetail({
+				cli: buildCliProjection({ status: "update_available" }),
+				service: buildServiceProjection(),
+				status: "confirmed",
+			})
+		).toBeNull();
+	});
+
 	it("shows the newly reported OpenMeld Service version", () => {
 		const detail = formatServiceUpdateVerificationSuccessDetail({
 			cli: buildCliProjection(),
@@ -311,7 +379,7 @@ describe("formatServiceUpdateVerificationSuccessDetail", () => {
 
 it("keeps the failure title stable for the timed_out headline", () => {
 	expect(SERVICE_UPDATE_VERIFICATION_FAILURE_TITLE).toBe(
-		"Update did not reach the required version"
+		"Couldn't verify the update"
 	);
 });
 

@@ -1,3 +1,4 @@
+import type { FirstWorkResponse } from "@openmeld/schemas";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,11 +7,6 @@ import {
 	resolveStartFlowStorageKey,
 	serializeStartFlowState,
 } from "#/components/app/start-flow-state";
-import {
-	completeOnboardingProgress,
-	createInitialOnboardingProgress,
-	writeOnboardingProgress,
-} from "#/lib/onboarding/onboarding-progress";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { AppShell } from "./app-shell";
@@ -21,6 +17,11 @@ const useRouterStateMock = vi.hoisted(() => vi.fn());
 const useNavigateMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const listAccountSpaceItemsMock = vi.hoisted(() => vi.fn());
+const readFirstWorkMock = vi.hoisted(() => vi.fn());
+vi.mock("@openmeld/api-client", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@openmeld/api-client")>()),
+	createFirstWorkApi: () => ({ read: readFirstWorkMock }),
+}));
 vi.mock("#/components/inbox/inbox-browser-notification-prompt", () => ({
 	InboxBrowserNotificationPrompt: () => (
 		<div data-testid="notification-introduction" />
@@ -138,14 +139,10 @@ describe("AppShell", () => {
 	beforeEach(() => {
 		window.localStorage.clear();
 		window.sessionStorage.clear();
-		writeOnboardingProgress({
-			progress: completeOnboardingProgress({
-				current: createInitialOnboardingProgress({ nowMs: 1 }),
-				nowMs: 2,
-			}),
-			storage: window.localStorage,
-			storageScope: "user-123",
-		});
+		readFirstWorkMock.mockReset().mockResolvedValue({
+			record: null,
+			hasStartedTutorial: true,
+		} satisfies FirstWorkResponse);
 		useNavigateMock.mockReset();
 		useRouterStateMock.mockReset().mockReturnValue("/o/acme/connect");
 		routerMatchesMock.mockReset();
@@ -185,15 +182,15 @@ describe("AppShell", () => {
 		"spaces",
 		"directMessages",
 		"space",
-	] as const)("introduces notifications only inside a Space, not on %s landing", (section) => {
+	] as const)("introduces notifications only inside a Space, not on %s landing", async (section) => {
 		routerMatchesMock.mockReturnValue([
 			{ staticData: { appShellSection: section }, params: {} },
 		]);
-		renderAppShell();
+		await renderAppShell();
 		expect(screen.queryByTestId("notification-introduction")).toBeNull();
 	});
-	it("shares the real Computer context with the native menu and Settings consumers", () => {
-		renderAppShell();
+	it("shares the real Computer context with the native menu and Settings consumers", async () => {
+		await renderAppShell();
 
 		expect(screen.getByTestId("native-menu-computer-context").textContent).toBe(
 			"provided"
@@ -202,18 +199,18 @@ describe("AppShell", () => {
 			"provided"
 		);
 	});
-	it("introduces notifications on the first actual Space entry after onboarding", () => {
+	it("introduces notifications on the first actual Space entry after onboarding", async () => {
 		routerMatchesMock.mockReturnValue([
 			{
 				staticData: { appShellSection: "space" },
 				params: { spaceId: "space-123" },
 			},
 		]);
-		renderAppShell();
+		await renderAppShell();
 		expect(screen.getByTestId("notification-introduction")).toBeTruthy();
 	});
 
-	it("does not show profile or computer context in the header on start routes", () => {
+	it("does not show profile or computer context in the header on start routes", async () => {
 		window.sessionStorage.setItem(
 			resolveStartFlowStorageKey("user-123"),
 			serializeStartFlowState({
@@ -224,7 +221,7 @@ describe("AppShell", () => {
 			})
 		);
 
-		renderAppShell();
+		await renderAppShell();
 
 		expect(screen.queryByText("Current Profile: Felix")).toBeNull();
 		expect(screen.queryByText("Computer: Office Mac mini")).toBeNull();
@@ -240,7 +237,7 @@ describe("AppShell", () => {
 		).toBeFalsy();
 	});
 
-	it("uses a full-screen shell without the cross-page header on settings routes", () => {
+	it("uses a full-screen shell without the cross-page header on settings routes", async () => {
 		useRouterStateMock.mockReturnValue("/o/acme/settings/account");
 		setRenderedAppSection("settings");
 
@@ -254,7 +251,7 @@ describe("AppShell", () => {
 			})
 		);
 
-		renderAppShell();
+		await renderAppShell();
 
 		expect(screen.queryByText("Current Profile: Felix")).toBeNull();
 		expect(screen.queryByText("Computer: Office Mac mini")).toBeNull();
@@ -268,7 +265,7 @@ describe("AppShell", () => {
 		);
 	});
 
-	it("uses a full-screen shell without the cross-page header on People routes", () => {
+	it("uses a full-screen shell without the cross-page header on People routes", async () => {
 		useRouterStateMock.mockReturnValue("/o/acme/people");
 		setRenderedAppSection("people");
 
@@ -282,7 +279,7 @@ describe("AppShell", () => {
 			})
 		);
 
-		renderAppShell();
+		await renderAppShell();
 
 		expect(screen.queryByText("Current Profile: Felix")).toBeNull();
 		expect(screen.queryByText("Computer: Office Mac mini")).toBeNull();
@@ -297,11 +294,11 @@ describe("AppShell", () => {
 	it.each([
 		"/o/acme/projects",
 		"/o/acme/projects/project-123",
-	])("uses a full-screen shell without the cross-page header on %s", (pathname) => {
+	])("uses a full-screen shell without the cross-page header on %s", async (pathname) => {
 		useRouterStateMock.mockReturnValue(pathname);
 		setRenderedAppSection("projects");
 
-		renderAppShell();
+		await renderAppShell();
 
 		expect(screen.queryByTestId("cross-page-header-right")).toBeNull();
 		expect(screen.getByText("outlet").closest("main")?.className).toContain(
@@ -313,7 +310,7 @@ describe("AppShell", () => {
 		useRouterStateMock.mockReturnValue("/o/acme");
 		setRenderedAppSection("start");
 
-		renderAppShell();
+		await renderAppShell();
 
 		expect(
 			await screen.findByRole("tab", { name: TEAM_TAB_NAME })
@@ -345,7 +342,7 @@ describe("AppShell", () => {
 			],
 		});
 
-		renderAppShell();
+		await renderAppShell();
 
 		const spacesTab = await screen.findByRole("tab", {
 			name: BROWSE_SPACES_TAB_NAME,
@@ -364,11 +361,11 @@ describe("AppShell", () => {
 		});
 	});
 
-	it("uses the full-screen shell without the legacy cross-page header on connect routes", () => {
+	it("uses the full-screen shell without the legacy cross-page header on connect routes", async () => {
 		useRouterStateMock.mockReturnValue("/o/acme/connect");
 		setRenderedAppSection("connect");
 
-		renderAppShell();
+		await renderAppShell();
 
 		expect(screen.queryByTestId("cross-page-header-right")).toBeNull();
 		expect(screen.queryByRole("link", { name: "Back to Spaces" })).toBeNull();
@@ -380,7 +377,7 @@ describe("AppShell", () => {
 	it.each([
 		"/o/acme/spaces",
 		"/o/acme/spaces/space-123",
-	])("uses a full-screen shell without the cross-page header on %s", (pathname) => {
+	])("uses a full-screen shell without the cross-page header on %s", async (pathname) => {
 		useRouterStateMock.mockReturnValue(pathname);
 		setRenderedAppSection("space");
 
@@ -394,7 +391,7 @@ describe("AppShell", () => {
 			})
 		);
 
-		renderAppShell();
+		await renderAppShell();
 
 		expect(screen.queryByText("Current Profile: Felix")).toBeNull();
 		expect(screen.queryByText("Computer: Office Mac mini")).toBeNull();
@@ -408,11 +405,11 @@ describe("AppShell", () => {
 		);
 	});
 
-	it("keeps the rendered Space shell while the live URL is already Agents", () => {
+	it("keeps the rendered Space shell while the live URL is already Agents", async () => {
 		useRouterStateMock.mockReturnValue("/o/acme/agents");
 		setRenderedAppSection("space");
 
-		renderAppShell();
+		await renderAppShell();
 
 		expect(screen.queryByTestId("cross-page-header-right")).toBeNull();
 		expect(screen.queryByRole("tab", { name: "People" })).toBeNull();
@@ -421,11 +418,11 @@ describe("AppShell", () => {
 		);
 	});
 
-	it("renders the URL organization immediately when the Session default differs", () => {
+	it("renders the URL organization immediately when the Session default differs", async () => {
 		useRouterStateMock.mockReturnValue("/o/beta/settings/account");
 		setRenderedAppSection("settings");
 
-		renderAppShell({
+		await renderAppShell({
 			...TEST_ORGANIZATION_SCOPE,
 			activeOrganization: {
 				id: "org-123",
@@ -452,16 +449,18 @@ function setRenderedAppSection(section: AppShellSection) {
 	]);
 }
 
-function renderAppShell(
+async function renderAppShell(
 	organizationScope: OrganizationScopeAuthorized = TEST_ORGANIZATION_SCOPE
 ) {
-	return renderWithProviders(
+	const view = renderWithProviders(
 		<AppShell
 			account={TEST_ACCOUNT}
 			organizationScope={organizationScope}
 			storageScope="user-123"
 		/>
 	);
+	await screen.findByText("outlet");
+	return view;
 }
 
 function renderWithProviders(input: ReactNode) {

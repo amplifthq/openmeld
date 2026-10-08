@@ -5,6 +5,7 @@ import {
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { ConnectorActionOutcomeUnknownError } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentExecutionIdentity,
   completeRemoteAgentExecutionState,
@@ -37,6 +38,139 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const SUBMISSION_ID = "submission-turn-end";
 
 describe("Remote Agent tool execution", () => {
+  it.each([
+    "direct",
+    "code_mode",
+  ] as const)("compares owner facts through %s while returning the original evidence", async (source) => {
+    const { storage } = await createToolExecutionTestContext();
+    let generatedAt = 0;
+    let observedAt = 10;
+    const definition: RemoteAgentToolDefinition = {
+      name: "read_observation",
+      description: "Read current evidence.",
+      input: object({}),
+      progressTracking: "observation",
+      progressValue: (result) => (result as { evidence: unknown }).evidence,
+      execute: () =>
+        Promise.resolve({
+          generatedAt: ++generatedAt,
+          evidence: { observedAt },
+        }),
+    };
+    const call = () =>
+      executeRemoteAgentToolDefinition({
+        definition,
+        source,
+        storage,
+        submissionId: SUBMISSION_ID,
+        toolInput: {},
+      });
+    await expect(call()).resolves.toEqual({
+      generatedAt: 1,
+      evidence: { observedAt: 10 },
+    });
+    await call();
+    // A real new observation is progress even when its status is unchanged.
+    observedAt = 11;
+    await expect(call()).resolves.toEqual({
+      generatedAt: 3,
+      evidence: { observedAt: 11 },
+    });
+    await call();
+    await expect(call()).rejects.toBeInstanceOf(RemoteAgentNoProgressError);
+    await expect(call()).rejects.toBeInstanceOf(RemoteAgentNoProgressError);
+    expect(generatedAt).toBe(5);
+  });
+  it.each([
+    {
+      source: "direct",
+      window: "unverified",
+      replay: { allowed: false, reason: "window_unverified" },
+    },
+    {
+      source: "code_mode",
+      window: "unverified",
+      replay: { allowed: false, reason: "window_unverified" },
+    },
+    {
+      source: "direct",
+      window: "active",
+      replay: {
+        allowed: true,
+        maxAttempts: 1,
+        remainingWindowMs: expect.any(Number),
+      },
+    },
+    {
+      source: "code_mode",
+      window: "active",
+      replay: {
+        allowed: true,
+        maxAttempts: 1,
+        remainingWindowMs: expect.any(Number),
+      },
+    },
+    {
+      source: "direct",
+      window: "expired",
+      replay: { allowed: false, reason: "window_expired" },
+    },
+    {
+      source: "code_mode",
+      window: "replayed",
+      replay: { allowed: false, reason: "already_replayed" },
+    },
+  ] as const)("preserves $window replay permission through $source without exposing provider details", async ({
+    source,
+    window,
+    replay,
+  }) => {
+    const { storage } = await createToolExecutionTestContext();
+    const result = await executeRemoteAgentToolDefinition({
+      source,
+      storage,
+      submissionId: SUBMISSION_ID,
+      toolInput: {},
+      definition: {
+        description: "Attempt an authorized comment.",
+        name: "github_create_issue_comment",
+        input: object({}),
+        execute: () =>
+          Promise.reject(
+            new ConnectorActionOutcomeUnknownError({
+              actionId: "github.create_issue_comment",
+              operationId: "comment-1",
+              cause: new Error("synthetic-private-provider-detail"),
+              operationReplayExpiresAtMs:
+                window === "unverified"
+                  ? undefined
+                  : performance.now() + (window === "expired" ? -1 : 60_000),
+              operationReplayed: window === "replayed",
+              replay:
+                window === "active" || window === "expired"
+                  ? { allowed: true, remainingWindowMs: 60_000, maxAttempts: 1 }
+                  : undefined,
+            })
+          ),
+      },
+    });
+    expect(result).toMatchObject({
+      status: "outcome_unknown",
+      operationId: "comment-1",
+      executionConfirmation: "unknown",
+      replay,
+    });
+    const text = JSON.stringify(result);
+    expect(text).toContain("write may already have succeeded");
+    expect(text).toContain(
+      window === "active"
+        ? "You may retry exactly once"
+        : "Do not retry this write"
+    );
+    expect(text).toContain("Never repeat the write with a new operationId");
+    expect(text).toContain("Original operationId: comment-1");
+    expect(text).not.toContain("synthetic-private-provider-detail");
+  });
   it.each([
     "A",
     "中文",

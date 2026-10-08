@@ -27,7 +27,6 @@ import {
 import { SpaceFileMaintenanceDialog } from "./space-file-maintenance-dialog";
 import { SpaceFileUpdateSettingsDialog } from "./space-file-update-settings-dialog";
 import { resolveSpaceFileErrorMessage } from "./space-file-utils";
-import { SpaceWorkHandoffDialog } from "./space-work-handoff-dialog";
 import {
 	type SpaceFilesPanelProps,
 	useSpaceFilesPanelController,
@@ -39,9 +38,8 @@ const NEW_TEXT_FILE_MIME_TYPES = {
 	csv: "text/csv",
 } as const;
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This panel coordinates Space Files browsing, editing, handoff, and cross-location copy dialogs.
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This panel coordinates Space Files browsing, editing, maintenance, and cross-location copy dialogs.
 export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
-	const [handoffOpen, setHandoffOpen] = useState(false);
 	const organization = useOptionalAppOrganization();
 	const [copyingFile, setCopyingFile] = useState<{
 		file: SpaceFileDescriptor;
@@ -78,8 +76,6 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		setFolderDialogOpen,
 		setNewTextFileKind,
 		setParentId,
-		showChatUploads,
-		toggleShowChatUploads,
 		trashEntry,
 		uploadFiles,
 		view,
@@ -167,6 +163,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				entries={filesQuery.data?.entries ?? []}
 				error={filesQuery.isError ? filesQuery.error : null}
 				fileInputRef={fileInputRef}
+				isPaused={filesQuery.fetchStatus === "paused"}
 				isPending={filesQuery.isPending}
 				loaded={filesQuery.data !== undefined}
 				onCopy={
@@ -180,7 +177,6 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 						: undefined
 				}
 				onDismissError={() => setActionError(null)}
-				onHandOff={organization ? () => setHandoffOpen(true) : undefined}
 				onMove={(entry) => setEntryDialog({ entry, kind: "move" })}
 				onNewFolder={() => setFolderDialogOpen(true)}
 				onNewTextFile={setNewTextFileKind}
@@ -206,26 +202,12 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				onRename={(entry) => setEntryDialog({ entry, kind: "rename" })}
 				onRestore={restoreEntry}
 				onRetry={() => filesQuery.refetch()}
-				onToggleShowChatUploads={toggleShowChatUploads}
 				onTrash={(entry) => setEntryDialog({ entry, kind: "trash" })}
 				onUploadFiles={uploadFiles}
 				onViewChange={changeView}
-				showChatUploads={showChatUploads}
 				spaceId={input.spaceId}
 				view={view}
 			/>
-			{handoffOpen && organization ? (
-				<SpaceWorkHandoffDialog
-					api={api}
-					files={(filesQuery.data?.entries ?? []).filter(
-						(entry): entry is SpaceFileDescriptor => entry.kind === "file"
-					)}
-					onClose={() => setHandoffOpen(false)}
-					organizationId={organization.currentOrganization.id}
-					profileId={input.openMeldProfileId}
-					spaceId={input.spaceId}
-				/>
-			) : null}
 			<FolderNameDialog
 				onOpenChange={setFolderDialogOpen}
 				onSubmit={async (name) => {

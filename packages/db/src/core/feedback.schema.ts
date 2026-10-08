@@ -1,28 +1,23 @@
 import { desc, sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
+import { integerBoolean } from "../postgresql/schema-types.ts";
 
-export const openMeldFeedbackReportingPolicies = sqliteTable(
+export const openMeldFeedbackReportingPolicies = applicationTable(
   "openMeldFeedback_reporting_policies",
   {
     organizationId: text("organization_id")
       .primaryKey()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    reportingEnabled: integer("reporting_enabled", { mode: "boolean" })
-      .default(true)
+    reportingEnabled: integerBoolean("reporting_enabled")
+      .default(sql`1`)
       .notNull(),
     updatedByUserId: text("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (_table) => [
     check(
@@ -36,7 +31,7 @@ export const openMeldFeedbackReportingPolicies = sqliteTable(
   ]
 );
 
-export const openMeldFeedbackInboxes = sqliteTable(
+export const openMeldFeedbackInboxes = applicationTable(
   "openMeldFeedback_inboxes",
   {
     inboxId: text("inbox_id").primaryKey(),
@@ -45,15 +40,15 @@ export const openMeldFeedbackInboxes = sqliteTable(
     inboxKey: text("inbox_key").notNull(),
     deliveryMode: text("delivery_mode").notNull(),
     status: text("status").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("openMeldFeedback_inboxes_inbox_key_unique").on(table.inboxKey),
   ]
 );
 
-export const openMeldFeedbackIssues = sqliteTable(
+export const openMeldFeedbackIssues = applicationTable(
   "openMeldFeedback_issues",
   {
     issueId: text("issue_id").primaryKey(),
@@ -69,8 +64,8 @@ export const openMeldFeedbackIssues = sqliteTable(
     clientContext: text("client_context"),
     status: text("status").notNull().default("new"),
     triageNote: text("triage_note"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_openMeldFeedback_issues_inbox_status_created").on(

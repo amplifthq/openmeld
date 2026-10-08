@@ -5,14 +5,292 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { createInboxFeedService } from "../src/inbox/application/inbox-feed-service";
+import { resolveInboxItemsBySource } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
+import { installPostgresWriteFailure } from "./helpers/postgresql-harness.test-support";
 
 describe("canonical Inbox attention feed", () => {
-  it("shares priority and request categories with the unpaged summary while respecting read, first contact and mute facts", async () => {
-    const f = createInboxFeedFixture();
+  it("rolls back the snapshot header when freezing its members fails", async () => {
+    const f = await createInboxFeedFixture();
     try {
-      f.agent("codex");
+      await f.item("visible");
+      await installPostgresWriteFailure({
+        harness: f,
+        table: "inbox_feed_snapshot_members",
+        operation: "INSERT",
+        message: "snapshot member write failed",
+      });
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      await expect(feed.list(f.identity)).rejects.toThrow(
+        "snapshot member write failed"
+      );
+      const result = await f.query({
+        text: 'SELECT count(*) AS count FROM "openmeld"."inbox_feed_snapshots"',
+      });
+      expect(Number(result.rows[0]?.count)).toBe(0);
+    } finally {
+      await f.close();
+    }
+  });
+  it("limits Thread reads to ordinary updates in the selected category, including when urgent replies share the Thread", async () => {
+    const f = await createInboxFeedFixture();
+    try {
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      const sourceTarget = {
+        kind: "space",
+        spaceId: "space",
+        signalId: "reply",
+        threadRootSignalId: "root",
+      } as const;
+      await f.item("reply", { sourceTarget });
+      await f.item("mention", {
+        sourceTarget,
+        kind: "space_mention",
+        sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+      });
+      const urgent = await f.item("urgent", {
+        sourceTarget,
+        importance: "urgent",
+      });
+      const page = await feed.list(f.identity, {
+        grouping: "space",
+        category: "mentions",
+      });
+      const group = page.rows[0];
+      if (!group) {
+        throw new Error("Expected mentioned Space");
+      }
+      const threads = await feed.list(f.identity, {
+        grouping: "space",
+        category: "mentions",
+        snapshotId: page.snapshotId,
+        groupKey: group.groupKey,
+      });
+      const thread = threads.rows[0];
+      if (!thread) {
+        throw new Error("Expected mentioned Thread");
+      }
+      expect(thread.itemCount).toBe(1);
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: page.snapshotId,
+          groupKey: thread.groupKey,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 1 });
+      const all = await feed.list(f.identity, { grouping: "space" });
+      const ordinary = all.rows.find((row) => row.group?.kind === "space");
+      if (!ordinary) {
+        throw new Error("Expected ordinary Space");
+      }
+      const children = await feed.list(f.identity, {
+        grouping: "space",
+        snapshotId: all.snapshotId,
+        groupKey: ordinary.groupKey,
+      });
+      const child = children.rows[0];
+      if (!child) {
+        throw new Error("Expected ordinary Thread");
+      }
+      expect(child.itemCount).toBe(2);
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: all.snapshotId,
+          groupKey: child.groupKey,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 1 });
+      const remaining = await feed.list(f.identity, {
+        grouping: "space",
+        unreadOnly: "true",
+      });
+      expect(remaining.rows.map((row) => row.item.id)).toEqual([urgent.itemId]);
+    } finally {
+      await f.close();
+    }
+  });
+  it("groups a Space across pages, keeps Threads distinct, and reads only the frozen group", async () => {
+    const f = await createInboxFeedFixture();
+    try {
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      for (let index = 0; index < 45; index += 1) {
+        await f.item(`reply-${index}`, {
+          occurredAtMs: 1000 + index,
+          sourceTarget: {
+            kind: "space",
+            spaceId: "space",
+            signalId: `reply-${index}`,
+            threadRootSignalId: `thread-${index % 3}`,
+          },
+        });
+      }
+      const request = await f.item("question", {
+        attention: "action_required",
+        kind: "agent_interaction",
+        sourceKind: "runtime_coordinator_interaction",
+      });
+      const result = await feed.list(f.identity, {
+        grouping: "space",
+        limit: 1,
+      });
+      expect(result.rows[0]?.item.id).toBe(request.itemId);
+      if (!result.nextCursor) {
+        throw new Error("Expected another page");
+      }
+      const next = await feed.list(f.identity, {
+        grouping: "space",
+        limit: 1,
+        cursor: result.nextCursor,
+      });
+      const group = next.rows[0];
+      if (!group) {
+        throw new Error("Expected the Space group");
+      }
+      expect(group).toMatchObject({
+        itemCount: 45,
+        unreadCount: 45,
+        group: { kind: "space", conversationCount: 3 },
+      });
+      expect(next.nextCursor).toBeNull();
+      const threads = await feed.list(f.identity, {
+        grouping: "space",
+        snapshotId: result.snapshotId,
+        groupKey: group.groupKey,
+      });
+      expect(threads.rows).toHaveLength(3);
+      expect(
+        threads.rows.every(
+          (row) => row.itemCount === 15 && row.group?.kind === "conversation"
+        )
+      ).toBe(true);
+      const later = await f.item("later", {
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space",
+          signalId: "later",
+          threadRootSignalId: "thread-0",
+        },
+      });
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: result.snapshotId,
+          groupKey: group.groupKey,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 45 });
+      const unread = await feed.list(f.identity, {
+        grouping: "space",
+        unreadOnly: "true",
+      });
+      expect(unread.counts.unread).toBe(2);
+      expect(unread.rows.map((row) => row.item.id)).toEqual([
+        request.itemId,
+        later.itemId,
+      ]);
+      expect(
+        (await feed.list(f.identity, { category: "needs_action" })).rows[0]
+          ?.item.resolutionStatus
+      ).toBe("open");
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("groups resolved system requests without absorbing open requests or urgent outcomes, including after bulk actions", async () => {
+    const f = await createInboxFeedFixture();
+    try {
+      const system = {
+        kind: "system_issue",
+        sourceKind: "system_attention_event",
+        sourceTarget: { kind: "settings", section: "computers" },
+      } as const;
+      await f.item("installed-a", system);
+      await f.item("installed-b", system);
+      await f.item("repair", { ...system, attention: "action_required" });
+      await f.item("failure", { ...system, importance: "urgent" });
+      const ended = await f.item("ended", {
+        ...system,
+        attention: "action_required",
+        importance: "urgent",
+      });
+      await resolveInboxItemsBySource({
+        db: f.db,
+        organizationId: f.identity.organizationId,
+        sourceKind: system.sourceKind,
+        sourceKey: "ended",
+        resolvedAtMs: 10_500,
+      });
+      // Reading an important outcome must not make it ordinary system history.
+      const readFailure = await f.item("read-failure", {
+        ...system,
+        importance: "urgent",
+      });
+      await createInboxService({ db: f.db }).markRead({
+        ...f.identity,
+        itemId: readFailure.itemId,
+        read: true,
+      });
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      const result = await feed.list(f.identity, { grouping: "space" });
+      expect(result.rows).toHaveLength(4);
+      const systemGroup = result.rows.find(
+        (row) => row.group?.kind === "system"
+      );
+      if (!systemGroup) {
+        throw new Error("Expected system updates");
+      }
+      expect(systemGroup).toMatchObject({
+        itemCount: 3,
+        unreadCount: 3,
+        section: "activity",
+      });
+      const children = await feed.list(f.identity, {
+        grouping: "space",
+        snapshotId: result.snapshotId,
+        groupKey: systemGroup.groupKey,
+      });
+      expect(children.rows.map((row) => row.item.id)).toContain(ended.itemId);
+      expect(children.rows).toHaveLength(3);
+      expect(children.rows.every((row) => row.item.readAt === null)).toBe(true);
+      const later = await f.item("later", system);
+      await feed.mutate(f.identity, {
+        snapshotId: result.snapshotId,
+        groupKey: systemGroup.groupKey,
+        operation: "read",
+      });
+      expect(
+        (await feed.list(f.identity, { unreadOnly: "true" })).counts.unread
+      ).toBe(3);
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: result.snapshotId,
+          groupKey: systemGroup.groupKey,
+          operation: "dismiss",
+        })
+      ).toEqual({ changedCount: 3 });
+      const remaining = await feed.list(f.identity, { grouping: "space" });
+      expect(remaining.counts).toMatchObject({
+        all: 4,
+        unread: 3,
+        needsAction: 1,
+        priority: 1,
+      });
+      expect(
+        remaining.rows.find((row) => row.group?.kind === "system")
+      ).toMatchObject({
+        item: { id: later.itemId, readAt: null },
+        itemCount: 1,
+      });
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("shares priority and request categories with the unpaged summary while respecting read, first contact and mute facts", async () => {
+    const f = await createInboxFeedFixture();
+    try {
+      await f.agent("agt_11111111-1111-4111-8111-111111111111");
       await f.item("first", {
         sourceFacts: facts(true),
         sourceTarget: {
@@ -42,8 +320,8 @@ describe("canonical Inbox attention feed", () => {
           requestCategory: "action",
         },
       });
-      f.run({
-        sql: "INSERT INTO inbox_conversation_notification_preferences VALUES ('owner', 'org', 'space', 'muted')",
+      await f.query({
+        text: "INSERT INTO \"openmeld\".\"inbox_conversation_notification_preferences\" VALUES ('owner', 'org', 'space', 'muted')",
       });
       const service = createInboxService({
         db: f.db,
@@ -95,11 +373,11 @@ describe("canonical Inbox attention feed", () => {
       });
       expect(legacy).not.toHaveProperty("priorityCount");
     } finally {
-      f.close();
+      await f.close();
     }
   });
   it("keeps an old priority request ahead of recent conversations across the full dataset and paging", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
       const urgent = await fixture.item("old-request", {
         attention: "action_required",
@@ -154,14 +432,14 @@ describe("canonical Inbox attention feed", () => {
       expect(new Set(ids).size).toBe(83);
       expect(ids.slice(0, 2)).toEqual([urgent.itemId, normal.itemId]);
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("includes direct messages in mention attention while preserving strict legacy mentions", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
-      fixture.agent("codex");
+      await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
       const human = await fixture.item("human-mention", {
         kind: "space_mention",
         sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
@@ -183,9 +461,9 @@ describe("canonical Inbox attention feed", () => {
           directMessage: true,
         },
       });
-      fixture.run({
-        sql: "UPDATE inbox_items SET read_at_ms = 10500 WHERE id = ?",
-        params: [human.itemId],
+      await fixture.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET read_at_ms = 10500 WHERE id = $1',
+        values: [human.itemId],
       });
       const feed = createInboxFeedService({
         db: fixture.db,
@@ -228,14 +506,14 @@ describe("canonical Inbox attention feed", () => {
         ).rows[0]?.itemCount
       ).toBe(1);
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("filters actual Agent events before grouping and paging, never mere Agent presence", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
-      fixture.agent("codex");
+      await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
       for (let index = 0; index < 45; index += 1) {
         await fixture.item(`ordinary-${index}`, { occurredAtMs: 2000 + index });
       }
@@ -243,7 +521,7 @@ describe("canonical Inbox attention feed", () => {
         kind: "agent_reply",
         sourceFacts: {
           version: 1,
-          agentProfileIds: ["codex"],
+          agentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
           recipientReasons: ["space_member"],
         },
       });
@@ -259,9 +537,9 @@ describe("canonical Inbox attention feed", () => {
       expect(result.rows[0]?.item.id).toBe(meaningful.itemId);
       expect(result.rows[0]?.itemCount).toBe(1);
       expect(result.nextCursor).toBeNull();
-      fixture.space("dm");
-      fixture.run({
-        sql: "UPDATE space_index_spaces SET direct_message_pair_key = 'human:other' WHERE space_id = 'dm'",
+      await fixture.space("dm");
+      await fixture.query({
+        text: "UPDATE \"openmeld\".\"space_index_spaces\" SET direct_message_pair_key = 'human:other' WHERE space_id = 'dm'",
       });
       const dmTarget = {
         kind: "space",
@@ -330,14 +608,14 @@ describe("canonical Inbox attention feed", () => {
       const unread = await feed.list(fixture.identity, { unreadOnly: "true" });
       expect(unread.counts.all).toBe(49);
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("keeps priority contact as the conversation anchor, but never combines Threads, requests, or failures", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
-      fixture.agent("codex");
+      await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
       const first = await fixture.item("first-contact", {
         sourceFacts: facts(true),
         sourceTarget: {
@@ -381,9 +659,11 @@ describe("canonical Inbox attention feed", () => {
       expect(children.rows).toHaveLength(2);
       expect(children.rows.every((row) => row.item.readAt === null)).toBe(true);
       expect(
-        fixture.queryFirst<{ n: number }>({
-          sql: "SELECT count(*) AS n FROM inbox_items WHERE read_at_ms IS NOT NULL",
-        })?.n
+        (
+          await fixture.queryFirst<{ n: number }>({
+            text: 'SELECT count(*) AS n FROM "openmeld"."inbox_items" WHERE read_at_ms IS NOT NULL',
+          })
+        )?.n
       ).toBe(0);
       await createInboxService({
         db: fixture.db,
@@ -394,12 +674,12 @@ describe("canonical Inbox attention feed", () => {
         after.rows.find((row) => row.item.title === "newer-chat")
       ).toMatchObject({ itemCount: 2, dot: "blue", section: "activity" });
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("makes action and review mutually exclusive and resolves dots from business state rather than read state", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
       const request = {
         attention: "action_required" as const,
@@ -425,9 +705,9 @@ describe("canonical Inbox attention feed", () => {
         importance: "urgent",
       });
       const question = await fixture.item("question", { ...request });
-      fixture.run({
-        sql: "UPDATE inbox_items SET read_at_ms = 10500 WHERE id IN (?, ?, ?)",
-        params: [review.itemId, urgent.itemId, question.itemId],
+      await fixture.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET read_at_ms = 10500 WHERE id IN ($1, $2, $3)',
+        values: [review.itemId, urgent.itemId, question.itemId],
       });
       const feed = createInboxFeedService({
         db: fixture.db,
@@ -448,9 +728,9 @@ describe("canonical Inbox attention feed", () => {
           (row) => row.item.id === urgent.itemId
         )?.dot
       ).toBe("yellow");
-      fixture.run({
-        sql: "UPDATE inbox_items SET resolution_status = 'resolved', resolved_at_ms = 11000, read_at_ms = NULL WHERE id = ?",
-        params: [urgent.itemId],
+      await fixture.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET resolution_status = \'resolved\', resolved_at_ms = 11000, read_at_ms = NULL WHERE id = $1',
+        values: [urgent.itemId],
       });
       expect(
         (
@@ -467,7 +747,7 @@ describe("canonical Inbox attention feed", () => {
         item: { resolutionStatus: "resolved" },
       });
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
@@ -475,7 +755,7 @@ describe("canonical Inbox attention feed", () => {
     "read",
     "dismiss",
   ] as const)("freezes %s members, excluding later arrivals, late outbox rows, other Threads and muted history", async (operation) => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
       const old = await fixture.item("visible");
       const thread = await fixture.item("thread", {
@@ -486,12 +766,12 @@ describe("canonical Inbox attention feed", () => {
           threadRootSignalId: "thread",
         },
       });
-      fixture.space("muted");
+      await fixture.space("muted");
       const muted = await fixture.item("muted", {
         sourceTarget: { kind: "space", spaceId: "muted", signalId: "muted" },
       });
-      fixture.run({
-        sql: "INSERT INTO inbox_conversation_notification_preferences VALUES ('owner', 'org', 'muted', 'muted')",
+      await fixture.query({
+        text: "INSERT INTO \"openmeld\".\"inbox_conversation_notification_preferences\" VALUES ('owner', 'org', 'muted', 'muted')",
       });
       const feed = createInboxFeedService({
         db: fixture.db,
@@ -502,8 +782,8 @@ describe("canonical Inbox attention feed", () => {
       expect(group).toBeDefined();
       const newItem = await fixture.item("later", { occurredAtMs: 1000 });
       const lateOutbox = await fixture.item("late-outbox", { occurredAtMs: 1 });
-      fixture.run({
-        sql: "DELETE FROM inbox_conversation_notification_preferences",
+      await fixture.query({
+        text: 'DELETE FROM "openmeld"."inbox_conversation_notification_preferences"',
       });
       expect(
         await feed.mutate(fixture.identity, {
@@ -512,13 +792,13 @@ describe("canonical Inbox attention feed", () => {
           operation,
         })
       ).toEqual({ changedCount: 1 });
-      const untouched = fixture.queryAll<{
+      const untouched = await fixture.queryAll<{
         id: string;
         read_at_ms: number | null;
         cleared_at_ms: number | null;
       }>({
-        sql: "SELECT id, read_at_ms, cleared_at_ms FROM inbox_items WHERE id != ?",
-        params: [old.itemId],
+        text: 'SELECT id, read_at_ms, cleared_at_ms FROM "openmeld"."inbox_items" WHERE id != $1',
+        values: [old.itemId],
       });
       expect(untouched).toEqual(
         expect.arrayContaining(
@@ -536,23 +816,25 @@ describe("canonical Inbox attention feed", () => {
         })
       ).toEqual({ changedCount: 1 });
       expect(
-        fixture.queryFirst({
-          sql: "SELECT read_at_ms, cleared_at_ms FROM inbox_items WHERE id = ?",
-          params: [muted.itemId],
+        await fixture.queryFirst({
+          text: 'SELECT read_at_ms, cleared_at_ms FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [muted.itemId],
         })
       ).toEqual({ read_at_ms: null, cleared_at_ms: null });
       expect(
-        fixture.queryFirst<{ n: number }>({
-          sql: "SELECT count(*) AS n FROM inbox_space_thread_read_watermarks",
-        })?.n
+        (
+          await fixture.queryFirst<{ n: number }>({
+            text: 'SELECT count(*) AS n FROM "openmeld"."inbox_space_thread_read_watermarks"',
+          })
+        )?.n
       ).toBe(0);
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("binds pagination and mutations to the authenticated account, Organization and exact filters", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
       await fixture.item("first", {
         kind: "system_issue",
@@ -599,15 +881,15 @@ describe("canonical Inbox attention feed", () => {
         })
       ).rejects.toMatchObject({ code: "inbox.snapshot_expired" });
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("never substitutes another owned Agent for missing legacy source identity, including frozen bulk writes", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
-      f.agent("codex");
-      f.agent("still-mine");
+      await f.agent("agt_11111111-1111-4111-8111-111111111111");
+      await f.agent("agt_22222222-2222-4222-8222-222222222222");
       const legacy = await f.item("legacy-agent-reply", {
         kind: "agent_reply",
         sourceTarget: {
@@ -623,18 +905,18 @@ describe("canonical Inbox attention feed", () => {
       const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
       const inbox = createInboxService({ db: f.db });
       const snapshot = await feed.list(f.identity);
-      const before = f.queryFirst({
-        sql: "SELECT * FROM inbox_items WHERE id = ?",
-        params: [legacy.itemId],
+      const before = await f.queryFirst({
+        text: 'SELECT * FROM "openmeld"."inbox_items" WHERE id = $1',
+        values: [legacy.itemId],
       });
-      f.run({
-        sql: "UPDATE openmeld_profiles SET owner_user_id = 'other' WHERE profile_id = 'codex'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"openmeld_profiles\" SET owner_user_id = 'other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
       });
-      f.run({
-        sql: "UPDATE space_index_memberships SET owner_user_id_snapshot = 'other' WHERE profile_id = 'codex'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET owner_user_id_snapshot = 'other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
       });
-      f.run({
-        sql: "UPDATE space_index_memberships SET status = 'removed' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET status = 'removed' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
       });
       await expect(
         inbox.get({ ...f.identity, itemId: legacy.itemId })
@@ -656,14 +938,14 @@ describe("canonical Inbox attention feed", () => {
         })
       ).toEqual({ changedCount: 0 });
       expect(
-        f.queryFirst({
-          sql: "SELECT * FROM inbox_items WHERE id = ?",
-          params: [legacy.itemId],
+        await f.queryFirst({
+          text: 'SELECT * FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [legacy.itemId],
         })
       ).toEqual(before);
       // Current Human membership is a separate right, not a guessed Agent relationship.
-      f.run({
-        sql: "UPDATE space_index_memberships SET status = 'active' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET status = 'active' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
       });
       expect(
         (await inbox.get({ ...f.identity, itemId: human.itemId })).item.id
@@ -672,15 +954,32 @@ describe("canonical Inbox attention feed", () => {
         (await inbox.get({ ...f.identity, itemId: legacy.itemId })).item.id
       ).toBe(legacy.itemId);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
-  it("revokes only the transferred personal-Agent relationship even when another owned Agent remains in the Space", async () => {
-    const fixture = createInboxFeedFixture();
+  it.each([
+    [
+      "transferred",
+      "UPDATE \"openmeld\".\"openmeld_profiles\" SET owner_user_id = 'other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+    ],
+    [
+      "removed",
+      "UPDATE \"openmeld\".\"space_index_memberships\" SET status = 'removed' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+    ],
+    [
+      "Organization-managed",
+      "UPDATE \"openmeld\".\"openmeld_profiles\" SET managed_role = 'center_agent', owner_user_id = NULL WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+    ],
+    [
+      "designated Center Agent",
+      "INSERT INTO \"openmeld\".\"center_agent_designations\" (organization_id, agent_profile_id) VALUES ('org', 'agt_11111111-1111-4111-8111-111111111111')",
+    ],
+  ])("revokes only the %s personal-Agent relationship even when another owned Agent remains in the Space", async (_change, mutation) => {
+    const fixture = await createInboxFeedFixture();
     try {
-      fixture.agent("codex");
-      fixture.agent("still-mine");
+      await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
+      await fixture.agent("agt_22222222-2222-4222-8222-222222222222");
       const ownerOnly = await fixture.item("owner-only", {
         sourceFacts: facts(true),
         sourceTarget: {
@@ -708,8 +1007,8 @@ describe("canonical Inbox attention feed", () => {
         nowMs: () => 11_000,
       });
       const snapshot = await feed.list(fixture.identity);
-      fixture.run({
-        sql: "UPDATE openmeld_profiles SET owner_user_id = 'other' WHERE profile_id = 'codex'",
+      await fixture.query({
+        text: mutation,
       });
       const result = await feed.list(fixture.identity, {
         category: "mentions",
@@ -741,13 +1040,13 @@ describe("canonical Inbox attention feed", () => {
         })
       ).toEqual({ changedCount: 1 });
       expect(
-        fixture.queryFirst({
-          sql: "SELECT read_at_ms FROM inbox_items WHERE id = ?",
-          params: [ownerOnly.itemId],
+        await fixture.queryFirst({
+          text: 'SELECT read_at_ms FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [ownerOnly.itemId],
         })
       ).toEqual({ read_at_ms: null });
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 });
@@ -755,10 +1054,12 @@ describe("canonical Inbox attention feed", () => {
 function facts(first = false): InboxSourceFacts {
   return {
     version: 1,
-    agentProfileIds: ["codex"],
-    personalAgentProfileIds: ["codex"],
-    mentionedAgentProfileIds: ["codex"],
-    firstContactAgentProfileIds: first ? ["codex"] : [],
+    agentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
+    personalAgentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
+    mentionedAgentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
+    firstContactAgentProfileIds: first
+      ? ["agt_11111111-1111-4111-8111-111111111111"]
+      : [],
     recipientReasons: ["agent_owner"],
   };
 }

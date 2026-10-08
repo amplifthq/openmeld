@@ -173,6 +173,7 @@ export const agentActivityInventoryCoverageSchema = z
   .superRefine(refineLocalAgentProviderControllerPair);
 
 export const agentActivitySessionInventoryQuerySchema = z.strictObject({
+  computerId: boundedIdentifierSchema.optional(),
   cursor: z.string().trim().min(1).max(2048).optional(),
   limit: z.coerce
     .number()

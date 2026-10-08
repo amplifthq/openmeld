@@ -10,7 +10,7 @@ import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { BuildingsIcon, CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { selectLastSelectedOrganization } from "#/lib/organizations/account-organization-preference";
@@ -36,6 +36,7 @@ export type HumanProfileAvatarIdentity = {
 };
 
 export function OrganizationSwitcher(input: {
+	avatar?: ReactNode;
 	account: AppOuterRailAccount;
 	humanProfileAvatar: HumanProfileAvatarIdentity | null;
 	tier: SidebarMode;
@@ -158,13 +159,15 @@ export function OrganizationSwitcher(input: {
 				/>
 			}
 		>
-			<OrganizationAvatar
-				account={input.account}
-				humanProfileAvatar={input.humanProfileAvatar}
-				organization={currentOrganization}
-				organizationDisplay={currentOrganizationDisplay}
-				placement={isAvatarOnly ? "rail-avatar" : "rail"}
-			/>
+			{input.avatar ?? (
+				<OrganizationAvatar
+					account={input.account}
+					humanProfileAvatar={input.humanProfileAvatar}
+					organization={currentOrganization}
+					organizationDisplay={currentOrganizationDisplay}
+					placement={isAvatarOnly ? "rail-avatar" : "rail"}
+				/>
+			)}
 			{isAvatarOnly ? null : (
 				<span className="flex min-w-0 flex-1 items-center">
 					<span className="truncate font-medium text-[13px] text-foreground leading-5">
@@ -195,6 +198,7 @@ export function OrganizationSwitcher(input: {
 				)}
 				<OrganizationSwitcherPopover
 					account={input.account}
+					avatar={input.avatar}
 					currentOrganization={currentOrganization}
 					errorMessage={errorMessage}
 					humanProfileAvatar={input.humanProfileAvatar}
@@ -210,6 +214,7 @@ export function OrganizationSwitcher(input: {
 }
 
 function OrganizationSwitcherPopover(input: {
+	avatar?: ReactNode;
 	account: AppOuterRailAccount;
 	currentOrganization: OrganizationSummary;
 	errorMessage: string | null;
@@ -282,13 +287,17 @@ function OrganizationSwitcherPopover(input: {
 										role="menuitemradio"
 										type="button"
 									>
-										<OrganizationAvatar
-											account={input.account}
-											humanProfileAvatar={input.humanProfileAvatar}
-											organization={organization}
-											organizationDisplay={organizationDisplay}
-											placement="menu"
-										/>
+										{(organization.id === input.currentOrganization.id
+											? input.avatar
+											: null) ?? (
+											<OrganizationAvatar
+												account={input.account}
+												humanProfileAvatar={input.humanProfileAvatar}
+												organization={organization}
+												organizationDisplay={organizationDisplay}
+												placement="menu"
+											/>
+										)}
 										<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
 											<span className="truncate font-medium">
 												{organizationDisplay.name}

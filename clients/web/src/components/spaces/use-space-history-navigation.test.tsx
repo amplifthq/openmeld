@@ -1,3 +1,4 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,14 +24,107 @@ vi.mock("#/lib/spaces/api", () => ({
 	createUnscopedWebSpaceApi: () => historyApi,
 }));
 
-// Only identity is consumed when selecting the cached rendering window.
-const message = (id: string) => ({ id }) as SignalEnvelope;
+const message = (id: string): SignalEnvelope => ({
+	v: 1,
+	id,
+	spaceId: "test-space",
+	ts: 0,
+	type: "signal.text",
+	profile: { kind: "human", profileId: "viewer", profileName: "Viewer" },
+	data: { text: id },
+});
 
 describe("returning to the live Space history", () => {
 	beforeEach(() => {
 		queryClient.setQueryData.mockClear();
 		historyQuery.data = undefined;
 		historyApi.listSignalEnvelopes.mockReset();
+	});
+
+	it("opens the authorized latest messages when an old notification anchor is missing", async () => {
+		historyApi.listSignalEnvelopes
+			.mockResolvedValueOnce({ envelopes: [message("old")] })
+			.mockRejectedValueOnce(
+				new OpenMeldApiClientHttpError({
+					code: "upstream_error",
+					status: 404,
+					rawBody: "",
+					upstreamCode: "space.signals.anchor_not_found",
+					message: "space history anchor not found: child-secret-id",
+				})
+			)
+			.mockResolvedValueOnce({ envelopes: [message("latest")] });
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				liveEnvelopes: [],
+				profileId: "viewer",
+				spaceId: "parent-space",
+			})
+		);
+		await act(async () => {
+			await result.current.open("old");
+		});
+		await act(async () => {
+			expect(await result.current.open("child-secret-id")).toBe("latest");
+		});
+		expect(
+			result.current.activeWindow?.envelopes.map((item) => item.id)
+		).toEqual(["latest"]);
+		expect(result.current.error).toBeNull();
+		expect(result.current.notice).toBe(
+			"This message is no longer available in this conversation. Showing the latest messages."
+		);
+		expect(
+			historyApi.listSignalEnvelopes.mock.calls.map(([input]) => input.spaceId)
+		).toEqual(["parent-space", "parent-space", "parent-space"]);
+		expect(
+			historyApi.listSignalEnvelopes.mock.calls.at(-1)?.[0].query
+		).not.toHaveProperty("aroundSignalId");
+		expect(
+			historyApi.listSignalEnvelopes.mock.calls.at(-1)?.[0].query
+		).toMatchObject({ recent: true, limit: 60 });
+	});
+
+	it.each([
+		{ status: 403, latest: false },
+		{ status: 500, latest: false },
+		{ status: 403, latest: true },
+		{ status: 500, latest: true },
+	])("keeps HTTP $status as failure (latest read: $latest)", async ({
+		status,
+		latest,
+	}) => {
+		if (latest) {
+			historyApi.listSignalEnvelopes.mockResolvedValueOnce({ envelopes: [] });
+		}
+		historyApi.listSignalEnvelopes.mockRejectedValueOnce(
+			new OpenMeldApiClientHttpError({
+				code: "upstream_error",
+				status,
+				rawBody: "",
+				message: "internal details that must not be shown",
+			})
+		);
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				liveEnvelopes: [],
+				profileId: "viewer",
+				spaceId: "parent-space",
+			})
+		);
+		await act(async () => {
+			expect(await result.current.open("missing")).toBe(false);
+		});
+		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledTimes(
+			latest ? 2 : 1
+		);
+		expect(result.current.notice).toBeNull();
+		expect(result.current.error).not.toContain("internal details");
+		expect(result.current.error).not.toContain("Showing the latest");
 	});
 
 	it.each([
@@ -189,7 +283,7 @@ describe("returning to the live Space history", () => {
 			})
 		);
 		const request = new AbortController();
-		let opening!: Promise<boolean>;
+		let opening!: ReturnType<typeof result.current.open>;
 		act(() => {
 			opening = result.current.open("old", request.signal);
 		});
@@ -208,10 +302,14 @@ describe("returning to the live Space history", () => {
 		expect(result.current.error).toBeNull();
 		expect(result.current.pending).toBe(false);
 	});
-	it("restores an older cached reading position without mounting the whole transcript", () => {
+	it.each([
+		false,
+		true,
+	])("restores the saved reading mode without mounting the whole transcript (at bottom: %s)", (atBottom) => {
 		writeSpaceConversationPosition("viewer:space-conversation:space-saved", {
 			anchorSignalId: "100",
 			offsetFromVisibleTop: 10,
+			...(atBottom ? { atBottom: true as const } : {}),
 		});
 		const history = Array.from({ length: 480 }, (_, index) => ({
 			...message(String(index)),
@@ -226,11 +324,16 @@ describe("returning to the live Space history", () => {
 				accessRejected: false,
 			})
 		);
-		expect(result.current.activeWindow?.envelopes).toHaveLength(61);
-		expect(result.current.activeWindow?.envelopes[30]?.id).toBe("100");
+		if (atBottom) {
+			expect(result.current.activeWindow).toBeNull();
+			expect(result.current.visibleLiveEnvelopes.at(-1)?.id).toBe("479");
+		} else {
+			expect(result.current.activeWindow?.envelopes).toHaveLength(61);
+			expect(result.current.activeWindow?.envelopes[30]?.id).toBe("100");
+		}
 		clearSpaceConversationPositions();
 	});
-	it("replaces a recalled message in an open historical window without adding new live messages", async () => {
+	it("joins live messages only after the server confirms the historical window reached the tail", async () => {
 		const old: Extract<SignalEnvelope, { type: "signal.text" }> = {
 			v: 1,
 			id: "old",
@@ -264,8 +367,24 @@ describe("returning to the live Space history", () => {
 			},
 		};
 		rerender({ liveEnvelopes: [recalled, { ...old, id: "new", ts: 300 }] });
-		expect(result.current.activeWindow?.envelopes).toEqual([recalled]);
+		expect(result.current.activeWindow?.envelopes).toEqual([
+			recalled,
+			{ ...old, id: "new", ts: 300 },
+		]);
 		expect(result.current.activeWindow?.hasBefore).toBe(false);
+		const later = { ...old, id: "later", ts: 400 };
+		rerender({ liveEnvelopes: [later] });
+		expect(result.current.activeWindow?.envelopes).toEqual([old]);
+		expect(result.current.activeWindow?.hasAfter).toBe(true);
+		historyApi.listSignalEnvelopes.mockResolvedValueOnce({
+			envelopes: [old, { ...old, id: "bridge", ts: 250 }, later],
+		});
+		await act(async () => {
+			expect(await result.current.loadAfter()).toBe(true);
+		});
+		expect(
+			result.current.activeWindow?.envelopes.map((item) => item.id)
+		).toEqual(["old", "bridge", "later"]);
 	});
 	it("renders a recent page without discarding older messages or moving the boundary when new messages arrive", () => {
 		const history = Array.from({ length: 480 }, (_, index) =>
@@ -308,5 +427,32 @@ describe("returning to the live Space history", () => {
 		rerender({ liveEnvelopes: [], spaceId: "space-c" });
 		rerender({ liveEnvelopes: history, spaceId: "space-c" });
 		expect(result.current.visibleLiveEnvelopes[0]?.id).toBe("420");
+	});
+	it("keeps the latest messages visible when newer presence events outnumber the live window", () => {
+		const messages = Array.from({ length: 80 }, (_, index) => ({
+			...message(String(index)),
+			ts: index,
+		}));
+		const presence = Array.from(
+			{ length: 126 },
+			(_, index) =>
+				({
+					id: `presence-${String(index)}`,
+					ts: 80 + index,
+					type: index % 2 === 0 ? "presence.join" : "presence.quit",
+				}) as SignalEnvelope
+		);
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				liveEnvelopes: [...messages, ...presence],
+				spaceId: "space-presence",
+				profileId: "viewer",
+				enabled: false,
+				accessRejected: false,
+			})
+		);
+		expect(result.current.visibleLiveEnvelopes).toHaveLength(60);
+		expect(result.current.visibleLiveEnvelopes[0]?.id).toBe("20");
+		expect(result.current.visibleLiveEnvelopes.at(-1)?.id).toBe("79");
 	});
 });

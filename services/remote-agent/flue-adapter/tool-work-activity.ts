@@ -1,4 +1,7 @@
-import { resolveCommandAgentWorkActivity } from "@openmeld/schemas";
+import {
+  connectorActionOutcomeUnknownSchema,
+  resolveCommandAgentWorkActivity,
+} from "@openmeld/schemas";
 import type { AgentWorkActivity } from "@openmeld/schemas/types";
 import { resolveConnectedAppDisplayName } from "../agent-core/connector-service-presentation";
 import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
@@ -75,11 +78,13 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_post_space_message", "space.message.post"],
   ["openmeld_prepare_remove_project", "project.remove.prepare"],
   ["openmeld_read_agent_activity", "agent.activity.read"],
+  ["openmeld_read_ai_usage", "agent.activity.read"],
   [
     "openmeld_read_agent_profile_creation_defaults",
     "agent_profile.settings.read",
   ],
   ["openmeld_list_agent_activity_sessions", "agent.activity.read"],
+  ["openmeld_read_session_history", "agent.activity.read"],
   ["openmeld_list_hosted_models", "agent_profile.settings.read"],
   ["openmeld_read_changelog", "documentation.read"],
   ["openmeld_list_opportunities", "center_agent.activity.read"],
@@ -170,6 +175,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_update_routine", "routine.update"],
   ["openmeld_update_space_settings", "space.settings.update"],
   ["openmeld_wake_agent_profiles_in_space", "space.agents.wake"],
+  ["openmeld_wake_agent_profiles_in_spaces", "space.agents.wake"],
   ["openmeld_watch_agent_task", "task.watch"],
   ["web_fetch", "webpage.read"],
   ["web_search", "web.search"],
@@ -268,6 +274,34 @@ const WEBSITE_SUBJECT_TOOL_NAMES = new Set([
   "web_fetch",
 ]);
 
+function resolveComputerWorkActivity(
+  toolInput: unknown,
+  toolResult: unknown
+): AgentWorkActivity | null {
+  const request = toRecord(toolInput);
+  if (request?.action === "files") {
+    const names: Record<string, string> = {
+      ls: "read",
+      find: "glob",
+      delete: "edit",
+    };
+    const name = typeof request.tool === "string" ? request.tool : "";
+    return resolveRemoteAgentToolWorkActivity(
+      names[name] ?? name,
+      request.input,
+      toolResult
+    );
+  }
+  if (request?.action === "command") {
+    return resolveRemoteAgentToolWorkActivity(
+      "computer_command",
+      request.input,
+      toolResult
+    );
+  }
+  return null;
+}
+
 export function resolveRemoteAgentToolWorkActivity(
   toolName: unknown,
   toolInput: unknown,
@@ -276,8 +310,22 @@ export function resolveRemoteAgentToolWorkActivity(
   if (typeof toolName !== "string") {
     return null;
   }
+  if (toolName === "computer") {
+    return resolveComputerWorkActivity(toolInput, toolResult);
+  }
+  if (toolName === "computer_command") {
+    const request = toRecord(toolInput);
+    return request?.action === "start" &&
+      request.backend !== "worker-javascript"
+      ? resolveCommandAgentWorkActivity(readCommand(request))
+      : null;
+  }
   const key =
-    TOOL_WORK_BY_NAME.get(toolName) ?? GITHUB_TOOL_WORK_BY_NAME.get(toolName);
+    toolName === "openmeld_install_organization_skill" &&
+    toRecord(toolInput)?.action === "begin_import_batch"
+      ? "organization.skills.read"
+      : (TOOL_WORK_BY_NAME.get(toolName) ??
+        GITHUB_TOOL_WORK_BY_NAME.get(toolName));
   if (key) {
     const subject = resolveSafeToolSubject(toolName, toolInput);
     if (CONNECTED_APP_SUBJECT_TOOL_NAMES.has(toolName) && !subject) {
@@ -287,15 +335,24 @@ export function resolveRemoteAgentToolWorkActivity(
       key,
       v: 1,
       ...(subject ? { subject } : {}),
-      ...(isRemoteAgentDestructiveConfirmationResult(toolResult)
-        ? { outcome: "confirmation_required" as const }
-        : {}),
+      ...resolveRemoteAgentToolWorkOutcome(toolResult),
     };
   }
   if (toolName !== "bash") {
     return null;
   }
   return resolveCommandAgentWorkActivity(readCommand(toolInput));
+}
+
+export function resolveRemoteAgentToolWorkOutcome(
+  toolResult: unknown
+): Pick<AgentWorkActivity, "outcome"> {
+  if (isRemoteAgentDestructiveConfirmationResult(toolResult)) {
+    return { outcome: "confirmation_required" };
+  }
+  return connectorActionOutcomeUnknownSchema.safeParse(toolResult).success
+    ? { outcome: "outcome_unknown" }
+    : {};
 }
 
 function resolveSafeToolSubject(

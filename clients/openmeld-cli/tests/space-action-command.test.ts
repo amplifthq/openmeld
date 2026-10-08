@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import { dispatchSpaceActionToolResultSchema } from "@openmeld/schemas";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +21,7 @@ import {
   supersedeDispatchSpaceActionRecordForReconsideration,
   writeDispatchSpaceActionRecord,
 } from "../src/runtime/dispatch-space-action-context";
+import { startDispatchSpaceProgressRelay } from "../src/runtime/dispatch-space-progress-relay";
 import {
   runSpaceActionHelp,
   runSpaceActionReply,
@@ -31,23 +33,35 @@ import {
   createDispatchSpaceTools,
   createSpaceActionMcpServer,
 } from "../src/space/action-mcp-server";
+import { openDirectMessage } from "../src/space/direct-message";
 
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const AGENT_PROFILE_ID_TWO = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 
 const tempDirs: string[] = [];
-const originalActionContextPath =
-  process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
+const originalDispatchEnv = {
+  actionContextPath: process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV],
+  dispatchId: process.env[OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV],
+  mode: process.env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV],
+  targetProfileId: process.env[OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV],
+};
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  if (originalActionContextPath === undefined) {
-    delete process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
-  } else {
-    process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV] =
-      originalActionContextPath;
-  }
+  restoreEnv(
+    OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV,
+    originalDispatchEnv.actionContextPath
+  );
+  restoreEnv(
+    OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV,
+    originalDispatchEnv.dispatchId
+  );
+  restoreEnv(OPENMELD_DISPATCH_RUNTIME_MODE_ENV, originalDispatchEnv.mode);
+  restoreEnv(
+    OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV,
+    originalDispatchEnv.targetProfileId
+  );
   vi.restoreAllMocks();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -58,6 +72,17 @@ afterEach(() => {
 });
 
 describe("OpenMeld Space Action command", () => {
+  it("records an explicit main-conversation placement as structured reply data", async () => {
+    const context = createTestContext([]);
+    await runSpaceActionReply({
+      messageParts: ["Decision for everyone."],
+      placement: "conversation",
+    });
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      type: "post_message",
+      placement: "conversation",
+    });
+  });
   it("keeps expired contexts from uploading files or listing targets while recovering plain replies", () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     const context = createTestContext([], { ttlMs: 1000 });
@@ -595,6 +620,54 @@ describe("OpenMeld Space Action command", () => {
 });
 
 describe("OpenMeld Space Action MCP server", () => {
+  it("bridges non-final public progress back to the active Service process", async () => {
+    const context = createTestContext([]);
+    const updates: string[] = [];
+    const contextPath = process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
+    if (!contextPath) {
+      throw new Error("expected dispatch action context path");
+    }
+    const relay = startDispatchSpaceProgressRelay({
+      context,
+      contextPath,
+      reportProgress: (update) => {
+        updates.push(update);
+        return { status: "accepted" };
+      },
+      pollIntervalMs: 1,
+    });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const catalog = await client.listTools();
+      expect(catalog.tools.map((tool) => tool.name).sort()).toEqual(
+        [...OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES].sort()
+      );
+      expect(
+        catalog.tools.some((tool) => tool.name === "report_progress")
+      ).toBe(true);
+      const result = await client.callTool({
+        name: "report_progress",
+        arguments: { update: "Starting verification." },
+      });
+      expect(result.content).toEqual([
+        { type: "text", text: '{"status":"accepted"}' },
+      ]);
+      expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+    } finally {
+      await relay.close();
+      await client.close();
+      await server.close();
+    }
+    expect(updates).toEqual(["Starting verification."]);
+  });
+
   it("rejects a Task review without the exact result revision before invoking the action", async () => {
     createTestContext([]);
     const [clientTransport, serverTransport] =
@@ -967,6 +1040,85 @@ describe("OpenMeld Space Action MCP server", () => {
 });
 
 describe("dispatch-owned native Space tools", () => {
+  it("refuses another sender and an expired Wake before making any DM request", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const context = createTestContext([], { ttlMs: 1000 });
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const request = { targetProfileId: HUMAN_PROFILE_ID };
+    await expect(
+      openDirectMessage({ request, profile: AGENT_PROFILE_ID_TWO })
+    ).rejects.toThrow("selected profile must match");
+    clock.mockReturnValue(context.expiresAtMs + 1);
+    await expect(openDirectMessage({ request })).rejects.toThrow(
+      "dispatch context has expired"
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+  });
+  it("rejects invalid DM input without ending the current Wake", async () => {
+    const context = createTestContext([]);
+    const tools = createDispatchSpaceTools({ env: { ...process.env } });
+    expect(tools.tools.map((tool) => tool.name)).toContain(
+      "open_direct_message"
+    );
+    const result = await tools.call("open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      message: { clientMessageId: "not-a-uuid", text: "Hello", wake: false },
+    });
+    expect(result.isError).toBe(true);
+    const unpinnedWake = await tools.call("open_direct_message", {
+      targetProfileId: AGENT_PROFILE_ID_TWO,
+      message: {
+        clientMessageId: "22222222-2222-4222-8222-222222222222",
+        text: "Please review this.",
+        wake: true,
+      },
+    });
+    expect(unpinnedWake.isError).toBe(true);
+    expect(JSON.stringify(unpinnedWake.content)).toContain("spaceId");
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+    await tools.call("reply", { message: "The current task is complete." });
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      messageEnvelope: { text: "The current task is complete." },
+    });
+    tools.close();
+  });
+  it("reports non-final public progress without recording a final action", async () => {
+    const context = createTestContext([]);
+    const reportProgress = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "accepted" as const })
+      .mockResolvedValueOnce({ status: "duplicate" as const });
+    const tools = createDispatchSpaceTools({
+      env: {
+        ...process.env,
+        [OPENMELD_DISPATCH_RUNTIME_MODE_ENV]: DISPATCH_OWNED_RUNTIME_MODE,
+        [OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV]: context.dispatchId,
+        [OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV]:
+          context.targetProfileId,
+      },
+      reportProgress,
+    });
+
+    expect(tools.tools.map((tool) => tool.name)).toContain("report_progress");
+    const first = await tools.call("report_progress", {
+      update: "Confirmed the root cause; starting verification.",
+    });
+    const retry = await tools.call("report_progress", {
+      update: "Confirmed the root cause; starting verification.",
+    });
+
+    expect(first.content).toEqual([
+      { type: "text", text: '{"status":"accepted"}' },
+    ]);
+    expect(retry.content).toEqual([
+      { type: "text", text: '{"status":"duplicate"}' },
+    ]);
+    expect(reportProgress).toHaveBeenCalledTimes(2);
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+    tools.close();
+  });
+
   it("keeps concurrent Wake capabilities bound to their own context and closes old invocations", async () => {
     const first = createTestContext([], { targetProfileId: "agt_first" });
     const toolsA = createDispatchSpaceTools({ env: { ...process.env } });
@@ -1079,8 +1231,20 @@ function createTestContext(
     ...(options?.ttlMs ? { ttlMs: options.ttlMs } : {}),
   });
   process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV] = contextPath;
+  process.env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] = DISPATCH_OWNED_RUNTIME_MODE;
+  process.env[OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV] = context.dispatchId;
+  process.env[OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV] =
+    context.targetProfileId;
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   return context;
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
 }
 
 function readLoadedActionRecord(context: DispatchSpaceActionContext) {

@@ -6,6 +6,8 @@ import type {
   DeleteCenterAgentRoutineResponse,
   ListCenterAgentRoutineRunsResponse,
   ListCenterAgentRoutinesResponse,
+  ListRoutineManagementResponse,
+  RoutineManagement,
 } from "@openmeld/schemas/types";
 import type { CenterAgentCommandContext } from "../center-agent/command-context";
 import { renderInfoCard } from "../ui/info-card";
@@ -21,7 +23,7 @@ const ROUTINE_RUN_STATUS_LABELS: Readonly<Record<string, string>> = {
 
 export function renderRoutinesList(input: {
   context: CenterAgentCommandContext;
-  response: ListCenterAgentRoutinesResponse;
+  response: ListCenterAgentRoutinesResponse | ListRoutineManagementResponse;
 }): void {
   if (input.context.runtime.resolvedView === "agent") {
     input.context.presenter.data({
@@ -107,7 +109,7 @@ export function renderRoutineMutation(input: {
 
 export function renderRoutineConfiguration(input: {
   context: CenterAgentCommandContext;
-  response: CreateCenterAgentRoutineResponse;
+  response: { routine: CenterAgentRoutine | RoutineManagement };
 }): void {
   if (input.context.runtime.resolvedView === "agent") {
     input.context.presenter.data({
@@ -125,6 +127,15 @@ export function renderRoutineConfiguration(input: {
     rows: [
       { label: "Name", value: routine.name },
       { label: "Routine ID", value: routine.id },
+      ...("scope" in routine
+        ? [
+            {
+              label: "Visible to",
+              value: routine.scope === "personal" ? "Only me" : "Team",
+            },
+            { label: "Agent", value: routine.executorName },
+          ]
+        : []),
       { label: "Instructions", value: routine.instructions },
       {
         label: "Schedule",
@@ -220,13 +231,21 @@ export function renderRoutineDeleted(input: {
   });
 }
 
-export function formatRoutineListSummary(routine: CenterAgentRoutine): string {
+export function formatRoutineListSummary(
+  routine: CenterAgentRoutine | RoutineManagement
+): string {
   const schedule = formatRoutineSchedule(routine);
   const status = formatRoutineStatus(routine.status);
   const nextRun = routine.nextDueAt
     ? formatRoutineTimestamp(routine.nextDueAt, routine.timezone ?? "UTC")
     : "Not scheduled";
   return [
+    ...("scope" in routine
+      ? [
+          routine.scope === "personal" ? "Personal" : "Team",
+          routine.executorName,
+        ]
+      : []),
     schedule,
     status,
     formatRoutineDestination(routine),

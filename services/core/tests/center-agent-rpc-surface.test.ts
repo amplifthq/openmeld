@@ -1,3 +1,4 @@
+import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   CenterAgentRoutineRpcEntrypoint,
@@ -39,6 +40,7 @@ describe("Private Center Agent RPC surface", () => {
     const entrypoint = Object.create(
       GatewayRpcEntrypoint.prototype
     ) as GatewayRpcEntrypoint;
+    Reflect.set(entrypoint, "env", env);
     const request = {
       authoringPolicy: "user_authored" as const,
       profile: {
@@ -69,6 +71,7 @@ describe("Private Center Agent RPC surface", () => {
       GatewayRpcEntrypoint.prototype
     ) as GatewayRpcEntrypoint;
     Reflect.set(entrypoint, "env", {
+      ...env,
       OPENMELD_WORKER_ENVIRONMENT: "prod",
     });
 

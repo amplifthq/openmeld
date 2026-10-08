@@ -273,7 +273,7 @@
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.staging.openmeld.ai",
         "GITHUB_OPENMELD_APP_SLUG": "openmeld-staging-flue2",
         "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
-        "WEB_APP_URL": "https://staging.openmeld.ai",
+        "WEB_APP_URL": "https://app.staging.openmeld.ai",
         "OPENMELD_SLACK_OAUTH_REDIRECT_URL": "https://gateway.staging.openmeld.ai/slack/oauth/callback"
       },
       "services": [
@@ -302,6 +302,11 @@
       }
     },
     "prod": {
+      // Place the HTTP entrypoint near PlanetScale. Core is called through RPC,
+      // so placing only Core's fetch handler would not move these database reads.
+      "placement": {
+        "region": "aws:us-east-1"
+      },
       "observability": {
         "enabled": true,
         "logs": {
@@ -362,7 +367,7 @@
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",
         "GITHUB_OPENMELD_APP_SLUG": "openmeld-ai",
-        "WEB_APP_URL": "https://openmeld.ai",
+        "WEB_APP_URL": "https://app.openmeld.ai",
         "OPENMELD_SLACK_OAUTH_REDIRECT_URL": "https://gateway.openmeld.ai/slack/oauth/callback"
       },
       "secrets": {

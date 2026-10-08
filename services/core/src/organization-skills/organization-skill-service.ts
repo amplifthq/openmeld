@@ -1,4 +1,9 @@
 import {
+  isPostgresUniqueViolation,
+  type PostgresDatabase,
+  type QueryResult,
+} from "@openmeld/db/postgresql";
+import {
   ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillBundleSchema,
@@ -32,33 +37,32 @@ import {
   previewOrganizationSkillFromGitHub,
   previewOrganizationSkillRepositoryFromGitHub,
 } from "./organization-skill-import";
-
 export type OrganizationSkillActor = {
   organizationId: string;
   role: string;
   userId: string;
 };
-
 export type OrganizationSkillReadActor = Omit<
   OrganizationSkillActor,
   "userId"
 > & {
   userId: string | null;
 };
-
 type OrganizationSkillServiceDependencies = {
   bucket: R2Bucket;
-  db: D1Database;
+  db: PostgresDatabase;
   fetch?: typeof fetch;
   fileBackedWritesEnabled?: boolean;
   githubToken?: string;
   newId?: () => string;
   now?: () => number;
 };
-
 export function describeOrganizationSkillBundleLimitations(
   bundle: OrganizationSkillBundle
-): { storedButNotExecutable: string[]; warnings: string[] } {
+): {
+  storedButNotExecutable: string[];
+  warnings: string[];
+} {
   const storedButNotExecutable = bundle.files
     .filter((file) => file.path.startsWith("scripts/"))
     .map((file) => file.path);
@@ -78,7 +82,6 @@ export function describeOrganizationSkillBundleLimitations(
     ],
   };
 }
-
 type SkillRow = {
   active_release_id: string;
   created_at: number;
@@ -97,7 +100,6 @@ type SkillRow = {
   updated_at: number;
   version: number;
 };
-
 type ReleaseRow = {
   created_at: number;
   created_by_user_id: string;
@@ -112,19 +114,17 @@ type ReleaseRow = {
   source_path: string | null;
   source_repository: string | null;
 };
-
 type RuntimeCatalogUsage = {
   enabled_releases: number;
   runtime_bytes: number;
 };
-
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
 const SKILL_RESOURCE_HTTP_MAX_BYTES = 10_000_000;
-
 export async function readEnabledOrganizationSkillReleaseSelection(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   selectedReleases?: OrganizationSkillRuntimeReleaseSelection[];
+  skipUnavailableSelectedReleases?: boolean;
 }): Promise<OrganizationSkillRuntimeReleaseSelection[]> {
   if (input.selectedReleases !== undefined) {
     const selected = input.selectedReleases.map((release) =>
@@ -134,13 +134,20 @@ export async function readEnabledOrganizationSkillReleaseSelection(input: {
       throw new Error("Too many selected Skill releases.");
     }
     let runtimeBytes = 0;
+    const available: OrganizationSkillRuntimeReleaseSelection[] = [];
     for (const release of selected) {
       const row = await input.db
-        .prepare(
-          "SELECT r.digest, r.manifest_json FROM organization_skill_releases r JOIN organization_skills s ON s.organization_id = r.organization_id AND s.id = r.skill_id WHERE s.organization_id = ? AND s.id = ? AND r.id = ? AND s.enabled = 1 AND s.removed_at IS NULL LIMIT 1"
-        )
-        .bind(input.organizationId, release.skillId, release.releaseId)
-        .first<{ digest: string; manifest_json: string }>();
+        .query<{
+          digest: string;
+          manifest_json: string;
+        }>({
+          text: 'SELECT r.digest, r.manifest_json FROM "openmeld"."organization_skill_releases" r JOIN "openmeld"."organization_skills" s ON s.organization_id = r.organization_id AND s.id = r.skill_id WHERE s.organization_id = $1 AND s.id = $2 AND r.id = $3 AND s.enabled = 1 AND s.removed_at IS NULL LIMIT 1',
+          values: [input.organizationId, release.skillId, release.releaseId],
+        })
+        .then((result) => result.rows[0] ?? null);
+      if (!row && input.skipUnavailableSelectedReleases) {
+        continue;
+      }
       if (!row || row.digest !== release.digest) {
         throw createCoreRpcHttpError({
           status: 403,
@@ -149,51 +156,53 @@ export async function readEnabledOrganizationSkillReleaseSelection(input: {
         });
       }
       runtimeBytes += readManifestRuntimeBytes(row.manifest_json);
+      available.push(release);
     }
     if (runtimeBytes > ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES) {
       throw runtimeCatalogTooLargeError();
     }
-    return selected;
+    return available;
   }
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<{
+    digest: string;
+    manifest_json: string;
+    name: string;
+    release_id: string;
+    skill_id: string;
+  }>({
+    text: `
         SELECT s.id AS skill_id,
                s.name,
                r.id AS release_id,
                r.digest,
                r.manifest_json
-        FROM organization_skills s
-        JOIN organization_skill_releases r
+        FROM "openmeld"."organization_skills" s
+        JOIN "openmeld"."organization_skill_releases" r
           ON r.id = s.active_release_id
          AND r.skill_id = s.id
          AND r.organization_id = s.organization_id
-        WHERE s.organization_id = ?
+        WHERE s.organization_id = $1
           AND s.enabled = 1
           AND s.removed_at IS NULL
-        ORDER BY s.name ASC, s.id ASC
-        LIMIT ?
-      `
-    )
-    .bind(input.organizationId, ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT + 1)
-    .all<{
-      digest: string;
-      manifest_json: string;
-      name: string;
-      release_id: string;
-      skill_id: string;
-    }>();
-  if (rows.results.length > ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT) {
+        ORDER BY s.name ASC NULLS FIRST, s.id ASC NULLS FIRST
+        LIMIT $2
+      `,
+    values: [
+      input.organizationId,
+      ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT + 1,
+    ],
+  });
+  if (rows.rows.length > ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT) {
     throw runtimeReleaseLimitError();
   }
-  const runtimeBytes = rows.results.reduce(
+  const runtimeBytes = rows.rows.reduce(
     (total, row) => total + readManifestRuntimeBytes(row.manifest_json),
     0
   );
   if (runtimeBytes > ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES) {
     throw runtimeCatalogTooLargeError();
   }
-  return rows.results.map((row) =>
+  return rows.rows.map((row) =>
     organizationSkillRuntimeReleaseSelectionSchema.parse({
       digest: row.digest,
       name: row.name,
@@ -202,13 +211,11 @@ export async function readEnabledOrganizationSkillReleaseSelection(input: {
     })
   );
 }
-
 export function createOrganizationSkillService(
   dependencies: OrganizationSkillServiceDependencies
 ) {
   const now = dependencies.now ?? Date.now;
   const newId = dependencies.newId ?? (() => crypto.randomUUID());
-
   return {
     async create(
       actor: OrganizationSkillActor,
@@ -240,7 +247,6 @@ export function createOrganizationSkillService(
         source: { kind: "created" },
       });
     },
-
     async get(
       actor: OrganizationSkillReadActor,
       skillId: string
@@ -257,7 +263,6 @@ export function createOrganizationSkillService(
         skill,
       });
     },
-
     async getCatalog(
       actor: OrganizationSkillReadActor,
       skillId: string
@@ -281,24 +286,26 @@ export function createOrganizationSkillService(
         ],
       });
     },
-
     async getResourceContent(
       actor: OrganizationSkillReadActor,
       skillId: string,
       releaseId: string,
       path: string
-    ): Promise<{ bytes: Uint8Array; mediaType: string }> {
+    ): Promise<{
+      bytes: Uint8Array;
+      mediaType: string;
+    }> {
       const skill = await requireSkill(
         dependencies.db,
         actor.organizationId,
         skillId
       );
       const release = await dependencies.db
-        .prepare(
-          "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
-        )
-        .bind(actor.organizationId, skillId, releaseId)
-        .first<ReleaseRow>();
+        .query<ReleaseRow>({
+          text: 'SELECT * FROM "openmeld"."organization_skill_releases" WHERE organization_id = $1 AND skill_id = $2 AND id = $3 LIMIT 1',
+          values: [actor.organizationId, skillId, releaseId],
+        })
+        .then((result) => result.rows[0] ?? null);
       if (!release) {
         throw createCoreRpcHttpError({
           code: "organization_skill.release_missing",
@@ -315,7 +322,6 @@ export function createOrganizationSkillService(
       );
       return { bytes: resource.bytes, mediaType: resource.mediaType };
     },
-
     async getEnabledRelease(
       actor: OrganizationSkillReadActor,
       skillId: string,
@@ -334,11 +340,11 @@ export function createOrganizationSkillService(
         });
       }
       const release = await dependencies.db
-        .prepare(
-          "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
-        )
-        .bind(actor.organizationId, skillId, releaseId)
-        .first<ReleaseRow>();
+        .query<ReleaseRow>({
+          text: 'SELECT * FROM "openmeld"."organization_skill_releases" WHERE organization_id = $1 AND skill_id = $2 AND id = $3 LIMIT 1',
+          values: [actor.organizationId, skillId, releaseId],
+        })
+        .then((result) => result.rows[0] ?? null);
       if (!release) {
         throw createCoreRpcHttpError({
           code: "organization_skill.release_missing",
@@ -353,7 +359,6 @@ export function createOrganizationSkillService(
         skillId: release.skill_id,
       };
     },
-
     async installBundle(
       actor: OrganizationSkillActor,
       input: {
@@ -371,7 +376,6 @@ export function createOrganizationSkillService(
         source: organizationSkillSourceSchema.parse(input.source),
       });
     },
-
     async importFromGitHub(
       actor: OrganizationSkillActor,
       url: string,
@@ -393,7 +397,6 @@ export function createOrganizationSkillService(
         source: imported.source,
       });
     },
-
     async importFromFiles(
       actor: OrganizationSkillActor,
       files: OrganizationSkillFile[]
@@ -409,7 +412,6 @@ export function createOrganizationSkillService(
         source: { kind: "created" },
       });
     },
-
     async previewFromFiles(
       actor: OrganizationSkillActor,
       files: OrganizationSkillFile[]
@@ -429,7 +431,6 @@ export function createOrganizationSkillService(
         warnings,
       };
     },
-
     async previewFromGitHub(
       actor: OrganizationSkillActor,
       url: string
@@ -441,7 +442,6 @@ export function createOrganizationSkillService(
         url,
       });
     },
-
     async previewRepositoryFromGitHub(
       actor: OrganizationSkillActor,
       url: string
@@ -453,13 +453,23 @@ export function createOrganizationSkillService(
         url,
       });
     },
-
     async list(
       actor: OrganizationSkillReadActor
     ): Promise<OrganizationSkillSummary[]> {
-      const rows = await dependencies.db
-        .prepare(
-          `
+      const rows = await dependencies.db.query<
+        SkillRow & {
+          is_maintainer: number;
+          release_created_at: number;
+          release_created_by_user_id: string;
+          release_digest: string;
+          release_id: string;
+          release_source_commit_sha: string | null;
+          release_source_kind: "created" | "github";
+          release_source_path: string | null;
+          release_source_repository: string | null;
+        }
+      >({
+        text: `
             SELECT s.*,
                    r.id AS release_id,
                    r.digest AS release_digest,
@@ -470,35 +480,22 @@ export function createOrganizationSkillService(
                    r.source_path AS release_source_path,
                    r.source_commit_sha AS release_source_commit_sha,
                    CASE WHEN m.user_id IS NULL THEN 0 ELSE 1 END AS is_maintainer
-            FROM organization_skills s
-            JOIN organization_skill_releases r
+            FROM "openmeld"."organization_skills" s
+            JOIN "openmeld"."organization_skill_releases" r
               ON r.id = s.active_release_id
              AND r.skill_id = s.id
              AND r.organization_id = s.organization_id
-            LEFT JOIN organization_skill_maintainers m
+            LEFT JOIN "openmeld"."organization_skill_maintainers" m
               ON m.skill_id = s.id
              AND m.organization_id = s.organization_id
-             AND m.user_id = ?
-            WHERE s.organization_id = ?
+             AND m.user_id = $1
+            WHERE s.organization_id = $2
               AND s.removed_at IS NULL
-            ORDER BY s.updated_at DESC, s.id ASC
-          `
-        )
-        .bind(actor.userId, actor.organizationId)
-        .all<
-          SkillRow & {
-            is_maintainer: number;
-            release_created_at: number;
-            release_created_by_user_id: string;
-            release_digest: string;
-            release_id: string;
-            release_source_commit_sha: string | null;
-            release_source_kind: "created" | "github";
-            release_source_path: string | null;
-            release_source_repository: string | null;
-          }
-        >();
-      return rows.results.map((row) =>
+            ORDER BY s.updated_at DESC NULLS LAST, s.id ASC NULLS FIRST
+          `,
+        values: [actor.userId, actor.organizationId],
+      });
+      return rows.rows.map((row) =>
         parseSummary({
           activeRelease: {
             createdAt: toIso(row.release_created_at),
@@ -525,7 +522,6 @@ export function createOrganizationSkillService(
         })
       );
     },
-
     async readRuntimeSnapshot(
       organizationId: string,
       selectedReleases?: OrganizationSkillRuntimeReleaseSelection[]
@@ -539,18 +535,18 @@ export function createOrganizationSkillService(
       const rows = await Promise.all(
         selection.map(async (selected) => {
           const release = await dependencies.db
-            .prepare(
-              `
+            .query<ReleaseRow>({
+              text: `
                 SELECT *
-                FROM organization_skill_releases
-                WHERE organization_id = ?
-                  AND skill_id = ?
-                  AND id = ?
+                FROM "openmeld"."organization_skill_releases"
+                WHERE organization_id = $1
+                  AND skill_id = $2
+                  AND id = $3
                 LIMIT 1
-              `
-            )
-            .bind(organizationId, selected.skillId, selected.releaseId)
-            .first<ReleaseRow>();
+              `,
+              values: [organizationId, selected.skillId, selected.releaseId],
+            })
+            .then((result) => result.rows[0] ?? null);
           if (!(release && release.digest === selected.digest)) {
             throw createCoreRpcHttpError({
               code: "organization_skill.release_missing",
@@ -584,7 +580,6 @@ export function createOrganizationSkillService(
         releases,
       });
     },
-
     async readRuntimeCatalog(
       organizationId: string,
       selectedReleases: OrganizationSkillRuntimeReleaseSelection[]
@@ -592,11 +587,11 @@ export function createOrganizationSkillService(
       const releases = await Promise.all(
         selectedReleases.map(async (selected) => {
           const release = await dependencies.db
-            .prepare(
-              "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
-            )
-            .bind(organizationId, selected.skillId, selected.releaseId)
-            .first<ReleaseRow>();
+            .query<ReleaseRow>({
+              text: 'SELECT * FROM "openmeld"."organization_skill_releases" WHERE organization_id = $1 AND skill_id = $2 AND id = $3 LIMIT 1',
+              values: [organizationId, selected.skillId, selected.releaseId],
+            })
+            .then((result) => result.rows[0] ?? null);
           if (!(release && release.digest === selected.digest)) {
             throw createCoreRpcHttpError({
               code: "organization_skill.release_missing",
@@ -624,18 +619,17 @@ export function createOrganizationSkillService(
         releases,
       });
     },
-
     async readRuntimeResource(
       organizationId: string,
       selected: OrganizationSkillRuntimeReleaseSelection,
       path: string
     ): Promise<OrganizationSkillFile> {
       const release = await dependencies.db
-        .prepare(
-          "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
-        )
-        .bind(organizationId, selected.skillId, selected.releaseId)
-        .first<ReleaseRow>();
+        .query<ReleaseRow>({
+          text: 'SELECT * FROM "openmeld"."organization_skill_releases" WHERE organization_id = $1 AND skill_id = $2 AND id = $3 LIMIT 1',
+          values: [organizationId, selected.skillId, selected.releaseId],
+        })
+        .then((result) => result.rows[0] ?? null);
       if (!(release && release.digest === selected.digest)) {
         throw createCoreRpcHttpError({
           code: "organization_skill.release_missing",
@@ -650,7 +644,6 @@ export function createOrganizationSkillService(
         path
       );
     },
-
     async remove(
       actor: OrganizationSkillActor,
       skillId: string,
@@ -661,25 +654,22 @@ export function createOrganizationSkillService(
         await requireSkill(dependencies.db, actor.organizationId, skillId),
         expectedVersion
       );
-      const result = await dependencies.db
-        .prepare(
-          `
-            UPDATE organization_skills
-            SET removed_at = ?,
+      const result = await dependencies.db.query({
+        text: `
+            UPDATE "openmeld"."organization_skills"
+            SET removed_at = $1,
                 enabled = 0,
-                updated_at = ?,
+                updated_at = $2,
                 version = version + 1
-            WHERE id = ?
-              AND organization_id = ?
+            WHERE id = $3
+              AND organization_id = $4
               AND removed_at IS NULL
-              AND version = ?
-          `
-        )
-        .bind(now(), now(), skillId, actor.organizationId, expectedVersion)
-        .run();
+              AND version = $5
+          `,
+        values: [now(), now(), skillId, actor.organizationId, expectedVersion],
+      });
       requireOneChange(result, "This Skill changed before it was removed.");
     },
-
     async setEnabled(
       actor: OrganizationSkillActor,
       skillId: string,
@@ -706,57 +696,52 @@ export function createOrganizationSkillService(
           organizationId: actor.organizationId,
         });
       }
-      const result = await dependencies.db
-        .prepare(
-          `
-            UPDATE organization_skills
-            SET enabled = ?,
-                updated_at = ?,
+      const result = await dependencies.db.query({
+        text: `
+            UPDATE "openmeld"."organization_skills"
+            SET enabled = $1,
+                updated_at = $2,
                 version = version + 1
-            WHERE id = ?
-              AND organization_id = ?
+            WHERE id = $3
+              AND organization_id = $4
               AND removed_at IS NULL
-              AND version = ?
+              AND version = $5
               AND (
-                ? = 0
+                $6 = 0
                 OR enabled = 1
                 OR (
                   (
                     SELECT COUNT(*)
-                    FROM organization_skills enabled_skill
-                    WHERE enabled_skill.organization_id = ?
+                    FROM "openmeld"."organization_skills" enabled_skill
+                    WHERE enabled_skill.organization_id = $7
                       AND enabled_skill.enabled = 1
                       AND enabled_skill.removed_at IS NULL
-                  ) < ?
+                  ) < $8
                   AND (
                     SELECT COALESCE(
                       SUM(
                         COALESCE(
                           CAST(
-                            json_extract(
-                              active_release.manifest_json,
-                              '$.runtimeBytes'
-                            ) AS INTEGER
+                            ((active_release.manifest_json)::jsonb #>> '{runtimeBytes}') AS BIGINT
                           ),
                           ${ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES + 1}
                         )
                       ),
                       0
                     )
-                    FROM organization_skills enabled_skill
-                    JOIN organization_skill_releases active_release
+                    FROM "openmeld"."organization_skills" enabled_skill
+                    JOIN "openmeld"."organization_skill_releases" active_release
                       ON active_release.id = enabled_skill.active_release_id
                      AND active_release.skill_id = enabled_skill.id
                      AND active_release.organization_id = enabled_skill.organization_id
-                    WHERE enabled_skill.organization_id = ?
+                    WHERE enabled_skill.organization_id = $9
                       AND enabled_skill.enabled = 1
                       AND enabled_skill.removed_at IS NULL
-                  ) + ? <= ?
+                  ) + $10 <= $11
                 )
               )
-          `
-        )
-        .bind(
+          `,
+        values: [
           enabled ? 1 : 0,
           now(),
           skillId,
@@ -767,10 +752,10 @@ export function createOrganizationSkillService(
           ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
           actor.organizationId,
           releaseRuntimeBytes,
-          ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES
-        )
-        .run();
-      if (result.meta.changes !== 1) {
+          ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
+        ],
+      });
+      if (result.rowCount !== 1) {
         const current = await requireSkill(
           dependencies.db,
           actor.organizationId,
@@ -788,7 +773,6 @@ export function createOrganizationSkillService(
       }
       return await this.get(actor, skillId);
     },
-
     async setMaintainers(
       actor: OrganizationSkillActor,
       skillId: string,
@@ -809,111 +793,111 @@ export function createOrganizationSkillService(
       const nextVersion = expectedVersion + 1;
       const updateToken = newId();
       const statements = [
-        dependencies.db
-          .prepare(
-            `
-              UPDATE organization_skills
-              SET updated_at = ?,
+        {
+          text: `
+              UPDATE "openmeld"."organization_skills"
+              SET updated_at = $1,
                   version = version + 1,
-                  maintainer_update_token = ?
-              WHERE id = ?
-                AND organization_id = ?
+                  maintainer_update_token = $2
+              WHERE id = $3
+                AND organization_id = $4
                 AND removed_at IS NULL
-                AND version = ?
+                AND version = $5
                 AND maintainer_update_token IS NULL
-            `
-          )
-          .bind(
+            `,
+          values: [
             now(),
             updateToken,
             skillId,
             actor.organizationId,
-            expectedVersion
-          ),
-        dependencies.db
-          .prepare(
-            `
-              DELETE FROM organization_skill_maintainers
-              WHERE organization_id = ?
-                AND skill_id = ?
+            expectedVersion,
+          ],
+        },
+        {
+          text: `
+              DELETE FROM "openmeld"."organization_skill_maintainers"
+              WHERE organization_id = $1
+                AND skill_id = $2
                 AND EXISTS (
                   SELECT 1
-                  FROM organization_skills
-                  WHERE id = ?
-                    AND organization_id = ?
+                  FROM "openmeld"."organization_skills"
+                  WHERE id = $3
+                    AND organization_id = $4
                     AND removed_at IS NULL
-                    AND version = ?
-                    AND maintainer_update_token = ?
+                    AND version = $5
+                    AND maintainer_update_token = $6
                 )
-            `
-          )
-          .bind(
+            `,
+          values: [
             actor.organizationId,
             skillId,
             skillId,
             actor.organizationId,
             nextVersion,
-            updateToken
-          ),
-        ...uniqueUserIds.map((userId) =>
-          dependencies.db
-            .prepare(
-              `
-                INSERT INTO organization_skill_maintainers (
+            updateToken,
+          ],
+        },
+        ...uniqueUserIds.map((userId) => ({
+          text: `
+                INSERT INTO "openmeld"."organization_skill_maintainers" (
                   assigned_at,
                   assigned_by_user_id,
                   organization_id,
                   skill_id,
                   user_id
                 )
-                SELECT ?, ?, ?, ?, ?
+                SELECT $1, $2, $3, $4, $5
                 WHERE EXISTS (
                   SELECT 1
-                  FROM organization_skills
-                  WHERE id = ?
-                    AND organization_id = ?
+                  FROM "openmeld"."organization_skills"
+                  WHERE id = $6
+                    AND organization_id = $7
                     AND removed_at IS NULL
-                    AND version = ?
-                    AND maintainer_update_token = ?
+                    AND version = $8
+                    AND maintainer_update_token = $9
                 )
-              `
-            )
-            .bind(
-              now(),
-              actor.userId,
-              actor.organizationId,
-              skillId,
-              userId,
-              skillId,
-              actor.organizationId,
-              nextVersion,
-              updateToken
-            )
-        ),
-        dependencies.db
-          .prepare(
-            `
-              UPDATE organization_skills
+              `,
+          values: [
+            now(),
+            actor.userId,
+            actor.organizationId,
+            skillId,
+            userId,
+            skillId,
+            actor.organizationId,
+            nextVersion,
+            updateToken,
+          ],
+        })),
+        {
+          text: `
+              UPDATE "openmeld"."organization_skills"
               SET maintainer_update_token = NULL
-              WHERE id = ?
-                AND organization_id = ?
+              WHERE id = $1
+                AND organization_id = $2
                 AND removed_at IS NULL
-                AND version = ?
-                AND maintainer_update_token = ?
-            `
-          )
-          .bind(skillId, actor.organizationId, nextVersion, updateToken),
+                AND version = $3
+                AND maintainer_update_token = $4
+            `,
+          values: [skillId, actor.organizationId, nextVersion, updateToken],
+        },
       ];
-      const results = await dependencies.db.batch(statements);
+      const results = await dependencies.db.transaction(async (client) => {
+        const results: QueryResult[] = [];
+        for (const query of statements) {
+          results.push(await client.query(query));
+        }
+        return results;
+      });
       const skillUpdate = results[0];
       const maintainerInserts = results.slice(2, -1);
       const skillFinalization = results.at(-1);
       if (
         !skillUpdate ||
-        skillUpdate.meta.changes !== 1 ||
+        skillUpdate.rowCount !== 1 ||
         !skillFinalization ||
-        skillFinalization.meta.changes !== 1 ||
-        maintainerInserts.some((result) => result.meta.changes !== 1)
+        skillFinalization.rowCount !== 1 ||
+        maintainerInserts.some((result) => result.rowCount !== 1)
       ) {
         throw conflictError(
           "This Skill changed before its Maintainers were updated."
@@ -921,7 +905,6 @@ export function createOrganizationSkillService(
       }
       return await this.get(actor, skillId);
     },
-
     async update(
       actor: OrganizationSkillActor,
       skillId: string,
@@ -983,13 +966,14 @@ export function createOrganizationSkillService(
       );
       const timestamp = now();
       const sourceColumns = columnsFromSource(source);
-      let results: D1Result<unknown>[];
+      let results: QueryResult<Record<string, unknown>>[];
       try {
-        results = await dependencies.db.batch([
-          dependencies.db
-            .prepare(
-              `
-              INSERT INTO organization_skill_releases (
+        results = await dependencies.db.transaction(
+          async (client) =>
+            [
+              await client.query({
+                text: `
+              INSERT INTO "openmeld"."organization_skill_releases" (
                 created_at,
                 created_by_user_id,
                 digest,
@@ -1003,43 +987,40 @@ export function createOrganizationSkillService(
                 source_path,
                 source_repository
               )
-              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
               WHERE EXISTS (
                 SELECT 1
-                FROM organization_skills current_skill
-                WHERE current_skill.id = ?
-                  AND current_skill.organization_id = ?
+                FROM "openmeld"."organization_skills" current_skill
+                WHERE current_skill.id = $13
+                  AND current_skill.organization_id = $14
                   AND current_skill.removed_at IS NULL
-                  AND current_skill.active_release_id = ?
-                  AND current_skill.version = ?
+                  AND current_skill.active_release_id = $15
+                  AND current_skill.version = $16
                   AND (
                     current_skill.enabled = 0
                     OR (
                       (
                         SELECT COUNT(*)
-                        FROM organization_skills enabled_skill
+                        FROM "openmeld"."organization_skills" enabled_skill
                         WHERE enabled_skill.organization_id = current_skill.organization_id
                           AND enabled_skill.id <> current_skill.id
                           AND enabled_skill.enabled = 1
                           AND enabled_skill.removed_at IS NULL
-                      ) < ?
+                      ) < $17
                       AND (
                         SELECT COALESCE(
                           SUM(
                             COALESCE(
                               CAST(
-                                json_extract(
-                                  active_release.manifest_json,
-                                  '$.runtimeBytes'
-                                ) AS INTEGER
+                                ((active_release.manifest_json)::jsonb #>> '{runtimeBytes}') AS BIGINT
                               ),
                               ${ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES + 1}
                             )
                           ),
                           0
                         )
-                        FROM organization_skills enabled_skill
-                        JOIN organization_skill_releases active_release
+                        FROM "openmeld"."organization_skills" enabled_skill
+                        JOIN "openmeld"."organization_skill_releases" active_release
                           ON active_release.id = enabled_skill.active_release_id
                          AND active_release.skill_id = enabled_skill.id
                          AND active_release.organization_id = enabled_skill.organization_id
@@ -1047,70 +1028,70 @@ export function createOrganizationSkillService(
                           AND enabled_skill.id <> current_skill.id
                           AND enabled_skill.enabled = 1
                           AND enabled_skill.removed_at IS NULL
-                      ) + ? <= ?
+                      ) + $18 <= $19
                     )
                   )
               )
-              `
-            )
-            .bind(
-              timestamp,
-              actor.userId,
-              digest,
-              releaseId,
-              manifestJson(bundle, releaseStorage.manifestDigest),
-              objectKey,
-              actor.organizationId,
-              skillId,
-              sourceColumns.commitSha,
-              sourceColumns.kind,
-              sourceColumns.path,
-              sourceColumns.repository,
-              skillId,
-              actor.organizationId,
-              input.expectedActiveReleaseId,
-              input.expectedVersion,
-              ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
-              runtimeBytes,
-              ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES
-            ),
-          dependencies.db
-            .prepare(
-              `
-              UPDATE organization_skills
-              SET active_release_id = ?,
-                  description = ?,
-                  name = ?,
-                  updated_at = ?,
+              `,
+                values: [
+                  timestamp,
+                  actor.userId,
+                  digest,
+                  releaseId,
+                  manifestJson(bundle, releaseStorage.manifestDigest),
+                  objectKey,
+                  actor.organizationId,
+                  skillId,
+                  sourceColumns.commitSha,
+                  sourceColumns.kind,
+                  sourceColumns.path,
+                  sourceColumns.repository,
+                  skillId,
+                  actor.organizationId,
+                  input.expectedActiveReleaseId,
+                  input.expectedVersion,
+                  ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
+                  runtimeBytes,
+                  ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
+                ],
+              }),
+              await client.query({
+                text: `
+              UPDATE "openmeld"."organization_skills"
+              SET active_release_id = $1,
+                  description = $2,
+                  name = $3,
+                  updated_at = $4,
                   version = version + 1
-              WHERE id = ?
-                AND organization_id = ?
+              WHERE id = $5
+                AND organization_id = $6
                 AND removed_at IS NULL
-                AND active_release_id = ?
-                AND version = ?
+                AND active_release_id = $7
+                AND version = $8
                 AND EXISTS (
                   SELECT 1
-                  FROM organization_skill_releases
-                  WHERE id = ?
-                    AND skill_id = ?
-                    AND organization_id = ?
+                  FROM "openmeld"."organization_skill_releases"
+                  WHERE id = $9
+                    AND skill_id = $10
+                    AND organization_id = $11
                 )
-              `
-            )
-            .bind(
-              releaseId,
-              bundle.portable.description,
-              bundle.portable.name,
-              timestamp,
-              skillId,
-              actor.organizationId,
-              input.expectedActiveReleaseId,
-              input.expectedVersion,
-              releaseId,
-              skillId,
-              actor.organizationId
-            ),
-        ]);
+              `,
+                values: [
+                  releaseId,
+                  bundle.portable.description,
+                  bundle.portable.name,
+                  timestamp,
+                  skillId,
+                  actor.organizationId,
+                  input.expectedActiveReleaseId,
+                  input.expectedVersion,
+                  releaseId,
+                  skillId,
+                  actor.organizationId,
+                ],
+              }),
+            ] as const
+        );
       } catch (error) {
         if (releaseStorage.createdKeys.length > 0) {
           await deleteUncommittedReleaseObject(
@@ -1127,8 +1108,8 @@ export function createOrganizationSkillService(
       const [insertRelease, updateSkill] = results;
       if (
         !(insertRelease && updateSkill) ||
-        insertRelease.meta.changes !== 1 ||
-        updateSkill.meta.changes !== 1
+        insertRelease.rowCount !== 1 ||
+        updateSkill.rowCount !== 1
       ) {
         if (releaseStorage.createdKeys.length > 0) {
           await deleteUncommittedReleaseObject(
@@ -1150,7 +1131,6 @@ export function createOrganizationSkillService(
     },
   };
 }
-
 async function createSkill(input: {
   actor: OrganizationSkillActor;
   bundle: OrganizationSkillBundle;
@@ -1189,11 +1169,13 @@ async function createSkill(input: {
   const timestamp = input.now();
   const source = columnsFromSource(input.source);
   try {
-    const [skillInsert, releaseInsert] = await input.dependencies.db.batch([
-      input.dependencies.db
-        .prepare(
-          `
-            INSERT INTO organization_skills (
+    const [skillInsert, releaseInsert] =
+      await input.dependencies.db.transaction(
+        async (client) =>
+          [
+            await client.query({
+              text: `
+            INSERT INTO "openmeld"."organization_skills" (
               active_release_id,
               created_at,
               created_by_user_id,
@@ -1210,63 +1192,59 @@ async function createSkill(input: {
               updated_at,
               version
             )
-            SELECT ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 1
+            SELECT $1, $2, $3, $4, 1, $5, $6, $7, NULL, $8, $9, $10, $11, $12, 1
             WHERE (
               SELECT COUNT(*)
-              FROM organization_skills enabled_skill
-              WHERE enabled_skill.organization_id = ?
+              FROM "openmeld"."organization_skills" enabled_skill
+              WHERE enabled_skill.organization_id = $13
                 AND enabled_skill.enabled = 1
                 AND enabled_skill.removed_at IS NULL
-            ) < ?
+            ) < $14
               AND (
                 SELECT COALESCE(
                   SUM(
                     COALESCE(
                       CAST(
-                        json_extract(
-                          active_release.manifest_json,
-                          '$.runtimeBytes'
-                        ) AS INTEGER
+                        ((active_release.manifest_json)::jsonb #>> '{runtimeBytes}') AS BIGINT
                       ),
                       ${ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES + 1}
                     )
                   ),
                   0
                 )
-                FROM organization_skills enabled_skill
-                JOIN organization_skill_releases active_release
+                FROM "openmeld"."organization_skills" enabled_skill
+                JOIN "openmeld"."organization_skill_releases" active_release
                   ON active_release.id = enabled_skill.active_release_id
                  AND active_release.skill_id = enabled_skill.id
                  AND active_release.organization_id = enabled_skill.organization_id
-                WHERE enabled_skill.organization_id = ?
+                WHERE enabled_skill.organization_id = $15
                   AND enabled_skill.enabled = 1
                   AND enabled_skill.removed_at IS NULL
-              ) + ? <= ?
-          `
-        )
-        .bind(
-          releaseId,
-          timestamp,
-          input.actor.userId,
-          input.bundle.portable.description,
-          skillId,
-          input.bundle.portable.name,
-          input.actor.organizationId,
-          source.commitSha,
-          source.kind,
-          source.path,
-          source.repository,
-          timestamp,
-          input.actor.organizationId,
-          ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
-          input.actor.organizationId,
-          runtimeBytes,
-          ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES
-        ),
-      input.dependencies.db
-        .prepare(
-          `
-            INSERT INTO organization_skill_releases (
+              ) + $16 <= $17
+          `,
+              values: [
+                releaseId,
+                timestamp,
+                input.actor.userId,
+                input.bundle.portable.description,
+                skillId,
+                input.bundle.portable.name,
+                input.actor.organizationId,
+                source.commitSha,
+                source.kind,
+                source.path,
+                source.repository,
+                timestamp,
+                input.actor.organizationId,
+                ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
+                input.actor.organizationId,
+                runtimeBytes,
+                ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
+              ],
+            }),
+            await client.query({
+              text: `
+            INSERT INTO "openmeld"."organization_skill_releases" (
               created_at,
               created_by_user_id,
               digest,
@@ -1280,39 +1258,40 @@ async function createSkill(input: {
               source_path,
               source_repository
             )
-            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
             WHERE EXISTS (
               SELECT 1
-              FROM organization_skills
-              WHERE id = ?
-                AND organization_id = ?
+              FROM "openmeld"."organization_skills"
+              WHERE id = $13
+                AND organization_id = $14
                 AND removed_at IS NULL
-                AND active_release_id = ?
+                AND active_release_id = $15
             )
-          `
-        )
-        .bind(
-          timestamp,
-          input.actor.userId,
-          digest,
-          releaseId,
-          manifestJson(input.bundle, releaseStorage.manifestDigest),
-          objectKey,
-          input.actor.organizationId,
-          skillId,
-          source.commitSha,
-          source.kind,
-          source.path,
-          source.repository,
-          skillId,
-          input.actor.organizationId,
-          releaseId
-        ),
-    ]);
+          `,
+              values: [
+                timestamp,
+                input.actor.userId,
+                digest,
+                releaseId,
+                manifestJson(input.bundle, releaseStorage.manifestDigest),
+                objectKey,
+                input.actor.organizationId,
+                skillId,
+                source.commitSha,
+                source.kind,
+                source.path,
+                source.repository,
+                skillId,
+                input.actor.organizationId,
+                releaseId,
+              ],
+            }),
+          ] as const
+      );
     if (
       !(skillInsert && releaseInsert) ||
-      skillInsert.meta.changes !== 1 ||
-      releaseInsert.meta.changes !== 1
+      skillInsert.rowCount !== 1 ||
+      releaseInsert.rowCount !== 1
     ) {
       await requireRuntimeCatalogCapacity({
         additionalRuntimeBytes: runtimeBytes,
@@ -1364,42 +1343,39 @@ async function createSkill(input: {
     ),
   });
 }
-
 async function buildSkill(input: {
   actor: OrganizationSkillReadActor;
   bucket: R2Bucket;
-  db: D1Database;
+  db: PostgresDatabase;
   skill: SkillRow;
 }): Promise<OrganizationSkill> {
   const [release, releases, maintainers, isMaintainer] = await Promise.all([
     requireRelease(input.db, input.skill),
-    input.db
-      .prepare(
-        `
+    input.db.query<ReleaseRow>({
+      text: `
           SELECT *
-          FROM organization_skill_releases
-          WHERE organization_id = ? AND skill_id = ?
-          ORDER BY created_at DESC, id DESC
-        `
-      )
-      .bind(input.actor.organizationId, input.skill.id)
-      .all<ReleaseRow>(),
-    input.db
-      .prepare(
-        `
+          FROM "openmeld"."organization_skill_releases"
+          WHERE organization_id = $1 AND skill_id = $2
+          ORDER BY created_at DESC NULLS LAST, id DESC NULLS LAST
+        `,
+      values: [input.actor.organizationId, input.skill.id],
+    }),
+    input.db.query<{
+      user_id: string;
+    }>({
+      text: `
           SELECT maintainer.user_id
-          FROM organization_skill_maintainers maintainer
-          JOIN members member
+          FROM "openmeld"."organization_skill_maintainers" maintainer
+          JOIN "openmeld"."members" member
             ON member.organization_id = maintainer.organization_id
            AND member.user_id = maintainer.user_id
            AND member.created_at <= maintainer.assigned_at
-          WHERE maintainer.organization_id = ?
-            AND maintainer.skill_id = ?
-          ORDER BY maintainer.assigned_at ASC, maintainer.user_id ASC
-        `
-      )
-      .bind(input.actor.organizationId, input.skill.id)
-      .all<{ user_id: string }>(),
+          WHERE maintainer.organization_id = $1
+            AND maintainer.skill_id = $2
+          ORDER BY maintainer.assigned_at ASC NULLS FIRST, maintainer.user_id ASC NULLS FIRST
+        `,
+      values: [input.actor.organizationId, input.skill.id],
+    }),
     readIsMaintainer(input.db, input.actor, input.skill.id),
   ]);
   return organizationSkillSchema.parse({
@@ -1417,29 +1393,28 @@ async function buildSkill(input: {
       version: input.skill.version,
     }),
     bundle: await readReleaseBundle(input.bucket, release),
-    maintainerUserIds: maintainers.results.map((row) => row.user_id),
-    releases: releases.results.map(releaseSummary),
+    maintainerUserIds: maintainers.rows.map((row) => row.user_id),
+    releases: releases.rows.map(releaseSummary),
   });
 }
-
 async function requireSkill(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   skillId: string
 ): Promise<SkillRow> {
   const row = await db
-    .prepare(
-      `
+    .query<SkillRow>({
+      text: `
         SELECT *
-        FROM organization_skills
-        WHERE id = ?
-          AND organization_id = ?
+        FROM "openmeld"."organization_skills"
+        WHERE id = $1
+          AND organization_id = $2
           AND removed_at IS NULL
         LIMIT 1
-      `
-    )
-    .bind(skillId, organizationId)
-    .first<SkillRow>();
+      `,
+      values: [skillId, organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw createCoreRpcHttpError({
       code: "organization_skill.not_found",
@@ -1449,24 +1424,23 @@ async function requireSkill(
   }
   return row;
 }
-
 async function requireRelease(
-  db: D1Database,
+  db: PostgresDatabase,
   skill: SkillRow
 ): Promise<ReleaseRow> {
   const release = await db
-    .prepare(
-      `
+    .query<ReleaseRow>({
+      text: `
         SELECT *
-        FROM organization_skill_releases
-        WHERE id = ?
-          AND skill_id = ?
-          AND organization_id = ?
+        FROM "openmeld"."organization_skill_releases"
+        WHERE id = $1
+          AND skill_id = $2
+          AND organization_id = $3
         LIMIT 1
-      `
-    )
-    .bind(skill.active_release_id, skill.id, skill.organization_id)
-    .first<ReleaseRow>();
+      `,
+      values: [skill.active_release_id, skill.id, skill.organization_id],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!release) {
     throw createCoreRpcHttpError({
       code: "organization_skill.release_missing",
@@ -1476,7 +1450,6 @@ async function requireRelease(
   }
   return release;
 }
-
 async function readReleaseBundle(
   bucket: R2Bucket,
   release: ReleaseRow
@@ -1538,7 +1511,6 @@ async function readReleaseBundle(
   }
   return parsed.data;
 }
-
 async function readReleaseResource(
   bucket: R2Bucket,
   release: ReleaseRow,
@@ -1570,7 +1542,6 @@ async function readReleaseResource(
     size: resource.bytes.byteLength,
   };
 }
-
 async function readReleaseResourceContent(
   bucket: R2Bucket,
   release: ReleaseRow,
@@ -1640,7 +1611,6 @@ async function readReleaseResourceContent(
   );
   return { bytes, encoding: file.encoding, mediaType: file.mediaType };
 }
-
 function requireResourceSize(size: number, maxBytes: number | undefined): void {
   if (maxBytes !== undefined && size > maxBytes) {
     throw createCoreRpcHttpError({
@@ -1650,7 +1620,6 @@ function requireResourceSize(size: number, maxBytes: number | undefined): void {
     });
   }
 }
-
 async function readStoredReleaseResource(
   bucket: R2Bucket,
   objectKey: string,
@@ -1676,7 +1645,6 @@ async function readStoredReleaseResource(
     size: file.size,
   };
 }
-
 async function readStoredReleaseResourceBytes(
   bucket: R2Bucket,
   objectKey: string,
@@ -1698,7 +1666,6 @@ async function readStoredReleaseResourceBytes(
   }
   return bytes;
 }
-
 async function readReleaseCatalog(
   bucket: R2Bucket,
   release: ReleaseRow
@@ -1748,7 +1715,6 @@ async function readReleaseCatalog(
     portable: portable.data,
   };
 }
-
 function missingSkillResourceError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.resource_missing",
@@ -1756,7 +1722,6 @@ function missingSkillResourceError(): Error {
     status: 404,
   });
 }
-
 const storedSkillReleaseSchema = z.strictObject({
   files: z.array(
     z.strictObject({
@@ -1771,15 +1736,14 @@ const storedSkillReleaseSchema = z.strictObject({
   instructions: z.string(),
   portable: z.unknown(),
 });
-
-function isFileBackedRelease(value: unknown): value is { format: string } {
+function isFileBackedRelease(value: unknown): value is {
+  format: string;
+} {
   return typeof value === "object" && value !== null && "format" in value;
 }
-
 function releaseResourceKey(objectKey: string, path: string): string {
   return `${objectKey}/files/${encodeURIComponent(path)}`;
 }
-
 function decodeSkillFileBytes(file: OrganizationSkillFile): Uint8Array {
   if (file.encoding === "utf8") {
     return new TextEncoder().encode(file.content);
@@ -1788,7 +1752,6 @@ function decodeSkillFileBytes(file: OrganizationSkillFile): Uint8Array {
     character.charCodeAt(0)
   );
 }
-
 function encodeBase64(bytes: Uint8Array): string {
   const chunks: string[] = [];
   for (let offset = 0; offset < bytes.length; offset += 8192) {
@@ -1796,7 +1759,6 @@ function encodeBase64(bytes: Uint8Array): string {
   }
   return btoa(chunks.join(""));
 }
-
 function invalidReleaseError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.release_invalid",
@@ -1804,7 +1766,6 @@ function invalidReleaseError(): Error {
     status: 503,
   });
 }
-
 function missingReleaseObjectError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.release_object_missing",
@@ -1812,7 +1773,6 @@ function missingReleaseObjectError(): Error {
     status: 503,
   });
 }
-
 function releaseDigestMismatchError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.release_digest_mismatch",
@@ -1820,14 +1780,16 @@ function releaseDigestMismatchError(): Error {
     status: 503,
   });
 }
-
 async function writeReleaseObject(
   bucket: R2Bucket,
   objectKey: string,
   digest: string,
   bundle: OrganizationSkillBundle,
   fileBackedWritesEnabled: boolean
-): Promise<{ createdKeys: string[]; manifestDigest: string | null }> {
+): Promise<{
+  createdKeys: string[];
+  manifestDigest: string | null;
+}> {
   if (!fileBackedWritesEnabled) {
     const serialized = stringifyOrganizationSkillBundleCanonicalJson(bundle);
     const existing = await bucket.get(objectKey);
@@ -1897,7 +1859,6 @@ async function writeReleaseObject(
   // these immutable objects, so a failed writer must not delete them.
   return { createdKeys: [], manifestDigest };
 }
-
 function requireExistingReleaseManifest(
   existing: R2ObjectBody,
   existingSerialized: string | null,
@@ -1914,7 +1875,6 @@ function requireExistingReleaseManifest(
     );
   }
 }
-
 function isExistingInlineRelease(
   existing: R2ObjectBody | null,
   serialized: string | null,
@@ -1926,7 +1886,6 @@ function isExistingInlineRelease(
     serialized === stringifyOrganizationSkillBundleCanonicalJson(bundle)
   );
 }
-
 type PreparedReleaseResource = {
   bytes: Uint8Array;
   digest: string;
@@ -1935,7 +1894,6 @@ type PreparedReleaseResource = {
   path: string;
   size: number;
 };
-
 async function prepareReleaseResource(
   file: OrganizationSkillFile
 ): Promise<PreparedReleaseResource> {
@@ -1949,7 +1907,6 @@ async function prepareReleaseResource(
     size: file.size,
   };
 }
-
 async function verifyReleaseResource(
   stored: R2ObjectBody,
   resource: Pick<PreparedReleaseResource, "digest" | "size">
@@ -1962,11 +1919,10 @@ async function verifyReleaseResource(
     throw releaseDigestMismatchError();
   }
 }
-
 async function readExactCreatedSkillReplay(input: {
   actor: OrganizationSkillActor;
   bundle: OrganizationSkillBundle;
-  db: D1Database;
+  db: PostgresDatabase;
   digest: string;
   manifestDigest: string | null;
   objectKey: string;
@@ -1976,51 +1932,50 @@ async function readExactCreatedSkillReplay(input: {
 }): Promise<SkillRow | null> {
   const source = columnsFromSource(input.source);
   return await input.db
-    .prepare(
-      `
+    .query<SkillRow>({
+      text: `
         SELECT s.*
-        FROM organization_skills s
-        JOIN organization_skill_releases r
+        FROM "openmeld"."organization_skills" s
+        JOIN "openmeld"."organization_skill_releases" r
           ON r.id = s.active_release_id
          AND r.skill_id = s.id
          AND r.organization_id = s.organization_id
-        WHERE s.id = ?
-          AND s.organization_id = ?
-          AND s.created_by_user_id = ?
-          AND s.active_release_id = ?
-          AND s.name = ?
-          AND s.description = ?
+        WHERE s.id = $1
+          AND s.organization_id = $2
+          AND s.created_by_user_id = $3
+          AND s.active_release_id = $4
+          AND s.name = $5
+          AND s.description = $6
           AND s.removed_at IS NULL
-          AND r.id = ?
-          AND r.digest = ?
-          AND r.object_key = ?
-          AND r.manifest_json = ?
-          AND r.source_kind = ?
-          AND r.source_repository IS ?
-          AND r.source_path IS ?
-          AND r.source_commit_sha IS ?
+          AND r.id = $7
+          AND r.digest = $8
+          AND r.object_key = $9
+          AND r.manifest_json = $10
+          AND r.source_kind = $11
+          AND r.source_repository IS NOT DISTINCT FROM $12
+          AND r.source_path IS NOT DISTINCT FROM $13
+          AND r.source_commit_sha IS NOT DISTINCT FROM $14
         LIMIT 1
-      `
-    )
-    .bind(
-      input.skillId,
-      input.actor.organizationId,
-      input.actor.userId,
-      input.releaseId,
-      input.bundle.portable.name,
-      input.bundle.portable.description,
-      input.releaseId,
-      input.digest,
-      input.objectKey,
-      manifestJson(input.bundle, input.manifestDigest),
-      source.kind,
-      source.repository,
-      source.path,
-      source.commitSha
-    )
-    .first<SkillRow>();
+      `,
+      values: [
+        input.skillId,
+        input.actor.organizationId,
+        input.actor.userId,
+        input.releaseId,
+        input.bundle.portable.name,
+        input.bundle.portable.description,
+        input.releaseId,
+        input.digest,
+        input.objectKey,
+        manifestJson(input.bundle, input.manifestDigest),
+        source.kind,
+        source.repository,
+        source.path,
+        source.commitSha,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 async function deleteUncommittedReleaseObject(
   bucket: R2Bucket,
   objectKeys: string[],
@@ -2036,55 +1991,50 @@ async function deleteUncommittedReleaseObject(
     });
   }
 }
-
 async function readIsMaintainer(
-  db: D1Database,
+  db: PostgresDatabase,
   actor: OrganizationSkillReadActor,
   skillId: string
 ): Promise<boolean> {
   const row = await db
-    .prepare(
-      `
+    .query({
+      text: `
         SELECT 1
-        FROM organization_skill_maintainers m
-        JOIN members member
+        FROM "openmeld"."organization_skill_maintainers" m
+        JOIN "openmeld"."members" member
           ON member.organization_id = m.organization_id
          AND member.user_id = m.user_id
          AND member.created_at <= m.assigned_at
-        WHERE m.organization_id = ?
-          AND m.skill_id = ?
-          AND m.user_id = ?
+        WHERE m.organization_id = $1
+          AND m.skill_id = $2
+          AND m.user_id = $3
         LIMIT 1
-      `
-    )
-    .bind(actor.organizationId, skillId, actor.userId)
-    .first();
+      `,
+      values: [actor.organizationId, skillId, actor.userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row !== null;
 }
-
 async function requireCurrentMembers(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   userIds: string[]
 ): Promise<void> {
   if (userIds.length === 0) {
     return;
   }
-  const placeholders = userIds.map(() => "?").join(", ");
-  const result = await db
-    .prepare(
-      `
+  const result = await db.query<{
+    user_id: string;
+  }>({
+    text: `
         SELECT user_id
-        FROM members
-        WHERE organization_id = ?
-          AND user_id IN (${placeholders})
-      `
-    )
-    .bind(organizationId, ...userIds)
-    .all<{ user_id: string }>();
-  if (
-    new Set(result.results.map((row) => row.user_id)).size !== userIds.length
-  ) {
+        FROM "openmeld"."members"
+        WHERE organization_id = $1
+          AND user_id = ANY($2::text[])
+      `,
+    values: [organizationId, userIds],
+  });
+  if (new Set(result.rows.map((row) => row.user_id)).size !== userIds.length) {
     throw createCoreRpcHttpError({
       code: "organization_skill.maintainer_not_member",
       reason: "Every Skill Maintainer must be a current Organization member.",
@@ -2092,7 +2042,6 @@ async function requireCurrentMembers(
     });
   }
 }
-
 function requireManager(actor: OrganizationSkillActor): void {
   if (actor.role === "owner" || actor.role === "admin") {
     return;
@@ -2103,7 +2052,6 @@ function requireManager(actor: OrganizationSkillActor): void {
     status: 403,
   });
 }
-
 function requireExpectedVersion(
   skill: SkillRow,
   expectedVersion: number
@@ -2112,17 +2060,12 @@ function requireExpectedVersion(
     throw conflictError("This Skill changed before the request was applied.");
   }
 }
-
 function isNameConflict(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes("organization_skills_org_name_active_unique") ||
-    message.includes(
-      "UNIQUE constraint failed: organization_skills.organization_id, organization_skills.name"
-    )
+  return isPostgresUniqueViolation(
+    error,
+    "organization_skills_org_name_active_unique"
   );
 }
-
 function nameConflictError() {
   return createCoreRpcHttpError({
     code: "organization_skill.name_exists",
@@ -2130,7 +2073,6 @@ function nameConflictError() {
     status: 409,
   });
 }
-
 function requireEditor(
   actor: OrganizationSkillActor,
   isMaintainer: boolean
@@ -2144,15 +2086,16 @@ function requireEditor(
     status: 403,
   });
 }
-
 function permissions(
   actor: OrganizationSkillReadActor,
   isMaintainer: boolean
-): { canEdit: boolean; canManage: boolean } {
+): {
+  canEdit: boolean;
+  canManage: boolean;
+} {
   const canManage = actor.role === "owner" || actor.role === "admin";
   return { canEdit: canManage || isMaintainer, canManage };
 }
-
 function parseBundle(value: unknown): OrganizationSkillBundle {
   const parsed = organizationSkillBundleSchema.safeParse(value);
   if (!parsed.success) {
@@ -2164,11 +2107,9 @@ function parseBundle(value: unknown): OrganizationSkillBundle {
   }
   return parsed.data;
 }
-
 function parseSummary(value: unknown): OrganizationSkillSummary {
   return organizationSkillSummarySchema.parse(value);
 }
-
 function releaseSummary(release: ReleaseRow) {
   return {
     createdAt: toIso(release.created_at),
@@ -2183,7 +2124,6 @@ function releaseSummary(release: ReleaseRow) {
     }),
   };
 }
-
 function sourceFromSkill(skill: SkillRow): OrganizationSkillSource {
   return sourceFromColumns({
     commitSha: skill.source_commit_sha,
@@ -2192,7 +2132,6 @@ function sourceFromSkill(skill: SkillRow): OrganizationSkillSource {
     repository: skill.source_repository,
   });
 }
-
 function sourceFromColumns(input: {
   commitSha: string | null;
   kind: "created" | "github";
@@ -2212,7 +2151,6 @@ function sourceFromColumns(input: {
     repository: input.repository,
   };
 }
-
 function columnsFromSource(source: OrganizationSkillSource) {
   return source.kind === "created"
     ? {
@@ -2228,48 +2166,44 @@ function columnsFromSource(source: OrganizationSkillSource) {
         repository: source.repository,
       };
 }
-
 async function requireRuntimeCatalogCapacity(input: {
   additionalRuntimeBytes: number;
-  db: D1Database;
+  db: PostgresDatabase;
   excludedSkillId?: string;
   organizationId: string;
 }): Promise<void> {
   const usage = await input.db
-    .prepare(
-      `
+    .query<RuntimeCatalogUsage>({
+      text: `
         SELECT COUNT(*) AS enabled_releases,
                COALESCE(
                  SUM(
                    COALESCE(
                      CAST(
-                       json_extract(
-                         active_release.manifest_json,
-                         '$.runtimeBytes'
-                       ) AS INTEGER
+                       ((active_release.manifest_json)::jsonb #>> '{runtimeBytes}') AS BIGINT
                      ),
                      ${ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES + 1}
                    )
                  ),
                  0
                ) AS runtime_bytes
-        FROM organization_skills enabled_skill
-        JOIN organization_skill_releases active_release
+        FROM "openmeld"."organization_skills" enabled_skill
+        JOIN "openmeld"."organization_skill_releases" active_release
           ON active_release.id = enabled_skill.active_release_id
          AND active_release.skill_id = enabled_skill.id
          AND active_release.organization_id = enabled_skill.organization_id
-        WHERE enabled_skill.organization_id = ?
+        WHERE enabled_skill.organization_id = $1
           AND enabled_skill.enabled = 1
           AND enabled_skill.removed_at IS NULL
-          AND (? IS NULL OR enabled_skill.id <> ?)
-      `
-    )
-    .bind(
-      input.organizationId,
-      input.excludedSkillId ?? null,
-      input.excludedSkillId ?? null
-    )
-    .first<RuntimeCatalogUsage>();
+          AND ($2::text IS NULL OR enabled_skill.id <> $3)
+      `,
+      values: [
+        input.organizationId,
+        input.excludedSkillId ?? null,
+        input.excludedSkillId ?? null,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   const enabledReleases = Number(usage?.enabled_releases ?? 0);
   const runtimeBytes = Number(usage?.runtime_bytes ?? 0);
   if (enabledReleases >= ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT) {
@@ -2282,10 +2216,9 @@ async function requireRuntimeCatalogCapacity(input: {
     throw runtimeCatalogTooLargeError();
   }
 }
-
 async function requireEnabledSkillRuntimeCatalogReplacementCapacity(input: {
   additionalRuntimeBytes: number;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   skill: SkillRow;
 }): Promise<void> {
@@ -2299,10 +2232,9 @@ async function requireEnabledSkillRuntimeCatalogReplacementCapacity(input: {
     organizationId: input.organizationId,
   });
 }
-
 async function throwOrganizationSkillUpdateFailure(input: {
   actor: OrganizationSkillActor;
-  db: D1Database;
+  db: PostgresDatabase;
   expectedActiveReleaseId: string;
   expectedVersion: number;
   runtimeBytes: number;
@@ -2331,11 +2263,9 @@ async function throwOrganizationSkillUpdateFailure(input: {
     "This Skill changed while you were editing. Your changes were not saved."
   );
 }
-
 function readReleaseRuntimeBytes(release: ReleaseRow): number {
   return readManifestRuntimeBytes(release.manifest_json);
 }
-
 function readManifestRuntimeBytes(manifestJson: string): number {
   let manifest: unknown;
   try {
@@ -2345,7 +2275,11 @@ function readManifestRuntimeBytes(manifestJson: string): number {
   }
   const runtimeBytes =
     manifest && typeof manifest === "object"
-      ? (manifest as { runtimeBytes?: unknown }).runtimeBytes
+      ? (
+          manifest as {
+            runtimeBytes?: unknown;
+          }
+        ).runtimeBytes
       : undefined;
   if (
     !Number.isInteger(runtimeBytes) ||
@@ -2356,7 +2290,6 @@ function readManifestRuntimeBytes(manifestJson: string): number {
   }
   return Number(runtimeBytes);
 }
-
 function readContentManifestDigest(manifestJson: string): string {
   let manifest: unknown;
   try {
@@ -2366,14 +2299,17 @@ function readContentManifestDigest(manifestJson: string): string {
   }
   const digest =
     manifest && typeof manifest === "object"
-      ? (manifest as { contentManifestDigest?: unknown }).contentManifestDigest
+      ? (
+          manifest as {
+            contentManifestDigest?: unknown;
+          }
+        ).contentManifestDigest
       : undefined;
   if (typeof digest !== "string" || !SHA256_HEX_PATTERN.test(digest)) {
     throw invalidReleaseManifestError();
   }
   return digest;
 }
-
 function invalidReleaseManifestError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.release_invalid",
@@ -2381,7 +2317,6 @@ function invalidReleaseManifestError(): Error {
     status: 503,
   });
 }
-
 function manifestJson(
   bundle: OrganizationSkillBundle,
   contentManifestDigest: string | null
@@ -2401,7 +2336,6 @@ function manifestJson(
     runtimeBytes,
   });
 }
-
 function readReleaseRuntimeBytesForWrite(
   bundle: OrganizationSkillBundle,
   fileBackedWritesEnabled: boolean
@@ -2412,7 +2346,6 @@ function readReleaseRuntimeBytesForWrite(
         stringifyOrganizationSkillBundleCanonicalJson(bundle)
       ).byteLength;
 }
-
 function readRuntimeCatalogBytes(bundle: OrganizationSkillBundle): number {
   return new TextEncoder().encode(
     canonicalJson({
@@ -2427,11 +2360,9 @@ function readRuntimeCatalogBytes(bundle: OrganizationSkillBundle): number {
     })
   ).byteLength;
 }
-
 function canonicalJson(value: unknown): string {
   return JSON.stringify(sortJson(value));
 }
-
 function sortJson(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(sortJson);
@@ -2445,18 +2376,15 @@ function sortJson(value: unknown): unknown {
   }
   return value;
 }
-
 async function sha256(value: string): Promise<string> {
   return await sha256Bytes(new TextEncoder().encode(value));
 }
-
 async function sha256Bytes(value: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(value));
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 }
-
 function releaseObjectKey(
   organizationId: string,
   skillId: string,
@@ -2464,11 +2392,9 @@ function releaseObjectKey(
 ): string {
   return `organizations/${organizationId}/skills/${skillId}/releases/${releaseId}.json`;
 }
-
 function toIso(value: number): string {
   return new Date(value).toISOString();
 }
-
 function runtimeReleaseLimitError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.runtime_release_limit",
@@ -2476,7 +2402,6 @@ function runtimeReleaseLimitError(): Error {
     status: 409,
   });
 }
-
 function runtimeCatalogTooLargeError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.runtime_catalog_too_large",
@@ -2485,14 +2410,15 @@ function runtimeCatalogTooLargeError(): Error {
     status: 409,
   });
 }
-
-function requireOneChange(result: D1Result<unknown>, reason: string): void {
-  if (result.meta.changes === 1) {
+function requireOneChange(
+  result: QueryResult<Record<string, unknown>>,
+  reason: string
+): void {
+  if (result.rowCount === 1) {
     return;
   }
   throw conflictError(reason);
 }
-
 function conflictError(reason: string) {
   return createCoreRpcHttpError({
     code: "organization_skill.version_conflict",

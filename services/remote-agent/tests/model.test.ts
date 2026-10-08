@@ -10,6 +10,16 @@ import {
   resolveModel,
 } from "@flue/runtime/internal";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// These tests exercise routing and native provider payloads in Node. The
+// Durable Object attribution boundary is exercised by localhost metering smoke.
+vi.mock("../flue-adapter/ai-usage", () => ({
+  createFlueMeteredFetch:
+    (input: { fetch?: typeof fetch }) =>
+    (...args: Parameters<typeof fetch>) =>
+      (input.fetch ?? fetch)(...args),
+}));
+
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -78,6 +88,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },
@@ -108,6 +121,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -272,6 +288,179 @@ describe("remote agent model routing", () => {
     }
   });
 
+  it("allows a summarizer above the economic threshold through the physical preflight", async () => {
+    resetProviderRuntime();
+    const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: "provider reached" } }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId: "openai/gpt-6.1-sol-pro",
+          contextWindow: 1_050_000,
+        },
+      });
+      const result = await streamRegisteredModel(
+        resolveModel(runtime.modelSpecifier),
+        {
+          messages: [
+            { role: "user", timestamp: 1, content: "x".repeat(900_000) },
+          ],
+        },
+        { apiKey: "unused" }
+      ).result();
+      expect(providerFetch).toHaveBeenCalled();
+      expect(result.errorMessage).toContain("provider reached");
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
+  it.each([
+    ["anthropic/claude-opus-5.5", undefined, true],
+    ["anthropic/claude-sonnet-4.6", undefined, true],
+    ["anthropic/claude-opus-5.5", "none", false],
+    ["deepseek/deepseek-v3.2", undefined, true],
+    ["qwen/qwen-plus", undefined, true],
+    ["qwen/qwen3-max", undefined, true],
+    ["qwen/qwen3.6-plus", undefined, true],
+    ["qwen/qwen3-coder-plus", undefined, true],
+    ["qwen/qwen3-coder-flash", undefined, true],
+    ["qwen/qwen3.6-flash", undefined, true],
+    ["qwen/qwen3.7-max", undefined, true],
+    ["qwen/qwen3.7-plus", undefined, true],
+    ["qwen/qwen3.7-flash", undefined, true],
+    ["qwen/qwen3.8-max-0902", undefined, true],
+    ["qwen/qwen3.8-flash", undefined, true],
+    ["qwen/qwen3-coder-plus", "none", false],
+    ["qwen/qwen3.5-plus-02-15", undefined, false],
+    ["qwen/qwen3.5-flash-02-23", undefined, false],
+    ["qwen/qwen3-coder", undefined, false],
+    ["google/gemini-2.5-pro", undefined, false],
+    ["openai/gpt-6-sol", undefined, false],
+    ["deepseek/deepseek-v4-flash", undefined, false],
+    ["z-ai/glm-5.3-flash", undefined, false],
+    ["x-ai/grok-4.6", undefined, false],
+  ] as const)("preserves native prompt caching for scoped %s with retention %s", async (modelId, cacheRetention, cacheEnabled) => {
+    resetProviderRuntime();
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId,
+          preference: { kind: "selected_model", modelId },
+        },
+        organizationId: "org_prompt_cache",
+      });
+      const model = resolveModel(runtime.modelSpecifier);
+      let capturedPayload: unknown;
+      const stream = streamRegisteredModel(
+        model,
+        {
+          systemPrompt: "Stable system instruction.",
+          messages: [
+            { role: "user", content: "Current question.", timestamp: 1 },
+          ],
+          tools: [
+            {
+              name: "read_example",
+              description: "Read an example.",
+              parameters: { type: "object", properties: {} },
+            },
+          ],
+        },
+        {
+          apiKey: "unused",
+          cacheRetention,
+          maxRetries: 0,
+          reasoningEffort: "high",
+          sessionId: "conversation_prompt_cache",
+          fetch: (_url, init) => {
+            capturedPayload = JSON.parse(String(init?.body));
+            throw new Error(
+              "Request payload captured before network dispatch."
+            );
+          },
+        }
+      );
+
+      await stream.result();
+
+      expect(capturedPayload).toMatchObject({
+        model: modelId,
+        reasoning: { effort: "high" },
+        session_id: "conversation_prompt_cache",
+        provider: { allow_fallbacks: true },
+        tools: [
+          {
+            function: {
+              name: "read_example",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+        ],
+      });
+      if (cacheEnabled) {
+        expect(capturedPayload).toMatchObject({
+          messages: [
+            {
+              content: [
+                {
+                  type: "text",
+                  text: "Stable system instruction.",
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Current question.",
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+            },
+          ],
+        });
+        if (modelId.startsWith("anthropic/")) {
+          expect(capturedPayload).toMatchObject({
+            tools: [{ cache_control: { type: "ephemeral" } }],
+          });
+        } else {
+          expect(capturedPayload).toMatchObject({
+            tools: [
+              expect.not.objectContaining({ cache_control: expect.anything() }),
+            ],
+          });
+        }
+      } else {
+        expect(capturedPayload).toMatchObject({
+          messages: [
+            { content: "Stable system instruction." },
+            { role: "user", content: "Current question." },
+          ],
+        });
+        expect(JSON.stringify(capturedPayload)).not.toContain("cache_control");
+      }
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
   it("preserves OpenRouter reasoning for a scoped Grok provider", async () => {
     resetProviderRuntime();
     try {
@@ -423,6 +612,33 @@ describe("remote agent model routing", () => {
     }
   });
 
+  it.each([
+    ["openai/gpt-6.1-sol-pro", 1_050_000, 217_600],
+    ["openai/gpt-6.1-sol", 1_050_000, 217_600],
+    ["x-ai/grok-4.5", 500_000, 160_000],
+    ["openai/gpt-6.1-sol-pro", 100_000, 90_000],
+  ])("compacts the frozen %s route before its price band within a %i window", async (modelId, contextWindow, threshold) => {
+    const fetchModelMetadata = vi.fn();
+    const config = await resolveRemoteAgentModelRuntimeConfigForRegistration({
+      env: {},
+      fetchModelMetadata,
+      modelRoute: {
+        ...TEST_CENTER_AGENT_MODEL_ROUTE,
+        modelId,
+        contextWindow,
+      },
+    });
+    expect(config.contextWindow - config.compaction.reserveTokens).toBe(
+      threshold
+    );
+    expect(config.contextWindow).toBe(contextWindow);
+    expect(config.modelId).toBe(modelId);
+    expect(config.maxTokens).toBe(
+      TEST_CENTER_AGENT_MODEL_ROUTE.maxOutputTokens
+    );
+    expect(fetchModelMetadata).not.toHaveBeenCalled();
+  });
+
   it("uses the frozen per-turn DeepSeek route without reading mutable model metadata", async () => {
     const fetchModelMetadata = vi.fn();
 
@@ -434,6 +650,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -462,6 +681,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -750,6 +972,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -776,6 +1001,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -804,6 +1032,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         // Compacts before the top provider's 1,048,576-token limit, not the
         // larger catalog context length.
@@ -849,6 +1080,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -882,6 +1116,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -916,6 +1153,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -999,6 +1239,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },

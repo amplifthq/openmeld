@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { downloadDesktopPreview } from "./download";
 
 const store = vi.hoisted(() => ({ get: vi.fn(), head: vi.fn() }));
+const downloadEnv = vi.hoisted(() => ({
+	OPENMELD_DESKTOP_DOWNLOAD_ORIGIN: undefined as string | undefined,
+}));
 vi.mock("cloudflare:workers", () => ({
-	env: { OPENMELD_DESKTOP_DOWNLOADS: store },
+	env: Object.assign(downloadEnv, { OPENMELD_DESKTOP_DOWNLOADS: store }),
 }));
 const id = "a".repeat(64);
 const manifest = {
@@ -36,7 +39,10 @@ function object(body: string) {
 }
 
 describe("immutable Desktop candidate download", () => {
-	afterEach(() => vi.resetAllMocks());
+	afterEach(() => {
+		vi.resetAllMocks();
+		downloadEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN = undefined;
+	});
 	it.each([
 		"?candidate=",
 		"?candidate=../update.json",
@@ -98,5 +104,42 @@ describe("immutable Desktop candidate download", () => {
 		store.get.mockResolvedValue(null);
 		expect((await call("")).status).toBe(404);
 		expect(store.get).toHaveBeenCalledWith("desktop/promoted.json");
+	});
+	it.each([
+		true,
+		false,
+	])("streams the unsigned Windows preview even with a signed-artifact CDN, body=%s", async (includeBody) => {
+		downloadEnv.OPENMELD_DESKTOP_DOWNLOAD_ORIGIN =
+			"https://downloads.openmeld.ai";
+		const preview = {
+			schemaVersion: 1,
+			platform: "windows-x64",
+			version: "0.1.25",
+			releaseSha: "22245aa4a774ad28e0ade8ec8d313b98caa1f069",
+			sha256:
+				"65b824ff55eec9a6f3f4bb55f9d30e98649df41cfbb564bb9ecba3376b71ee8a",
+			sizeBytes: 3,
+		};
+		store.get.mockImplementation((key) => {
+			if (key === "desktop/internal-preview-windows-x64.json") {
+				return Promise.resolve(object(JSON.stringify(preview)));
+			}
+			return Promise.resolve(
+				key ===
+					`desktop/internal-preview/${preview.sha256}/OpenMeld-Desktop-0.1.25-windows-x64-internal-preview.exe`
+					? object("exe")
+					: null
+			);
+		});
+		store.head.mockResolvedValue({
+			size: preview.sizeBytes,
+			httpEtag: '"etag"',
+		} satisfies Pick<R2Object, "size" | "httpEtag">);
+		const response = await call("?platform=windows-x64", includeBody);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("location")).toBeNull();
+		expect(response.headers.get("content-length")).toBe("3");
+		expect(await response.text()).toBe(includeBody ? "exe" : "");
+		expect(response.headers.get("cache-control")).toBe("no-store");
 	});
 });

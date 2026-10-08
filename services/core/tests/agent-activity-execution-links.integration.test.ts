@@ -1,48 +1,96 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { afterEach, describe, expect, it } from "vitest";
 import { linkAcceptedAgentActivityExecutions } from "../src/agent-activity/activity-execution-link-repository";
 
 const owned = new Set<string>();
-
 afterEach(async () => {
   for (const suffix of owned) {
     const graph = ids(suffix);
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_activity_execution_links WHERE runtime_coordinator_execution_id = ?"
-      ).bind(graph.executionId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_activity_sessions WHERE organization_id = ?"
-      ).bind(graph.organizationId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM openMeldDaemon_dispatch_result_inbox WHERE runtime_coordinator_execution_id = ?"
-      ).bind(graph.executionId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM openMeldDaemon_runtime_coordinator_executions WHERE runtime_coordinator_execution_id = ?"
-      ).bind(graph.executionId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM openMeldDaemon_agent_profile_bindings WHERE binding_id = ?"
-      ).bind(graph.bindingId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM openmeld_profiles WHERE profile_id = ?"
-      ).bind(graph.agentProfileId),
-      env.OPENMELD_DB.prepare("DELETE FROM users WHERE id = ?").bind(
-        graph.memberUserId
-      ),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM openMeldDaemon_runtime_registry_records WHERE openmeld_service_runtime_id = ?"
-      ).bind(graph.runtimeId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM space_index_spaces WHERE space_id = ?"
-      ).bind(graph.spaceId),
-      env.OPENMELD_DB.prepare("DELETE FROM organizations WHERE id = ?").bind(
-        graph.organizationId
-      ),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."agent_activity_execution_links" WHERE runtime_coordinator_execution_id = $1',
+              values: [],
+            },
+            values: [graph.executionId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."agent_activity_sessions" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [graph.organizationId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."openMeldDaemon_dispatch_result_inbox" WHERE runtime_coordinator_execution_id = $1',
+              values: [],
+            },
+            values: [graph.executionId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" WHERE runtime_coordinator_execution_id = $1',
+              values: [],
+            },
+            values: [graph.executionId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."openMeldDaemon_agent_profile_bindings" WHERE binding_id = $1',
+              values: [],
+            },
+            values: [graph.bindingId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."openmeld_profiles" WHERE profile_id = $1',
+              values: [],
+            },
+            values: [graph.agentProfileId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."users" WHERE id = $1',
+              values: [],
+            },
+            values: [graph.memberUserId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."openMeldDaemon_runtime_registry_records" WHERE openmeld_service_runtime_id = $1',
+              values: [],
+            },
+            values: [graph.runtimeId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."space_index_spaces" WHERE space_id = $1',
+              values: [],
+            },
+            values: [graph.spaceId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."organizations" WHERE id = $1',
+              values: [],
+            },
+            values: [graph.organizationId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
   }
   owned.clear();
 });
-
 describe("Agent Activity execution links", () => {
   it("links in both arrival orders and keeps retries idempotent", async () => {
     const executionFirst = await seedGraph({
@@ -51,7 +99,7 @@ describe("Agent Activity execution links", () => {
     });
     await expect(
       linkAcceptedAgentActivityExecutions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 2000,
         runtimeCoordinatorExecutionId: executionFirst.executionId,
       })
@@ -60,18 +108,17 @@ describe("Agent Activity execution links", () => {
     await expect(
       linkAcceptedAgentActivityExecutions({
         activitySession: activitySession(executionFirst),
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 2001,
       })
     ).resolves.toBe(1);
     await expect(
       linkAcceptedAgentActivityExecutions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 2002,
         runtimeCoordinatorExecutionId: executionFirst.executionId,
       })
     ).resolves.toBe(0);
-
     const sessionFirst = await seedGraph({
       includeExecution: false,
       includeSession: true,
@@ -79,20 +126,19 @@ describe("Agent Activity execution links", () => {
     await expect(
       linkAcceptedAgentActivityExecutions({
         activitySession: activitySession(sessionFirst),
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 2000,
       })
     ).resolves.toBe(0);
     await insertExecution(sessionFirst);
     await expect(
       linkAcceptedAgentActivityExecutions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 2001,
         runtimeCoordinatorExecutionId: sessionFirst.executionId,
       })
     ).resolves.toBe(1);
   });
-
   it("links a Cursor ACP execution to its Cursor Agent Activity session", async () => {
     const graph = await seedGraph({
       controllerRef: "builtin:cursor",
@@ -100,10 +146,9 @@ describe("Agent Activity execution links", () => {
       includeSession: true,
       sessionProvider: "cursor",
     });
-
     await expect(
       linkAcceptedAgentActivityExecutions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 2000,
         runtimeCoordinatorExecutionId: graph.executionId,
       })
@@ -113,7 +158,6 @@ describe("Agent Activity execution links", () => {
       runtime_coordinator_execution_id: graph.executionId,
     });
   });
-
   it.each([
     ["organization", { spaceOrganizationId: "wrong-organization" }],
     ["member", { runtimeOwnerId: "wrong-member" }],
@@ -131,24 +175,22 @@ describe("Agent Activity execution links", () => {
       includeSession: true,
       ...overrides,
     });
-
     await expect(
       linkAcceptedAgentActivityExecutions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 2000,
         runtimeCoordinatorExecutionId: graph.executionId,
       })
     ).resolves.toBe(0);
     await expect(readLink(graph.executionId)).resolves.toBeNull();
   });
-
   it("never rewrites an existing link when later evidence conflicts", async () => {
     const graph = await seedGraph({
       includeExecution: true,
       includeSession: true,
     });
     await linkAcceptedAgentActivityExecutions({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: 2000,
       runtimeCoordinatorExecutionId: graph.executionId,
     });
@@ -159,21 +201,36 @@ describe("Agent Activity execution links", () => {
       conversationId: conflictingConversationId,
       sessionId: `${graph.sessionId}-conflict`,
     });
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "UPDATE openMeldDaemon_agent_profile_bindings SET agent_controller_conversation_id = ? WHERE binding_id = ?"
-      ).bind(conflictingConversationId, graph.bindingId),
-      env.OPENMELD_DB.prepare(
-        "UPDATE openMeldDaemon_dispatch_result_inbox SET result_payload_json = ? WHERE runtime_coordinator_execution_id = ?"
-      ).bind(
-        resultPayload(graph.controllerRef, conflictingConversationId),
-        graph.executionId
-      ),
-    ]);
-
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings" SET agent_controller_conversation_id = $1 WHERE binding_id = $2',
+              values: [],
+            },
+            values: [conflictingConversationId, graph.bindingId],
+          },
+          {
+            ...{
+              text: 'UPDATE "openmeld"."openMeldDaemon_dispatch_result_inbox" SET result_payload_json = $1 WHERE runtime_coordinator_execution_id = $2',
+              values: [],
+            },
+            values: [
+              resultPayload(graph.controllerRef, conflictingConversationId),
+              graph.executionId,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     await expect(
       linkAcceptedAgentActivityExecutions({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs: 3000,
         runtimeCoordinatorExecutionId: graph.executionId,
       })
@@ -181,12 +238,10 @@ describe("Agent Activity execution links", () => {
     await expect(readLink(graph.executionId)).resolves.toEqual(original);
   });
 });
-
 type Graph = ReturnType<typeof ids> & {
   controllerRef: string;
   provider: "claude-code" | "cursor" | "opencode";
 };
-
 async function seedGraph(input: {
   controllerRef?: "builtin:claude-code" | "builtin:cursor" | "builtin:opencode";
   executionBindingId?: string;
@@ -209,74 +264,86 @@ async function seedGraph(input: {
     controllerRef: input.controllerRef ?? "builtin:claude-code",
     provider: input.sessionProvider ?? "claude-code",
   };
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Execution Link Org', ?, 1)"
-  )
-    .bind(graph.organizationId, `execution-link-${suffix}`)
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `INSERT INTO users (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Execution Link Org\', $2, 1)',
+      values: [],
+    },
+    values: [graph.organizationId, `execution-link-${suffix}`],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."users" (
       id, name, email, email_verified, created_at, updated_at
-    ) VALUES (?, 'Execution Link Owner', ?, 1, 1, 1)`
-  )
-    .bind(graph.memberUserId, `execution-link-${suffix}@example.com`)
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `INSERT INTO space_index_spaces (
+    ) VALUES ($1, 'Execution Link Owner', $2, 1, 1, 1)`,
+      values: [],
+    },
+    values: [graph.memberUserId, `execution-link-${suffix}@example.com`],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."space_index_spaces" (
       space_id, organization_id, organization_visibility, status,
       source_updated_at_ms, projected_at_ms, projection_event_id
-    ) VALUES (?, ?, 'private', 'active', 1, 1, ?)`
-  )
-    .bind(
+    ) VALUES ($1, $2, 'private', 'active', 1, 1, $3)`,
+      values: [],
+    },
+    values: [
       graph.spaceId,
       input.spaceOrganizationId ?? graph.organizationId,
-      `projection_${suffix}`
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `INSERT INTO openMeldDaemon_runtime_registry_records (
+      `projection_${suffix}`,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."openMeldDaemon_runtime_registry_records" (
       openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane,
       created_at_ms, last_registered_at_ms, updated_at_ms
-    ) VALUES (?, 'owner_account', ?, ?, 'dev', 1, 1, 1)`
-  )
-    .bind(
+    ) VALUES ($1, 'owner_account', $2, $3, 'dev', 1, 1, 1)`,
+      values: [],
+    },
+    values: [
       graph.runtimeId,
       input.runtimeOwnerId ?? graph.memberUserId,
-      input.runtimeDeviceId ?? graph.deviceId
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `INSERT INTO openmeld_profiles (
+      input.runtimeDeviceId ?? graph.deviceId,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."openmeld_profiles" (
       profile_id, profile_name, profile_handle, profile_kind, is_default,
       status, organization_id, owner_user_id, created_by_user_id, source,
       created_at, updated_at
-    ) VALUES (?, 'Execution Link Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 1, 1)`
-  )
-    .bind(
+    ) VALUES ($1, 'Execution Link Agent', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1, 1)`,
+      values: [],
+    },
+    values: [
       graph.agentProfileId,
       `execution-link-${suffix}`,
       graph.organizationId,
       graph.memberUserId,
-      graph.memberUserId
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `INSERT INTO openMeldDaemon_agent_profile_bindings (
+      graph.memberUserId,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
       binding_id, owner_kind, owner_id, agent_profile_id,
       openmeld_service_runtime_id, runtime_kind, agent_controller_ref,
       agent_controller_conversation_id, binding_state,
       created_at_ms, updated_at_ms
-    ) VALUES (?, 'owner_account', ?, ?, ?, 'openmeld_service', ?, ?, 'enabled_primary', 1, 1)`
-  )
-    .bind(
+    ) VALUES ($1, 'owner_account', $2, $3, $4, 'openmeld_service', $5, $6, 'enabled_primary', 1, 1)`,
+      values: [],
+    },
+    values: [
       graph.bindingId,
       graph.memberUserId,
       graph.agentProfileId,
       graph.runtimeId,
       graph.controllerRef,
-      graph.conversationId
-    )
-    .run();
+      graph.conversationId,
+    ],
+  });
   if (input.includeSession) {
     await insertSession(graph);
   }
@@ -285,20 +352,21 @@ async function seedGraph(input: {
   }
   return graph;
 }
-
 async function insertSession(graph: Graph) {
-  await env.OPENMELD_DB.prepare(
-    `INSERT INTO agent_activity_sessions (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."agent_activity_sessions" (
       id, organization_id, project_id, member_user_id, device_id,
       openmeld_service_runtime_id, provider, client_kind,
       provider_session_id, title, model, status, git_branch, git_commit,
       repository_fingerprint, started_at_ms, last_observed_at_ms,
       expires_at_ms, provider_metadata_json, last_event_id,
       last_accepted_sequence, created_at_ms, updated_at_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL,
-      'active', NULL, NULL, NULL, 900, 1000, 2000, '{}', ?, 1, 1000, 1000)`
-  )
-    .bind(
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL,
+      'active', NULL, NULL, NULL, 900, 1000, 2000, '{}', $10, 1, 1000, 1000)`,
+      values: [],
+    },
+    values: [
       graph.sessionId,
       graph.organizationId,
       graph.projectId,
@@ -308,18 +376,16 @@ async function insertSession(graph: Graph) {
       graph.provider,
       clientKindForProvider(graph.provider),
       graph.conversationId,
-      `event_${graph.executionId}`
-    )
-    .run();
+      `event_${graph.executionId}`,
+    ],
+  });
 }
-
 function clientKindForProvider(provider: Graph["provider"]) {
   if (provider === "cursor") {
     return "cursor-cli";
   }
   return provider === "claude-code" ? "claude-code-cli" : "unknown";
 }
-
 async function insertExecution(
   graph: Graph,
   overrides: {
@@ -332,15 +398,17 @@ async function insertExecution(
   } = {}
 ) {
   const controllerRef = overrides.executionControllerRef ?? graph.controllerRef;
-  await env.OPENMELD_DB.prepare(
-    `INSERT INTO openMeldDaemon_runtime_coordinator_executions (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."openMeldDaemon_runtime_coordinator_executions" (
       runtime_coordinator_execution_id, model_version, space_id, dispatch_id,
       target_profile_id, openMeld_service_runtime_id_source,
       openmeld_service_runtime_id, binding_id, agent_controller_ref, status,
       created_at_ms, updated_at_ms
-    ) VALUES (?, 'v1', ?, ?, ?, 'runtime_registry_authority', ?, ?, ?, ?, 1000, 1000)`
-  )
-    .bind(
+    ) VALUES ($1, 'v1', $2, $3, $4, 'runtime_registry_authority', $5, $6, $7, $8, 1000, 1000)`,
+      values: [],
+    },
+    values: [
       graph.executionId,
       graph.spaceId,
       graph.dispatchId,
@@ -348,18 +416,20 @@ async function insertExecution(
       overrides.executionRuntimeId ?? graph.runtimeId,
       overrides.executionBindingId ?? graph.bindingId,
       controllerRef,
-      overrides.executionStatus ?? "result_accepted"
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `INSERT INTO openMeldDaemon_dispatch_result_inbox (
+      overrides.executionStatus ?? "result_accepted",
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `INSERT INTO "openmeld"."openMeldDaemon_dispatch_result_inbox" (
       result_key, dispatch_id, attempt_id, task_id, target_profile_id,
       daemon_session_id, lease_epoch, submitted_connection_generation,
       runtime_coordinator_execution_id, result_payload_json, accepted_at_ms,
       publish_state, updated_at_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?, 1500, 'pending_publication', 1500)`
-  )
-    .bind(
+    ) VALUES ($1, $2, $3, $4, $5, $6, 1, 1, $7, $8, 1500, 'pending_publication', 1500)`,
+      values: [],
+    },
+    values: [
       `result_${graph.executionId}`,
       graph.dispatchId,
       `attempt_${graph.executionId}`,
@@ -370,11 +440,10 @@ async function insertExecution(
       resultPayload(
         controllerRef,
         overrides.payloadConversationId ?? graph.conversationId
-      )
-    )
-    .run();
+      ),
+    ],
+  });
 }
-
 function resultPayload(controllerRef: string, conversationId: string) {
   return JSON.stringify({
     payload: {
@@ -385,7 +454,6 @@ function resultPayload(controllerRef: string, conversationId: string) {
     },
   });
 }
-
 function activitySession(graph: Graph) {
   return {
     deviceId: graph.deviceId,
@@ -395,18 +463,20 @@ function activitySession(graph: Graph) {
     providerSessionId: graph.conversationId,
   };
 }
-
 async function readLink(executionId: string) {
-  return await env.OPENMELD_DB.prepare(
-    `SELECT activity_session_id, runtime_coordinator_execution_id,
+  return await getPostgresDatabase(env)
+    .query({
+      ...{
+        text: `SELECT activity_session_id, runtime_coordinator_execution_id,
       provider_conversation_id
-    FROM agent_activity_execution_links
-    WHERE runtime_coordinator_execution_id = ?`
-  )
-    .bind(executionId)
-    .first();
+    FROM "openmeld"."agent_activity_execution_links"
+    WHERE runtime_coordinator_execution_id = $1`,
+        values: [],
+      },
+      values: [executionId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 function ids(suffix: string) {
   return {
     agentProfileId: `agt_${suffix}`,

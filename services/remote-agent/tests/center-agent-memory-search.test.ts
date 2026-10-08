@@ -1,13 +1,12 @@
 import { centerAgentSearchMemoryResponseSchema } from "@openmeld/schemas";
 import type { CenterAgentSearchMemoryRpcInput } from "@openmeld/schemas/types";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
 } from "../../core/src/center-agent-memory/contract";
-import { createD1CenterAgentMemoryRepository } from "../../core/src/center-agent-memory/d1-memory-repository";
 import { rpcCenterAgentSearchMemory } from "../../core/src/center-agent-memory/memory-search-rpc";
-import { applyDrizzleMigrationsForTables } from "../../core/tests-node/helpers/sqlite-d1-harness.test-support";
+import { createPostgresCenterAgentMemoryRepository } from "../../core/src/center-agent-memory/postgresql-memory-repository";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
@@ -63,7 +62,6 @@ vi.mock("../../core/src/generated-runtime/zep-cloud.mjs", () => ({
 const PUBLIC_SPACE_ID = "c".repeat(64);
 const CONCLUSION = "The release review was scheduled for Friday.";
 const UNAVAILABLE_PATTERN = /unavailable|not available|not implemented/i;
-const fixtures: Awaited<ReturnType<typeof createEvidenceFixture>>[] = [];
 const graphs = new Map<string, ProviderFact[]>();
 const episodes = new Map<string, ProviderEpisode>();
 beforeEach(() => {
@@ -83,11 +81,6 @@ beforeEach(() => {
       ? Promise.resolve(episodes.get(id))
       : Promise.reject(new Error("Provider episode unavailable"))
   );
-});
-afterEach(() => {
-  for (const f of fixtures.splice(0)) {
-    f.harness.close();
-  }
 });
 
 async function fixture(
@@ -114,11 +107,6 @@ async function fixture(
   const f = await createEvidenceFixture({
     request: options.request ?? (options.shared ? shared : undefined),
   });
-  fixtures.push(f);
-  applyDrizzleMigrationsForTables(f.harness, [
-    "center_agent_memory_policies",
-    "center_agent_memory_subjects",
-  ]);
   Reflect.set(f.env, "ZEP_OPENMELD_API_KEY", "controlled-test-provider");
   if (!options.shared) {
     const current = f.spaces.get(f.request.spaceId);
@@ -144,7 +132,7 @@ async function fixture(
           : "Private prior conversation",
     });
   }
-  const repository = createD1CenterAgentMemoryRepository(f.harness.db);
+  const repository = createPostgresCenterAgentMemoryRepository(f.harness.db);
   const member = await repository.upsertMemberSubject({
     organizationId: f.request.organizationId,
     memberId: f.speaker.id,
@@ -222,9 +210,9 @@ function fact(
   return ids;
 }
 
-function persistedSubjects(f: Awaited<ReturnType<typeof fixture>>) {
-  return f.harness.queryAll({
-    sql: "SELECT * FROM center_agent_memory_subjects ORDER BY subject_id",
+async function persistedSubjects(f: Awaited<ReturnType<typeof fixture>>) {
+  return await f.harness.queryAll({
+    text: 'SELECT * FROM openmeld."center_agent_memory_subjects" ORDER BY subject_id',
   });
 }
 
@@ -241,7 +229,7 @@ describe("authorized retained-memory search from normal member tools", () => {
         { spaceId: EVIDENCE_OTHER_SPACE_ID, signalId: "prior-message-2" },
       ],
     });
-    const before = persistedSubjects(f);
+    const before = await persistedSubjects(f);
     const output = await executeEvidenceCodeMode({
       fixture: f,
       binding: f.binding,
@@ -254,7 +242,7 @@ describe("authorized retained-memory search from normal member tools", () => {
     expect(result.status).toBe("matched");
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({
-      text: CONCLUSION,
+      text: `[Fact validity: unknown] ${CONCLUSION}`,
       scope: "member",
       currentness: "not_verified",
       interpretation: "remembered_summary_not_quote",
@@ -271,7 +259,7 @@ describe("authorized retained-memory search from normal member tools", () => {
     expect(provider.search).toHaveBeenCalledWith(
       expect.objectContaining({ query: "review", userId: f.member.subjectId })
     );
-    expect(persistedSubjects(f)).toEqual(before);
+    expect(await persistedSubjects(f)).toEqual(before);
     for (const mutation of [
       provider.add,
       provider.create,
@@ -304,7 +292,9 @@ describe("authorized retained-memory search from normal member tools", () => {
     );
     const partial = await f.read();
     expect(partial.status).toBe("partial");
-    expect(partial.items[0]?.text).toBe(CONCLUSION);
+    expect(partial.items[0]?.text).toBe(
+      `[Fact validity: unknown] ${CONCLUSION}`
+    );
     expect(partial).not.toHaveProperty("failedSourceCount");
   });
 
@@ -363,7 +353,7 @@ describe("authorized retained-memory search from normal member tools", () => {
       (output as { result: unknown }).result
     );
     expect(result.items.map((item) => item.text)).toEqual([
-      "The public review starts at noon.",
+      "[Fact validity: unknown] The public review starts at noon.",
     ]);
     expect(JSON.stringify(output)).not.toContain(
       "Mixed private finance conclusion"
@@ -460,10 +450,10 @@ describe("authorized retained-memory search from normal member tools", () => {
       nowMs: TEST_NOW_MS,
       updatedByUserId: f.speaker.ownerUserId,
     });
-    const before = persistedSubjects(f);
+    const before = await persistedSubjects(f);
     expect(await f.read()).toMatchObject({ status: "no_match", items: [] });
     expect(provider.search).not.toHaveBeenCalled();
-    expect(persistedSubjects(f)).toEqual(before);
+    expect(await persistedSubjects(f)).toEqual(before);
     expect(provider.create).not.toHaveBeenCalled();
     expect(provider.userAdd).not.toHaveBeenCalled();
   });
@@ -478,10 +468,10 @@ describe("authorized retained-memory search from normal member tools", () => {
     ).rejects.toThrow();
     await expect(f.read(" ")).rejects.toThrow();
     await expect(f.read("x".repeat(401))).rejects.toThrow();
-    provider.search.mockImplementation(() => {
-      f.harness.run({
-        sql: "DELETE FROM members WHERE id = ?",
-        params: [f.speaker.id],
+    provider.search.mockImplementation(async () => {
+      await f.harness.query({
+        text: 'DELETE FROM openmeld."members" WHERE id = $1',
+        values: [f.speaker.id],
       });
       return Promise.resolve({ edges: [] });
     });

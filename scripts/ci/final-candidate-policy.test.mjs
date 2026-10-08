@@ -11,6 +11,7 @@ import {
   createFinalCandidatePlan,
   evidenceMatchesCandidate,
   executeCandidateChecks,
+  resolveCandidateDependencyScope,
 } from "./final-candidate-policy.mjs";
 
 const BASE_SHA = "1".repeat(40);
@@ -38,6 +39,40 @@ const createPlan = (changedPaths, overrides = {}) =>
   });
 
 const checkIds = (plan) => plan.selectedChecks.map((check) => check.id);
+
+test("documentation tooling needs only root dependencies; executable checks retain the workspace", () => {
+  for (const candidateKind of ["pull-request", "merge-group"]) {
+    for (const confidence of ["standard", "full"]) {
+      assert.equal(
+        resolveCandidateDependencyScope(
+          createPlan(["developing/README.md", "changelog/index.json"], {
+            candidateKind,
+            confidence,
+            mode: "remote",
+          })
+        ),
+        "root"
+      );
+    }
+  }
+  for (const changedPaths of [
+    [],
+    ["clients/web/src/sidebar.tsx"],
+    ["package.json", "README.md"],
+    ["release/openmeld-cli-skill/playbooks/agent-onboarding.md"],
+    ["release/local-components.json"],
+    ["scripts/docs/verify-docs-lifecycle.mjs"],
+  ]) {
+    assert.equal(
+      resolveCandidateDependencyScope(createPlan(changedPaths)),
+      "workspace",
+      changedPaths.join(", ")
+    );
+  }
+  const futurePlan = createPlan(["README.md"]);
+  futurePlan.selectedChecks.push({ id: "new-check" });
+  assert.equal(resolveCandidateDependencyScope(futurePlan), "workspace");
+});
 
 test("Final Candidate checks signed Skill Markdown even when the diff is documentation-only", () => {
   for (const [path, selected] of [
@@ -96,6 +131,14 @@ test("standard final certification does not repeat workspace checks and unit tes
   const plan = createPlan(["clients/web/src/app.tsx"]);
 
   assert.deepEqual(checkIds(plan), ["diff-integrity"]);
+  assert.ok(!checkIds(plan).includes("affected-integration-tests"));
+});
+
+test("native PostgreSQL migration-only changes retain the database guard", () => {
+  const plan = createPlan([
+    "packages/db/postgresql/migrations/0014_batch_wake_publications.sql",
+  ]);
+  assert.ok(checkIds(plan).includes("database-contract"));
   assert.ok(!checkIds(plan).includes("affected-integration-tests"));
 });
 

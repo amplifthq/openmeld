@@ -12,7 +12,6 @@ export type CenterAgentDirectMessageOpenTimingStage =
   | "meta_upsert"
   | "members_upsert"
   | "direct_message_open"
-  | "welcome"
   | "response_validation";
 
 export type CenterAgentDirectMessageOpenTimingRecorder = {

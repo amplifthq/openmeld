@@ -2,16 +2,26 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import {
+  fauxAssistantMessage,
+  fauxProvider,
+  getCurrentSystemPrompt,
+  getCurrentTools,
+} from "@earendil-works/pi-ai";
 import { init, useModel } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
 import { expect, it } from "vitest";
+import {
+  getRemoteAgentModelPurpose,
+  installRemoteAgentExecutionInstrumentation,
+} from "../flue-adapter/execution-context";
 import {
   projectRemoteAgentResourceSignal,
   REMOTE_AGENT_TOOL_CALLING_CONTRACT,
 } from "../flue-adapter/tool-presentation";
 
 it("projects trusted legacy events before compaction and preserves the resulting summary across recovery", async () => {
+  installRemoteAgentExecutionInstrumentation();
   const directory = await mkdtemp(join(tmpdir(), "catalog-compaction-"));
   const database = join(directory, "runtime.sqlite");
   await writeFile(
@@ -41,6 +51,7 @@ it("projects trusted legacy events before compaction and preserves the resulting
   summarizer.setResponses([
     (context) => {
       summaries += 1;
+      expect(getRemoteAgentModelPurpose()).toBe("compaction");
       const text = JSON.stringify(context.messages);
       expect(text).toContain("Historical tool registration snapshot");
       expect(text).toContain("github_get_pull_request");
@@ -85,12 +96,17 @@ it("projects trusted legacy events before compaction and preserves the resulting
     await runtime.stop();
     primary.setResponses([
       (context) => {
+        expect(getRemoteAgentModelPurpose()).toBe("agent");
         expect(JSON.stringify(context.messages)).toContain(
           "All available tools: revoked_tool"
         );
-        expect(context.systemPrompt).toContain("Historical tool catalogs");
+        expect(getCurrentSystemPrompt(context.messages)).toContain(
+          "Historical tool catalogs"
+        );
         expect(
-          context.tools?.some((tool) => tool.name === "revoked_tool")
+          getCurrentTools(context.messages).some(
+            (tool) => tool.name === "revoked_tool"
+          )
         ).toBe(false);
         return fauxAssistantMessage("Cedar remembered after restart.");
       },

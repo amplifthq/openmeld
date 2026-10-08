@@ -1,7 +1,6 @@
-import type { CENTER_AGENT_APP_CONNECTOR_SERVICES } from "@openmeld/schemas";
+import type { ConnectorService } from "@openmeld/schemas/types";
 
-export type CenterAgentAppConnectorService =
-  (typeof CENTER_AGENT_APP_CONNECTOR_SERVICES)[number];
+export type CenterAgentAppConnectorService = ConnectorService;
 
 const CONNECTED_APP_DISPLAY_NAME: Record<
   CenterAgentAppConnectorService,
@@ -37,5 +36,5 @@ export function resolveConnectedAppDisplayName(
 export function getConnectedAppDisplayName(
   service: CenterAgentAppConnectorService
 ): string {
-  return CONNECTED_APP_DISPLAY_NAME[service];
+  return CONNECTED_APP_DISPLAY_NAME[service] ?? service;
 }

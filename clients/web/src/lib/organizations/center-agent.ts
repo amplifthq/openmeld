@@ -9,6 +9,7 @@ import type {
 	CenterAgentModelPreference,
 	CenterAgentSlackWorkspaceConnectionResponse,
 	CenterAgentSlackWorkspaceDisconnectResponse,
+	CenterAgentUpdateProfileBody,
 	CenterAgentUpdateProfileResponse,
 	DesignateCenterAgentResponse,
 	GetCenterAgentDesignationResponse,
@@ -261,11 +262,13 @@ export async function consumeSlackIdentityLink(input: {
 
 export async function updateCurrentCenterAgentProfile(input: {
 	organizationId: string;
-	profileName: string;
+	profileName?: string;
+	avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
 }): Promise<CenterAgentUpdateProfileResponse> {
 	try {
 		return await createWebCenterAgentApi(input.organizationId).updateProfile({
-			profileName: input.profileName,
+			...(input.profileName ? { profileName: input.profileName } : {}),
+			...(input.avatarStyle ? { avatarStyle: input.avatarStyle } : {}),
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -345,6 +348,8 @@ function resolveCenterAgentErrorMessageWithoutDiagnostics(
 	const code = failure.upstreamCode ?? failure.code;
 
 	switch (code) {
+		case "space.not_found":
+			return "This chat was removed or is not available to your account. Open your chat or try again.";
 		case "message_channel.organization_required":
 			return "Create an organization before connecting Slack, Lark, or Feishu.";
 		case "slack.workspace_already_bound":
@@ -452,7 +457,7 @@ function appendCenterAgentDiagnostics(
 			: failure.code;
 	}
 	const requestId = failure.requestId?.trim() || null;
-	return `${message} Error code: ${diagnosticCode}.${
+	return `${message}${diagnosticCode ? ` Error code: ${diagnosticCode}.` : ""}${
 		requestId ? ` Request ID: ${requestId}.` : ""
 	}`;
 }

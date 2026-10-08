@@ -15,72 +15,40 @@
 
 ## Merge and Release Task
 
-Use this path for one PR or a compatible batch. If already merged, recover the
-pre-merge `main` commit and final product SHA, then start at step 3. Keep one
-compact record of what remains; follow the linked sections only for the
-branches used.
+For one PR or a compatible batch:
 
-1. Identify the requested PRs, their dependency order, and the `main` commit
-   before the first merge. For compatible ready changes, use [one integrated
-   Final Candidate](#final-candidate) instead of repeating the same broad checks
-   on each leaf. For a batch crossing release scopes, run
-   `pnpm run release:plan -- --base <pre-merge-sha>` on the integrated candidate
-   to inspect the changed paths and deployment order without scanning hosted
-   history. Decide intended versions for artifacts in scope. Stable local-component
-   source, its compatibility floor, and its stamp may share one PR and one Final
-   Candidate. A separate release PR is useful when the product change already
-   merged. Restamp after any later source change.
-   Resolve Core/Service version-floor changes and the
-   [Windows helper source](production-release.md#cli-release) before paying for
-   the final candidate or stamping a release manifest.
-   Branch names do not grant release permission; the actual
-   manifest diff selects strict artifact verification.
-2. [Merge](#merge) against current `main`. If a merge command fails or returns
-   an uncertain result, read the remote PR's `state` and `mergeCommit` before
-   retrying. Pin the integrated product SHA; a later release-only version
-   commit has its own publication SHA. Keep unrelated newer commits outside
-   this release.
-3. For a multi-scope batch or an unknown deployment backlog, run
-   `pnpm run release:status -- --ref <product-sha> --change-base <pre-merge-sha>`
-   once for the initial plan. When the next release scope is already known, go
-   straight to its guarded preflight: it reads the same deployment history and
-   checks that scope's prerequisites. Do not run a separate global status scan
-   before it. Guarded release commands recheck before publication.
-   Do not repeat the full history scan after each stage; use that stage's
-   workflow result, release receipt, and health evidence to track completion.
-   When every planned stage has those receipts, do not rescan solely to close
-   the task; rescan for missing, changed, or conflicting evidence.
-   If unrelated commits landed between separate merges, plan those ranges
-   separately instead of attributing them to this batch.
-   It covers Database, cloud, and CLI; read current-change scopes separately
-   from historical backlog. [Assess Desktop](production-release.md#desktop-release-coverage)
-   for the same range, and [assess OpenConnector](production-release.md#openconnector-release)
-   when that external source or its production configuration is in the batch.
-   A zero pending-scope result does not close these separate rows. Once the
-   exact source is pinned, start independent native artifact builds while cloud
-   stages run; promotion still waits for its own provenance and dependencies.
-4. [Release](#release) each affected component through its owner workflow,
-   respecting the planner's dependency order. If Core is selected and shared
-   schema or Service inputs changed, run the read-only
-   `pnpm release:local-components plan --next` before starting Core; it can run
-   alongside an earlier independent deploy stage. Decide the supported Core/CLI
-   path from that result. Use one low-frequency workflow wait; read logs when
-   state changes or fails instead of polling unchanged output. Record each
-   component and supported Desktop platform as
-   released, pending, excluded with a concrete
-   reason, or unknown when evidence cannot be read. Promotion and [installed
-   A-to-B acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
-   are separate Desktop states.
-5. Finish with [health and the smallest real-user smoke](#health-and-real-user-smoke)
-   for changed paths. Report the product and any release-only source SHA,
-   component evidence, pending acceptance, and unknowns. A published component
-   does not complete the batch while another affected row is unresolved.
+1. Stabilize the scope and run focused checks. Use one integrated
+   [Final Candidate](#final-candidate) for compatible changes. Pin the pre-merge
+   base and the final product SHA.
+2. [Merge](#merge) against current main. If a merge result is uncertain, read the
+   remote PR state before retrying.
+3. Plan the affected release scopes once. For an unknown backlog, run
+   `pnpm release:status -- --ref <product-sha> --change-base <pre-merge-sha>`.
+   For a known scope, go straight to its guarded release command. Resolve
+   local-component stamping and receiver-first ordering before starting a
+   Core/CLI release. See [production release](production-release.md) for the
+   commands and component rules.
+4. Release the pinned source in dependency order. Parallelize independent
+   stages. Follow workflow results and component receipts; inspect logs on a
+   failure or meaningful state change. Resume an interrupted release through
+   its original guarded command.
+5. Run health checks and real-user smoke for the changed paths. Report what
+   shipped, what was actually tested, and any remaining failure or uncertainty.
+
+Include Desktop or OpenConnector when the requested scope or changed behavior
+requires their own release. Their publication owners are linked from
+[production release](production-release.md). A later release-only version commit
+may carry the pinned product changes.
 
 ## Daily Workflow
 
 The same workflow applies to engineers, Codex, Claude Code, and other coding
 agents. Run `pnpm install --frozen-lockfile` in each checkout to install dependencies
 and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
+
+Reserve `codex/release-*` branches for artifact release preparation: their pushes
+run strict release verification. Use an ordinary `codex/*` name for CI or release
+workflow improvements; those changes do not themselves publish artifacts.
 
 | Stage | Required work | Why |
 | --- | --- | --- |
@@ -149,6 +117,14 @@ commands run sequentially, Node test files run serially,
 and selected Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 
+Focused Vitest execution discovers the selected files through the changed
+workspace's existing `vitest*.config` contracts, including unit and integration
+configs. It preserves the unit script's CLI environment override and runs only
+the selected specifications. A selected file excluded by every config, or
+missing from the completed results, fails feedback even when a config allows
+no tests. Explicit test/platform skips and intentional multi-project ownership
+retain their package-defined meaning; they are not omitted-file failures.
+
 Workers pools need their own runtime limits. Gateway tests share one runtime
 and module cache, clear global/environment stubs, and retain per-test storage
 isolation; Vitest's worker count alone does not bound that pool.
@@ -211,7 +187,7 @@ gh workflow run deep-confidence.yml --ref <candidate-branch> \
   -f scope=release-artifacts -f artifact_scopes=web,desktop
 ```
 
-Choose `web` or `desktop` when only that artifact is needed. This mode skips
+Choose `web`, `website`, or `desktop` when only that artifact is needed. This mode skips
 the broad diagnostic jobs, runs the same exact-source renderer/prerender and
 Workerd SSR entrypoints, and retains their source/input/output receipts. It
 uses read-only repository access and no production credentials. Match the run's
@@ -238,9 +214,11 @@ component deployment, CLI/Desktop publication, or Product Smoke.
 Trusted control installs only the shared evidence parser's production
 dependencies. The result publisher does not restore the full development store;
 restoring that cache costs more than installing its small runtime. Candidate
-dependencies stay isolated and complete for the selected checks. This setup is
-the same for all PR scopes, confidence levels, merge groups, and local fallback;
-it does not change validation coverage or grant candidate code write credentials.
+dependencies stay isolated and complete for the selected checks. Hosted
+documentation-only plans install root tooling without native rebuilds; signed
+CLI Skills, release readiness, and executable changes keep the workspace install.
+The trusted plan makes this decision for both PRs and merge groups. This changes
+neither validation coverage nor candidate credential isolation.
 
 Hosted `trusted-control-entrypoints` compares the current-main control
 projection, not every workspace or lockfile byte. The isolated installer
@@ -258,10 +236,17 @@ command wrapper also forces a trusted `script-shell` so a candidate `.npmrc`
 cannot rewrite how later `pnpm run` checks execute. Those pull requests use
 the documented local explicit bootstrap. When that refuse happens, the
 required `OpenMeld Final Candidate` status names the control refuse and the
-bootstrap path. The Final Candidate Runner job also stays red because the
-runner still exits after the control check. The publisher job does not add a
-third lookalike product-test failure. The merge gate remains that one required
-status; this is not a second delivery process.
+bootstrap path. Trusted current-main control classifies that case before
+candidate dependencies or validation run, so the `Final Candidate Runner`
+check is skipped instead of showing a product-test failure. Its check output
+explains that protected local validation is required and links back to this
+fallback. [GitHub treats a skipped check as non-blocking](https://docs.github.com/en/pull-requests/reference/status-checks),
+so the Runner is not the merge authority: the repository ruleset requires only the separate
+`OpenMeld Final Candidate` commit status, which remains failed until the exact
+candidate passes the protected local bootstrap. Any ordinary test, build,
+runner, classifier, or publisher failure remains a failure and cannot publish
+green. This changes the presentation of an expected trust refusal without
+creating a second delivery process or weakening the merge gate.
 
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a
@@ -511,37 +496,73 @@ publish the same portable tarball, as defined in
 Windows compatibility CI also consumes that artifact and exercises the generated
 PowerShell bootstrap; signed-in computer and Wake acceptance remain separate.
 
-## Agent Experience Occurrence Feedback
+## Agent Experience Feedback
 
 Task collaboration uses focused, agent-chosen `[OpenMeld Dev]` Spaces only when
 they help the actual work. Follow
 [OpenMeld Development Collaboration](development-workflow.md#openmeld-development-collaboration)
 for Space naming, CLI-only handoffs, optional membership and Wake, and native
-environment callbacks. The occurrence log below has a different purpose.
+environment callbacks. The feedback Space below is for confirmed product
+problems that need another owner, not an occurrence log or repair progress feed.
 
-Record every firsthand problem an Agent encounters while using or developing
-any OpenMeld product surface, App, client, Service, runtime, integration, or
-delivery path. This includes Web, Desktop, CLI, Spaces, Agents, Center Agent,
-Inbox, Projects, Documents, Agent Activity, Remote Agent, connected Apps,
-Staging, developer workflows, CI/CD, Wake testing, release, validation, and
-agent-worker behavior. Use the non-interactive Space:
+Record only firsthand OpenMeld product bugs or experience gaps that remain
+confirmed in current `origin/main`, that you will not take on, and that have no
+existing repair owner. Use the non-interactive Space:
 
 ```text
 [Agent Experience] OpenMeld CLI, Service & Workflow Feedback
 https://openmeld.ai/o/amplift/spaces/5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378
 ```
 
-Use Felix's authorized Human Profile directly; no Service, Wake, history read,
-duplicate search, or Agent membership is required. Every Agent records what it
-personally encountered even when another Agent may have reported the same
-symptom. Repeated reports are frequency evidence. Recording does not authorize
-or require an immediate fix.
+### Check eligibility before posting
 
-Start with `[bug]`, `[friction]`, `[gap]`, `[feature]`, or `[shared-pattern]`.
-Identify the actual Agent, model when known, session or thread ID, UTC time,
-context, expected and observed behavior, impact, non-sensitive evidence, and
-current status. Keep the report brief and continue the main task unless the
-problem is a real blocker. Never include credentials, secrets, private
+All three conditions must hold:
+
+1. **Confirmed current-origin product problem.** Refresh `origin/main` and
+   record its commit. Use relevant source evidence or a safe isolated
+   reproduction to confirm the observed bug or experience gap still exists.
+   Identify the affected product surface, expected behavior, and concrete user
+   impact. A failure notice alone does not establish a product defect. If the
+   evidence is insufficient, keep investigating in the task instead of posting.
+2. **You will not take on the repair.** If you intend to investigate and fix it,
+   keep the evidence and progress in your task and PR. This applies before you
+   create a branch or PR, during implementation, and while awaiting review or
+   release. If you later leave a confirmed problem unresolved without an owner,
+   check eligibility again and report it as a handoff.
+3. **No existing repair or duplicate report.** Check relevant open PRs, known
+   active tasks, and a bounded recent Space history. Inspect actual scope;
+   a similar PR title or Activity status does not prove coverage or ownership.
+   An existing repair owner counts even without a PR. Keep additional evidence
+   with that task or PR. For an existing unowned Space report, add material new
+   evidence in its thread instead of creating another top-level report.
+
+Cloud, Web, Desktop, CLI, and Service product behavior can qualify. Problems
+confined to a development branch, staging, fixtures, internal build, CI/CD,
+release, or validation tooling stay in the owning task, PR, or issue. An
+isolated reproduction may prove a current-origin product defect; it does not
+prove that production runs the same code. State those facts separately. Never
+reproduce a dangerous fault in production just to qualify for this Space.
+
+Expected permission, input, quota, and upstream failures are not product bugs
+when OpenMeld handles them correctly. Concrete mishandling, such as lost
+results or a false success state, can qualify. Exclude speculative causes,
+abstract feature wishes, already-fixed problems, and repair or acceptance
+progress updates. A missing deployment of an existing fix belongs with that
+release, not in a new feedback report.
+
+### One report per unresolved problem
+
+Use Felix's authorized Human Profile directly after the checks above. No
+Service startup, Wake, or Agent membership is required. Recording requests a
+handoff; it does not authorize another Agent to implement a fix. Preserve
+existing reports as history; this rule does not authorize deleting them.
+
+Start with `[bug]`, `[friction]`, or `[gap]`. Identify the actual Agent, model
+when known, session or thread ID, UTC time, product environment/version, task,
+expected and observed behavior, concrete impact, brief non-sensitive evidence,
+the checked origin commit, and why the problem needs another owner. Keep the
+report brief and continue the main task unless the problem is a real blocker.
+Never include credentials, secrets, private
 transcripts, or unrelated user content.
 
 Use this direct command template:
@@ -554,17 +575,20 @@ openmeld space send 5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6c
 Reporter: <agent and model>
 Session: <session or thread ID>
 Observed: <UTC timestamp>
-Context: <command or workflow>
+Product: <affected product surface and observed environment/version>
+Origin: <fresh origin/main commit and evidence that the problem remains>
+Context: <real task and command or workflow>
 Expected: <expected result>
 Observed behavior: <what happened>
 Impact: <time, tokens, correctness, or user impact>
 Evidence: <non-sensitive IDs, timings, or exact error>
-Status: recorded only; not fixed by this report
+Ownership: <why I will not take this on; relevant repair/duplicate checks>
+Status: confirmed unresolved problem; needs another owner
 EOF
 ```
 
 The former `OpenMeld CI/CD & Agent Workflow Feedback` Space remains historical;
-use this occurrence log for new reports so Agents have one current destination.
+use this Space only for new reports that pass all eligibility checks above.
 
 ## Change Checklist
 

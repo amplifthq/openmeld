@@ -164,6 +164,52 @@ const retryableControllerCheckReadiness: CurrentLocalRuntimeReplyReadinessRespon
 	};
 
 describe("mapCurrentLocalRuntimeReplyReadinessQueryState", () => {
+	it("keeps a connected execution Host blocker distinct from a disconnected computer", () => {
+		const readiness: CurrentLocalRuntimeReplyReadinessResponse = {
+			...disconnectedReadiness,
+			message:
+				"OpenMeld cannot confirm that work from the previous local execution host has ended.",
+			nextAction: "none",
+			primaryBlocker: "execution_host_unavailable",
+			service: {
+				...disconnectedReadiness.service,
+				connected: true,
+				executionHost: {
+					activeCount: null,
+					admission: null,
+					hostInstanceId: "775cb4ce-60fd-4581-b2b7-03a0381711c3",
+					observedAtMs: null,
+					pendingCount: null,
+					responsive: false,
+					startupReplayPending: null,
+					unacknowledgedResultCount: null,
+					unavailableReason: {
+						code: "host.previous_work_unconfirmed",
+						message:
+							"OpenMeld cannot confirm that work from the previous local execution host has ended.",
+						recoveryAction: "restart_computer",
+					},
+				},
+				matchingCurrentRuntime: true,
+				reasonCodes: ["host.previous_work_unconfirmed"],
+				sessionDeviceId: "device-office",
+				sessionLane: "prod",
+			},
+			status: "blocked",
+		};
+
+		expect(
+			mapCurrentLocalRuntimeReplyReadinessQueryState({
+				isPending: false,
+				readiness,
+			})
+		).toMatchObject({
+			detailReasonCode: "host.previous_work_unconfirmed",
+			reasonCode: "execution_host.unavailable",
+			status: "needs_repair",
+		});
+	});
+
 	it("keeps hard disconnected service evidence actionable while a fresh check is running", () => {
 		expect(
 			mapCurrentLocalRuntimeReplyReadinessQueryState({

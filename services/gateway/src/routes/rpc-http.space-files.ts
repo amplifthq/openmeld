@@ -83,7 +83,7 @@ const SPACE_COMPOSER_UPLOAD_ROUTE =
   "/v1/spaces/:spaceId/composer-uploads/:entryId";
 const SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE =
   "/v1/spaces/:spaceId/composer-uploads/:entryId/publish";
-const PRIVATE_CONTENT_CACHE_CONTROL = "private, no-store";
+const PRIVATE_CONTENT_CACHE_CONTROL = "private, no-store, no-transform";
 
 export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
   const settingsRoute = "/v1/spaces/:spaceId/files/:entryId/update-settings";

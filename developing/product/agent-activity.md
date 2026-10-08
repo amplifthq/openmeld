@@ -142,7 +142,7 @@ table is a projection derived from accepted events.
 - The same event id and canonical payload hash is `reused`.
 - The same event id with another payload is permanently rejected as
   `event_id_conflict`.
-- Event acceptance and current-session projection update are one atomic D1
+- Event acceptance and current-session projection update are one atomic PostgreSQL
   operation.
 - Event reporting derives member, device, and runtime authority from the
   authenticated request and registered OpenMeld Service runtime.
@@ -218,6 +218,12 @@ reconciliation source. OpenMeld Service enumerates every provider-retained
 Session available through that provider's documented local surface, maps it to
 exactly one authorized connection, and uploads bounded pages containing only
 the shared metadata contract.
+
+Codex discovery includes every model provider and uses `updatedAt` for the
+last activity time. `recencyAt` is a sorting key, not an activity timestamp.
+When native discovery lists multiple copies of one thread, Service resolves
+its metadata with `thread/read` and `includeTurns: false`. It does not read
+conversation turns to reconcile the inventory.
 
 Provider-reported working directories are resolved to their canonical local
 paths before connection matching. This includes arbitrary user-created symlink
@@ -383,6 +389,12 @@ Human activity instead of borrowing a timestamp from this product.
 ## Retention And Digests
 
 - Level-zero events are retained for 14 days.
+- Daily cleanup processes at most ten batches of 5,000 rows per table, after
+  aggregation. Unaggregated events remain intact. Session-count fences remain
+  while any unaggregated event references them, even after their normal expiry.
+  A backlog older than the fence window can still be aggregated: a newly
+  created fence never has an expiry earlier than its creation. Batch exhaustion
+  is reported; later scheduled invocations continue without double-counting.
 - Expired current sessions and execution links are cleaned with the same
   retention discipline.
 - Daily aggregate evidence is retained after raw events expire. It records
@@ -553,7 +565,71 @@ Binding owner continues to adjudicate historical duplicate conversations. An
 old producer continues to report only historical Activity; a new producer
 treats a missing reconciliation route as retryable and never erases the last
 complete Core projection. Rollback stops the new local producer before removing
-readers; retained D1 evidence is never rewritten to simulate rollback.
-The legacy digest rollout still uses migrations 0029, 0030, 0031, then 0032;
-the one-time active-duration backfill runs only after migration 0032 and its
-Core reader are deployed.
+readers; retained PostgreSQL evidence is never rewritten to simulate rollback.
+The original D1 digest rollout used migrations 0029–0032 and a one-time
+active-duration backfill. Those schema prerequisites are included in the native
+PostgreSQL baseline; do not replay the old migration/backfill sequence. New
+changes use the [PostgreSQL workflow](../engineering/postgresql.md).
+## On-demand session history
+
+Session history is an optional Computer capability, separate from Activity
+metadata and File access. It is disabled by default. The Computer owner selects
+connected Project folders for each Organization and uses one access switch for
+human reads and all verified owner-delegated agents. There is no per-Agent
+allowlist. Removing and reconnecting a folder requires a new grant. Upgrading
+legacy per-Agent settings leaves access off until the owner enables it again;
+an existing narrow grant must not silently expand.
+
+The first version reads bounded Codex, Claude Code, OpenCode, and Grok Build
+user and assistant messages through the
+source Computer's live Service. Sessions do not need an OpenMeld Agent Profile.
+It does not resume sessions, import transcripts, expose reasoning or tool output,
+or support arbitrary filesystem reads. Explicit File access restrictions also
+apply. Missing identity, project, connection, or authorization evidence denies
+the read. Unsupported or offline Services cannot acknowledge settings changes.
+
+Humans and agents use the same read operation. Core supplies the authenticated
+human requester, reader, immediate delegator, and destination audience. Only
+owner requests and verified one-hop owner delegation are eligible; Organization
+or Space membership alone does not grant access. Unverified multi-hop requests
+are denied. The answering agent must select information appropriate for its
+destination; private source messages are not automatically shared with a Space.
+
+The Computer page holds Session history access and owner-only Access history
+beside File access. Service stores settings and bounded access metadata locally.
+The card keeps the master switch and Project selection directly editable.
+Only infrequent conversation browsing and access history live in the drawer.
+Settings load with the page; conversation titles and recent access load when
+the drawer opens. Provider names belong on conversation rows. Cursor and
+Antigravity do not yet offer a verified retained-history read path and remain
+explicitly unsupported; resume/load operations must not substitute for reads.
+Switches save immediately, with confirmed state and inline failure recovery.
+The drawer uses one shared Fluid Scroll Area filling its remaining height,
+without nested fixed-height lists. Project selection on the card remains
+bounded. Conversation bodies load
+only after an explicit Read action, in a bounded reader that clears its body on
+close or return to the list. Reading replaces the drawer contents, without a
+nested dialog. There are no separate browse or reveal-audit gates inside it.
+Computer-scoped inventory queries filter sessions and source coverage before
+pagination. Discovery failure or incomplete coverage must remain visible; an
+empty page does not establish that the Computer has no sessions. Personal
+Remote Agents receive the same inventory and history tools, subject to their
+existing per-call Space authorization and the history access policy above.
+Inventory RPCs admit a personal Remote Agent's active delivery and verified
+member requester without requiring Center designation. Center callers retain
+their existing designation checks; inventory visibility never grants history
+read access.
+The history service does not persist transcript bodies, index them in cloud
+storage, or put them in telemetry or browser persistent caches. An authorized
+downstream agent conversation or model provider can retain a tool result or a
+published answer; on-demand access does not change those retention rules.
+
+Reads return at most 50 messages, with at most 8,000 characters per message.
+The native response is bounded to 8 MiB; larger sessions fail explicitly.
+OpenCode reads at most 1,000 text parts and honors its undo boundary. Grok Build
+reads the current persisted ACP envelope format; sessions containing rewind
+markers fail closed until replay semantics are supported. Access
+history retains the latest 200 requests locally, including the verified human
+root, reader, immediate delegator, destination, range, and outcome. Revocation
+stops subsequent reads and in-flight reads whose authorization changes before
+release. It cannot retract results already delivered.

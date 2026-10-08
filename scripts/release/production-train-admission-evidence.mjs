@@ -93,9 +93,13 @@ export async function verifyParentAdmission(input, train, dependencies = {}) {
       throw new Error(`Parent admission ${key} does not match this release.`);
     }
   }
-  const declaredArtifactScopes = ["cli", "desktop", "web"].filter((scope) =>
-    train.scopes.includes(scope)
-  );
+  const declaredArtifactScopes = [
+    "cli",
+    "desktop",
+    "web",
+    "website",
+    "docs",
+  ].filter((scope) => train.scopes.includes(scope));
   if (
     evidence.artifactScopes.some(
       (scope) => !declaredArtifactScopes.includes(scope)
@@ -113,30 +117,29 @@ export async function verifyParentAdmission(input, train, dependencies = {}) {
   return evidence;
 }
 
-// Only Web consumes bytes in this graph. Other stages verify admission identity
-// without downloading artifacts they will not deploy. Never rebuild on failure.
-export async function restoreParentWebArtifact(input, evidence) {
-  const expected = evidence.artifacts.find(({ scope }) => scope === "web");
+// Each renderer consumes only its admitted bytes. Never rebuild on failure.
+export async function restoreParentRendererArtifact(input, evidence, scope) {
+  const expected = evidence.artifacts.find((entry) => entry.scope === scope);
   const receiptPath = path.join(
     input.root,
-    "dev-tmp/release-artifact-check/web.json"
+    `dev-tmp/release-artifact-check/${scope}.json`
   );
   const bytes = await readFile(receiptPath);
   if (!expected || admissionSha256(bytes) !== expected.receiptSha256) {
     throw new Error(
-      "Parent Web artifact receipt hash does not match admission."
+      `Parent ${scope} artifact receipt hash does not match admission.`
     );
   }
   const receipt = JSON.parse(bytes);
   const identity = await artifactInputIdentity(
     input.root,
-    "web",
+    scope,
     input.sourceSha,
     input.env
   );
   if (
     receipt.sourceSha !== input.sourceSha ||
-    receipt.scope !== "web" ||
+    receipt.scope !== scope ||
     receipt.allowDirty !== false ||
     receipt.runtime !== expected.runtime ||
     receipt.inputIdentity !== identity ||
@@ -144,14 +147,14 @@ export async function restoreParentWebArtifact(input, evidence) {
     receipt.artifactSha256 !== expected.artifactSha256 ||
     !(await restoreArtifactSnapshot({
       receiptPath,
-      webRoot: path.join(input.root, "clients/web"),
-      scope: "web",
+      webRoot: path.join(input.root, `clients/${scope}`),
+      scope,
       identity,
       artifactSha256: expected.artifactSha256,
     }))
   ) {
     throw new Error(
-      "Parent Web artifact inputs or bytes do not match admission."
+      `Parent ${scope} artifact inputs or bytes do not match admission.`
     );
   }
 }

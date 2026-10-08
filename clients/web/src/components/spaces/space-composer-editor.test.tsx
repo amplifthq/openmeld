@@ -457,8 +457,8 @@ describe("SpaceComposerEditor", () => {
 			element.getAttribute("data-slot")
 		);
 		expect(visibleParts.slice(0, 3)).toEqual([
-			"space-composer-profile-token-at",
-			"space-composer-profile-token-icon",
+			"space-profile-mention-token-at",
+			"space-profile-mention-token-icon",
 			"space-composer-profile-token-name",
 		]);
 		expect(within(token).getByText("Runner").className).not.toContain(
@@ -944,8 +944,8 @@ describe("SpaceComposerEditor", () => {
 		const avatar = within(runnerOption).getByTestId(
 			`space-profile-icon-${AGENT_PROFILE_ID}`
 		);
-		expect(avatar.getAttribute("data-slot")).toBe("fluid-avatar");
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.getAttribute("data-avatar-icon")).toBe("agent");
+		expect(avatar.getAttribute("data-avatar-shape")).toBe("circle");
 		expect(
 			within(runnerOption).queryByTestId("local-agent-logo-codex")
 		).toBeNull();
@@ -1377,6 +1377,28 @@ describe("SpaceComposerEditor", () => {
 				screen.getByRole("textbox", { name: "Message this space" })
 			);
 		});
+	});
+
+	it("does not write a draft when only the caret moves after restoration", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const props = {
+			addressingTargets: [],
+			ariaLabel: "Message this space",
+			authoredMentions: [],
+			composerRef,
+			mentionPickerItems: [],
+			onChange,
+			onSend: vi.fn(),
+			placeholder: "Message",
+		};
+		const view = render(<SpaceComposerEditor {...props} text="" />);
+		view.rerender(<SpaceComposerEditor {...props} text="My edited draft" />);
+		await act(() => {
+			composerRef.current?.selectTextRange({ start: 3, end: 3 });
+		});
+		expect(screen.getByText("My edited draft")).toBeTruthy();
+		expect(onChange).not.toHaveBeenCalled();
 	});
 
 	it("cancels deferred draft focus when the user focuses another input", () => {

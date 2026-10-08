@@ -33,6 +33,38 @@ const legacyEnvelope = z.strictObject({
 });
 
 describe("Plugin connection reply compatibility", () => {
+  it.each([
+    ["https://openmeld.ai", "https://app.openmeld.ai", true],
+    ["https://app.openmeld.ai", "https://openmeld.ai", true],
+    ["https://staging.openmeld.ai", "https://app.staging.openmeld.ai", true],
+    ["https://app.staging.openmeld.ai", "https://staging.openmeld.ai", true],
+    ["https://staging.openmeld.ai", "https://app.openmeld.ai", false],
+    ["https://other.openmeld.ai", "https://app.openmeld.ai", false],
+    ["https://openmeld.ai.attacker.invalid", "https://app.openmeld.ai", false],
+  ] as const)("reads a persisted reply from %s at %s only within its migration pair (%s)", (writtenOrigin, webOrigin, accepted) => {
+    const parsed = readPluginConnectionReplyLink({
+      organizationSlug: "acme",
+      webOrigin,
+      text: `Connect GitHub.\n\n[Open Plugin connection](${writtenOrigin}/o/acme/plugins/github?scope=personal#openmeld-plugin-connection)`,
+    });
+    expect(parsed).toEqual(
+      accepted
+        ? {
+            text: "Connect GitHub.",
+            action: {
+              label: "Open Plugin connection",
+              target: {
+                kind: "plugin_connection",
+                service: "github",
+                scope: "member",
+              },
+              url: `${webOrigin}/o/acme/plugins/github?scope=personal`,
+            },
+          }
+        : null
+    );
+  });
+
   it("prevents any public message writer from persisting the internal Plugin target", () => {
     const action = buildOpenMeldNavigationAction({
       organizationWebUrl: `${origin}/o/acme`,

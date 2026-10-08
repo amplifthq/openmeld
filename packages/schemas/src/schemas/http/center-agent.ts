@@ -1,6 +1,10 @@
 import * as z from "../../lazy-zod";
 import { computerSetupModeSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
+import {
+  spaceEvidenceReferenceSchema,
+  spaceEvidenceReferencesSchema,
+} from "../../space-evidence";
 import { hostedModelReasoningLevelSchema } from "../config/model-catalog";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { computerCareObservationSchema } from "../daemon/computer-care";
@@ -35,6 +39,7 @@ import {
   slackThreadPublicationPermalinkSchema,
 } from "../runtime/message-channel";
 import { remoteAgentSlackSearchAuthorizationSchema } from "../runtime/remote-agent-turn-envelope";
+import { workingLanguageTagSchema } from "../runtime/working-language";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
 import {
@@ -46,6 +51,7 @@ import {
   listAgentProfileCreationDefaultsResponseSchema,
 } from "./agent-profile-binding";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
+import { connectorActionReplayPermissionSchema } from "./connector-action-replay";
 import {
   connectorConnectionNameSchema,
   connectorConnectionScopeSchema,
@@ -70,7 +76,10 @@ import {
   peopleComputerTargetSchema,
 } from "./people-computers";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
-import { authProfileViewSchema } from "./profiles";
+import {
+  authProfileViewSchema,
+  CENTER_AGENT_BOT_AVATAR_TYPES,
+} from "./profiles";
 import { projectIssueDestinationSchema } from "./projects";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
 import {
@@ -87,6 +96,10 @@ import {
   spaceDispatchTraceAttemptStatusSchema,
   spaceDispatchTraceDispatchStatusSchema,
 } from "./space-dispatch-trace";
+import {
+  spaceMessageEvidenceResponseSchema,
+  spaceThreadEvidenceResponseSchema,
+} from "./space-evidence";
 import { spaceMessageFileReferencesSchema } from "./space-files";
 import {
   postSpaceMembersResponseSchema,
@@ -172,6 +185,7 @@ export const centerAgentActionSchema = z.enum([
   "save_org_document",
   "read_org_space_directory",
   "read_space_context",
+  "manage_space_input_queue",
   "read_dispatch_history",
   "read_projects",
   "create_project",
@@ -259,8 +273,24 @@ export const centerAgentConnectorActionExecutionConnectionSchema =
     service: connectorServiceSchema,
   });
 
+export const connectorActionVerificationReferenceSchema = z.strictObject({
+  operationId: trimmedNonEmptyStringSchema.max(256),
+  actionId: trimmedNonEmptyStringSchema.max(160),
+});
+
+export const connectorActionVerificationEvidenceSchema = z.strictObject({
+  operationId: trimmedNonEmptyStringSchema.max(256),
+  actionId: trimmedNonEmptyStringSchema.max(160),
+  requestSignature: z.string().regex(/^[a-f0-9]{64}$/u),
+  status: centerAgentConnectorActionOperationStatusSchema,
+  connection: centerAgentConnectorActionExecutionConnectionSchema,
+  interpretation: z.literal("read_evidence_only"),
+});
+
 export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
   {
+    includeExecutionPermit: z.literal(true).optional(),
+    includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     operationId: trimmedNonEmptyStringSchema.max(256),
     service: connectorServiceSchema,
@@ -270,6 +300,8 @@ export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
 
 const centerAgentConnectorActionOperationSchema = z
   .strictObject({
+    replay: connectorActionReplayPermissionSchema.optional(),
+    replayWindowRemainingMs: z.int().nonnegative().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     connectionName: connectorConnectionNameSchema,
     createdAtMs: z.number().int().nonnegative().optional(),
@@ -304,6 +336,9 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
 
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
+    verificationOf: connectorActionVerificationReferenceSchema.optional(),
+    includeExecutionPermit: z.literal(true).optional(),
+    includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     effect: z.enum(["read", "write", "destructive", "unspecified"]).optional(),
     connectionName: connectorConnectionNameSchema,
@@ -356,6 +391,10 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
 
 export const centerAgentRecordConnectorActionOperationResponseSchema =
   z.strictObject({
+    verificationOf: connectorActionVerificationEvidenceSchema.optional(),
+    executionAllowed: z.boolean().optional(),
+    replay: connectorActionReplayPermissionSchema.optional(),
+    replayWindowRemainingMs: z.int().nonnegative().optional(),
     attribution: centerAgentAttributionSchema,
     executionConnection: centerAgentConnectorActionExecutionConnectionSchema
       .nullable()
@@ -365,6 +404,15 @@ export const centerAgentRecordConnectorActionOperationResponseSchema =
     recorded: z.literal(true),
     replayed: z.boolean(),
     status: centerAgentConnectorActionOperationStatusSchema,
+  });
+
+// A duplicate claim can return durable status without retained provider data.
+export const connectorActionTerminalReceiptSchema =
+  centerAgentRecordConnectorActionOperationResponseSchema.extend({
+    actionId: trimmedNonEmptyStringSchema,
+    status: z.enum(["completed", "failed"]),
+    executionAllowed: z.literal(false),
+    message: trimmedNonEmptyStringSchema,
   });
 
 export const centerAgentDesignationSchema = z.strictObject({
@@ -577,9 +625,18 @@ export const updateCenterAgentOperatingStateResponseSchema =
     changed: z.boolean(),
   });
 
-export const centerAgentUpdateProfileBodySchema = z.strictObject({
-  profileName: trimmedNonEmptyStringSchema,
-});
+export const centerAgentUpdateProfileBodySchema = z
+  .strictObject({
+    profileName: trimmedNonEmptyStringSchema.optional(),
+    avatarStyle: z.enum(["fluid", ...CENTER_AGENT_BOT_AVATAR_TYPES]).optional(),
+  })
+  .refine(
+    (value) =>
+      value.profileName !== undefined || value.avatarStyle !== undefined,
+    {
+      message: "Choose a profile name or avatar.",
+    }
+  );
 
 export const centerAgentUpdateProfileResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
@@ -718,6 +775,8 @@ export const centerAgentRemoveAgentProfilesFromSpaceBodySchema = z.strictObject(
 export const centerAgentSpaceContextScopeSchema = z.enum([
   "source",
   "thread",
+  "source_evidence",
+  "thread_evidence",
   "delta",
   "history",
 ]);
@@ -727,6 +786,8 @@ const centerAgentSpaceContextAnchorByScope = {
   history: null,
   source: "sourceSignalId",
   thread: "threadId",
+  source_evidence: "sourceSignalId",
+  thread_evidence: "threadId",
 } as const;
 
 export const centerAgentReadSpaceContextBodySchema = z
@@ -738,8 +799,24 @@ export const centerAgentReadSpaceContextBodySchema = z
     sourceSignalId: trimmedNonEmptyStringSchema.optional(),
     spaceId: trimmedNonEmptyStringSchema,
     threadId: trimmedNonEmptyStringSchema.optional(),
+    version: spaceEvidenceReferenceSchema.options[0].shape.version.optional(),
+    offset: z.int().nonnegative().max(1_000_000).optional(),
   })
   .superRefine((value, context) => {
+    const exact =
+      value.scope === "source_evidence" || value.scope === "thread_evidence";
+    if (
+      (!exact && (value.version !== undefined || value.offset !== undefined)) ||
+      (exact && value.limit !== undefined) ||
+      (value.offset && !value.version) ||
+      (value.scope === "thread_evidence" && (value.offset ?? 0) > 10_000)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Exact evidence pages require their original version and offset; limit applies only to context reads.",
+      });
+    }
     const requiredAnchor = value.scope
       ? centerAgentSpaceContextAnchorByScope[value.scope]
       : null;
@@ -912,8 +989,15 @@ export const centerAgentDelegationCompletionModeSchema = z.enum(
 
 export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
   .strictObject({
+    evidenceRefs: spaceEvidenceReferencesSchema.optional(),
+    pluginActions: z
+      .array(pluginDelegationRequestSchema)
+      .min(1)
+      .max(10)
+      .optional(),
     agentProfileIds: z.array(agentProfileIdSchema).min(1).max(25),
     completionMode: centerAgentDelegationCompletionModeSchema.optional(),
+    replyLanguageTag: workingLanguageTagSchema.optional(),
     fallbackAgentProfileId: agentProfileIdSchema.optional(),
     mentionProfileIds: z
       .array(openMeldRuntimeProfileIdSchema)
@@ -998,12 +1082,27 @@ export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
 
 export const centerAgentWakePublicationCommandSchema = z
   .strictObject({
+    evidenceRefs: spaceEvidenceReferencesSchema.optional(),
+    pluginActions: z
+      .array(pluginDelegationAuthorizationSchema)
+      .min(1)
+      .max(10)
+      .optional(),
     activationTargets: z.array(agentProfileIdSchema).min(1),
     attribution: centerAgentAttributionSchema,
     clientMessageId: trimmedNonEmptyStringSchema,
     completionMode: centerAgentDelegationCompletionModeSchema,
+    replyLanguageTag: workingLanguageTagSchema.optional(),
     context: openMeldRequestContextSchema,
     delegationId: trimmedNonEmptyStringSchema,
+    // The root publication owns the immutable destination set. Other rows
+    // reference it so recovery never mistakes a partial fan-out for the batch.
+    batchRootPublicationId: trimmedNonEmptyStringSchema.optional(),
+    batchPublicationIds: z
+      .array(trimmedNonEmptyStringSchema)
+      .min(2)
+      .max(10)
+      .optional(),
     fallbackAgentProfileId: agentProfileIdSchema.nullable(),
     organizationId: trimmedNonEmptyStringSchema,
     parentSubmissionId: trimmedNonEmptyStringSchema,
@@ -1037,11 +1136,109 @@ export const centerAgentWakePublicationCommandSchema = z
     }
   });
 
+export const centerAgentWakeAgentProfilesInSpacesBodySchema = z
+  .strictObject({
+    destinations: z
+      .array(centerAgentWakeAgentProfilesInSpaceBodySchema)
+      .min(2)
+      .max(10),
+    replyLanguageTag: workingLanguageTagSchema.optional(),
+    onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      new Set(value.destinations.map((destination) => destination.spaceId))
+        .size !== value.destinations.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["destinations"],
+        message: "Include each Space once, with all of its Agent targets.",
+      });
+    }
+    if (
+      value.destinations.reduce(
+        (count, destination) => count + destination.agentProfileIds.length,
+        0
+      ) > 25
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["destinations"],
+        message: "A Wake batch supports at most 25 Agent tasks.",
+      });
+    }
+    value.destinations.forEach((destination, index) => {
+      if (
+        destination.fallbackAgentProfileId ||
+        destination.onBehalfOf ||
+        destination.replyLanguageTag ||
+        (destination.completionMode &&
+          destination.completionMode !== "resume_parent_when_all_terminal")
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["destinations", index],
+          message:
+            "A multi-Space Wake has one requester, reply language, and all-terminal completion barrier; per-destination fallbacks are not supported.",
+        });
+      }
+    });
+  });
+
+export const centerAgentWakeAgentProfilesInSpacesResponseSchema =
+  z.strictObject({
+    delegationId: trimmedNonEmptyStringSchema,
+    status: z.literal("queued"),
+    childTasks: z
+      .array(
+        z.strictObject({
+          completionCondition: z.literal("terminal"),
+          subscriptionId: trimmedNonEmptyStringSchema,
+          task: spaceWakeAgentTaskHandleSchema,
+        })
+      )
+      .min(2)
+      .max(25),
+  });
+
 export const centerAgentWatchAgentTaskBodySchema = z.strictObject({
   speakerMember: centerAgentToolSpeakerSchema.optional(),
   completionCondition: agentTaskCompletionConditionSchema,
   instruction: z.string().trim().min(1).max(4000),
+  replyLanguageTag: workingLanguageTagSchema.optional(),
   task: agentTaskHandleSchema,
+});
+
+export const centerAgentContinueTaskSummaryBodySchema = z.strictObject({
+  sourceSubscriptionId: trimmedNonEmptyStringSchema.max(512),
+  inspectOnly: z.boolean().optional(),
+  includePublishedResult: z.boolean().optional(),
+  replyLanguageTag: workingLanguageTagSchema.optional(),
+  speakerMember: centerAgentToolSpeakerSchema,
+});
+
+export const centerAgentContinueTaskSummaryResponseSchema = z.strictObject({
+  status: z.enum(["available", "queued", "already_requested", "unavailable"]),
+  sourceSubscriptionId: trimmedNonEmptyStringSchema,
+  subscriptionId: trimmedNonEmptyStringSchema.nullable(),
+  reasonCode: trimmedNonEmptyStringSchema.nullable(),
+  publishedResult: z
+    .strictObject({
+      spaceId: trimmedNonEmptyStringSchema,
+      signalId: trimmedNonEmptyStringSchema,
+    })
+    .optional(),
+});
+
+export const taskSummaryRecoveryAccessRequestSchema = z.strictObject({
+  spaceId: trimmedNonEmptyStringSchema,
+  profileId: trimmedNonEmptyStringSchema,
+  ownerUserId: trimmedNonEmptyStringSchema,
+});
+
+export const taskSummaryRecoveryAccessResponseSchema = z.strictObject({
+  allowed: z.boolean(),
 });
 
 export const centerAgentListAgentTasksBodySchema = z.strictObject({
@@ -1529,6 +1726,12 @@ const centerAgentSpaceContextBaseResponseShape = {
 };
 
 const centerAgentProgressiveSpaceContextSchema = z.discriminatedUnion("scope", [
+  spaceMessageEvidenceResponseSchema.extend({
+    scope: z.literal("source_evidence"),
+  }),
+  spaceThreadEvidenceResponseSchema.extend({
+    scope: z.literal("thread_evidence"),
+  }),
   z.strictObject({
     scope: z.literal("source"),
     signals: z.array(signalEnvelopeSchema).max(1),
@@ -1829,3 +2032,8 @@ export const openCenterAgentDirectMessageSpaceResponseSchema = z.strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   created: z.boolean(),
 });
+
+import {
+  pluginDelegationAuthorizationSchema,
+  pluginDelegationRequestSchema,
+} from "./plugin-delegation";

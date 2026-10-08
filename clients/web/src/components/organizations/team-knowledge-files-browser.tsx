@@ -11,15 +11,16 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import {
 	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
 import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
+	FluidDropdownMenuContent as ContextMenuContent,
+	FluidDropdownMenuItem as ContextMenuItem,
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
@@ -27,7 +28,6 @@ import {
 	ArrowLeftIcon,
 	CaretRightIcon,
 	FileTextIcon,
-	FolderOpenIcon,
 	FolderPlusIcon,
 	PlusIcon,
 } from "@phosphor-icons/react";
@@ -35,6 +35,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { lazy, type ReactNode, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import type { FileSystemItem } from "#/components/extend/file-system";
 import { organizationDocumentDisplayTitle } from "#/components/organization-documents/organization-document-browser-model";
 import {
@@ -142,6 +143,17 @@ export function TeamKnowledgeFilesBrowser(input: {
 					badge: entry.document.hasDraft ? "Review" : undefined,
 				}
 	);
+	const selectedEntry = selectedPath ? entries.get(selectedPath) : undefined;
+	const selectedHref = selectedEntry
+		? `${buildOrganizationFilesPath(currentOrganization.slug)}?${new URLSearchParams(
+				{
+					view: "knowledge",
+					...(selectedEntry.kind === "folder"
+						? { folder: selectedEntry.folder.id }
+						: { document: selectedEntry.document.id }),
+				}
+			)}`
+		: undefined;
 	const navigateToFolder = (folderId?: string) => {
 		setSelectedPath(null);
 		navigate({
@@ -259,7 +271,9 @@ export function TeamKnowledgeFilesBrowser(input: {
 						}
 					}}
 				>
-					<Suspense fallback={<p>Loading files…</p>}>
+					<Suspense
+						fallback={<SkeletonRows className="p-3" label="Loading files" />}
+					>
 						<FileSystem
 							breadcrumb={breadcrumb}
 							className="h-full min-h-96"
@@ -281,17 +295,16 @@ export function TeamKnowledgeFilesBrowser(input: {
 				{selectedPath || canCreate ? (
 					<ContextMenuContent className="min-w-40 p-1">
 						{selectedPath ? (
-							<ContextMenuItem
-								onClick={() => openEntry(entries.get(selectedPath))}
-							>
-								<FolderOpenIcon aria-hidden="true" /> Open
-							</ContextMenuItem>
+							<ObjectMenuItems
+								href={selectedHref}
+								onOpen={() => openEntry(selectedEntry)}
+							/>
 						) : (
 							<>
-								<ContextMenuItem onClick={openNewDocument}>
+								<ContextMenuItem index={1} onClick={openNewDocument}>
 									<FileTextIcon aria-hidden="true" /> New Markdown file
 								</ContextMenuItem>
-								<ContextMenuItem onClick={openFolderDialog}>
+								<ContextMenuItem index={2} onClick={openFolderDialog}>
 									<FolderPlusIcon aria-hidden="true" /> New folder
 								</ContextMenuItem>
 							</>

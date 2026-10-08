@@ -1,4 +1,5 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
@@ -21,9 +22,9 @@ import {
   projectSpaceMessagePreview,
 } from "../src/space-index/space-message-preview";
 import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createFaultInjectingPostgresDatabase,
+  createPostgresHarness,
+} from "./helpers/postgresql-harness.test-support";
 
 function previewSignal(id: string, ts: number, text: string) {
   return {
@@ -36,9 +37,8 @@ function previewSignal(id: string, ts: number, text: string) {
     data: { text },
   };
 }
-
 describe("space index projection outbox", () => {
-  it("recovers the same historical reply for preview, history and the next Agent observation", () => {
+  it("recovers the same historical reply for preview, history and the next Agent observation", async () => {
     const storage = createSqlStorageHarness();
     try {
       ensureSpaceSqlSchema(storage.sql);
@@ -76,9 +76,9 @@ describe("space index projection outbox", () => {
         });
       expect(observe("source")).toBe("changed");
       const raw = storage.sql
-        .exec<{ payload_json: string }>(
-          "SELECT payload_json FROM space_signals WHERE id = 'old-final'"
-        )
+        .exec<{
+          payload_json: string;
+        }>("SELECT payload_json FROM space_signals WHERE id = 'old-final'")
         .toArray()[0]?.payload_json;
       if (!raw) {
         throw new Error("Missing historical reply fixture");
@@ -95,10 +95,10 @@ describe("space index projection outbox", () => {
       expect(observe(readable.id)).toBe("current");
       expect(JSON.parse(raw).data.meta.targetMentionLabel).toBe("Codex (1)");
     } finally {
-      storage.close();
+      await storage.close();
     }
   });
-  it("does not advertise a message that conversation history cannot read", () => {
+  it("does not advertise a message that conversation history cannot read", async () => {
     const storage = createSqlStorageHarness();
     try {
       ensureSpaceSqlSchema(storage.sql);
@@ -108,10 +108,10 @@ describe("space index projection outbox", () => {
       );
       expect(captureSpaceMessagePreview(storage.sql).preview).toBeNull();
     } finally {
-      storage.close();
+      await storage.close();
     }
   });
-  it("upgrades an existing v32 Space before capturing a message preview", () => {
+  it("upgrades an existing v32 Space before capturing a message preview", async () => {
     const spaceSql = createSqlStorageHarness();
     try {
       ensureSpaceSqlSchema(spaceSql.sql);
@@ -132,11 +132,11 @@ describe("space index projection outbox", () => {
       ensureSpaceSqlSchema(spaceSql.sql);
       expect(captureSpaceMessagePreview(spaceSql.sql).revision).toBe(2);
     } finally {
-      spaceSql.close();
+      await spaceSql.close();
     }
   });
   it("keeps previews ordered through delayed writes and complete message retention", async () => {
-    const d1 = createSpaceIndexHarness();
+    const d1 = await createSpaceIndexHarness();
     const spaceSql = createSqlStorageHarness();
     try {
       ensureSpaceSqlSchema(spaceSql.sql);
@@ -170,6 +170,22 @@ describe("space index projection outbox", () => {
       );
       const populated = captureSpaceMessagePreview(spaceSql.sql);
       expect(populated.preview?.text).toBe("Ready for review");
+      for (const [id, timestamp, text] of [
+        ["message-2", 200, "**Second** message"],
+        ["message-3", 300, "[Latest](https://example.com) message"],
+      ] as const) {
+        spaceSql.sql.exec(
+          "INSERT INTO space_signals (id, ts, type, profile_id, payload_json) VALUES (?, ?, 'signal.text', 'human-1', ?)",
+          id,
+          timestamp,
+          JSON.stringify(previewSignal(id, timestamp, text))
+        );
+      }
+      const recent = captureSpaceMessagePreview(spaceSql.sql);
+      expect(recent.recentPreviews.map((message) => message.text)).toEqual([
+        "Latest message",
+        "Second message",
+      ]);
       await projectSpaceMessagePreview({
         db: d1.db,
         spaceId: "space-alpha",
@@ -197,10 +213,26 @@ describe("space index projection outbox", () => {
       expect(current.spaceItems[0]?.messagePreview?.text).toBe(
         "Ready for review"
       );
+      expect(current.spaceItems[0]).not.toHaveProperty("recentMessagePreviews");
+      await projectSpaceMessagePreview({
+        db: d1.db,
+        spaceId: "space-alpha",
+        ...recent,
+      });
+      const directory = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        includeDirectoryPreviews: true,
+      });
+      expect(
+        directory.spaceItems[0]?.recentMessagePreviews?.map(
+          (message) => message.text
+        )
+      ).toEqual(["Latest message", "Second message"]);
       const unauthorized = await listAccountSpacesFromSpaceIndex({
         ...input,
         ownerUserId: "another-owner",
         includeMessagePreviews: true,
+        includeDirectoryPreviews: true,
       });
       expect(unauthorized.spaceItems).toEqual([]);
       spaceSql.sql.exec("DELETE FROM space_signals");
@@ -225,12 +257,12 @@ describe("space index projection outbox", () => {
         ).spaceItems[0]?.messagePreview
       ).toBeNull();
     } finally {
-      spaceSql.close();
-      d1.close();
+      await spaceSql.close();
+      await d1.close();
     }
   });
   it("keeps failed evidence and retries until AccountSpaces catches up to Space truth", async () => {
-    const d1 = createSpaceIndexHarness();
+    const d1 = await createSpaceIndexHarness();
     const spaceSql = createSqlStorageHarness();
     try {
       ensureSpaceSqlSchema(spaceSql.sql);
@@ -252,7 +284,6 @@ describe("space index projection outbox", () => {
         metaRecord: oldMeta,
         memberRecords: [humanMember],
       });
-
       const latestRecord = createActiveSpaceIndexProjectionOutboxRecord({
         eventType: "space.meta_updated",
         memberRecords: [
@@ -276,17 +307,15 @@ describe("space index projection outbox", () => {
       expect(
         insertSpaceIndexProjectionOutboxRecord(spaceSql.sql, latestRecord)
       ).toBe(true);
-
       const failed = await attemptSpaceIndexProjectionOutboxRecord({
         db: createProjectionFailureDb({
           db: d1.db,
-          failOnSql: "INSERT INTO space_index_spaces",
+          failOnSql: 'INSERT INTO "openmeld"."space_index_spaces"',
         }),
         nowMs: Date.parse("2026-04-10T00:12:01.000Z"),
         record: latestRecord,
         sql: spaceSql.sql,
       });
-
       const failedRecord = readSpaceIndexProjectionOutboxRecord(
         spaceSql.sql,
         latestRecord.projectionId
@@ -299,12 +328,10 @@ describe("space index projection outbox", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-
       expect(failed.status).toBe("failed");
       expect(failedRecord).toMatchObject({
         attemptCount: 1,
-        lastError:
-          "injected projection failure: INSERT INTO space_index_spaces",
+        lastError: "injected PostgreSQL query failure",
         projectionId: latestRecord.projectionId,
         status: "failed",
       });
@@ -320,7 +347,6 @@ describe("space index projection outbox", () => {
         spaceId: "space-alpha",
         spaceName: "Old Alpha",
       });
-
       const retryAtMs = failedRecord?.nextRetryAtMs;
       expect(retryAtMs).toBeTypeOf("number");
       expect(
@@ -339,7 +365,6 @@ describe("space index projection outbox", () => {
       if (!dueRecord) {
         throw new Error("expected one due SpaceIndex projection outbox record");
       }
-
       const retried = await attemptSpaceIndexProjectionOutboxRecord({
         db: d1.db,
         nowMs: (retryAtMs as number) + 1,
@@ -358,7 +383,6 @@ describe("space index projection outbox", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-
       expect(retried.status).toBe("completed");
       expect(completedRecord).toMatchObject({
         attemptCount: 1,
@@ -380,35 +404,31 @@ describe("space index projection outbox", () => {
         spaceName: "Renamed Alpha",
       });
     } finally {
-      d1.close();
-      spaceSql.close();
+      await d1.close();
+      await spaceSql.close();
     }
   });
 });
-
 function createSqlStorageHarness(): {
   close(): void;
   sql: SqlStorage;
 } {
   const database = new DatabaseSync(":memory:");
   return {
-    close: () => {
-      database.close();
+    close: async () => {
+      await database.close();
     },
     sql: new SqliteSqlStorage(database) as unknown as SqlStorage,
   };
 }
-
 class SqliteSqlCursor<T extends Record<string, unknown>> {
   private index = 0;
   private readonly rows: T[];
   readonly rowsWritten: number;
-
   constructor(rows: T[], rowsWritten = 0) {
     this.rows = rows;
     this.rowsWritten = rowsWritten;
   }
-
   next(): IteratorResult<T> {
     if (this.index >= this.rows.length) {
       return { done: true, value: undefined as never };
@@ -417,19 +437,15 @@ class SqliteSqlCursor<T extends Record<string, unknown>> {
     this.index += 1;
     return { done: false, value };
   }
-
   toArray(): T[] {
     return [...this.rows];
   }
 }
-
 class SqliteSqlStorage {
   private readonly database: DatabaseSync;
-
   constructor(database: DatabaseSync) {
     this.database = database;
   }
-
   exec<T extends Record<string, unknown>>(
     sql: string,
     ...params: unknown[]
@@ -444,7 +460,6 @@ class SqliteSqlStorage {
     return new SqliteSqlCursor<T>([], Number(result.changes));
   }
 }
-
 function isReadStatement(sql: string): boolean {
   const normalized = sql.trim().toUpperCase();
   return (
@@ -454,7 +469,6 @@ function isReadStatement(sql: string): boolean {
     normalized.includes(" RETURNING ")
   );
 }
-
 function toSqliteParams(
   params: readonly unknown[]
 ): (string | number | null)[] {
@@ -469,16 +483,13 @@ function toSqliteParams(
     throw new Error("unsupported sqlite test parameter");
   });
 }
-
-function createSpaceIndexHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationsForTables(harness, SPACE_INDEX_TABLE_NAMES);
+async function createSpaceIndexHarness() {
+  const harness = await createPostgresHarness();
   for (const sql of SPACE_INDEX_AUXILIARY_TABLES_SQL) {
-    harness.run({ sql });
+    await harness.query({ text: sql });
   }
   return harness;
 }
-
 function createMeta(input: {
   name: string;
   spaceId: string;
@@ -501,7 +512,6 @@ function createMeta(input: {
     visibility: "private",
   };
 }
-
 function createMember(input: {
   addedAt: string;
   profileId: string;
@@ -536,58 +546,16 @@ function createMember(input: {
     updatedAt: input.addedAt,
   };
 }
-
 function createProjectionFailureDb(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failOnSql: string;
-}): D1Database {
-  return {
-    ...input.db,
-    prepare: (sql: string) => {
-      if (sql.includes(input.failOnSql)) {
-        throw new Error(`injected projection failure: ${input.failOnSql}`);
-      }
-      return input.db.prepare(sql);
-    },
-  } as D1Database;
+}): PostgresDatabase {
+  return createFaultInjectingPostgresDatabase({
+    db: input.db,
+    matches: (sql) => sql.includes(input.failOnSql),
+  });
 }
 
-const SPACE_INDEX_TABLE_NAMES = [
-  "space_index_spaces",
-  "space_index_memberships",
-  "space_index_projection_events",
-] as const;
-
 const SPACE_INDEX_AUXILIARY_TABLES_SQL = [
-  `
-    CREATE TABLE center_agent_designations (
-      organization_id TEXT PRIMARY KEY,
-      agent_profile_id TEXT NOT NULL,
-      duty TEXT,
-      designated_by TEXT NOT NULL,
-      operating_state TEXT NOT NULL DEFAULT 'active',
-      paused_at INTEGER,
-      paused_by_user_id TEXT,
-      created_at INTEGER NOT NULL
-    )
-  `,
-  `
-    CREATE TABLE ats_profile_space_history (
-      profile_id TEXT NOT NULL,
-      gateway_host TEXT NOT NULL,
-      space_id TEXT NOT NULL,
-      space_name TEXT,
-      creator_profile_id TEXT,
-      creator_kind TEXT,
-      space_created_at INTEGER,
-      space_updated_at INTEGER,
-      last_joined_at INTEGER NOT NULL,
-      last_seen_ts INTEGER,
-      pinned_at INTEGER,
-      status TEXT NOT NULL DEFAULT 'active',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE(profile_id, gateway_host, space_id)
-    )
-  `,
+  "\n    CREATE TABLE ats_profile_space_history (\n      profile_id TEXT NOT NULL,\n      gateway_host TEXT NOT NULL,\n      space_id TEXT NOT NULL,\n      space_name TEXT,\n      creator_profile_id TEXT,\n      creator_kind TEXT,\n      space_created_at INTEGER,\n      space_updated_at INTEGER,\n      last_joined_at INTEGER NOT NULL,\n      last_seen_ts INTEGER,\n      pinned_at INTEGER,\n      status TEXT NOT NULL DEFAULT 'active',\n      created_at INTEGER NOT NULL,\n      updated_at INTEGER NOT NULL,\n      UNIQUE(profile_id, gateway_host, space_id)\n    )\n  ",
 ] as const;

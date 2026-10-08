@@ -62,86 +62,72 @@ describe("AppearanceSection", () => {
 		selfMessageAlignmentState.write.mockReset();
 	});
 
-	it("restores individually hidden toolbar shortcuts from Appearance after a reload", () => {
+	it("defaults toolbar shortcuts to off and saves individually enabled choices", () => {
 		renderAppearance();
 		const toolbarSettingsRow = screen
 			.getByText("Toolbar shortcuts")
 			.closest('[data-slot="settings-row"]');
 		expect(toolbarSettingsRow?.className).toContain("hidden");
 		expect(toolbarSettingsRow?.className).toContain("lg:flex");
+		// jsdom does not apply the desktop media query. This test verifies
+		// persistence; browser smoke covers the responsive visibility.
+		const shortcut = (label: string) =>
+			screen.getByLabelText(`Show ${label} in toolbar`);
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
-			fireEvent.click(
-				screen.getByRole("switch", { name: `Show ${label} in toolbar` })
-			);
+			expect(shortcut(label).getAttribute("aria-checked")).toBe("false");
+			fireEvent.click(shortcut(label));
 		}
 		cleanup();
 		renderAppearance();
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
-			expect(
-				screen
-					.getByRole("switch", { name: `Show ${label} in toolbar` })
-					.getAttribute("aria-checked")
-			).toBe("false");
+			expect(shortcut(label).getAttribute("aria-checked")).toBe("true");
 		}
-		fireEvent.click(
-			screen.getByRole("switch", { name: "Show Computer in toolbar" })
-		);
-		expect(
-			screen
-				.getByRole("switch", { name: "Show Computer in toolbar" })
-				.getAttribute("aria-checked")
-		).toBe("true");
-		expect(
-			screen
-				.getByRole("switch", { name: "Show Inbox in toolbar" })
-				.getAttribute("aria-checked")
-		).toBe("false");
+		fireEvent.click(shortcut("Computer"));
+		expect(shortcut("Computer").getAttribute("aria-checked")).toBe("false");
+		expect(shortcut("Inbox").getAttribute("aria-checked")).toBe("true");
 	});
 
 	it("keeps the history slider setting across Appearance mounts", () => {
 		renderAppearance();
-		const toggle = screen.getByRole("switch", { name: "Show history slider" });
-		expect(toggle.getAttribute("aria-checked")).toBe("true");
-		fireEvent.click(toggle);
+		expect(
+			screen.getByRole("radio", { name: "Show" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Hide" }));
 		expect(
 			document.documentElement.getAttribute("data-space-history-slider")
 		).toBe("off");
 		cleanup();
 		renderAppearance();
 		expect(
-			screen
-				.getByRole("switch", { name: "Show history slider" })
-				.getAttribute("aria-checked")
-		).toBe("false");
+			screen.getByRole("radio", { name: "Hide" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Show" }));
+		expect(
+			document.documentElement.getAttribute("data-space-history-slider")
+		).toBe("on");
 	});
 
-	it("shows the mounted theme and changes it from the radio group", () => {
-		renderAppearance();
+	it("shows the saved theme and changes it from the theme cards", () => {
+		const view = renderAppearance();
 
 		expect(
 			screen.getByRole("heading", { level: 1, name: "Appearance" })
 		).toBeTruthy();
 		expect(screen.getByText("Personal")).toBeTruthy();
-		const themeGroup = screen.getByRole("radiogroup", { name: "Theme" });
-		expect(themeGroup.getAttribute("aria-orientation")).toBe("horizontal");
-		expect(themeGroup.className).toContain("w-full");
-		expect(themeGroup.className).toContain("flex-row");
-		expect(
-			themeGroup
-				.closest('[data-slot="settings-row"]')
-				?.getAttribute("data-layout")
-		).toBe("stacked");
-		expect(
-			screen
-				.getAllByRole("radio")
-				.every((radio) => radio.className.includes("flex-1"))
-		).toBe(true);
 		expect(
 			screen.getByRole("radio", { name: "System" }).getAttribute("aria-checked")
 		).toBe("true");
 
 		fireEvent.click(screen.getByRole("radio", { name: "Light" }));
-		fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+		fireEvent.keyDown(screen.getByRole("radio", { name: "Light" }), {
+			key: "ArrowRight",
+		});
+		themeState.theme = "dark";
+		view.rerender(
+			<ShapeProvider>
+				<AppearanceSection />
+			</ShapeProvider>
+		);
 		fireEvent.click(screen.getByRole("radio", { name: "System" }));
 
 		expect(themeState.setTheme.mock.calls).toEqual([
@@ -159,6 +145,23 @@ describe("AppearanceSection", () => {
 			expect(group.getAttribute("aria-orientation")).toBe("vertical");
 			expect(group.className).toContain("flex-col");
 		}
+	});
+
+	it("keeps the selected Bot palette when Appearance is reopened", () => {
+		renderAppearance();
+		fireEvent.click(screen.getByRole("radio", { name: "Slate" }));
+		cleanup();
+		renderAppearance();
+		expect(
+			screen.getByRole("radio", { name: "Slate" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.keyDown(screen.getByRole("radio", { name: "Slate" }), {
+			key: "ArrowRight",
+		});
+		expect(
+			screen.getByRole("radio", { name: "Sand" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Soft" }));
 	});
 
 	it("defaults to rounded corners and changes the shared shape context", () => {

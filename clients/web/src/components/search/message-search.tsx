@@ -29,6 +29,10 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
+import {
+	presentInboxItem,
+	useConversationNames,
+} from "#/components/spaces/conversation-names";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import {
 	useAppOrganization,
@@ -43,13 +47,14 @@ import {
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 
 export function MessageSearchButton(input: {
+	enabled?: boolean;
 	spaceId?: string;
 	profileId?: string;
 	scope?: "inbox" | "messages";
 }) {
 	const [open, setOpen] = useState(false);
 	const organization = useOptionalAppOrganization();
-	if (!organization) {
+	if (!organization || input.enabled === false) {
 		return null;
 	}
 	const label = input.scope === "inbox" ? "Search Inbox" : "Search messages";
@@ -178,6 +183,7 @@ export function useMessageSearch(input: {
 		staleTime: 0,
 		retry: false,
 	});
+	const names = useConversationNames();
 	const matches = [
 		...new Map(
 			results.data?.pages
@@ -187,7 +193,14 @@ export function useMessageSearch(input: {
 					match,
 				]) ?? []
 		).values(),
-	];
+	].map((match) => ({
+		...match,
+		spaceName:
+			names?.organizationId === currentOrganization.id &&
+			names.userId === currentUserId
+				? (names.names.get(match.signal.spaceId)?.name ?? match.spaceName)
+				: match.spaceName,
+	}));
 	const indexing = results.data?.pages.at(-1)?.indexing;
 	const activities = [
 		...new Map(
@@ -195,7 +208,7 @@ export function useMessageSearch(input: {
 				.flatMap((page) => page.activities)
 				.map((item) => [item.id, item]) ?? []
 		).values(),
-	];
+	].map((item) => presentInboxItem(item, names));
 	const { hasNextPage, isFetching, isError, fetchNextPage } = results;
 	const resultCount = matches.length + activities.length;
 	const continueAutomatically = Boolean(

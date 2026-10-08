@@ -6,6 +6,14 @@ import { defineSkill, init, useModel, useSkill, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
 import { strictObject } from "valibot";
 import { expect, it, vi } from "vitest";
+
+vi.mock("../flue-adapter/ai-usage", () => ({
+  createFlueMeteredFetch:
+    (input: { fetch?: typeof fetch }) =>
+    (...args: Parameters<typeof fetch>) =>
+      (input.fetch ?? fetch)(...args),
+}));
+
 import { registerRemoteAgentCloudflareProvider } from "../flue-adapter/model";
 import {
   projectRemoteAgentResourceSignal,
@@ -57,7 +65,7 @@ async function materialize(includeRead: boolean) {
     sandboxDefinitions: includeRead
       ? [
           {
-            name: "read",
+            name: "computer",
             description: "Read the fictional Cedar record.",
             input: strictObject({}),
             execute: async () => ({ name: "Cedar" }),
@@ -178,7 +186,7 @@ it.each([
       throw new Error("Missing provider request.");
     }
     const names = payload.tools.map((tool) => tool.function.name);
-    expect(names).toContain("read");
+    expect(names).toContain("computer");
     expect(names).toContain("activate_skill");
     expect(names).toContain("read_skill_resource");
     expect(names).not.toContain("task");

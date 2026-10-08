@@ -1,18 +1,21 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 /** Remove legacy personal-owner authority from Organization Agent snapshots. */
 export async function reconcileOrganizationAgentOwnership(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   sql: SqlStorage;
 }): Promise<boolean> {
   let changed = false;
-  const profiles = await input.db
-    .prepare(`
-    SELECT profile_id FROM openmeld_profiles
-    WHERE organization_id = ? AND managed_role = 'center_agent'
-  `)
-    .bind(input.organizationId)
-    .all<{ profile_id: string }>();
-  for (const profile of profiles.results ?? []) {
+  const profiles = await input.db.query<{
+    profile_id: string;
+  }>({
+    text: `
+    SELECT profile_id FROM "openmeld"."openmeld_profiles"
+    WHERE organization_id = $1 AND managed_role = 'center_agent'
+  `,
+    values: [input.organizationId],
+  });
+  for (const profile of profiles.rows ?? []) {
     const members = input.sql.exec(
       `
       UPDATE space_members

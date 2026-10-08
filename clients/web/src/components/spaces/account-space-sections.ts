@@ -1,5 +1,6 @@
 import type { SpaceInboxSummaryItem } from "@openmeld/schemas/types";
 import { isDirectMessageSpace } from "@openmeld/space";
+import { replaceEqualDeep } from "@tanstack/react-query";
 import type {
 	AccountSpaceItem,
 	AccountSpaceSections,
@@ -31,7 +32,18 @@ export function applyAcceptedAccountSpaceMessage(
 		) {
 			return item;
 		}
-		const next = { ...item, messagePreview };
+		const recentMessagePreviews = [
+			messagePreview,
+			...(item.recentMessagePreviews ??
+				(item.messagePreview ? [item.messagePreview] : [])),
+		]
+			.filter(
+				(preview, index, all) =>
+					all.findIndex((other) => other.signalId === preview.signalId) ===
+					index
+			)
+			.slice(0, 2);
+		const next = { ...item, messagePreview, recentMessagePreviews };
 		Object.defineProperty(next, ACCOUNT_SPACE_ACCEPTED_MESSAGE, {
 			value: { expiresAtMs: Date.now() + 30_000 },
 		});
@@ -70,7 +82,11 @@ function preserveAcceptedAccountSpaceMessages(
 		) {
 			return item;
 		}
-		const next = { ...item, messagePreview: older.messagePreview };
+		const next = {
+			...item,
+			messagePreview: older.messagePreview,
+			recentMessagePreviews: older.recentMessagePreviews,
+		};
 		Object.defineProperty(next, ACCOUNT_SPACE_ACCEPTED_MESSAGE, {
 			value: receipt,
 		});
@@ -168,6 +184,10 @@ export function resolveAccountSpaceViewerProfileId(input: {
 	currentProfileId: string;
 	item: AccountSpaceItem;
 }): string {
+	// Owners observe their Agents' DMs as themselves until they explicitly join.
+	if (isDirectMessageItem(input.item)) {
+		return input.currentProfileId;
+	}
 	return input.item.joinedProfiles.some(
 		(profile) => profile.profileId === input.currentProfileId
 	)
@@ -307,7 +327,22 @@ export function preserveOptimisticAccountSpacePinUpdates(
 		}
 		next = applyAccountSpacePinOverlay(next, ownerItem, overlay);
 	}
-	return preserveAcceptedAccountSpaceMessages(previous, next);
+	const reconciled = preserveAcceptedAccountSpaceMessages(previous, next);
+	// Query delegates structural sharing entirely to this function. Keep its
+	// normal no-change reuse unless a snapshot carries non-JSON convergence
+	// receipts: replaceEqualDeep must not drop or resurrect those Symbols.
+	const hasReceipts = [
+		...previous.pinnedItems,
+		...previous.spaceItems,
+		...reconciled.pinnedItems,
+		...reconciled.spaceItems,
+	].some(
+		(item) =>
+			readAccountSpacePinOverlay(item) !== null ||
+			(item as AcceptedMessageItem)[ACCOUNT_SPACE_ACCEPTED_MESSAGE] !==
+				undefined
+	);
+	return hasReceipts ? reconciled : replaceEqualDeep(previous, reconciled);
 }
 
 function applyAccountSpacePinOverlay(

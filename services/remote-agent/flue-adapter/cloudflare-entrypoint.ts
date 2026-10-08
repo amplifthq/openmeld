@@ -1,4 +1,5 @@
 import {
+  generateCenterAgentSessionTitleInputSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerCancellationResponseSchema,
@@ -7,10 +8,13 @@ import {
   remoteAgentWorkerExecutionInputResponseSchema,
   remoteAgentWorkerExecutionQueryResponseSchema,
   remoteAgentWorkerExecutionQuerySchema,
+  remoteAgentWorkerReadAdmissionResponseSchema,
+  remoteAgentWorkerReadAdmissionStopResponseSchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   remoteAgentWorkerSubmitTurnResponseSchema,
+  summarizeAgentActivityDigestRpcInputSchema,
 } from "@openmeld/schemas";
 import type {
   RemoteAgentWorkerCancellationResponse,
@@ -26,6 +30,13 @@ import {
 } from "../agent-core/submission";
 
 type CenterAgentStub = DurableObjectStub & {
+  eraseAccountConversation(
+    input: import("@openmeld/schemas").AccountDeletionConversation
+  ): Promise<void>;
+  readAdmission(input: unknown): Promise<unknown>;
+  readAdmissionStop(input: unknown): Promise<unknown>;
+  generateCenterAgentSessionTitle(input: unknown): Promise<unknown>;
+  summarizeAgentActivityDigest(input: unknown): Promise<unknown>;
   receiveExecutionInput(input: unknown): Promise<unknown>;
   readExecutionInput(input: unknown): Promise<unknown>;
   cancelExecution(input: unknown): Promise<unknown>;
@@ -45,6 +56,29 @@ export type CenterAgentNamespace = {
   get(id: DurableObjectId): CenterAgentStub;
   idFromName(name: string): DurableObjectId;
 };
+
+// Auxiliary inference runs inside the existing DO so settlement survives a
+// Worker restart. The DO is a delivery carrier, not another usage ledger.
+export function runDurableAuxiliaryInference(input: {
+  namespace: CenterAgentNamespace;
+  operation: "generateCenterAgentSessionTitle" | "summarizeAgentActivityDigest";
+  request: unknown;
+}) {
+  if (input.operation === "generateCenterAgentSessionTitle") {
+    const request = generateCenterAgentSessionTitleInputSchema.parse(
+      input.request
+    );
+    return input.namespace
+      .get(input.namespace.idFromName(request.spaceId))
+      .generateCenterAgentSessionTitle(request);
+  }
+  const request = summarizeAgentActivityDigestRpcInputSchema.parse(
+    input.request
+  );
+  return input.namespace
+    .get(input.namespace.idFromName(`usage-digest:${request.organizationId}`))
+    .summarizeAgentActivityDigest(request);
+}
 
 export async function receiveExecutionInputInCenterAgent(input: {
   namespace: CenterAgentNamespace;
@@ -82,6 +116,7 @@ export async function submitConversationTurnToCenterAgent(input: {
 }): Promise<RemoteAgentWorkerSubmitTurnResponse> {
   const request = parseRemoteAgentSubmitTurnRequest(input.request);
   console.info("[remote_agent.admission.received]", {
+    observedAtMs: Date.now(),
     dispatchId: request.dispatchId,
     idempotencyKey: request.idempotencyKey,
     organizationId: request.organizationId,
@@ -115,14 +150,22 @@ export async function submitConversationTurnToCenterAgent(input: {
       "Flue Center Agent Durable Object does not expose submitConversationTurn."
     );
   }
-  const ack = await stub.submitConversationTurn(request);
+  const started = performance.now();
+  const ack = remoteAgentWorkerSubmitTurnResponseSchema.parse(
+    await stub.submitConversationTurn(request)
+  );
   console.info("[remote_agent.admission.ack_returned]", {
+    observedAtMs: Date.now(),
+    elapsedMs: Math.max(0, Math.round(performance.now() - started)),
+    ...("outcome" in ack
+      ? { outcome: ack.outcome }
+      : { accepted: ack.accepted, submissionId: ack.submissionId }),
     dispatchId: request.dispatchId,
     idempotencyKey: request.idempotencyKey,
     organizationId: request.organizationId,
     spaceId: request.spaceId,
   });
-  return remoteAgentWorkerSubmitTurnResponseSchema.parse(ack);
+  return ack;
 }
 
 export async function readUsageDiagnosticsFromCenterAgent(input: {
@@ -188,6 +231,32 @@ export async function reconcileExecutionInCenterAgent(input: {
   );
   return remoteAgentWorkerExecutionQueryResponseSchema.parse(
     await stub.reconcileExecution(request)
+  );
+}
+
+export async function readAdmissionFromCenterAgent(input: {
+  namespace: CenterAgentNamespace;
+  request: unknown;
+}) {
+  const request = parseRemoteAgentSubmitTurnRequest(input.request);
+  const stub = input.namespace.get(
+    input.namespace.idFromName(buildRemoteAgentName(request))
+  );
+  return remoteAgentWorkerReadAdmissionResponseSchema.parse(
+    await stub.readAdmission(request)
+  );
+}
+
+export async function readAdmissionStopFromCenterAgent(input: {
+  namespace: CenterAgentNamespace;
+  request: unknown;
+}) {
+  const request = parseRemoteAgentSubmitTurnRequest(input.request);
+  const stub = input.namespace.get(
+    input.namespace.idFromName(buildRemoteAgentName(request))
+  );
+  return remoteAgentWorkerReadAdmissionStopResponseSchema.parse(
+    await stub.readAdmissionStop(request)
   );
 }
 

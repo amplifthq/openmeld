@@ -1,5 +1,11 @@
-import { organizationUsageOverviewResponseSchema } from "@openmeld/schemas";
-import { buildOrganizationUsageOverviewPath } from "./routes";
+import {
+  aiUsageQueryResponseSchema,
+  organizationUsageOverviewResponseSchema,
+} from "@openmeld/schemas";
+import {
+  buildOrganizationAiUsageQueryPath,
+  buildOrganizationUsageOverviewPath,
+} from "./routes";
 import type {
   CreateOrganizationUsageApi,
   OrganizationUsageRequestInput,
@@ -8,6 +14,16 @@ import type {
 export const createOrganizationUsageApi: CreateOrganizationUsageApi = (
   client
 ) => ({
+  query: async (input) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(input.query),
+      invalidMessage: "Invalid AI usage response",
+      method: "POST",
+      operation: "organization_usage.query",
+      schema: aiUsageQueryResponseSchema,
+      url: buildOrganizationAiUsageQueryPath(),
+    }),
   readOverview: async (input = {}) =>
     await client.requestJson({
       ...requestOptions(input),

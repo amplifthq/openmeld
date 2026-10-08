@@ -1,5 +1,9 @@
 import { resolveAgentWakeAdmissionTerminalDecision } from "@openmeld/agent-runtime";
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   buildAgentControllerRoutingKey,
   buildRuntimeCoordinatorExecutionId,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -24,11 +28,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
 } from "@openmeld/schemas/types";
 import { processAgentTaskContinuationQueueMessage } from "../../agent-task-coordination/application/agent-task-continuation-service";
-import {
-  type CoreBindings,
-  dispatchRecoveryDb,
-  wakeEvidenceDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { createConfiguredMessageChannelProviderRegistry } from "../../remote-agent/application/message-channel-provider-runtime";
 import {
   processRemoteAgentNativeDeliveryDeadlineProbe,
@@ -63,7 +63,7 @@ import {
   writeDispatchDlq,
   writeInvalidDispatchPayloadDlq,
   writeOpenMeldDaemonOpsDecision,
-} from "../infrastructure/d1/dispatch-ledger-d1";
+} from "../infrastructure/postgresql/dispatch-ledger-postgresql";
 import {
   claimPreHeadFailurePublicationIntent,
   createPreHeadFailurePublicationIntent,
@@ -76,7 +76,7 @@ import {
   type PreHeadFailurePublicationIntent,
   readPreHeadFailurePublicationState,
   reschedulePreHeadFailurePublicationIntent,
-} from "../infrastructure/d1/pre-head-failure-publication-outbox-repository";
+} from "../infrastructure/postgresql/pre-head-failure-publication-outbox-repository";
 import {
   acceptRuntimeTransportRuntimeCoordinatorHead,
   decideRuntimeTransportRuntimeCoordinatorExecution,
@@ -90,8 +90,8 @@ import { lookupRuntimeTransportRoute } from "../infrastructure/runtime-transport
 import { resolveRuntimeTransportOwnerShard } from "../infrastructure/runtime-transport/runtime-transport-shard";
 import {
   classifyDispatchError,
-  isD1SchemaError,
   isDispatchAttemptTimeoutErrorCode,
+  isPostgresSchemaError,
   isRuntimeTaskDedupedErrorCode,
   RUNTIME_TASK_DEDUPED_CORRELATION_LOST_ERROR_CODE,
   resolveDispatchErrorCode,
@@ -147,7 +147,6 @@ type QueueBatchMessage = MessageBatch<unknown>["messages"][number];
 export type DispatchQueueWaitContext = {
   waitUntil(promise: Promise<unknown>): void;
 };
-
 export type DispatchQueueBatchOutcome =
   | {
       reasonCode:
@@ -158,7 +157,6 @@ export type DispatchQueueBatchOutcome =
   | {
       status: "processed";
     };
-
 export type DispatchOutboxDirectDeliveryOutcome =
   | {
       retryDelaySeconds: null;
@@ -172,7 +170,6 @@ export type DispatchOutboxDirectDeliveryOutcome =
       retryDelaySeconds: number | null;
       status: "retry_scheduled";
     };
-
 type ResolvedIncomingQueueMessage =
   | {
       kind: "current_v2";
@@ -204,32 +201,34 @@ type ResolvedIncomingQueueMessage =
       issues: unknown;
       receivedQueueSchemaVersion: number | null;
     };
-
 type PreparedQueueBatchMessage = {
   controllerKey: string;
   idempotencyKey: string | null;
   message: QueueBatchMessage;
   resolved: ResolvedIncomingQueueMessage;
 };
-
 type DirectDispatchQueueMessage = QueueBatchMessage & {
   readonly acked: boolean;
   readonly retryDelaySeconds: number | null;
   readonly retryRequested: boolean;
 };
-
 class HostedNativeDeliverySubmissionError extends Error {
   readonly code: string;
-
-  constructor(input: { cause: unknown; code: string; message: string }) {
+  constructor(input: {
+    cause: unknown;
+    code: string;
+    message: string;
+  }) {
     super(input.message, { cause: input.cause });
     this.code = input.code;
     this.name = "HostedNativeDeliverySubmissionError";
   }
 }
-
 class HostedNativeDeliveryFailurePublicationError extends Error {
-  constructor(input: { cause: unknown; dispatchId: string }) {
+  constructor(input: {
+    cause: unknown;
+    dispatchId: string;
+  }) {
     super(
       `Could not persist the hosted Center Agent failure for dispatch ${input.dispatchId}`,
       { cause: input.cause }
@@ -237,11 +236,10 @@ class HostedNativeDeliveryFailurePublicationError extends Error {
     this.name = "HostedNativeDeliveryFailurePublicationError";
   }
 }
-
 type OffloadedWaitPhaseInput = {
   agentControllerRef: string | null;
   controllerKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -253,12 +251,10 @@ type OffloadedWaitPhaseInput = {
   targetProfileName: string | null;
   waitPhaseMode: "started" | "resumed";
 };
-
 type DispatchQueueMessageExecutionResult = {
   controllerWaitPromise: Promise<void> | null;
   shouldAck: boolean;
 };
-
 const AUDIT_UNKNOWN_DAEMON_SESSION_ID = "unknown";
 const AUDIT_UNKNOWN_LEASE_EPOCH = -1;
 const SESSION_REPLACED_DECISION_CODE = "daemon.delivery.session_replaced";
@@ -282,18 +278,14 @@ const PRE_EXECUTION_OWNER_UNRESOLVED_VISIBLE_FAILURE_CODE =
 const REMOTE_AGENT_NATIVE_DELIVERY_RETRY_REASON_CODE =
   "remote_agent.native_delivery_retry_required";
 const LEADING_AT_SIGNS_PATTERN = /^@+/;
-
 type RouteOwnershipState = "active" | "lost" | "unknown";
-
 export const handleDispatchQueueBatch = async (input: {
   batch: MessageBatch<unknown>;
   ctx: DispatchQueueWaitContext;
   env: CoreBindings;
 }): Promise<DispatchQueueBatchOutcome> => {
-  const db = wakeEvidenceDb(input.env);
-  const recoveryDb = dispatchRecoveryDb(input.env);
-  if (!(db && recoveryDb && input.env.OPENMELD_SPACES)) {
-    // Missing D1 binding is a deployment/configuration issue.
+  if (!(input.env.OPENMELD_POSTGRESQL && input.env.OPENMELD_SPACES)) {
+    // A missing binding is a deployment/configuration issue.
     // Keep messages retryable instead of dropping them.
     retryBatchMessages(input.batch);
     return {
@@ -301,12 +293,12 @@ export const handleDispatchQueueBatch = async (input: {
       status: "retry_scheduled",
     };
   }
-
+  const db = getPostgresDatabase(input.env);
   // No per-batch storage-readiness probe on this latency-critical Wake path.
   // The release flow runs DB migrations (with preflight) before Core deploys,
   // so the "code is up before its tables exist" window is closed upstream. A
-  // genuinely missing table now surfaces as a terminal D1 schema error
-  // (classifyDispatchError -> isD1SchemaError -> non_retryable) and fails loud
+  // genuinely missing table now surfaces as a terminal PostgreSQL schema error
+  // (classifyDispatchError -> isPostgresSchemaError -> non_retryable) and fails loud
   // instead of being retried, rather than every dispatch paying to re-probe.
   await processDispatchQueueBatchWithControllerParallelism({
     db,
@@ -316,9 +308,8 @@ export const handleDispatchQueueBatch = async (input: {
   });
   return { status: "processed" };
 };
-
 const processDispatchQueueBatchWithControllerParallelism = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   ctx: DispatchQueueWaitContext;
   env: CoreBindings;
   messages: readonly QueueBatchMessage[];
@@ -326,7 +317,6 @@ const processDispatchQueueBatchWithControllerParallelism = async (input: {
   if (input.messages.length === 0) {
     return;
   }
-
   const preparedMessages = input.messages.map((message, index) =>
     prepareQueueBatchMessage({
       fallbackKey: `__fallback__${index}`,
@@ -341,7 +331,6 @@ const processDispatchQueueBatchWithControllerParallelism = async (input: {
   );
   const processedIdempotencyKeys = new Set<string>();
   let nextQueueIndex = 0;
-
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
       while (true) {
@@ -351,7 +340,6 @@ const processDispatchQueueBatchWithControllerParallelism = async (input: {
         if (!controllerQueue) {
           return;
         }
-
         await processControllerQueue({
           controllerQueue,
           ctx: input.ctx,
@@ -363,11 +351,10 @@ const processDispatchQueueBatchWithControllerParallelism = async (input: {
     })
   );
 };
-
 const processControllerQueue = async (input: {
   controllerQueue: readonly PreparedQueueBatchMessage[];
   ctx: DispatchQueueWaitContext;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   processedIdempotencyKeys: Set<string>;
 }): Promise<void> => {
@@ -399,7 +386,6 @@ const processControllerQueue = async (input: {
     }
   }
 };
-
 const skipBatchDuplicateMessage = (
   preparedMessage: PreparedQueueBatchMessage,
   processedIdempotencyKeys: Set<string>
@@ -422,12 +408,10 @@ const skipBatchDuplicateMessage = (
   });
   return true;
 };
-
 const groupMessagesByControllerKey = (
   messages: readonly PreparedQueueBatchMessage[]
 ): Map<string, PreparedQueueBatchMessage[]> => {
   const grouped = new Map<string, PreparedQueueBatchMessage[]>();
-
   for (const message of messages) {
     const key = message.controllerKey;
     const existing = grouped.get(key);
@@ -437,10 +421,8 @@ const groupMessagesByControllerKey = (
     }
     grouped.set(key, [message]);
   }
-
   return grouped;
 };
-
 const prepareQueueBatchMessage = (input: {
   fallbackKey: string;
   message: QueueBatchMessage;
@@ -456,7 +438,6 @@ const prepareQueueBatchMessage = (input: {
     resolved,
   };
 };
-
 const resolveDispatchControllerKey = (input: {
   fallbackKey: string;
   resolved: ResolvedIncomingQueueMessage;
@@ -473,7 +454,6 @@ const resolveDispatchControllerKey = (input: {
   if (input.resolved.kind !== "current_v2") {
     return input.fallbackKey;
   }
-
   const parsed = input.resolved.message;
   const agentControllerRef = normalizeOptionalText(
     parsed.controllerSnapshot.agentControllerRef
@@ -484,14 +464,12 @@ const resolveDispatchControllerKey = (input: {
       return controllerKey;
     }
   }
-
   const targetProfileId = normalizeOptionalText(parsed.targetProfileId);
   if (targetProfileId) {
     return `profile:${targetProfileId}`;
   }
   return input.fallbackKey;
 };
-
 const resolveDispatchMessageIdempotencyKey = (
   resolved: ResolvedIncomingQueueMessage
 ): string | null => {
@@ -513,14 +491,15 @@ const resolveDispatchMessageIdempotencyKey = (
   const normalized = String(resolved.message.idempotencyKey ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 };
-
 const processAgentTaskContinuationQueuePayload = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   preparedMessage: PreparedQueueBatchMessage & {
     resolved: Extract<
       ResolvedIncomingQueueMessage,
-      { kind: "agent_task_continuation" }
+      {
+        kind: "agent_task_continuation";
+      }
     >;
   };
 }): Promise<DispatchQueueMessageExecutionResult> => {
@@ -558,14 +537,15 @@ const processAgentTaskContinuationQueuePayload = async (input: {
     };
   }
 };
-
 const processRemoteAgentDeadlineProbeQueuePayload = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   preparedMessage: PreparedQueueBatchMessage & {
     resolved: Extract<
       ResolvedIncomingQueueMessage,
-      { kind: "remote_agent_deadline_probe" }
+      {
+        kind: "remote_agent_deadline_probe";
+      }
     >;
   };
 }): Promise<DispatchQueueMessageExecutionResult> => {
@@ -599,13 +579,14 @@ const processRemoteAgentDeadlineProbeQueuePayload = async (input: {
     };
   }
 };
-
 const processAgentTaskObservationRedriveQueuePayload = async (input: {
   env: CoreBindings;
   preparedMessage: PreparedQueueBatchMessage & {
     resolved: Extract<
       ResolvedIncomingQueueMessage,
-      { kind: "agent_task_observation_redrive" }
+      {
+        kind: "agent_task_observation_redrive";
+      }
     >;
   };
 }): Promise<DispatchQueueMessageExecutionResult> => {
@@ -635,9 +616,8 @@ const processAgentTaskObservationRedriveQueuePayload = async (input: {
     };
   }
 };
-
 const processDispatchQueueMessage = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   ctx: DispatchQueueWaitContext;
   deliveryPath: "direct" | "queue";
   env: CoreBindings;
@@ -653,7 +633,9 @@ const processDispatchQueueMessage = async (input: {
       preparedMessage: preparedMessage as PreparedQueueBatchMessage & {
         resolved: Extract<
           ResolvedIncomingQueueMessage,
-          { kind: "remote_agent_deadline_probe" }
+          {
+            kind: "remote_agent_deadline_probe";
+          }
         >;
       },
     });
@@ -665,7 +647,9 @@ const processDispatchQueueMessage = async (input: {
       preparedMessage: preparedMessage as PreparedQueueBatchMessage & {
         resolved: Extract<
           ResolvedIncomingQueueMessage,
-          { kind: "agent_task_continuation" }
+          {
+            kind: "agent_task_continuation";
+          }
         >;
       },
     });
@@ -676,7 +660,9 @@ const processDispatchQueueMessage = async (input: {
       preparedMessage: preparedMessage as PreparedQueueBatchMessage & {
         resolved: Extract<
           ResolvedIncomingQueueMessage,
-          { kind: "agent_task_observation_redrive" }
+          {
+            kind: "agent_task_observation_redrive";
+          }
         >;
       },
     });
@@ -692,7 +678,6 @@ const processDispatchQueueMessage = async (input: {
       shouldAck: false,
     };
   }
-
   const dispatchMessage = preparedMessage.resolved.message;
   const nowMs = Date.now();
   const queueAttempt = resolveQueueAttempt(preparedMessage.message);
@@ -702,7 +687,6 @@ const processDispatchQueueMessage = async (input: {
     nowMs,
     queueAttempt,
   });
-
   let executionContext: DispatchExecutionContext | null = null;
   let executionAttemptId: string | null = null;
   let executionAttemptNo = queueAttempt;
@@ -752,7 +736,6 @@ const processDispatchQueueMessage = async (input: {
         queueError.attemptId ??
         preservedExecutionContext.attemptId;
     }
-
     let shouldAck: boolean;
     try {
       shouldAck = await handleDispatchQueueProcessingFailure({
@@ -801,14 +784,12 @@ const processDispatchQueueMessage = async (input: {
       };
     }
   }
-
   preparedMessage.message.ack();
   return {
     controllerWaitPromise: null,
     shouldAck: true,
   };
 };
-
 // The Space outbox uses this entry point in every environment. Runtime
 // classification and recovery ownership stay together with the preflight.
 export const dispatchOutboxMessageDirectly = async (input: {
@@ -816,8 +797,8 @@ export const dispatchOutboxMessageDirectly = async (input: {
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
 }): Promise<DispatchOutboxDirectDeliveryOutcome> => {
-  const db = wakeEvidenceDb(input.env);
-  const recoveryDb = dispatchRecoveryDb(input.env);
+  const db = getPostgresDatabase(input.env);
+  const recoveryDb = getPostgresDatabase(input.env);
   if (!(db && recoveryDb && input.env.OPENMELD_SPACES)) {
     return {
       reasonCode: "missing_dispatch_runtime_binding",
@@ -826,7 +807,6 @@ export const dispatchOutboxMessageDirectly = async (input: {
       status: "retry_scheduled",
     };
   }
-
   const timing = createSpaceBootstrapTimingCollector();
   const preflightCheck = await timing.measure(
     {
@@ -855,7 +835,6 @@ export const dispatchOutboxMessageDirectly = async (input: {
     preparedMessage,
     timing,
   });
-
   if (directMessage.retryRequested || !outcome.shouldAck) {
     return {
       reasonCode: "dispatch_direct_retry_requested",
@@ -878,13 +857,11 @@ export const dispatchOutboxMessageDirectly = async (input: {
       `direct dispatch completed without ack: ${input.message.dispatchId}`
     );
   }
-
   return {
     retryDelaySeconds: null,
     status: "submitted",
   };
 };
-
 const resolveDispatchQueuePreflight = async (input: {
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -907,12 +884,10 @@ const resolveDispatchQueuePreflight = async (input: {
       })
   );
 };
-
 const resolveDispatchTimingCollector = (
   timing?: SpaceBootstrapTimingCollector
 ): SpaceBootstrapTimingCollector =>
   timing ?? createSpaceBootstrapTimingCollector();
-
 const resumeHostedAdmissionRecoveryClaim = (input: {
   claimState: Awaited<ReturnType<typeof claimDispatchAttempt>>;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -944,7 +919,6 @@ const resumeHostedAdmissionRecoveryClaim = (input: {
   );
   return resumedClaim;
 };
-
 const removeHostedRecoveryReasonFromWorkstationDispatch = (
   message: OpenMeldDaemonDispatchQueueMessage
 ): OpenMeldDaemonDispatchQueueMessage => {
@@ -964,11 +938,10 @@ const removeHostedRecoveryReasonFromWorkstationDispatch = (
   );
   return workstationDispatchMessage;
 };
-
 const processDispatchQueueMessageExecution = async (input: {
   captureAttempt?: (attempt: { attemptId: string; attemptNo: number }) => void;
   controllerKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
   ctx: DispatchQueueWaitContext;
   deliveryPath: "direct" | "queue";
   env: CoreBindings;
@@ -996,7 +969,6 @@ const processDispatchQueueMessageExecution = async (input: {
       shouldAck: true,
     };
   }
-
   const timing = resolveDispatchTimingCollector(input.timing);
   const logServerTiming = () => {
     logDispatchQueueServerTiming({
@@ -1006,7 +978,6 @@ const processDispatchQueueMessageExecution = async (input: {
       metrics: timing.metrics(),
     });
   };
-
   const preHeadFailurePublication = await timing.measure(
     {
       description: "Resume any durable failure publication before dispatch",
@@ -1025,7 +996,6 @@ const processDispatchQueueMessageExecution = async (input: {
     logServerTiming();
     return preHeadFailurePublication;
   }
-
   let claimState = await timing.measure(
     {
       description: "Claim or correlate the durable dispatch attempt",
@@ -1087,7 +1057,6 @@ const processDispatchQueueMessageExecution = async (input: {
     attemptId: executionAttemptId,
     attemptNo: executionAttemptNo,
   });
-
   const preflightCheck = await resolveDispatchQueuePreflight({
     env: input.env,
     message: input.dispatchMessage,
@@ -1133,14 +1102,12 @@ const processDispatchQueueMessageExecution = async (input: {
       shouldAck,
     };
   }
-
   input.ctx.waitUntil(
     emitDispatchingActivitySignal({
       env: input.env,
       message: input.dispatchMessage,
     })
   );
-
   let effectiveDispatchMessage = applyEffectiveTargetBindingSnapshotToMessage({
     message: input.dispatchMessage,
     snapshot: preflightCheck.effectiveTargetBindingSnapshot,
@@ -1189,7 +1156,6 @@ const processDispatchQueueMessageExecution = async (input: {
     logServerTiming();
     return result;
   }
-
   if (!targetOwnerUserId) {
     throw new DispatchExecutionValidationError({
       code: "agent_profile_binding.lookup_failed",
@@ -1206,7 +1172,6 @@ const processDispatchQueueMessageExecution = async (input: {
   effectiveDispatchMessage = removeHostedRecoveryReasonFromWorkstationDispatch(
     effectiveDispatchMessage
   );
-
   if (claimState.status === "continued") {
     const result = await scheduleContinuedDispatchWaitPhase({
       claimState,
@@ -1221,7 +1186,6 @@ const processDispatchQueueMessageExecution = async (input: {
     logServerTiming();
     return result;
   }
-
   const headAcceptance = await timing.measure(
     {
       description: "Accept RuntimeCoordinator head before daemon delivery",
@@ -1260,7 +1224,6 @@ const processDispatchQueueMessageExecution = async (input: {
     message: effectiveDispatchMessage,
   });
   effectiveDispatchMessage = acceptedDispatch.message;
-
   const deviceWaiting = await settleDeviceWaitingWakeBeforeExecution({
     db: input.db,
     dispatchMessage: effectiveDispatchMessage,
@@ -1290,16 +1253,20 @@ const processDispatchQueueMessageExecution = async (input: {
   logServerTiming();
   return result;
 };
-
 const settleDeviceWaitingWakeBeforeExecution = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
   executionAttemptNo: number;
   message: QueueBatchMessage;
   nowMs: number;
-  preflightCheck: Extract<DispatchExecutionPreflightResult, { ok: true }>;
+  preflightCheck: Extract<
+    DispatchExecutionPreflightResult,
+    {
+      ok: true;
+    }
+  >;
   targetOwnerUserId: string;
 }): Promise<DispatchQueueMessageExecutionResult | null> => {
   const effectiveDispatchMessage = input.dispatchMessage;
@@ -1343,7 +1310,6 @@ const settleDeviceWaitingWakeBeforeExecution = async (input: {
       });
     return { controllerWaitPromise: null, shouldAck: outcome.shouldAck };
   }
-
   const waitingReason =
     deviceWaitAccess === null
       ? "wake.device_wait.access_check_unavailable"
@@ -1371,10 +1337,8 @@ const settleDeviceWaitingWakeBeforeExecution = async (input: {
     });
     return { controllerWaitPromise: null, shouldAck: waiting.shouldAck };
   }
-
   return null;
 };
-
 const isFreshRuntimeCoordinatorHeadSettledWithoutExecution = (
   outcome: RuntimeCoordinatorHeadAcceptanceOutcome
 ): boolean =>
@@ -1383,9 +1347,8 @@ const isFreshRuntimeCoordinatorHeadSettledWithoutExecution = (
   outcome.status === "existing_publication_intent_preserved" ||
   outcome.status === "terminal_already_recorded" ||
   outcome.status === "skip_duplicate";
-
 const settleFreshHeadAdmissionWithoutDelivery = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -1460,15 +1423,14 @@ const settleFreshHeadAdmissionWithoutDelivery = async (input: {
   }
   return null;
 };
-
 const resumeExistingPreHeadFailurePublication = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   message: QueueBatchMessage;
   nowMs: number;
 }): Promise<DispatchQueueMessageExecutionResult | null> => {
-  const recoveryDb = dispatchRecoveryDb(input.env);
+  const recoveryDb = getPostgresDatabase(input.env);
   if (!recoveryDb) {
     throw new Error("dispatch.pre_head_failure_publication_db_unavailable");
   }
@@ -1497,15 +1459,16 @@ const resumeExistingPreHeadFailurePublication = async (input: {
     }),
   };
 };
-
 const scheduleContinuedDispatchWaitPhase = async (input: {
   claimState: Extract<
     Awaited<ReturnType<typeof claimDispatchAttempt>>,
-    { status: "continued" }
+    {
+      status: "continued";
+    }
   >;
   controllerKey: string;
   ctx: DispatchQueueWaitContext;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -1559,9 +1522,8 @@ const scheduleContinuedDispatchWaitPhase = async (input: {
     shouldAck: true,
   };
 };
-
 const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -1570,7 +1532,9 @@ const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
   targetWakeLifecycleIdentity: ReturnType<
     typeof projectTargetWakeLifecycleIdentity
   >;
-}): Promise<{ handled: boolean }> => {
+}): Promise<{
+  handled: boolean;
+}> => {
   const trace = await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
     env: input.env,
     ownerUserId: input.targetOwnerUserId,
@@ -1598,7 +1562,6 @@ const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
   ) {
     return { handled: false };
   }
-
   await markDispatchStatus({
     attemptId: input.executionAttemptId,
     attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded,
@@ -1637,15 +1600,20 @@ const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
   );
   return { handled: true };
 };
-
 type RuntimeCoordinatorHeadAcceptanceOutcome =
-  | { status: "context_rejected"; reasonCode: string; errorMessage: string }
+  | {
+      status: "context_rejected";
+      reasonCode: string;
+      errorMessage: string;
+    }
   | {
       acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
       executionContext?: OpenMeldDaemonDispatchQueueMessage["executionContext"];
       status: "proceed";
     }
-  | { status: "profile_queue_waiting" }
+  | {
+      status: "profile_queue_waiting";
+    }
   | {
       errorMessage: string;
       reasonCode: "agent_profile_work_coordinator.continuation_needs_attention";
@@ -1656,12 +1624,23 @@ type RuntimeCoordinatorHeadAcceptanceOutcome =
       reasonCode: "agent_profile_work_coordinator.queue_full";
       status: "queue_full";
     }
-  | { reasonCode: string; status: "retry" }
-  | { reasonCode: string; status: "publication_intent_ready" }
-  | { status: "existing_publication_intent_preserved" }
-  | { status: "terminal_already_recorded" }
-  | { status: "skip_duplicate" };
-
+  | {
+      reasonCode: string;
+      status: "retry";
+    }
+  | {
+      reasonCode: string;
+      status: "publication_intent_ready";
+    }
+  | {
+      status: "existing_publication_intent_preserved";
+    }
+  | {
+      status: "terminal_already_recorded";
+    }
+  | {
+      status: "skip_duplicate";
+    };
 const isAcceptedPayloadConflictSettlementReady = (
   outcome: RuntimeCoordinatorHeadAcceptanceOutcome
 ): boolean =>
@@ -1670,7 +1649,6 @@ const isAcceptedPayloadConflictSettlementReady = (
   (outcome.status === "publication_intent_ready" &&
     outcome.reasonCode ===
       RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE);
-
 const resolveRuntimeCoordinatorAcceptedDispatch = (input: {
   headAcceptance: RuntimeCoordinatorHeadAcceptanceOutcome;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -1695,7 +1673,6 @@ const resolveRuntimeCoordinatorAcceptedDispatch = (input: {
     snapshot,
   };
 };
-
 function requiresExecutionContext(
   message: OpenMeldDaemonDispatchQueueMessage,
   runtimeKind: string | null | undefined
@@ -1705,9 +1682,8 @@ function requiresExecutionContext(
       (runtimeKind === "openmeld_service" && message.threadContext)
   );
 }
-
 const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   executionAttemptId: string;
   nowMs: number;
@@ -1762,7 +1738,6 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
       status: "retry",
     };
   }
-
   if (
     response.ok &&
     response.action === "wait_in_queue" &&
@@ -1807,7 +1782,6 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
     );
     return { status: "profile_queue_waiting" };
   }
-
   if (!response.ok && response.status === "queue_full") {
     return {
       errorMessage: `Agent Profile Work Coordinator rejected this Wake because ${response.waitingCount} items are already waiting`,
@@ -1830,9 +1804,8 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   }
   return null;
 };
-
 const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -1859,7 +1832,6 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
         userRecoveryAction: "check_status",
       },
     });
-
   if (!response.ok) {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -1892,7 +1864,6 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
     });
     return { reasonCode: response.reasonCode, status: "retry" };
   }
-
   if (
     response.reasonCode ===
     RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE
@@ -1917,7 +1888,6 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
     });
     return { status: "terminal_already_recorded" };
   }
-
   const finalReasonCode = response.reasonCode;
   const finalReasonIsAcceptedPayloadConflict =
     finalReasonCode ===
@@ -1962,10 +1932,9 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
       }
     : { status: "existing_publication_intent_preserved" };
 };
-
 const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   allowPublicationIntentReconcile?: boolean;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -2034,7 +2003,6 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
       targetWakeLifecycleIdentity,
     },
   });
-
   const admissionOutcome = await settleRuntimeCoordinatorHeadAdmissionResponse({
     db: input.db,
     dispatchMessage: input.dispatchMessage,
@@ -2046,7 +2014,6 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   if (admissionOutcome) {
     return admissionOutcome;
   }
-
   if (
     !response.ok &&
     response.status === "conflict" &&
@@ -2063,7 +2030,6 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
       targetWakeLifecycleIdentity,
     });
   }
-
   if (
     input.allowPublicationIntentReconcile === true &&
     response.ok &&
@@ -2076,7 +2042,6 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
       status: "publication_intent_ready",
     };
   }
-
   if (
     response.ok &&
     response.action === "skip_duplicate" &&
@@ -2124,7 +2089,6 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     );
     return { status: "skip_duplicate" };
   }
-
   if (!response.ok) {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -2157,7 +2121,6 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     });
     return { reasonCode: response.reasonCode, status: "retry" };
   }
-
   if (response.action === "skip_duplicate") {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -2202,7 +2165,6 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     );
     return { status: "skip_duplicate" };
   }
-
   console.info(
     "[core.openMeldDaemon.dispatch_queue.runtime_coordinator_head_accept]",
     {
@@ -2226,10 +2188,9 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     status: "proceed",
   };
 };
-
 const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
   async (input: {
-    db: D1Database;
+    db: PostgresDatabase;
     dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
     env: CoreBindings;
     executionAttemptId: string;
@@ -2237,16 +2198,20 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
     nowMs: number;
     preflightCheck: Extract<
       Awaited<ReturnType<typeof runDispatchExecutionPreflightGate>>,
-      { ok: false }
+      {
+        ok: false;
+      }
     >;
     queueAttempt: number;
-  }): Promise<{ handled: boolean; shouldAck: boolean }> => {
+  }): Promise<{
+    handled: boolean;
+    shouldAck: boolean;
+  }> => {
     const noExecutionDecision =
       resolveRuntimeCoordinatorHeadNoExecutionDecision(input.preflightCheck);
     if (!noExecutionDecision) {
       return { handled: false, shouldAck: true };
     }
-
     const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: input.dispatchMessage.sourceClientMessageId ?? null,
       dispatchId: input.dispatchMessage.dispatchId,
@@ -2274,7 +2239,6 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
         return admissionBlockOutcome;
       }
     }
-
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
@@ -2286,7 +2250,6 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
       nowMs: input.nowMs,
       status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     });
-
     if (!requiresExistingHead) {
       const headAcceptance =
         await acceptRuntimeCoordinatorHeadBeforeFreshExecution({
@@ -2351,7 +2314,6 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
           userRecoveryAction: noExecutionDecision.userRecoveryAction,
         },
       });
-
     if (!response.ok && response.status === "retry_later") {
       await markDispatchStatus({
         attemptId: input.executionAttemptId,
@@ -2389,7 +2351,6 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
       );
       return { handled: true, shouldAck: false };
     }
-
     if (!response.ok) {
       await markDispatchStatus({
         attemptId: input.executionAttemptId,
@@ -2404,7 +2365,6 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
       });
       return { handled: true, shouldAck: true };
     }
-
     await writeOpenMeldDaemonOpsDecision({
       db: input.db,
       decisionCode:
@@ -2451,9 +2411,8 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
     );
     return { handled: true, shouldAck: true };
   };
-
 const resolveFreshAdmissionReadinessBlockOutcome = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -2464,13 +2423,18 @@ const resolveFreshAdmissionReadinessBlockOutcome = async (input: {
   nowMs: number;
   preflightCheck: Extract<
     Awaited<ReturnType<typeof runDispatchExecutionPreflightGate>>,
-    { ok: false }
+    {
+      ok: false;
+    }
   >;
   queueAttempt: number;
   targetWakeLifecycleIdentity: ReturnType<
     typeof projectTargetWakeLifecycleIdentity
   >;
-}): Promise<{ handled: boolean; shouldAck: boolean } | null> => {
+}): Promise<{
+  handled: boolean;
+  shouldAck: boolean;
+} | null> => {
   const trace = await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
     env: input.env,
     ownerUserId: input.noExecutionDecision.ownerUserId,
@@ -2527,14 +2491,17 @@ const resolveFreshAdmissionReadinessBlockOutcome = async (input: {
   }
   return null;
 };
-
 const resolveRuntimeCoordinatorHeadNoExecutionDecision = (
   preflightCheck: Extract<
     Awaited<ReturnType<typeof runDispatchExecutionPreflightGate>>,
-    { ok: false }
+    {
+      ok: false;
+    }
   >
 ):
-  | ({ ownerUserId: string } & NonNullable<
+  | ({
+      ownerUserId: string;
+    } & NonNullable<
       ReturnType<typeof resolveAgentWakeAdmissionTerminalDecision>
     >)
   | null => {
@@ -2553,21 +2520,21 @@ const resolveRuntimeCoordinatorHeadNoExecutionDecision = (
   );
   return decision ? { ...decision, ownerUserId } : null;
 };
-
 const legacyPreflightHeadNoExecutionReasonCodes = new Set([
   "agent_profile_binding.missing",
   "agent_profile_binding.disabled",
   "agent_profile_binding.owner_mismatch",
   "organization_binding_authorization.required",
 ]);
-
 const handleHostedFinalOutcomeClaimBeforeDeliveryIfNeeded = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
   nowMs: number;
-}): Promise<{ handled: boolean }> => {
+}): Promise<{
+  handled: boolean;
+}> => {
   const claim = await readSpaceFinalOutcomeClaim({
     dispatchId: input.dispatchMessage.dispatchId,
     env: input.env,
@@ -2587,7 +2554,6 @@ const handleHostedFinalOutcomeClaimBeforeDeliveryIfNeeded = async (input: {
   if (!claim) {
     return { handled: false };
   }
-
   const stopped = claim.outcome === "stopped";
   const reasonCode = stopped
     ? "space.wake_stopped_before_native_delivery"
@@ -2634,10 +2600,9 @@ const handleHostedFinalOutcomeClaimBeforeDeliveryIfNeeded = async (input: {
   );
   return { handled: true };
 };
-
 const handleHostedCenterAgentNativeDelivery = async (input: {
   ctx: DispatchQueueWaitContext;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -2671,7 +2636,6 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
         "hosted Center Agent Binding is missing native delivery identity",
     });
   }
-
   const finalOutcomeClaimed = await input.timing.measure(
     {
       description:
@@ -2693,7 +2657,6 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
       shouldAck: true,
     };
   }
-
   let nativeDelivery: Awaited<
     ReturnType<typeof submitRemoteAgentNativeDelivery>
   >;
@@ -2747,7 +2710,10 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
       shouldAck: nativeDelivery.shouldAck,
     };
   }
-  if (nativeDelivery.status === "submitted") {
+  // An ambiguous RPC or an unpersisted admission ACK must remain dispatching.
+  // The Space outbox resumes that exact attempt through hosted recovery;
+  // waiting_result would make its claim look like an already running Wake.
+  if (nativeDelivery.status === "submitted" && nativeDelivery.shouldAck) {
     await input.timing.measure(
       {
         description: "Persist that hosted admission is waiting for a result",
@@ -2763,15 +2729,13 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
           taskId: input.dispatchMessage.taskId,
         })
     );
-    if (nativeDelivery.shouldAck) {
-      input.ctx.waitUntil(
-        emitHostedCenterAgentNativeDeliveryReplyingHint({
-          db: input.db,
-          dispatchMessage: input.dispatchMessage,
-          env: input.env,
-        })
-      );
-    }
+    input.ctx.waitUntil(
+      emitHostedCenterAgentNativeDeliveryReplyingHint({
+        db: input.db,
+        dispatchMessage: input.dispatchMessage,
+        env: input.env,
+      })
+    );
   }
   if (!nativeDelivery.shouldAck) {
     retryQueueMessageWithBackoff(
@@ -2780,15 +2744,13 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
       REMOTE_AGENT_NATIVE_DELIVERY_RETRY_REASON_CODE
     );
   }
-
   return {
     controllerWaitPromise: null,
     shouldAck: nativeDelivery.shouldAck,
   };
 };
-
 const emitHostedCenterAgentNativeDeliveryReplyingHint = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
 }): Promise<void> => {
@@ -2827,14 +2789,12 @@ const emitHostedCenterAgentNativeDeliveryReplyingHint = async (input: {
     );
   }
 };
-
 const buildHostedNativeDeliverySystemFailureText = (
   targetProfileName: string | null | undefined
 ): string => {
   const targetName = normalizeOptionalText(targetProfileName) ?? "Center Agent";
   return `OpenMeld ran into a system problem before ${targetName} could reply. Try again. If it keeps happening, open diagnostics.`;
 };
-
 function logDispatchQueueBindingSource(input: {
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   preflightCheck: DispatchExecutionPreflightResult;
@@ -2862,13 +2822,14 @@ function logDispatchQueueBindingSource(input: {
     errorMessage: input.preflightCheck.errorMessage,
   });
 }
-
 const handleDedupedDispatchClaim = async (input: {
   claimState: Extract<
     Awaited<ReturnType<typeof claimDispatchAttempt>>,
-    { status: "deduped" }
+    {
+      status: "deduped";
+    }
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   human: ReturnType<typeof buildDispatchHumanLogContext>;
@@ -2911,7 +2872,6 @@ const handleDedupedDispatchClaim = async (input: {
     shouldAck: true,
   };
 };
-
 // Deletion cannot resolve a live binding owner. Use the Core-recorded owner
 // only to address the existing cancellation authority, never to run work.
 const stopDeletedProfileRedelivery = async (input: {
@@ -2920,7 +2880,9 @@ const stopDeletedProfileRedelivery = async (input: {
   message: QueueBatchMessage;
   ownerUserId: string;
   queueAttempt: number;
-}): Promise<{ shouldAck: boolean }> => {
+}): Promise<{
+  shouldAck: boolean;
+}> => {
   const dispatch = input.dispatchMessage;
   const stopped =
     await recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop({
@@ -2980,23 +2942,25 @@ const stopDeletedProfileRedelivery = async (input: {
   );
   return { shouldAck: false };
 };
-
 const triggerRuntimeCoordinatorQueueDecision = async (input: {
   claimState: Extract<
     Awaited<ReturnType<typeof claimDispatchAttempt>>,
-    { status: "deduped" }
+    {
+      status: "deduped";
+    }
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   message: QueueBatchMessage;
   queueAttempt: number;
-}): Promise<{ shouldAck: boolean }> => {
+}): Promise<{
+  shouldAck: boolean;
+}> => {
   const decisionRequest = input.claimState.runtimeCoordinatorDecisionRequest;
   if (!decisionRequest) {
     return { shouldAck: true };
   }
-
   const preflightCheck = await runDispatchExecutionPreflightGate({
     env: input.env,
     message: input.dispatchMessage,
@@ -3043,7 +3007,6 @@ const triggerRuntimeCoordinatorQueueDecision = async (input: {
     );
     return { shouldAck: false };
   }
-
   const response = await decideRuntimeTransportRuntimeCoordinatorExecution({
     env: input.env,
     ownerUserId,
@@ -3106,12 +3069,11 @@ const triggerRuntimeCoordinatorQueueDecision = async (input: {
   );
   return { shouldAck: true };
 };
-
 const beginFreshDispatchDeliveryPhase = async (input: {
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   controllerKey: string;
   ctx: DispatchQueueWaitContext;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionAttemptId: string;
@@ -3273,7 +3235,6 @@ const beginFreshDispatchDeliveryPhase = async (input: {
     shouldAck: true,
   };
 };
-
 const scheduleOffloadedWaitPhase = (
   input: OffloadedWaitPhaseInput,
   ctx: DispatchQueueWaitContext
@@ -3318,9 +3279,8 @@ const scheduleOffloadedWaitPhase = (
   ctx.waitUntil(offloadedWaitPromise);
   return offloadedWaitPromise;
 };
-
 const persistOffloadedWaitFailure = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   executionAttemptId: string;
   executionAttemptNo: number;
   agentControllerRef: string | null;
@@ -3386,7 +3346,6 @@ const persistOffloadedWaitFailure = async (input: {
     );
   }
 };
-
 const runOffloadedWaitPhase = async (
   input: OffloadedWaitPhaseInput
 ): Promise<void> => {
@@ -3452,11 +3411,10 @@ const runOffloadedWaitPhase = async (
     });
   }
 };
-
 const handleOffloadedWaitPhaseFailure = async (input: {
   agentControllerRef: string | null;
   controllerKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   error: unknown;
@@ -3472,7 +3430,6 @@ const handleOffloadedWaitPhaseFailure = async (input: {
     input.error,
     input.executionContext
   );
-
   if (isRuntimeTaskDedupedErrorCode(errorCode)) {
     await settleRuntimeTaskDedupedCorrelationLost({
       controllerKey: input.controllerKey,
@@ -3490,7 +3447,6 @@ const handleOffloadedWaitPhaseFailure = async (input: {
     });
     return;
   }
-
   const routeOwnershipState = await resolveRouteOwnershipStateForRetryableError(
     {
       env: input.env,
@@ -3499,7 +3455,6 @@ const handleOffloadedWaitPhaseFailure = async (input: {
       executionContext,
     }
   );
-
   const errorCategory = classifyDispatchError(input.error, errorMessage);
   const shouldRetry =
     (errorCategory === "retryable" &&
@@ -3516,7 +3471,6 @@ const handleOffloadedWaitPhaseFailure = async (input: {
     input.error instanceof DispatchExecutionValidationError
       ? input.error.replyingHintTransitionHint
       : null;
-
   console.warn("[core.openmeld.dispatch.failure_classified]", {
     event: "core.openmeld.dispatch.failure_classified",
     attemptId: input.executionAttemptId,
@@ -3528,7 +3482,6 @@ const handleOffloadedWaitPhaseFailure = async (input: {
     targetProfileId: input.dispatchMessage.targetProfileId,
     terminalReplyAlreadySettled,
   });
-
   const runtimeCoordinatorDecision =
     await decideRuntimeCoordinatorFailureForBackedExecution({
       db: input.db,
@@ -3553,7 +3506,6 @@ const handleOffloadedWaitPhaseFailure = async (input: {
   ) {
     return;
   }
-
   if (shouldRetry) {
     await settleRetryableOffloadedWaitRecovery({
       db: input.db,
@@ -3577,7 +3529,6 @@ const handleOffloadedWaitPhaseFailure = async (input: {
     });
     return;
   }
-
   await writeDispatchDlq({
     db: input.db,
     errorCode,
@@ -3637,7 +3588,6 @@ const handleOffloadedWaitPhaseFailure = async (input: {
     taskId: input.dispatchMessage.taskId,
   });
 };
-
 export type RuntimeCoordinatorFailureDecisionHandling =
   | {
       handled: false;
@@ -3647,7 +3597,6 @@ export type RuntimeCoordinatorFailureDecisionHandling =
       reasonCode: string;
       status: "coordinator_handled" | "diagnostic_only" | "retry_later";
     };
-
 export const classifyRuntimeCoordinatorQueueDecisionResponse = (
   response: RuntimeTransportRuntimeCoordinatorDecisionResponse
 ): RuntimeCoordinatorFailureDecisionHandling => {
@@ -3689,7 +3638,6 @@ export const classifyRuntimeCoordinatorQueueDecisionResponse = (
     status: "coordinator_handled",
   };
 };
-
 const resolveRuntimeCoordinatorFailureEventKind = (
   errorCode: string
 ): "retry" | "timeout" => {
@@ -3698,9 +3646,8 @@ const resolveRuntimeCoordinatorFailureEventKind = (
   }
   return "retry";
 };
-
 const decideRuntimeCoordinatorFailureForBackedExecution = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorCode: string;
@@ -3717,7 +3664,6 @@ const decideRuntimeCoordinatorFailureForBackedExecution = async (input: {
   ) {
     return { handled: false };
   }
-
   const eventKind = resolveRuntimeCoordinatorFailureEventKind(input.errorCode);
   const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
     dispatchId: input.dispatchMessage.dispatchId,
@@ -3751,7 +3697,6 @@ const decideRuntimeCoordinatorFailureForBackedExecution = async (input: {
       status: "retry_later",
     };
   }
-
   const response = await decideRuntimeTransportRuntimeCoordinatorExecution({
     env: input.env,
     ownerUserId,
@@ -3786,10 +3731,9 @@ const decideRuntimeCoordinatorFailureForBackedExecution = async (input: {
   }
   return classified;
 };
-
 const writeRuntimeCoordinatorHandoffPendingOrUnavailableDecision =
   async (input: {
-    db: D1Database;
+    db: PostgresDatabase;
     dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
     errorCode: string;
     eventKind: "retry" | "timeout";
@@ -3843,7 +3787,6 @@ const writeRuntimeCoordinatorHandoffPendingOrUnavailableDecision =
       );
     }
   };
-
 const isRuntimeCoordinatorBackedExecutionContext = (
   executionContext: DispatchExecutionContext | null
 ): boolean => {
@@ -3856,9 +3799,8 @@ const isRuntimeCoordinatorBackedExecutionContext = (
     executionContext.leaseEpoch > AUDIT_UNKNOWN_LEASE_EPOCH
   );
 };
-
 const handleRuntimeCoordinatorOffloadedWaitDecision = (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   decision: RuntimeCoordinatorFailureDecisionHandling;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
@@ -3887,13 +3829,15 @@ const handleRuntimeCoordinatorOffloadedWaitDecision = (input: {
   }
   return true;
 };
-
 export const handleRuntimeCoordinatorQueueFailureDecision = (input: {
   decision: RuntimeCoordinatorFailureDecisionHandling;
   forceTerminal: boolean;
   message: QueueBatchMessage;
   queueAttempt: number;
-}): { handled: boolean; shouldAck: boolean } => {
+}): {
+  handled: boolean;
+  shouldAck: boolean;
+} => {
   if (!input.decision.handled) {
     return { handled: false, shouldAck: true };
   }
@@ -3914,9 +3858,8 @@ export const handleRuntimeCoordinatorQueueFailureDecision = (input: {
   }
   return { handled: true, shouldAck: true };
 };
-
 const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorCode: string;
@@ -3926,7 +3869,10 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   message: QueueBatchMessage;
   queueAttempt: number;
   runtimeExecutionDelivered: boolean;
-}): Promise<{ handled: boolean; shouldAck: boolean }> => {
+}): Promise<{
+  handled: boolean;
+  shouldAck: boolean;
+}> => {
   if (
     input.errorCode !== "daemon.profile.offline" &&
     input.errorCode !== "daemon.profile.pending_first_report" &&
@@ -3943,7 +3889,6 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   ) {
     return { handled: false, shouldAck: true };
   }
-
   const preflightCheck = await runDispatchExecutionPreflightGate({
     env: input.env,
     message: input.dispatchMessage,
@@ -3972,7 +3917,6 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
       failureAtMs: input.failureAtMs,
     });
   }
-
   const headAcceptance = await acceptRuntimeCoordinatorHeadBeforeFreshExecution(
     {
       allowPublicationIntentReconcile: true,
@@ -4021,7 +3965,6 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   if (headAcceptance.status === "skip_duplicate") {
     return { handled: true, shouldAck: true };
   }
-
   if (input.errorCode === "service.update_required") {
     return await recordServiceUpdateRequiredHeadNoExecution({
       db: input.db,
@@ -4035,7 +3978,6 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
       queueAttempt: input.queueAttempt,
     });
   }
-
   if (input.errorCode === "local_service.identity_mismatch") {
     return await recordLocalServiceIdentityMismatchHeadNoExecution({
       db: input.db,
@@ -4049,7 +3991,6 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
       queueAttempt: input.queueAttempt,
     });
   }
-
   return await recordPreExecutionHeadWaiting({
     db: input.db,
     dispatchMessage: input.dispatchMessage,
@@ -4063,21 +4004,22 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
     queueAttempt: input.queueAttempt,
   });
 };
-
 const recordPreExecutionOwnerUnresolvedVisibleFailure = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorCode: string;
   errorMessage: string;
   executionAttemptId: string;
   failureAtMs: number;
-}): Promise<{ handled: boolean; shouldAck: boolean }> => {
+}): Promise<{
+  handled: boolean;
+  shouldAck: boolean;
+}> => {
   const targetLabel = resolvePreExecutionVisibleFailureTargetLabel(
     input.dispatchMessage
   );
   const text = `OpenMeld could not wake ${targetLabel} because OpenMeld could not confirm the agent's account right now. Try again in a moment.`;
-
   await emitSpaceSystemNoticeSignal({
     env: input.env,
     spaceId: input.dispatchMessage.spaceId,
@@ -4145,7 +4087,6 @@ const recordPreExecutionOwnerUnresolvedVisibleFailure = async (input: {
   });
   return { handled: true, shouldAck: true };
 };
-
 const resolvePreExecutionVisibleFailureTargetLabel = (
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage
 ): string => {
@@ -4156,9 +4097,8 @@ const resolvePreExecutionVisibleFailureTargetLabel = (
     ? `@${displayName.replace(LEADING_AT_SIGNS_PATTERN, "")}`
     : "the agent";
 };
-
 const recordPreExecutionHeadWaiting = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorCode:
@@ -4173,7 +4113,10 @@ const recordPreExecutionHeadWaiting = async (input: {
   message: QueueBatchMessage;
   ownerUserId: string;
   queueAttempt: number;
-}): Promise<{ handled: boolean; shouldAck: boolean }> => {
+}): Promise<{
+  handled: boolean;
+  shouldAck: boolean;
+}> => {
   const waitingPolicy = resolveRuntimeCoordinatorHeadWaitingPolicy(
     input.errorCode
   );
@@ -4200,7 +4143,6 @@ const recordPreExecutionHeadWaiting = async (input: {
       ...waitingDecision,
     },
   });
-
   if (!response.ok) {
     await writeOpenMeldDaemonOpsDecision({
       db: input.db,
@@ -4228,7 +4170,6 @@ const recordPreExecutionHeadWaiting = async (input: {
     );
     return { handled: true, shouldAck: false };
   }
-
   if (response.status === "publication_intent_ready") {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -4260,7 +4201,6 @@ const recordPreExecutionHeadWaiting = async (input: {
     });
     return { handled: true, shouldAck: true };
   }
-
   await markDispatchStatus({
     attemptId: input.executionAttemptId,
     attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
@@ -4312,9 +4252,8 @@ const recordPreExecutionHeadWaiting = async (input: {
   );
   return { handled: true, shouldAck: false };
 };
-
 const recordServiceUpdateRequiredHeadNoExecution = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorMessage: string;
@@ -4323,7 +4262,10 @@ const recordServiceUpdateRequiredHeadNoExecution = async (input: {
   message: QueueBatchMessage;
   ownerUserId: string;
   queueAttempt: number;
-}): Promise<{ handled: boolean; shouldAck: boolean }> => {
+}): Promise<{
+  handled: boolean;
+  shouldAck: boolean;
+}> => {
   const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
     clientMessageId: input.dispatchMessage.sourceClientMessageId ?? null,
     dispatchId: input.dispatchMessage.dispatchId,
@@ -4347,7 +4289,6 @@ const recordServiceUpdateRequiredHeadNoExecution = async (input: {
         userRecoveryAction: "update_openmeld_service",
       },
     });
-
   if (!response.ok && response.status === "retry_later") {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -4367,7 +4308,6 @@ const recordServiceUpdateRequiredHeadNoExecution = async (input: {
     );
     return { handled: true, shouldAck: false };
   }
-
   if (!response.ok) {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -4382,7 +4322,6 @@ const recordServiceUpdateRequiredHeadNoExecution = async (input: {
     });
     return { handled: true, shouldAck: true };
   }
-
   await writeOpenMeldDaemonOpsDecision({
     db: input.db,
     decisionCode:
@@ -4418,9 +4357,8 @@ const recordServiceUpdateRequiredHeadNoExecution = async (input: {
   });
   return { handled: true, shouldAck: true };
 };
-
 const recordLocalServiceIdentityMismatchHeadNoExecution = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorMessage: string;
@@ -4429,7 +4367,10 @@ const recordLocalServiceIdentityMismatchHeadNoExecution = async (input: {
   message: QueueBatchMessage;
   ownerUserId: string;
   queueAttempt: number;
-}): Promise<{ handled: boolean; shouldAck: boolean }> => {
+}): Promise<{
+  handled: boolean;
+  shouldAck: boolean;
+}> => {
   const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
     clientMessageId: input.dispatchMessage.sourceClientMessageId ?? null,
     dispatchId: input.dispatchMessage.dispatchId,
@@ -4453,7 +4394,6 @@ const recordLocalServiceIdentityMismatchHeadNoExecution = async (input: {
         userRecoveryAction: "reconnect_agent_binding",
       },
     });
-
   if (!response.ok && response.status === "retry_later") {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -4473,7 +4413,6 @@ const recordLocalServiceIdentityMismatchHeadNoExecution = async (input: {
     );
     return { handled: true, shouldAck: false };
   }
-
   if (!response.ok) {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -4488,7 +4427,6 @@ const recordLocalServiceIdentityMismatchHeadNoExecution = async (input: {
     });
     return { handled: true, shouldAck: true };
   }
-
   await writeOpenMeldDaemonOpsDecision({
     db: input.db,
     decisionCode:
@@ -4524,7 +4462,6 @@ const recordLocalServiceIdentityMismatchHeadNoExecution = async (input: {
   });
   return { handled: true, shouldAck: true };
 };
-
 const resolveRuntimeCoordinatorHandoffExpectedRecoveryCriteria = (
   source: "offloaded_wait" | "queue_failure"
 ): string => {
@@ -4533,11 +4470,10 @@ const resolveRuntimeCoordinatorHandoffExpectedRecoveryCriteria = (
   }
   return "Queue keeps the message retryable only to trigger a later RuntimeCoordinator decision; Queue must not decide execution terminal itself";
 };
-
 const settleRuntimeTaskDedupedCorrelationLost = async (input: {
   controllerKey: string | null;
   agentControllerRef: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorCode: string;
@@ -4555,7 +4491,6 @@ const settleRuntimeTaskDedupedCorrelationLost = async (input: {
   ]
     .filter((part) => part.trim().length > 0)
     .join(": ");
-
   await markDispatchStatus({
     attemptId: input.executionAttemptId,
     attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
@@ -4566,7 +4501,6 @@ const settleRuntimeTaskDedupedCorrelationLost = async (input: {
     nowMs: input.nowMs,
     status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
   });
-
   try {
     await writeOpenMeldDaemonOpsDecision({
       db: input.db,
@@ -4599,7 +4533,6 @@ const settleRuntimeTaskDedupedCorrelationLost = async (input: {
       }
     );
   }
-
   if (input.executionContext) {
     await finalizeReplyingHintLifecycle({
       dispatchMessage: input.dispatchMessage,
@@ -4609,7 +4542,6 @@ const settleRuntimeTaskDedupedCorrelationLost = async (input: {
       transition: "clear_for_terminal_reply",
     });
   }
-
   console.warn(
     "[core.openMeldDaemon.dispatch_queue.runtime_dedupe_diagnostic]",
     {
@@ -4631,9 +4563,8 @@ const settleRuntimeTaskDedupedCorrelationLost = async (input: {
     }
   );
 };
-
 const settleRetryableOffloadedWaitRecovery = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorCode: string;
@@ -4663,7 +4594,6 @@ const settleRetryableOffloadedWaitRecovery = async (input: {
     retryCount: input.executionAttemptNo,
     shouldRetry: true,
   });
-
   const attemptStatus = isDispatchAttemptTimeoutErrorCode(input.errorCode)
     ? OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.timedOut
     : OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable;
@@ -4707,7 +4637,6 @@ const settleRetryableOffloadedWaitRecovery = async (input: {
     }
   );
 };
-
 const emitDispatchReplyingHintClearSignal = async (input: {
   env: CoreBindings;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -4739,7 +4668,6 @@ const emitDispatchReplyingHintClearSignal = async (input: {
     return false;
   }
 };
-
 const finalizeReplyingHintLifecycle = async (input: {
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
@@ -4767,7 +4695,6 @@ const finalizeReplyingHintLifecycle = async (input: {
     replyingHintActive: nextReplyingHintActive,
   };
 };
-
 const resolveOffloadedWaitPhaseExecutionContext = (
   error: unknown,
   fallback: DispatchExecutionContext
@@ -4780,7 +4707,6 @@ const resolveOffloadedWaitPhaseExecutionContext = (
   }
   return fallback;
 };
-
 const resolveDispatchTargetLabel = (input: {
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   targetProfileName: string | null;
@@ -4794,15 +4720,16 @@ const resolveDispatchTargetLabel = (input: {
     input.dispatchMessage.targetProfileId
   );
 };
-
 const handlePreflightDispatchCheckFailure = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   executionAttemptId: string;
   queueAttempt: number;
   preflightCheck: Extract<
     Awaited<ReturnType<typeof runDispatchExecutionPreflightGate>>,
-    { ok: false }
+    {
+      ok: false;
+    }
   >;
   nowMs: number;
   env: CoreBindings;
@@ -4814,7 +4741,6 @@ const handlePreflightDispatchCheckFailure = async (input: {
     preflightCheck: input.preflightCheck,
     nowMs: input.nowMs,
   });
-
   const shouldRetryPreflightFailure =
     input.preflightCheck.finalStatus ===
       OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable &&
@@ -4845,13 +4771,11 @@ const handlePreflightDispatchCheckFailure = async (input: {
     );
     return false;
   }
-
   const finalStatus =
     input.preflightCheck.finalStatus ===
     OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
       ? OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal
       : input.preflightCheck.finalStatus;
-
   return await settleVisiblePreHeadFailure({
     db: input.db,
     dispatchMessage: input.dispatchMessage,
@@ -4866,9 +4790,8 @@ const handlePreflightDispatchCheckFailure = async (input: {
       input.preflightCheck.targetProfileIdentityVerdict === "not_found",
   });
 };
-
 const settleVisiblePreHeadFailure = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   errorCode: string;
@@ -4895,7 +4818,7 @@ const settleVisiblePreHeadFailure = async (input: {
     errorMessage: input.errorMessage,
     message: redriveMessage,
   });
-  const recoveryDb = dispatchRecoveryDb(input.env);
+  const recoveryDb = getPostgresDatabase(input.env);
   if (!recoveryDb) {
     throw new Error("dispatch.pre_head_failure_publication_db_unavailable");
   }
@@ -4923,14 +4846,13 @@ const settleVisiblePreHeadFailure = async (input: {
     recoveryDb,
   });
 };
-
 const resumePreHeadFailurePublication = async (input: {
-  evidenceDb: D1Database;
+  evidenceDb: PostgresDatabase;
   env: CoreBindings;
   intent: PreHeadFailurePublicationIntent;
   message: QueueBatchMessage;
   nowMs: number;
-  recoveryDb: D1Database;
+  recoveryDb: PostgresDatabase;
 }): Promise<boolean> => {
   const claim = await claimPreHeadFailurePublicationIntent({
     claimId: `dispatch-pre-head-failure-publication:${crypto.randomUUID()}`,
@@ -4945,7 +4867,6 @@ const resumePreHeadFailurePublication = async (input: {
     throw new Error("dispatch.pre_head_failure_publication_intent_missing");
   }
   const intent = claim.intent;
-
   const publication = await emitFrozenPreHeadFailurePublication({
     env: input.env,
     intent,
@@ -4969,7 +4890,6 @@ const resumePreHeadFailurePublication = async (input: {
       recoveryDb: input.recoveryDb,
     });
   }
-
   try {
     await writeDispatchDlq({
       db: input.evidenceDb,
@@ -5022,13 +4942,12 @@ const resumePreHeadFailurePublication = async (input: {
     });
   }
 };
-
 const redrivePreHeadFailurePublication = async (input: {
   env: CoreBindings;
   intent: PreHeadFailurePublicationIntent;
   message: QueueBatchMessage;
   nowMs: number;
-  recoveryDb: D1Database;
+  recoveryDb: PostgresDatabase;
 }): Promise<boolean> => {
   const delaySeconds = resolveDispatchRetryDelaySeconds({
     attempt: input.intent.attemptCount + 1,
@@ -5072,13 +4991,16 @@ const redrivePreHeadFailurePublication = async (input: {
   }
   return true;
 };
-
 export const retryPendingPreHeadFailurePublications = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   limit?: number;
   nowMs: number;
-}): Promise<{ enqueued: number; errors: number; scanned: number }> => {
+}): Promise<{
+  enqueued: number;
+  errors: number;
+  scanned: number;
+}> => {
   const intents = await listDuePreHeadFailurePublicationIntents({
     db: input.db,
     limit: input.limit ?? 50,
@@ -5109,7 +5031,6 @@ export const retryPendingPreHeadFailurePublications = async (input: {
   }
   return { enqueued, errors, scanned: intents.length };
 };
-
 // Feed the authoritative Auth profile.not_found verdict into the Space
 // membership liveness evidence ledger, so cleanup convergence is
 // write-driven instead of depending on someone opening the members surface.
@@ -5142,9 +5063,8 @@ const recordSpaceMemberProfileNotFoundObservationBestEffort = async (input: {
     );
   }
 };
-
 const handleDispatchQueueProcessingFailure = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryPath: "direct" | "queue";
   env: CoreBindings;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -5207,7 +5127,6 @@ const handleDispatchQueueProcessingFailure = async (input: {
     });
     return true;
   }
-
   const routeOwnershipState = await resolveRouteOwnershipStateForRetryableError(
     {
       env: input.env,
@@ -5225,7 +5144,6 @@ const handleDispatchQueueProcessingFailure = async (input: {
       })) ||
     (errorCategory === "unknown" &&
       shouldRetryUnknownDispatchAttempt(input.queueAttempt));
-
   console.warn("[core.openmeld.dispatch.failure_classified]", {
     event: "core.openmeld.dispatch.failure_classified",
     attemptId: input.executionAttemptId,
@@ -5239,7 +5157,6 @@ const handleDispatchQueueProcessingFailure = async (input: {
     shouldRetry,
     targetProfileId: input.dispatchMessage.targetProfileId,
   });
-
   const runtimeCoordinatorDecision =
     await decideRuntimeCoordinatorFailureForBackedExecution({
       db: input.db,
@@ -5258,14 +5175,13 @@ const handleDispatchQueueProcessingFailure = async (input: {
       // path — retrying cannot create a missing table, so it must never be
       // re-queued via retry_later. (Scoped to schema faults specifically: other
       // non-retryable errors with a transient RC handoff issue still pend.)
-      forceTerminal: isD1SchemaError(errorMessage),
+      forceTerminal: isPostgresSchemaError(input.error),
       message: input.message,
       queueAttempt: input.queueAttempt,
     });
   if (runtimeCoordinatorQueueFailureHandled.handled) {
     return runtimeCoordinatorQueueFailureHandled.shouldAck;
   }
-
   const preExecutionHeadLifecycleFailureHandled =
     await handlePreExecutionHeadLifecycleFailureIfNeeded({
       runtimeExecutionDelivered: input.runtimeExecutionDelivered,
@@ -5282,7 +5198,6 @@ const handleDispatchQueueProcessingFailure = async (input: {
   if (preExecutionHeadLifecycleFailureHandled.handled) {
     return preExecutionHeadLifecycleFailureHandled.shouldAck;
   }
-
   await writeStaleLeaseAuditDecisionIfNeeded({
     db: input.db,
     dispatchMessage: input.dispatchMessage,
@@ -5331,7 +5246,6 @@ const handleDispatchQueueProcessingFailure = async (input: {
     retryQueueMessageWithBackoff(input.message, input.queueAttempt, errorCode);
     return false;
   }
-
   if (input.error instanceof HostedNativeDeliverySubmissionError) {
     try {
       await publishRemoteAgentFailureNotice({
@@ -5349,7 +5263,6 @@ const handleDispatchQueueProcessingFailure = async (input: {
       });
     }
   }
-
   await writeDispatchDlq({
     db: input.db,
     message: input.dispatchMessage,
@@ -5385,13 +5298,14 @@ const handleDispatchQueueProcessingFailure = async (input: {
   });
   return true;
 };
-
 const handleInvalidDispatchQueuePayload = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   message: QueueBatchMessage;
   payload: Extract<
     ResolvedIncomingQueueMessage,
-    { kind: "invalid" | "legacy_v1" }
+    {
+      kind: "invalid" | "legacy_v1";
+    }
   >;
 }): Promise<void> => {
   console.error("[core.openMeldDaemon.dispatch_queue.invalid_payload]", {
@@ -5418,7 +5332,6 @@ const handleInvalidDispatchQueuePayload = async (input: {
   }
   input.message.ack();
 };
-
 const resolveIncomingQueueMessage = (
   body: unknown
 ): ResolvedIncomingQueueMessage => {
@@ -5442,20 +5355,17 @@ const resolveIncomingQueueMessage = (
       receivedQueueSchemaVersion: parsed.receivedQueueSchemaVersion,
     };
   }
-
   return {
     kind: "invalid",
     issues: parsed.issues,
     receivedQueueSchemaVersion: parsed.receivedQueueSchemaVersion,
   };
 };
-
 const retryBatchMessages = (batch: MessageBatch<unknown>): void => {
   for (const message of batch.messages) {
     retryQueueMessage(message);
   }
 };
-
 const retryQueueMessage = (
   message: QueueBatchMessage,
   input?: {
@@ -5470,13 +5380,15 @@ const retryQueueMessage = (
     console.error("[core.openMeldDaemon.dispatch_queue.retry_failed]", {
       event: CORE_LOG_EVENTS.dispatchQueueRetryFailed,
       error: toErrorMessage(error),
-      attempts: (message as { attempts?: number }).attempts,
+      attempts: (
+        message as {
+          attempts?: number;
+        }
+      ).attempts,
     });
-
     if (typeof input === "undefined") {
       return;
     }
-
     try {
       retryWithThis();
     } catch (fallbackError) {
@@ -5485,23 +5397,24 @@ const retryQueueMessage = (
         {
           event: CORE_LOG_EVENTS.dispatchQueueRetryFailedNoOptions,
           error: toErrorMessage(fallbackError),
-          attempts: (message as { attempts?: number }).attempts,
+          attempts: (
+            message as {
+              attempts?: number;
+            }
+          ).attempts,
         }
       );
     }
   }
 };
-
 const toErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;
   }
   return String(error);
 };
-
 const toErrorName = (error: unknown): string =>
   error instanceof Error ? error.name : typeof error;
-
 const buildUnsupportedVersionErrorMessage = (input: {
   receivedDispatchContractVersion: number;
   receivedQueueSchemaVersion?: number;
@@ -5515,10 +5428,9 @@ const buildUnsupportedVersionErrorMessage = (input: {
     summary: "dispatch contract version unsupported",
   });
 };
-
 const handleUnsupportedDispatchContractVersion = async (input: {
   attempt: number;
-  db: D1Database;
+  db: PostgresDatabase;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
   receivedQueueSchemaVersion?: number;
@@ -5532,7 +5444,6 @@ const handleUnsupportedDispatchContractVersion = async (input: {
   if (claimState.status === "deduped") {
     return;
   }
-
   await writeDispatchDlq({
     db: input.db,
     message: input.message,
@@ -5557,7 +5468,6 @@ const handleUnsupportedDispatchContractVersion = async (input: {
     nowMs: input.nowMs,
   });
 };
-
 const resolveRouteOwnershipStateForRetryableError = async (input: {
   env: CoreBindings;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -5567,7 +5477,6 @@ const resolveRouteOwnershipStateForRetryableError = async (input: {
   if (input.errorCode !== "daemon.session.not_found") {
     return "unknown";
   }
-
   const daemonSessionId = normalizeOptionalText(
     input.executionContext?.daemonSessionId
   );
@@ -5585,7 +5494,6 @@ const resolveRouteOwnershipStateForRetryableError = async (input: {
   ) {
     return "unknown";
   }
-
   const preflightCheck = await runDispatchExecutionPreflightGate({
     env: input.env,
     message: input.dispatchMessage,
@@ -5593,14 +5501,12 @@ const resolveRouteOwnershipStateForRetryableError = async (input: {
   if (!preflightCheck?.ok) {
     return "unknown";
   }
-
   const ownerUserId = normalizeOptionalText(
     preflightCheck.effectiveTargetBindingSnapshot.ownerUserId
   );
   if (!ownerUserId) {
     return "unknown";
   }
-
   const route = await lookupRuntimeTransportRoute({
     blockForgottenDevices: true,
     env: input.env,
@@ -5622,9 +5528,8 @@ const resolveRouteOwnershipStateForRetryableError = async (input: {
   }
   return "lost";
 };
-
 const writeStaleLeaseAuditDecisionIfNeeded = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   executionContext: DispatchExecutionContext | null;
   errorCode: string;
@@ -5638,7 +5543,6 @@ const writeStaleLeaseAuditDecisionIfNeeded = async (input: {
   ) {
     return;
   }
-
   const resolvedContext = input.executionContext ?? {
     connectionGeneration: null,
     daemonSessionId: AUDIT_UNKNOWN_DAEMON_SESSION_ID,
@@ -5656,7 +5560,6 @@ const writeStaleLeaseAuditDecisionIfNeeded = async (input: {
       }
     );
   }
-
   try {
     await writeOpenMeldDaemonOpsDecision({
       db: input.db,
@@ -5689,9 +5592,8 @@ const writeStaleLeaseAuditDecisionIfNeeded = async (input: {
     );
   }
 };
-
 const writeRetryOpsDecisionIfNeeded = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   executionContext: DispatchExecutionContext | null;
   errorCode: string;
@@ -5757,9 +5659,8 @@ const writeRetryOpsDecisionIfNeeded = async (input: {
     );
   }
 };
-
 const emitDispatchFailureHintSignal = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
   errorCode: string;
@@ -5774,7 +5675,6 @@ const emitDispatchFailureHintSignal = async (input: {
   ) {
     return "not_required";
   }
-
   try {
     const targetProfileName =
       normalizeOptionalText(input.message.targetProfileNameSnapshot) ??
@@ -5843,7 +5743,6 @@ const emitDispatchFailureHintSignal = async (input: {
     return "retry_required";
   }
 };
-
 const buildPreHeadFailurePublicationCommand = (input: {
   errorCode: string;
   errorMessage?: string | null;
@@ -5897,7 +5796,6 @@ const buildPreHeadFailurePublicationCommand = (input: {
     spaceId: input.message.spaceId,
   };
 };
-
 const emitFrozenPreHeadFailurePublication = async (input: {
   env: CoreBindings;
   intent: PreHeadFailurePublicationIntent;
@@ -5922,7 +5820,6 @@ const emitFrozenPreHeadFailurePublication = async (input: {
     return "retry_required";
   }
 };
-
 const resolveDispatchActivityTargetLabel = (
   message: OpenMeldDaemonDispatchQueueMessage
 ): string => {
@@ -5932,7 +5829,6 @@ const resolveDispatchActivityTargetLabel = (
     message.targetProfileId
   );
 };
-
 const emitDispatchingActivitySignal = async (input: {
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -5956,7 +5852,6 @@ const emitDispatchingActivitySignal = async (input: {
     });
   }
 };
-
 const logDispatchQueueServerTiming = (input: {
   deliveryPath: "direct" | "queue";
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -5996,7 +5891,6 @@ const logDispatchQueueServerTiming = (input: {
     });
   }
 };
-
 const emitRetryingActivitySignal = async (input: {
   env: CoreBindings;
   errorCode?: string | null;
@@ -6022,7 +5916,6 @@ const emitRetryingActivitySignal = async (input: {
     });
   }
 };
-
 const emitDispatchFailureActivitySignal = async (input: {
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -6038,7 +5931,6 @@ const emitDispatchFailureActivitySignal = async (input: {
   if (!text) {
     return;
   }
-
   try {
     await emitDispatchActivitySignal({
       env: input.env,
@@ -6056,20 +5948,21 @@ const emitDispatchFailureActivitySignal = async (input: {
     });
   }
 };
-
 const normalizeOptionalText = (value: unknown): string | null => {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 };
-
 const resolveQueueAttempt = (message: QueueBatchMessage): number => {
-  const rawAttempts = (message as { attempts?: unknown }).attempts;
+  const rawAttempts = (
+    message as {
+      attempts?: unknown;
+    }
+  ).attempts;
   if (typeof rawAttempts !== "number" || !Number.isFinite(rawAttempts)) {
     return 1;
   }
   return Math.max(1, Math.trunc(rawAttempts));
 };
-
 const createDirectDispatchQueueMessage = (
   body: OpenMeldDaemonDispatchQueueMessage
 ): DirectDispatchQueueMessage => {
@@ -6103,14 +5996,12 @@ const createDirectDispatchQueueMessage = (
     },
   }) as DirectDispatchQueueMessage;
 };
-
 const normalizeQueueRetryDelaySeconds = (value: unknown): number | null => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return null;
   }
   return Math.max(0, Math.trunc(value));
 };
-
 const retryQueueMessageWithBackoff = (
   message: QueueBatchMessage,
   attempt: number,
@@ -6122,13 +6013,14 @@ const retryQueueMessageWithBackoff = (
   });
   retryQueueMessage(message, { delaySeconds });
 };
-
 const writePreflightOpsDecisionIfNeeded = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   preflightCheck: Extract<
     Awaited<ReturnType<typeof runDispatchExecutionPreflightGate>>,
-    { ok: false }
+    {
+      ok: false;
+    }
   >;
   nowMs: number;
 }): Promise<void> => {
@@ -6166,9 +6058,8 @@ const writePreflightOpsDecisionIfNeeded = async (input: {
     });
   }
 };
-
 const emitDedupeWindowRiskIfNeeded = async (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
   queueAttempt: number;
@@ -6180,7 +6071,6 @@ const emitDedupeWindowRiskIfNeeded = async (input: {
   if (!isDispatchDedupeWindowRisk(queueLagMs)) {
     return;
   }
-
   console.warn("[core.openMeldDaemon.dispatch_queue.risk]", {
     event: CORE_LOG_EVENTS.dispatchQueueRisk,
     code: DISPATCH_DEDUPE_WINDOW_RISK_CODE,

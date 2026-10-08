@@ -29,6 +29,8 @@ test("coordinated release hands trusted parent outputs to every child and retain
   for (const [name, file] of [
     ["core", "core-worker"],
     ["web", "web"],
+    ["website", "website"],
+    ["docs", "docs"],
     ["auth", "auth-worker"],
     ["gateway", "gateway-worker"],
     ["remote_agent", "remote-agent-worker"],
@@ -114,69 +116,84 @@ test("coordinated release hands trusted parent outputs to every child and retain
   );
 });
 
-test("Web handoff downloads only the immutable same-run snapshot and verifies it before preflight or deployment", () => {
-  const parent = workflow("workflows/release-on-main.yml");
-  const validation = parent.jobs.validate_release_source;
-  const upload = validation.steps.find((step) => step.id === "web_artifact");
-  assert.equal(upload.uses, "actions/upload-artifact@v4");
-  assert.equal(
-    upload.if,
-    "steps.train_admission.outputs.has_web_artifact == 'true'"
-  );
-  assert.equal(upload.with["if-no-files-found"], "error");
-  assert.equal(upload.with["include-hidden-files"], true);
-  assert.equal(upload.with.overwrite, undefined);
-  assert.deepEqual(upload.with.path.trim().split("\n"), [
-    "release-source/dev-tmp/release-artifact-check/web.json",
-    "release-source/dev-tmp/release-artifact-check/artifacts/web/",
-  ]);
-  assert.equal(
-    validation.outputs.parent_web_artifact_id,
-    expression("steps.web_artifact.outputs.artifact-id")
-  );
-  assert.equal(
-    parent.jobs.web.with.parent_web_artifact_id,
-    expression("needs.validate_release_source.outputs.parent_web_artifact_id")
-  );
-  const web = workflow("workflows/deploy-web.yml").jobs.deploy;
-  const parentHeap = validation.steps.find((step) =>
-    step.run?.includes("--issue-parent-evidence")
-  ).env.OPENMELD_RENDERER_NODE_HEAP_MB;
-  assert.equal(
-    web.env.OPENMELD_RENDERER_NODE_HEAP_MB,
-    expression(
-      `inputs.parent_admission_evidence != '' && '${parentHeap}' || ''`
-    )
-  );
-  assert.equal(
-    web.env.OPENMELD_PARENT_WEB_ARTIFACT_ID,
-    expression("inputs.parent_web_artifact_id")
-  );
-  const downloadIndex = web.steps.findIndex(
-    (step) => step.uses === "actions/download-artifact@v4"
-  );
-  const download = web.steps[downloadIndex];
-  assert.equal(download.if, "inputs.parent_admission_evidence != ''");
-  assert.deepEqual(download.with, {
-    "artifact-ids": expression("inputs.parent_web_artifact_id"),
-    "merge-multiple": true,
-    path: "release-source/dev-tmp/release-artifact-check",
-  });
-  assert.equal(
-    web.steps[downloadIndex - 1].name,
-    "Admit declared production train artifacts"
-  );
-  assert.ok(
-    web.steps[downloadIndex + 1].run.includes("--restore-web-artifact")
-  );
-  assert.equal(web.steps[downloadIndex + 1].if, download.if);
-  assert.ok(
-    downloadIndex + 1 <
-      web.steps.findIndex(
-        (step) => step.name === "Run Web deployment preflight"
+for (const [scope, title] of [
+  ["web", "Web"],
+  ["website", "Website"],
+  ["docs", "Docs"],
+]) {
+  test(`${title} handoff downloads only the immutable same-run snapshot and verifies it before preflight or deployment`, () => {
+    const parent = workflow("workflows/release-on-main.yml");
+    const validation = parent.jobs.validate_release_source;
+    const upload = validation.steps.find(
+      (step) => step.id === `${scope}_artifact`
+    );
+    assert.equal(upload.uses, "actions/upload-artifact@v4");
+    assert.equal(
+      upload.if,
+      `steps.train_admission.outputs.has_${scope}_artifact == 'true'`
+    );
+    assert.equal(upload.with["if-no-files-found"], "error");
+    assert.equal(upload.with["include-hidden-files"], true);
+    assert.equal(upload.with.overwrite, undefined);
+    assert.deepEqual(upload.with.path.trim().split("\n"), [
+      `release-source/dev-tmp/release-artifact-check/${scope}.json`,
+      `release-source/dev-tmp/release-artifact-check/artifacts/${scope}/`,
+    ]);
+    assert.equal(
+      validation.outputs[`parent_${scope}_artifact_id`],
+      expression(`steps.${scope}_artifact.outputs.artifact-id`)
+    );
+    assert.equal(
+      parent.jobs[scope].with[`parent_${scope}_artifact_id`],
+      expression(
+        `needs.validate_release_source.outputs.parent_${scope}_artifact_id`
       )
-  );
-});
+    );
+    const web = workflow(`workflows/deploy-${scope}.yml`).jobs.deploy;
+    const parentHeap = validation.steps.find((step) =>
+      step.run?.includes("--issue-parent-evidence")
+    ).env.OPENMELD_RENDERER_NODE_HEAP_MB;
+    assert.equal(
+      web.env.OPENMELD_RENDERER_NODE_HEAP_MB,
+      expression(
+        `inputs.parent_admission_evidence != '' && '${parentHeap}' || ''`
+      )
+    );
+    assert.equal(
+      web.env[`OPENMELD_PARENT_${scope.toUpperCase()}_ARTIFACT_ID`],
+      expression(`inputs.parent_${scope}_artifact_id`)
+    );
+    const downloadIndex = web.steps.findIndex(
+      (step) => step.uses === "actions/download-artifact@v4"
+    );
+    const download = web.steps[downloadIndex];
+    assert.equal(download.if, "inputs.parent_admission_evidence != ''");
+    assert.deepEqual(download.with, {
+      "artifact-ids": expression(`inputs.parent_${scope}_artifact_id`),
+      "merge-multiple": true,
+      path: "release-source/dev-tmp/release-artifact-check",
+    });
+    assert.equal(
+      web.steps[downloadIndex - 1].name,
+      "Admit declared production train artifacts"
+    );
+    assert.ok(
+      web.steps[downloadIndex + 1].run.includes("--restore-renderer-artifact")
+    );
+    assert.equal(web.steps[downloadIndex + 1].if, download.if);
+    assert.ok(
+      downloadIndex + 1 <
+        web.steps.findIndex(
+          (step) => step.name === `Run ${title} deployment preflight`
+        )
+    );
+    const health = web.steps.find(
+      (step) => step.name === `Verify ${title} health`
+    );
+    assert.ok(health.run.includes("scripts/release/production-web-health.mjs"));
+    assert.ok(health.run.includes(`--scope ${scope}`));
+  });
+}
 
 test("manual client artifact validation excludes the broad diagnostic jobs", () => {
   const workflow = parse(
@@ -259,11 +276,8 @@ test("Production and Deep Confidence share an explicit heap within available run
         memoryBytes,
         "linux"
       );
-      assert.equal(
-        env.NODE_OPTIONS,
-        `--max-old-space-size=${trainAdmission ? 5120 : 4096}`
-      );
-      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, trainAdmission ? "6" : "5");
+      assert.equal(env.NODE_OPTIONS, "--max-old-space-size=5120");
+      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, "6");
       assert.equal(
         env.OPENMELD_DESKTOP_TARGET,
         scope === "desktop" ? "production" : undefined
@@ -290,7 +304,44 @@ test("Production and Deep Confidence share an explicit heap within available run
       { env: { ...process.env, ...env }, encoding: "utf8" }
     )
   );
-  assert.ok(heapLimit >= 4096 * 1024 ** 2 && heapLimit < 5 * 1024 ** 3);
+  assert.ok(heapLimit >= 5120 * 1024 ** 2 && heapLimit < 6 * 1024 ** 3);
+  const website = productionBuildEnvironment(
+    "website",
+    {},
+    memoryBytes,
+    "linux"
+  );
+  assert.equal(website.NODE_OPTIONS, "--max-old-space-size=2048");
+  assert.equal(website.OPENMELD_LOCAL_HEAVY_GIB, "3");
+  for (const [scope, standaloneHeap] of [
+    ["web", 5120],
+    ["website", 2048],
+  ]) {
+    const child = workflow(`workflows/deploy-${scope}.yml`).jobs.deploy;
+    for (const hasParent of [false, true]) {
+      const expectedHeap = hasParent ? 5120 : standaloneHeap;
+      // GitHub evaluates the optional-parent expression to an empty string
+      // for standalone calls, not an absent environment variable.
+      const actual = productionBuildEnvironment(
+        scope,
+        {
+          ...child.env,
+          OPENMELD_RENDERER_NODE_HEAP_MB: hasParent
+            ? productionJob.steps.find((step) =>
+                step.run?.includes("production-train-artifact-admission.mjs")
+              ).env.OPENMELD_RENDERER_NODE_HEAP_MB
+            : "",
+        },
+        memoryBytes,
+        "linux"
+      );
+      assert.equal(actual.NODE_OPTIONS, `--max-old-space-size=${expectedHeap}`);
+      assert.equal(
+        actual.OPENMELD_LOCAL_HEAVY_GIB,
+        String((expectedHeap + 1024) / 1024)
+      );
+    }
+  }
 });
 
 test("handoff acceptance uses separate clean jobs and the production artifact transport with no mutation credentials", () => {

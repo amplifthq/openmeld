@@ -1,16 +1,17 @@
 import { desc, sql } from "drizzle-orm";
 import {
+  bigint,
   check,
   index,
   integer,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
 import { openMeldProfiles } from "../auth/openmeld-profile.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const projects = sqliteTable(
+export const projects = applicationTable(
   "projects",
   {
     id: text("id").primaryKey(),
@@ -28,7 +29,9 @@ export const projects = sqliteTable(
     issueDestinationUpdatedByUserId: text(
       "issue_destination_updated_by_user_id"
     ),
-    issueDestinationUpdatedAtMs: integer("issue_destination_updated_at_ms"),
+    issueDestinationUpdatedAtMs: bigint("issue_destination_updated_at_ms", {
+      mode: "number",
+    }),
     additionalRepositoryUrlsJson: text("additional_repository_urls_json")
       .notNull()
       .default("[]"),
@@ -38,7 +41,9 @@ export const projects = sqliteTable(
     repositorySettingsUpdatedByUserId: text(
       "repository_settings_updated_by_user_id"
     ),
-    repositorySettingsUpdatedAtMs: integer("repository_settings_updated_at_ms"),
+    repositorySettingsUpdatedAtMs: bigint("repository_settings_updated_at_ms", {
+      mode: "number",
+    }),
     commonAgentProfileIdsJson: text("common_agent_profile_ids_json")
       .notNull()
       .default("[]"),
@@ -46,12 +51,14 @@ export const projects = sqliteTable(
       .notNull()
       .default(0),
     commonAgentsUpdatedByUserId: text("common_agents_updated_by_user_id"),
-    commonAgentsUpdatedAtMs: integer("common_agents_updated_at_ms"),
+    commonAgentsUpdatedAtMs: bigint("common_agents_updated_at_ms", {
+      mode: "number",
+    }),
     creationRequestSignature: text("creation_request_signature"),
     createdByUserId: text("created_by_user_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    archivedAtMs: integer("archived_at_ms"),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    archivedAtMs: bigint("archived_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("projects_org_slug_unique")
@@ -75,7 +82,7 @@ export const projects = sqliteTable(
       "projects_slug_shape_check",
       sql`length("slug") > 0
         and "slug" = lower("slug")
-        and "slug" not glob '*[^a-z0-9-]*'
+        and "slug" !~ '^.*[^a-z0-9-].*$'
         and "slug" not like '-%'
         and "slug" not like '%-'
         and "slug" not like '%--%'`
@@ -85,13 +92,13 @@ export const projects = sqliteTable(
       sql`"repository_fingerprint" is null or (
         length("repository_fingerprint") = 71
         and substr("repository_fingerprint", 1, 7) = 'sha256:'
-        and substr("repository_fingerprint", 8) not glob '*[^0-9a-f]*'
+        and substr("repository_fingerprint", 8) !~ '^.*[^0-9a-f].*$'
       )`
     ),
     check(
       "projects_repository_url_shape_check",
       sql`"repository_url" is null or (
-        "repository_url" like 'https://%'
+        "repository_url" ilike 'https://%'
         and "repository_url" not like '%@%'
         and "repository_url" not like '%?%'
         and "repository_url" not like '%#%'
@@ -112,7 +119,7 @@ export const projects = sqliteTable(
   ]
 );
 
-export const centerAgentProjectOperations = sqliteTable(
+export const centerAgentProjectOperations = applicationTable(
   "center_agent_project_operations",
   {
     id: text("id").primaryKey(),
@@ -131,8 +138,8 @@ export const centerAgentProjectOperations = sqliteTable(
     targetResourceId: text("target_resource_id").notNull(),
     responseJson: text("response_json"),
     status: text("status").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("center_agent_project_operations_scope_unique").on(
@@ -166,7 +173,7 @@ export const centerAgentProjectOperations = sqliteTable(
     check(
       "center_agent_project_operations_signature_shape_check",
       sql`length("request_signature") = 64
-        and "request_signature" not glob '*[^0-9a-f]*'`
+        and "request_signature" !~ '^.*[^0-9a-f].*$'`
     ),
     check(
       "center_agent_project_operations_target_non_empty_check",
@@ -191,7 +198,7 @@ export const centerAgentProjectOperations = sqliteTable(
   ]
 );
 
-export const centerAgentProjectRemoveConfirmations = sqliteTable(
+export const centerAgentProjectRemoveConfirmations = applicationTable(
   "center_agent_project_remove_confirmations",
   {
     tokenHash: text("token_hash").primaryKey(),
@@ -210,11 +217,13 @@ export const centerAgentProjectRemoveConfirmations = sqliteTable(
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    projectUpdatedAtMs: integer("project_updated_at_ms").notNull(),
+    projectUpdatedAtMs: bigint("project_updated_at_ms", {
+      mode: "number",
+    }).notNull(),
     preparedRequestId: text("prepared_request_id").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    consumedAtMs: integer("consumed_at_ms"),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    consumedAtMs: bigint("consumed_at_ms", { mode: "number" }),
     consumedOperationId: text("consumed_operation_id"),
   },
   (table) => [
@@ -228,7 +237,7 @@ export const centerAgentProjectRemoveConfirmations = sqliteTable(
     check(
       "center_agent_project_remove_confirmations_token_shape_check",
       sql`length("token_hash") = 64
-        and "token_hash" not glob '*[^0-9a-f]*'`
+        and "token_hash" !~ '^.*[^0-9a-f].*$'`
     ),
     check(
       "center_agent_project_remove_confirmations_request_non_empty_check",

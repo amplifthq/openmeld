@@ -19,6 +19,10 @@ export {
   agentProfileCreationRequests,
 } from "./agent-profile-creation-request.schema.ts";
 export {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
+} from "./ai-usage.schema.ts";
+export {
   centerAgentAttentionRequests,
   centerAgentAuditJournal,
   centerAgentConnectorActionOperations,
@@ -44,6 +48,7 @@ export {
   centerAgentTaskEvents,
   centerAgentTasks,
 } from "./center-agent-tasks.schema.ts";
+export { cloudComputers } from "./cloud-computer.schema.ts";
 export { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 export {
   connectorAccessEvents,
@@ -51,6 +56,7 @@ export {
   connectorConnections,
   githubAppInstallationStates,
   pluginActionConfirmations,
+  pluginActionRequests,
 } from "./connector-connection.schema.ts";
 export { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 export {

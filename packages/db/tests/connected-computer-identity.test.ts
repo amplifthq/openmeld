@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { assertNativeStorageContract } from "./native-storage.test-support";
 
 const repoRootDirectoryPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -16,37 +17,29 @@ const readRepoFile = (relativePath: string): string => {
 };
 
 describe("connected computer identity schema", () => {
-  it("keeps Core-owned connected computer identity separate from legacy device evidence", () => {
-    const connectedComputerSchemaSource = readRepoFile(
-      "packages/db/src/core/connected-computer.schema.ts"
-    );
-    const ownedDeviceSchemaSource = readRepoFile(
-      "packages/db/src/core/owned-device.schema.ts"
-    );
-    const coreIndexSource = readRepoFile("packages/db/src/core/index.ts");
-    const rootSchemaSource = readRepoFile("packages/db/src/schema.ts");
+  it("keeps Core-owned connected computer identity separate from legacy device evidence", async () => {
+    await assertNativeStorageContract({
+      table: "openMeldDaemon_connected_computers",
+      uniqueKey: ["owner_user_id", "connected_computer_id"],
+      epochColumns: ["created_at_ms", "updated_at_ms"],
+      record: {
+        owner_user_id: "owner-a",
+        connected_computer_id: "computer-1",
+        created_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+      distinctRecord: {
+        owner_user_id: "owner-b",
+        connected_computer_id: "computer-1",
+        created_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+    });
+
     const migrationSource = readRepoFile(
       "packages/db/drizzle/0000_openmeld_initial_schema.sql"
     );
 
-    expect(connectedComputerSchemaSource).toContain(
-      "export const openMeldDaemonConnectedComputers = sqliteTable("
-    );
-    expect(connectedComputerSchemaSource).toContain(
-      '"openMeldDaemon_connected_computers"'
-    );
-    expect(connectedComputerSchemaSource).toContain(
-      'text("connected_computer_id").notNull()'
-    );
-    expect(connectedComputerSchemaSource).toContain(
-      'uniqueIndex("openMeldDaemon_connected_computers_owner_computer_unique")'
-    );
-    expect(ownedDeviceSchemaSource).toContain('text("connected_computer_id")');
-    expect(ownedDeviceSchemaSource).toContain(
-      'index("idx_openMeldDaemon_owned_devices_owner_connected_computer")'
-    );
-    expect(coreIndexSource).toContain("openMeldDaemonConnectedComputers");
-    expect(rootSchemaSource).toContain("openMeldDaemonConnectedComputers");
     expect(migrationSource).toContain(
       "CREATE TABLE `openMeldDaemon_connected_computers`"
     );

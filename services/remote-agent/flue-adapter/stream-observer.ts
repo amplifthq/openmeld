@@ -19,6 +19,7 @@ import {
   completeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
   RemoteAgentTerminalExecutionOwnerMissingError,
+  readRemoteAgentExecutionState,
   readRemoteAgentRequestedExecutionFailure,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
@@ -47,6 +48,7 @@ import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
   extractAssistantText,
+  extractFlueModelRecovery,
   extractFlueStreamDelta,
   extractFlueToolLifecyclePart,
   extractModelId,
@@ -89,6 +91,30 @@ export async function handleCenterAgentObservation(input: {
   const conversationCompactionObserver =
     input.conversationCompactionObserver ??
     remoteAgentConversationCompactionObserver;
+  const recovery = extractFlueModelRecovery(event);
+  if (recovery && event.submissionId) {
+    const { coreWorker, storage } = resolveDependencies(
+      input.resolveDependencies
+    );
+    const context = await resolveRemoteAgentStreamContext({
+      storage,
+      submissionId: event.submissionId,
+    });
+    if (
+      context &&
+      isRemoteAgentStreamEligible(context) &&
+      context.turnEnvelope?.trigger.source !== "message_channel"
+    ) {
+      await input.streamPublisher.pushPart({
+        context,
+        coreWorker,
+        storage,
+        part: recovery,
+        observedAtMs: parseObservationTimestamp(event.timestamp),
+      });
+    }
+    return;
+  }
   if (isConversationCompactionObservation(event)) {
     conversationCompactionObserver.enqueue({
       event,
@@ -113,6 +139,44 @@ export async function handleCenterAgentObservation(input: {
       eventIndex: event.eventIndex,
       streamPublisher: input.streamPublisher,
       toolPart,
+    });
+    return;
+  }
+  if (isCompletedAssistantMessage(event)) {
+    const { coreWorker, env, storage } = resolveDependencies(
+      input.resolveDependencies
+    );
+    const submissionId = resolveRemoteAgentObservationSubmissionId(
+      event.submissionId
+    );
+    const context = await resolveRemoteAgentStreamContext({
+      storage,
+      submissionId,
+    });
+    if (!context || context.workLoopCheckpoint) {
+      return;
+    }
+    const identity = buildRemoteAgentExecutionIdentity(context);
+    const execution = await readRemoteAgentExecutionState({
+      identity,
+      storage,
+    });
+    if (
+      execution.status !== "found" ||
+      !["accepted", "running"].includes(execution.execution.status) ||
+      (await readRemoteAgentRequestedExecutionFailure({ identity, storage }))
+    ) {
+      return;
+    }
+    // A completed model message is ready to preview before compaction or
+    // later tool work. It does not settle the execution or publish its result.
+    await flushRemoteAgentStream({
+      coreWorker,
+      env,
+      event,
+      storage,
+      submissionId,
+      streamPublisher: input.streamPublisher,
     });
     return;
   }
@@ -333,9 +397,6 @@ async function handleCenterAgentStreamDelta(input: {
       input.streamDelta.kind === "thinking" ? "thinking_delta" : "text_delta",
     storage,
   });
-  if (input.streamDelta.kind === "thinking") {
-    return;
-  }
   if (context.workLoopCheckpoint) {
     return;
   }
@@ -717,13 +778,24 @@ function normalizeSubmissionId(
 
 function isRemoteAgentExecutionObservation(event: FlueObservation): boolean {
   return (
+    extractFlueModelRecovery(event) !== null ||
     event.type === "text_delta" ||
     event.type === "thinking_delta" ||
     event.type === "tool_start" ||
     event.type === "tool" ||
     event.type === "compaction_start" ||
     event.type === "compaction" ||
+    isCompletedAssistantMessage(event) ||
     (event.type === "operation" && event.operationKind === "prompt")
+  );
+}
+
+function isCompletedAssistantMessage(event: FlueObservation): boolean {
+  return (
+    event.type === "message_end" &&
+    event.message.role === "assistant" &&
+    event.message.stopReason !== "error" &&
+    event.message.stopReason !== "aborted"
   );
 }
 

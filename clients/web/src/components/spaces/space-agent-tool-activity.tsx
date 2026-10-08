@@ -1,12 +1,12 @@
 import type { LocalAgentReasoningState } from "@openmeld/schemas/types";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	ThinkingStep,
 	ThinkingSteps,
 	ThinkingStepsContent,
 	ThinkingStepsHeader,
 } from "@openmeld/ui/fluid/thinking-steps";
-import { cn } from "@openmeld/ui/lib/utils";
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon, WifiHighIcon } from "@phosphor-icons/react";
 import { useReducedMotion } from "motion/react";
 import {
 	type ReactNode,
@@ -18,6 +18,7 @@ import {
 import { MessageResponse } from "#/components/ai/message-response";
 import { SPACE_AGENT_WORKING_STATUS_TEXT } from "#/lib/spaces/message-state";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { resolveAgentWorkPresentation } from "./agent-work-presentation";
 import { SpaceAgentOrb } from "./space-agent-orb";
 import {
@@ -29,6 +30,64 @@ import {
 	type SpaceAgentWorkStep,
 } from "./space-agent-tool-activity-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
+import { SpaceRequestElapsedTime } from "./space-request-elapsed-time";
+
+function SpaceAgentRecoveryNotice(input: {
+	recovery: import("@openmeld/schemas/types").AgentStreamRecoveryPart;
+}) {
+	const nowMs = useNowMs(1000);
+	const seconds = Math.max(
+		0,
+		Math.ceil((input.recovery.nextRetryAtMs - nowMs) / 1000)
+	);
+	return (
+		<p
+			className="mb-2 text-[13px] text-muted-foreground"
+			data-testid="agent-recovery-notice"
+		>
+			{seconds > 0
+				? `Retrying in ${seconds}s. Your progress is saved.`
+				: "Reconnecting to the model. Your progress is saved."}
+		</p>
+	);
+}
+
+function SpaceAgentWorkTitle(input: {
+	reconnecting: boolean;
+	isLive: boolean;
+	latestStep?: SpaceAgentWorkStep;
+	requestStartedAtMs?: number;
+}) {
+	if (input.reconnecting) {
+		return (
+			<output className="flex min-w-0 items-center gap-1.5">
+				<WifiHighIcon aria-hidden="true" className="size-4 shrink-0" />
+				<span>Reconnecting</span>
+			</output>
+		);
+	}
+	if (!input.isLive) {
+		return "Work summary";
+	}
+	return (
+		<span className="flex min-w-0 items-center gap-1.5">
+			<SpaceAgentOrb
+				state={
+					input.latestStep
+						? resolveSpaceAgentWorkOrbState(input.latestStep)
+						: DEFAULT_SPACE_AGENT_ORB_STATE
+				}
+			/>
+			<span className="min-w-0">{SPACE_AGENT_WORKING_STATUS_TEXT}</span>
+			{input.requestStartedAtMs !== undefined && (
+				<>
+					<span aria-hidden="true">·</span>
+					<SpaceRequestElapsedTime startedAtMs={input.requestStartedAtMs} />
+				</>
+			)}
+		</span>
+	);
+}
 
 export function SpaceAgentToolActivity(input: {
 	align?: "start" | "end";
@@ -38,10 +97,15 @@ export function SpaceAgentToolActivity(input: {
 		"agentActivity" | "agentStreamState" | "agentPublicProgress"
 	>;
 	placement?: "message" | "progress";
+	requestStartedAtMs?: number;
 }) {
 	const steps = resolveVisibleSpaceAgentWorkSteps(input.item);
 	const latestStep = steps.at(-1);
 	const isLive = input.item.agentStreamState?.status === "streaming";
+	const recovery =
+		isLive && input.item.agentStreamState?.recovery?.state === "waiting"
+			? input.item.agentStreamState.recovery
+			: null;
 	const progress = isLive
 		? input.item.agentStreamState?.progress
 		: input.item.agentPublicProgress;
@@ -59,7 +123,7 @@ export function SpaceAgentToolActivity(input: {
 		}
 		wasLive.current = isLive;
 	}, [isLive]);
-	if (!(latestStep || progress || reasoning || reasoningNotice)) {
+	if (!(latestStep || progress || reasoning || reasoningNotice || recovery)) {
 		return null;
 	}
 
@@ -69,42 +133,42 @@ export function SpaceAgentToolActivity(input: {
 		reasoning: reasoning ?? reasoningNotice,
 		steps,
 	});
-	const accessibleSummary = isLive
-		? `${SPACE_AGENT_WORKING_STATUS_TEXT}. ${latestStep ? `Work summary: ${summary}` : summary}`
-		: `Work summary: ${summary}`;
+	let accessibleSummary = `Work summary: ${summary}`;
+	if (isLive) {
+		accessibleSummary = `${SPACE_AGENT_WORKING_STATUS_TEXT}. ${latestStep ? `Work summary: ${summary}` : summary}`;
+	}
+	if (recovery) {
+		accessibleSummary = `Reconnecting. Attempt ${recovery.attempt} of ${recovery.maxAttempts}. ${summary}`;
+	}
 	const activity = (
-		<div className="flex w-fit max-w-xl items-start text-left">
+		<div className="flex w-full min-w-0 max-w-full items-start text-left">
 			<ThinkingSteps
 				aria-busy={isLive}
-				className="min-w-0 flex-[0_1_auto]"
+				className="min-w-0 flex-1"
 				onOpenChange={setOpen}
 				open={open}
 			>
-				<div className="flex w-fit max-w-full items-center gap-2">
+				<div className="flex w-full min-w-0 items-center gap-2">
 					<ThinkingStepsHeader
-						active={isLive}
+						active={isLive && !recovery}
 						aria-busy={isLive}
 						aria-label={accessibleSummary}
 						className="w-fit px-0 hover:bg-transparent"
 						data-testid="space-agent-tool-activity"
-						summary={<span className="min-w-0 truncate">{summary}</span>}
-					>
-						{isLive ? (
-							<span className="flex min-w-0 items-center gap-1.5">
-								<SpaceAgentOrb
-									state={
-										latestStep
-											? resolveSpaceAgentWorkOrbState(latestStep)
-											: DEFAULT_SPACE_AGENT_ORB_STATE
-									}
-								/>
-								<span className="whitespace-nowrap">
-									{SPACE_AGENT_WORKING_STATUS_TEXT}
-								</span>
+						summary={
+							<span className="min-w-0 truncate">
+								{recovery
+									? `Attempt ${recovery.attempt} of ${recovery.maxAttempts}`
+									: summary}
 							</span>
-						) : (
-							"Work summary"
-						)}
+						}
+					>
+						<SpaceAgentWorkTitle
+							isLive={isLive}
+							latestStep={latestStep}
+							reconnecting={Boolean(recovery)}
+							requestStartedAtMs={input.requestStartedAtMs}
+						/>
 					</ThinkingStepsHeader>
 					{input.control ? (
 						<div
@@ -117,6 +181,7 @@ export function SpaceAgentToolActivity(input: {
 					) : null}
 				</div>
 				<ThinkingStepsContent className="pb-1">
+					{recovery ? <SpaceAgentRecoveryNotice recovery={recovery} /> : null}
 					<AgentWorkActivityViewport
 						isLive={isLive}
 						progress={progress}
@@ -140,6 +205,7 @@ export function SpaceAgentToolActivity(input: {
 		<SpaceMessageProgressRow
 			align={input.align}
 			compact
+			fill
 			slot="space-message-progress-row"
 			verticalAlign="start"
 		>
@@ -158,7 +224,7 @@ function AgentWorkActivityViewport(input: {
 	steps: readonly SpaceAgentWorkStep[];
 }) {
 	const reduceMotion = useReducedMotion();
-	const viewportRef = useRef<HTMLUListElement>(null);
+	const viewportRef = useRef<HTMLDivElement>(null);
 	const [isFollowing, setIsFollowing] = useState(true);
 	const [lastSeenStepCount, setLastSeenStepCount] = useState(() =>
 		totalStepCount(input.steps)
@@ -212,63 +278,65 @@ function AgentWorkActivityViewport(input: {
 	};
 
 	return (
-		<div className="relative">
-			<ul
-				aria-label={resolveAgentWorkListLabel(input)}
-				className={cn(
-					"overscroll-contain pr-1",
-					"max-h-[min(12rem,30dvh)] overflow-y-auto"
-				)}
-				onScroll={handleScroll}
-				ref={viewportRef}
+		<div className="relative min-w-0">
+			<ScrollArea
+				className="max-h-[min(12rem,30dvh)]"
+				viewportClassName="overscroll-contain"
+				viewportProps={{ onScroll: handleScroll }}
+				viewportRef={viewportRef}
 			>
-				{shownSteps.map((step, index) => {
-					const presentation = resolveAgentWorkPresentation(
-						step.work,
-						step.state,
-						input.isLive
-					);
-					return (
-						<li className="list-none" key={step.id}>
-							<ThinkingStep
-								delay={Math.min(index * 0.04, 0.2)}
-								icon={
-									presentation.status === "failed"
-										? WarningCircleIcon
-										: undefined
-								}
-								isLast={index === shownSteps.length - 1}
-								label={formatGroupedWorkLabel(presentation.text, step.count)}
-								status={presentation.status}
-							/>
+				<ul
+					aria-label={resolveAgentWorkListLabel(input)}
+					className="min-w-0 pr-1"
+				>
+					{shownSteps.map((step, index) => {
+						const presentation = resolveAgentWorkPresentation(
+							step.work,
+							step.state,
+							input.isLive
+						);
+						return (
+							<li className="list-none" key={step.id}>
+								<ThinkingStep
+									delay={Math.min(index * 0.04, 0.2)}
+									icon={
+										presentation.status === "failed"
+											? WarningCircleIcon
+											: undefined
+									}
+									isLast={index === shownSteps.length - 1}
+									label={formatGroupedWorkLabel(presentation.text, step.count)}
+									status={presentation.status}
+								/>
+							</li>
+						);
+					})}
+					{input.progress ? (
+						<AgentStreamText
+							label="Agent updates"
+							showLabel={shownSteps.length > 0 || Boolean(input.reasoning)}
+							slot="agent-public-progress"
+							streaming={false}
+							text={input.progress}
+						/>
+					) : null}
+					{input.reasoning ? (
+						<AgentStreamText
+							firstOutputMs={input.reasoningFirstOutputMs}
+							label="Thinking process"
+							showLabel={shownSteps.length > 0 || Boolean(input.progress)}
+							slot="agent-reasoning"
+							streaming={input.isLive && input.reasoningActive !== false}
+							text={input.reasoning}
+						/>
+					) : null}
+					{!input.reasoning && input.reasoningNotice ? (
+						<li className="list-none py-1.5 text-muted-foreground text-xs">
+							{input.reasoningNotice}
 						</li>
-					);
-				})}
-				{input.progress ? (
-					<AgentStreamText
-						label="Agent updates"
-						showLabel={shownSteps.length > 0 || Boolean(input.reasoning)}
-						slot="agent-public-progress"
-						streaming={false}
-						text={input.progress}
-					/>
-				) : null}
-				{input.reasoning ? (
-					<AgentStreamText
-						firstOutputMs={input.reasoningFirstOutputMs}
-						label="Thinking process"
-						showLabel={shownSteps.length > 0 || Boolean(input.progress)}
-						slot="agent-reasoning"
-						streaming={input.isLive && input.reasoningActive !== false}
-						text={input.reasoning}
-					/>
-				) : null}
-				{!input.reasoning && input.reasoningNotice ? (
-					<li className="list-none py-1.5 text-muted-foreground text-xs">
-						{input.reasoningNotice}
-					</li>
-				) : null}
-			</ul>
+					) : null}
+				</ul>
+			</ScrollArea>
 			{unseenStepCount > 0 || hasUnseenText ? (
 				<button
 					className="mt-1 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -319,8 +387,6 @@ function resolveReasoningNotice(
 			return "Live reasoning is turned off by this Agent’s owner.";
 		case "unavailable":
 			return "This Agent connection doesn’t support live reasoning.";
-		case "waiting":
-			return "Waiting for reasoning output…";
 		default:
 			return null;
 	}
@@ -375,10 +441,22 @@ function resolveWorkSummary(
 		).text;
 	}
 	const totalCount = totalStepCount(steps);
-	const failedCount = steps.reduce(
-		(count, step) => count + (step.state === "output-error" ? step.count : 0),
+	const unconfirmedCount = steps.reduce(
+		(count, step) =>
+			count + (step.work.outcome === "outcome_unknown" ? step.count : 0),
 		0
 	);
+	const failedCount = steps.reduce(
+		(count, step) =>
+			count +
+			(step.state === "output-error" && step.work.outcome !== "outcome_unknown"
+				? step.count
+				: 0),
+		0
+	);
+	if (unconfirmedCount > 0) {
+		return `${totalCount} work steps · ${unconfirmedCount} awaiting confirmation${failedCount ? ` · ${failedCount} failed — view details` : ""}`;
+	}
 	if (failedCount === 0) {
 		return `Completed ${totalCount} work steps`;
 	}
@@ -405,7 +483,7 @@ function formatNewStepLabel(count: number): string {
 }
 
 function scrollWorkViewportToLatest(
-	viewport: HTMLUListElement | null,
+	viewport: HTMLDivElement | null,
 	reduceMotion: boolean | null
 ) {
 	if (!viewport) {

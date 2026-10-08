@@ -14,6 +14,7 @@ import {
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { ComputerTokenUsage } from "#/components/computers/computer-token-usage";
 import { DesktopServiceControls } from "#/desktop/desktop-service-controls";
 import { canConfigureLocalComputer } from "#/desktop/platform";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
@@ -23,6 +24,8 @@ import { formatRuntimeLane } from "./agents-page-formatters";
 import { LocalAgentsCard } from "./agents-page-local-agents";
 import { OpenMeldServiceCard } from "./agents-page-openmeld-service";
 import { ComputerFileAccessCard } from "./computer-file-access-card";
+import { ComputerSessionHistoryCard } from "./computer-session-history-card";
+import { localAgentConsumptionScope } from "./local-agent-consumption";
 
 type LocalAgentRecoveryController = ReturnType<
 	typeof useLocalAgentRecoveryController
@@ -178,6 +181,10 @@ export function SelectedComputerPanel(input: {
 				replyReadiness={effectiveReplyReadiness}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
 			/>
+			<ComputerTokenUsage
+				computerId={input.computer.connectedComputerId}
+				organizationId={input.organizationId}
+			/>
 			<LocalAgentsCard
 				computer={input.computer}
 				controlCapabilities={
@@ -197,6 +204,10 @@ export function SelectedComputerPanel(input: {
 				key={`local-agents/${target ? computerEnvironmentKey(target) : input.computer.deviceId}`}
 				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
+				usageScope={localAgentConsumptionScope(
+					input.organizationId,
+					input.computer.connectedComputerId
+				)}
 			/>
 			{target && canManageComputerFileAccess ? (
 				<ComputerFileAccessCard
@@ -215,6 +226,7 @@ export function SelectedComputerPanel(input: {
 					storageScope={input.recovery.storageScope}
 				/>
 			) : null}
+			<SelectedComputerSessionHistory input={input} target={target} />
 		</div>
 	);
 }
@@ -360,5 +372,32 @@ function isCurrentLocalRuntimeServiceUpdateRequired(
 	return (
 		readiness?.localComponents.service.wakeBlocked === true ||
 		readiness?.primaryBlocker === "service_update_required"
+	);
+}
+
+function SelectedComputerSessionHistory({
+	target,
+	input,
+}: {
+	target: PeopleComputerTarget | null;
+	input: Parameters<typeof SelectedComputerPanel>[0];
+}) {
+	if (
+		!(
+			target &&
+			input.computer.connectedComputerId &&
+			canConfigureLocalComputer()
+		)
+	) {
+		return null;
+	}
+	return (
+		<ComputerSessionHistoryCard
+			{...target}
+			computerId={input.computer.connectedComputerId}
+			key={`session-history/${input.organizationId}/${computerEnvironmentKey(target)}`}
+			organizationId={input.organizationId}
+			profiles={input.recovery.agentProfiles}
+		/>
 	);
 }

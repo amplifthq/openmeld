@@ -1,0 +1,21 @@
+{
+  "root": false,
+  "extends": "//",
+  "files": {
+    "includes": [
+      "!!**/public/product-demo",
+      "**/src/**/*",
+      "**/vite.config.ts",
+      "**/vitest.config.ts",
+      "!**/src/routeTree.gen.ts",
+      "!**/src/styles.css"
+    ]
+  },
+  "formatter": { "enabled": true, "indentStyle": "tab" },
+  "linter": {
+    "rules": {
+      "style": { "noHeadElement": "off", "useFilenamingConvention": "off" },
+      "performance": { "noImgElement": "off" }
+    }
+  }
+}

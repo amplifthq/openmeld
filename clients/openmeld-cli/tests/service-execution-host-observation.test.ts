@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ExecutionHostError } from "../src/local-service/execution-host/channel";
 import { launchExecutionHost } from "../src/local-service/execution-host/launch";
 import { createExecutionHostSocketLink } from "../src/local-service/execution-host/socket-link";
 
@@ -25,6 +26,83 @@ vi.mock(
 );
 
 describe("Host responsiveness observations", () => {
+  it("forwards receipt reads without applying input and rejects an old socket generation", async () => {
+    const sent = Promise.withResolvers<string>();
+    const calls: string[] = [];
+    const host = {
+      available: () => true,
+      call: vi.fn((method: string, payload: { operation?: string }) => {
+        calls.push(method);
+        if (method === "executionInput") {
+          expect(payload.operation).toBe("read");
+          return Promise.resolve({ inputId: "input-1", status: "not_found" });
+        }
+        return Promise.resolve({
+          admission: "open",
+          startupReplayPending: false,
+        });
+      }),
+      onEvent: () => () => undefined,
+      onAvailabilityChanged: () => () => undefined,
+    } as unknown as Parameters<typeof createExecutionHostSocketLink>[0]["host"];
+    const link = createExecutionHostSocketLink({
+      host,
+      socket: { send: (frame) => sent.resolve(String(frame)) },
+      onAdmissionChanged: vi.fn(),
+      onInvalidation: vi.fn(),
+      onAuthenticationFailure: vi.fn(),
+      onError: vi.fn(),
+    });
+    await link.configure({
+      connectionGeneration: 2,
+      catalogRevision: 1,
+      leases: [{ profileId: "agent-1", leaseEpoch: 3 }],
+    });
+    const payload = {
+      requestId: "request-1",
+      operation: "read",
+      connectionGeneration: 2,
+      leaseEpoch: 3,
+      request: {
+        inputId: "input-1",
+        ownerUserId: "owner-1",
+        dispatchId: "dispatch-1",
+        runtimeCoordinatorExecutionId: "execution-1",
+        attemptId: "attempt-1",
+        runtimeCoordinatorRunId: "run-1",
+        targetProfileId: "agent-1",
+        text: "Update",
+        source: {
+          spaceId: "space-1",
+          signalId: "signal-1",
+          authorProfileId: "human-1",
+          requesterUserId: "owner-1",
+          effect: "steer",
+        },
+      },
+    };
+    expect(
+      link.forward({ code: "daemon.execution_input.request", payload })
+    ).toBe(true);
+    expect(JSON.parse(await sent.promise)).toMatchObject({
+      code: "daemon.execution_input.result",
+      payload: { requestId: "request-1", result: { status: "not_found" } },
+    });
+    expect(calls.filter((method) => method === "executionInput")).toHaveLength(
+      1
+    );
+    expect(
+      link.forward({
+        code: "daemon.execution_input.request",
+        payload: { ...payload, connectionGeneration: 1 },
+      })
+    ).toBe(true);
+    await Promise.resolve();
+    expect(calls.filter((method) => method === "executionInput")).toHaveLength(
+      1
+    );
+    await link.detach();
+  });
   it("keeps a healthy socket open through catalog refresh, but closes admission if applying it fails", async () => {
     const snapshot = {
       pid: 41_001,
@@ -214,7 +292,15 @@ describe("Host responsiveness observations", () => {
     expect(host.available()).toBe(false);
     expect(link.canAccept()).toBe(false);
     expect(link.snapshot()).toBeNull();
-    expect(host.observation?.()).toEqual({ ...previous, responsive: false });
+    expect(host.observation?.()).toEqual({
+      ...previous,
+      responsive: false,
+      unavailableReason: {
+        code: "host.operation_failed",
+        message: "OpenMeld could not start or verify its local execution host.",
+        recoveryAction: "open_diagnostics",
+      },
+    });
     expect(failure).not.toHaveBeenCalled();
     expect(fixture.call.mock.calls.map(([method]) => method)).toEqual([
       "initialize",
@@ -236,8 +322,47 @@ describe("Host responsiveness observations", () => {
       activeCount: 1,
       pendingCount: 1,
       unacknowledgedResultCount: 1,
+      unavailableReason: null,
     });
     fixture.call.mockResolvedValueOnce({});
     await link.detach();
+  });
+
+  it("reports why previous work prevents Host initialization and how to recover", async () => {
+    fixture.call.mockRejectedValueOnce(
+      new ExecutionHostError(
+        "host.previous_work_unconfirmed",
+        "internal evidence omitted"
+      )
+    );
+    const host = launchExecutionHost({
+      identity: {
+        ownerUserId: "test-owner",
+        deviceId: "test-device",
+        lane: "dev-local",
+        daemonSessionId: "test-session",
+        serviceContractGeneration: 1,
+        sessionIdentity: "test-identity",
+        stateRoot: "/unused-boundary-fixture",
+        authBaseUrl: "http://localhost:1",
+        gatewayBaseUrl: "http://localhost:1",
+        parentPid: 41_000,
+        parentProcessStartedAt: "test-start",
+      },
+      onFailure: vi.fn(),
+    });
+
+    await expect(host.initialized).rejects.toMatchObject({
+      code: "host.previous_work_unconfirmed",
+    });
+    expect(host.observation?.()).toMatchObject({
+      responsive: false,
+      unavailableReason: {
+        code: "host.previous_work_unconfirmed",
+        message:
+          "OpenMeld cannot confirm that work from the previous local execution host has ended.",
+        recoveryAction: "restart_computer",
+      },
+    });
   });
 });

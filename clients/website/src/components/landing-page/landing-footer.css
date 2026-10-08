@@ -1,0 +1,84 @@
+.meld-site {
+	isolation: isolate;
+}
+.meld-site > header,
+.meld-site > main {
+	position: relative;
+	z-index: 1;
+	background: var(--background);
+}
+.meld-page-footer {
+	position: sticky;
+	bottom: 0;
+	z-index: 0;
+	display: flex;
+	flex-direction: column;
+	min-height: 384px;
+	overflow: hidden;
+	border-top: 1px solid var(--meld-line);
+	background: var(--muted);
+	padding-top: 48px;
+}
+.meld-footer-top {
+	display: flex;
+	align-items: start;
+	justify-content: space-between;
+	gap: 32px;
+	margin-bottom: 72px;
+}
+.meld-footer-top p {
+	font-size: 12px;
+	line-height: 1.6;
+	color: var(--muted-foreground);
+	margin-top: 12px;
+}
+.meld-footer-top nav {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 24px;
+	padding-top: 14px;
+}
+.meld-footer-top nav a {
+	font-size: 13px;
+	color: var(--muted-foreground);
+}
+.meld-footer-top nav a:hover {
+	color: var(--foreground);
+}
+.meld-footer-fluid-logo {
+	position: relative;
+	height: clamp(120px, 18.75vw, 480px);
+	width: 100%;
+	margin-top: auto;
+	overflow: hidden;
+	color: var(--foreground);
+	border-bottom: 1px solid var(--meld-line);
+}
+.meld-footer-fluid-logo svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+	transform: translateY(37.5%);
+	user-select: none;
+}
+/* Keep every link reachable when the footer is taller than the viewport. */
+@media (prefers-reduced-motion: reduce),
+	(max-height: clamp(384px, calc(202px + 18.75vw), 682px)) {
+	.meld-page-footer {
+		position: relative;
+	}
+}
+@media (max-width: 700px) {
+	.meld-page-footer {
+		padding-top: 32px;
+	}
+	.meld-footer-top {
+		flex-direction: column;
+		gap: 20px;
+		margin-bottom: 48px;
+	}
+	.meld-footer-top nav {
+		gap: 20px;
+		padding-top: 0;
+	}
+}

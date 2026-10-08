@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   organizationSkillGitHubRepositoryPreviewSchema,
   organizationSkillImportBatchResultSchema,
@@ -20,42 +21,38 @@ type BatchRow = {
   results_json: string;
   source_url: string;
 };
-
 export async function readOrganizationSkillImportBatch(input: {
   batchId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   userId: string;
 }): Promise<OrganizationSkillImportBatch | null> {
   const row = await input.db
-    .prepare(
-      `SELECT * FROM organization_skill_import_batches
-       WHERE organization_id = ? AND batch_id = ? AND owner_user_id = ? LIMIT 1`
-    )
-    .bind(input.organizationId, input.batchId, input.userId)
-    .first<BatchRow>();
+    .query<BatchRow>({
+      text: `SELECT * FROM "openmeld"."organization_skill_import_batches"
+       WHERE organization_id = $1 AND batch_id = $2 AND owner_user_id = $3 LIMIT 1`,
+      values: [input.organizationId, input.batchId, input.userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? parseBatch(row) : null;
 }
-
 export async function listOrganizationSkillImportBatches(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   userId: string;
 }) {
-  const rows = await input.db
-    .prepare(
-      `SELECT * FROM organization_skill_import_batches
-       WHERE organization_id = ? AND owner_user_id = ?
+  const rows = await input.db.query<BatchRow>({
+    text: `SELECT * FROM "openmeld"."organization_skill_import_batches"
+       WHERE organization_id = $1 AND owner_user_id = $2
          AND EXISTS (
-           SELECT 1 FROM json_each(results_json) AS result
-           WHERE json_extract(result.value, '$.selected') = 1
-             AND json_extract(result.value, '$.status') IN ('pending', 'failed')
+           SELECT 1 FROM jsonb_array_elements((results_json)::jsonb) AS result
+           WHERE result.value -> 'selected' = 'true'::jsonb
+             AND ((result.value)::jsonb #>> '{status}') IN ('pending', 'failed')
          )
-       ORDER BY created_at DESC LIMIT 10`
-    )
-    .bind(input.organizationId, input.userId)
-    .all<BatchRow>();
-  return rows.results.map((row) => {
+       ORDER BY created_at DESC NULLS LAST LIMIT 10`,
+    values: [input.organizationId, input.userId],
+  });
+  return rows.rows.map((row) => {
     const batch = parseBatch(row);
     return {
       batchId: batch.batchId,
@@ -73,10 +70,9 @@ export async function listOrganizationSkillImportBatches(input: {
     };
   });
 }
-
 export async function beginOrganizationSkillImportBatch(input: {
   batchId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   preview: OrganizationSkillGitHubRepositoryPreview;
   selectedPaths?: string[];
@@ -109,15 +105,15 @@ export async function beginOrganizationSkillImportBatch(input: {
   }
   const existingPaths = new Set(
     (
-      await input.db
-        .prepare(
-          `SELECT source_path FROM organization_skills
-       WHERE organization_id = ? AND source_kind = 'github'
-         AND source_repository = ? AND removed_at IS NULL`
-        )
-        .bind(input.organizationId, input.preview.repository)
-        .all<{ source_path: string }>()
-    ).results.map((row) => row.source_path)
+      await input.db.query<{
+        source_path: string;
+      }>({
+        text: `SELECT source_path FROM "openmeld"."organization_skills"
+       WHERE organization_id = $1 AND source_kind = 'github'
+         AND source_repository = $2 AND removed_at IS NULL`,
+        values: [input.organizationId, input.preview.repository],
+      })
+    ).rows.map((row) => row.source_path)
   );
   const results = input.preview.skills.map((item) => {
     const selected = selectedPaths.has(item.path);
@@ -131,14 +127,12 @@ export async function beginOrganizationSkillImportBatch(input: {
       status: error === undefined ? "pending" : "skipped",
     });
   });
-  await input.db
-    .prepare(
-      `INSERT OR IGNORE INTO organization_skill_import_batches
+  await input.db.query({
+    text: `INSERT INTO "openmeld"."organization_skill_import_batches"
      (batch_id, commit_sha, organization_id, owner_user_id, preview_json,
       repository, results_json, source_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`,
+    values: [
       input.batchId,
       input.preview.commitSha,
       input.organizationId,
@@ -146,9 +140,9 @@ export async function beginOrganizationSkillImportBatch(input: {
       JSON.stringify(input.preview),
       input.preview.repository,
       JSON.stringify(results),
-      input.sourceUrl
-    )
-    .run();
+      input.sourceUrl,
+    ],
+  });
   const batch = await readOrganizationSkillImportBatch(input);
   if (
     !batch ||
@@ -161,7 +155,6 @@ export async function beginOrganizationSkillImportBatch(input: {
   }
   return batch;
 }
-
 export function requireBatchCandidate(input: {
   batch: OrganizationSkillImportBatch;
   expectedCommitSha: string;
@@ -182,7 +175,6 @@ export function requireBatchCandidate(input: {
   }
   return index;
 }
-
 export function selectionMatches(
   batch: OrganizationSkillImportBatch,
   selectedPaths?: string[]
@@ -198,38 +190,31 @@ export function selectionMatches(
     )
   );
 }
-
 export async function recordOrganizationSkillImportBatchResult(input: {
   batchId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   index: number;
   organizationId: string;
   result: OrganizationSkillImportBatch["results"][number];
   userId: string;
 }): Promise<void> {
   const result = organizationSkillImportBatchResultSchema.parse(input.result);
-  const path = `$[${input.index}]`;
-  await input.db
-    .prepare(
-      `UPDATE organization_skill_import_batches
-     SET results_json = json_set(results_json, ?, json(?))
-     WHERE organization_id = ? AND batch_id = ? AND owner_user_id = ?
-       AND json_extract(results_json, ? || '.path') = ?
-       AND json_extract(results_json, ? || '.status') != 'installed'`
-    )
-    .bind(
-      path,
+  await input.db.query({
+    text: `UPDATE "openmeld"."organization_skill_import_batches"
+     SET results_json = jsonb_set(results_json::jsonb, ARRAY[$1::text], $2::jsonb, false)::text
+     WHERE organization_id = $3 AND batch_id = $4 AND owner_user_id = $5
+       AND results_json::jsonb -> $1::integer ->> 'path' = $6
+       AND results_json::jsonb -> $1::integer ->> 'status' != 'installed'`,
+    values: [
+      input.index,
       JSON.stringify(result),
       input.organizationId,
       input.batchId,
       input.userId,
-      path,
       result.path,
-      path
-    )
-    .run();
+    ],
+  });
 }
-
 function parseBatch(row: BatchRow): OrganizationSkillImportBatch {
   return organizationSkillImportBatchSchema.parse({
     batchId: row.batch_id,
@@ -242,7 +227,6 @@ function parseBatch(row: BatchRow): OrganizationSkillImportBatch {
     sourceUrl: row.source_url,
   });
 }
-
 function batchConflict(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.batch_conflict",

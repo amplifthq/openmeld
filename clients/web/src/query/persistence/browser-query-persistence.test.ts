@@ -119,7 +119,11 @@ describe("BrowserQueryPersistenceController", () => {
 		}));
 		oldTab.setQueryData(
 			key,
-			{ envelopes: messages, nextCursor: "older-page" },
+			{
+				envelopes: messages,
+				nextCursor: "older-page",
+				confirmedCursor: "removed-anchor",
+			},
 			{ updatedAt: 10 }
 		);
 		newTab.setQueryData(
@@ -127,6 +131,7 @@ describe("BrowserQueryPersistenceController", () => {
 			{
 				envelopes: [{ ...messages[89], data: { text: "Updated message" } }],
 				nextCursor: null,
+				confirmedCursor: "message-89",
 			},
 			{ updatedAt: 20 }
 		);
@@ -146,6 +151,7 @@ describe("BrowserQueryPersistenceController", () => {
 			const history = merged.clientState.queries[0].state.data;
 			expect(history.envelopes).toHaveLength(90);
 			expect(history.envelopes[89].data.text).toBe("Updated message");
+			expect(history.confirmedCursor).toBe("message-89");
 		}
 	});
 	it("saves only when a query owned by that persistence segment changes", async () => {

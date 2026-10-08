@@ -55,6 +55,12 @@ export const getCoreDbSchemaSources = (): DbFactSource[] => {
     {
       kind: "schema_module",
       owner: "packages/db",
+      path: "packages/db/src/core/ai-usage.schema.ts",
+      note: "Core owns Organization AI consumption facts for local and remote execution.",
+    },
+    {
+      kind: "schema_module",
+      owner: "packages/db",
       path: CORE_AGENT_PROFILE_CREATION_REQUEST_SCHEMA_DEFINITION_PATH,
       note: "Core owns Agent Profile creation requests and member approval preferences in shared D1.",
     },

@@ -19,7 +19,8 @@ export function hasLiveSpaceAgentToolActivity(
 ): boolean {
 	return (
 		item.agentStreamState?.status === "streaming" &&
-		resolveVisibleSpaceAgentWorkSteps(item).length > 0
+		(item.agentStreamState.recovery?.state === "waiting" ||
+			resolveVisibleSpaceAgentWorkSteps(item).length > 0)
 	);
 }
 

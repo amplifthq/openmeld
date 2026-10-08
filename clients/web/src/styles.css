@@ -3,98 +3,31 @@
 @import "shadcn/tailwind.css";
 @import "./styles/typeset.css";
 @import "./styles/content-typography.css";
-@import "./styles/composer.css";
 @import "./styles/conversation-floating-surface.css";
 @import "streamdown/styles.css";
 @import "@openmeld/ui/globals.css";
+@import "@openmeld/ui/fonts.css";
 
 @source "../../../packages/ui/src";
 @source "../node_modules/streamdown/dist";
+
+/* Both display choices keep the same Fluid rows and indicator targets. */
+html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presentation="inline"] {
+	width: var(--app-rail-icon-width);
+
+	[data-slot="app-rail-label"] {
+		display: none;
+	}
+	[data-app-rail-item],
+	[data-app-rail-link] {
+		height: 2.25rem;
+	}
+}
 
 @media (prefers-reduced-motion: reduce) {
   [data-sd-animate] {
     animation: none;
   }
-}
-
-@font-face {
-  font-family: "Geist";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("/fonts/Geist-Variable.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Geist Fallback";
-  src: local("Arial");
-  ascent-override: 95.94%;
-  descent-override: 28.16%;
-  line-gap-override: 0%;
-  size-adjust: 104.76%;
-}
-
-@font-face {
-  font-family: "Geist Mono";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Geist Mono Fallback";
-  src: local("Arial");
-  ascent-override: 74.67%;
-  descent-override: 21.92%;
-  line-gap-override: 0%;
-  size-adjust: 134.59%;
-}
-
-@font-face {
-  font-family: "GeistPixelSquare";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("/fonts/GeistPixel-Square.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "GeistPixelLine";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("/fonts/GeistPixel-Line.woff2") format("woff2");
-}
-
-.font-geist-pixel-square {
-	font-family:
-		"GeistPixelSquare", "Geist Mono", ui-monospace, SFMono-Regular,
-		"Roboto Mono", Menlo, Monaco, "Liberation Mono", "DejaVu Sans Mono",
-		"Courier New", monospace;
-	font-style: normal;
-	font-weight: 500;
-}
-
-.font-geist-pixel-line {
-	font-family:
-		"GeistPixelLine", "Geist Mono", ui-monospace, SFMono-Regular,
-		"Roboto Mono", Menlo, Monaco, "Liberation Mono", "DejaVu Sans Mono",
-		"Courier New", monospace;
-	font-style: normal;
-	font-weight: 500;
-}
-
-.landing-copy-weight {
-	font-weight: 350;
-}
-
-.font-geist-vars {
-	--font-ui-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace,
-		SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-		monospace;
-	--font-ui-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui,
-		sans-serif;
 }
 
 :root {
@@ -108,6 +41,7 @@
   --space-conversation-centered-max-width: min(52rem, 90vw);
   --space-conversation-inline-padding: 1rem;
   --app-page-inline-padding: 1.5rem;
+  --app-page-block-padding: 1.25rem;
 }
 
 @media (min-width: 64rem) {
@@ -121,6 +55,33 @@
   --border: oklch(1 0 0 / 6%);
   --sidebar-accent: oklch(1 0 0 / 8%);
   --sidebar-border: var(--border);
+}
+
+/* A hidden sidebar toggle must not leave its grid gap before the title or tabs. */
+[data-slot="space-window-header"]:not([data-compact="true"]):not(:has(> [data-slot="space-window-header-leading"]:not(:empty)))
+  > [data-slot="space-window-header-title"] {
+  /* Align the label while keeping the title button's hover padding. */
+  --space-title-control-inline-offset: -0.5rem;
+  grid-column: 1 / 3;
+}
+
+[data-slot="space-window-header"][data-compact="true"]:not(:has(> [data-slot="space-window-header-leading"]:not(:empty)))
+  [data-slot="space-window-header-navigation"] {
+  grid-column: 1 / 3;
+}
+
+/* The sidebar toggle is desktop-only; real leading controls still keep their column. */
+@media (width < 64rem) {
+  [data-slot="space-window-header"][data-has-leading-control="false"]:not([data-compact="true"])
+    > [data-slot="space-window-header-title"] {
+    --space-title-control-inline-offset: -0.5rem;
+    grid-column: 1 / 3;
+  }
+
+  [data-slot="space-window-header"][data-has-leading-control="false"][data-compact="true"]
+    [data-slot="space-window-header-navigation"] {
+    grid-column: 1 / 3;
+  }
 }
 
 html[data-space-conversation-layout="centered"]
@@ -141,13 +102,32 @@ html[data-space-conversation-layout="centered"]
 
 [data-space-conversation-content-width] {
   width: 100%;
+}
+
+[data-space-conversation-content-width],
+.space-conversation-inline-padding {
   padding-inline: var(--space-conversation-inline-padding);
 }
 
-/* Keep the underlying columns laid out, but out of the focus and reading order,
-   while a narrow container presents Thread as a full-width reading panel. */
+html[data-space-conversation-layout="full-width"] {
+  --space-conversation-inline-padding: 0.5rem;
+}
+
+/* Desk windows keep their own frame, independently of the page preference. */
+[data-desk-space-window] {
+  --space-conversation-inline-padding: 1rem;
+}
+
+/* Full-width rows use the content frame's inset once, including in Threads. */
+html[data-space-conversation-layout="full-width"]
+  #space-thread-panel:not([data-desk-space-window] #space-thread-panel)
+  [data-message-row-id] {
+  padding-inline: 0;
+}
+
+/* Thread covers only the main conversation. Other side panels stay available. */
 [data-space-inline-panels]:has(> [data-space-panel-overlay="true"])
-  > :not([data-space-panel-overlay="true"]) {
+  > :not([data-slot="sidebar-wrapper"]) {
   visibility: hidden;
 }
 
@@ -178,7 +158,7 @@ html[data-space-self-message-alignment="left"]
   align-self: flex-start;
 }
 
-[data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
+[data-thread-message] [data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
   max-inline-size: min(100%, 52rem);
 }
 
@@ -186,7 +166,6 @@ html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"]:not([data-thread-message])
   [data-slot="bubble"] {
   inline-size: fit-content;
-  max-inline-size: min(68%, calc(100% - 11rem), 52rem);
 }
 
 html[data-space-self-message-alignment="right"]
@@ -254,9 +233,31 @@ html[data-space-self-message-alignment="left"]
 
 /* Messages keep an avatar column beside the first header or bubble in a run.
    Reserve it on every row so grouped messages and actions stay aligned. */
+[data-slot="message-scroller-viewport"],
+[data-space-optimistic-conversation] {
+  container-name: space-message-viewport;
+  container-type: inline-size;
+}
+
 [data-slot="message-content"] {
+  --space-message-avatar-size: 24px;
+  --space-message-avatar-scale: 0.75;
   position: relative;
-  padding-inline-start: 2rem;
+  padding-inline-start: calc(var(--space-message-avatar-size) + 8px);
+}
+
+@container space-message-viewport (min-width: 640px) {
+  [data-slot="message-content"] {
+    --space-message-avatar-size: 28px;
+    --space-message-avatar-scale: 0.875;
+  }
+}
+
+@container space-message-viewport (min-width: 1024px) {
+  [data-slot="message-content"] {
+    --space-message-avatar-size: 32px;
+    --space-message-avatar-scale: 1;
+  }
 }
 
 [data-slot="message-content"]:not([data-direct-message]) [data-slot="message-speaker-avatar"] {
@@ -267,6 +268,18 @@ html[data-space-self-message-alignment="left"]
 
 [data-slot="message-speaker-avatar"] {
   display: flex;
+  inline-size: var(--space-message-avatar-size, 24px);
+  block-size: var(--space-message-avatar-size, 24px);
+  flex-shrink: 0;
+}
+
+[data-slot="message-speaker-avatar-content"] {
+  display: flex;
+  inline-size: 32px;
+  block-size: 32px;
+  flex-shrink: 0;
+  transform: scale(var(--space-message-avatar-scale, 0.75));
+  transform-origin: top left;
 }
 
 /* Offset the name line's font ascent inset so its visible text sits just above the avatar
@@ -293,7 +306,7 @@ html[data-space-self-message-alignment="left"]
 html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"] > [data-slot="message-content"] {
   padding-inline-start: 0;
-  padding-inline-end: 2rem;
+  padding-inline-end: calc(var(--space-message-avatar-size) + 8px);
 }
 
 html[data-space-self-message-alignment="right"]
@@ -322,7 +335,7 @@ html[data-space-self-message-alignment="right"]
 }
 
 /* Attachment rails use the available message width, including after an inline
-   edit adds the first file. Keep the existing maximum/action-space limits. */
+   edit adds the first file. */
 html:root [data-slot="message"] [data-slot="bubble"]:has([data-slot="space-attachment-strip"]) {
   inline-size: 100%;
 }
@@ -351,48 +364,10 @@ html[data-space-self-message-alignment="left"]
   justify-content: flex-start;
 }
 
-/* Main conversation messages reserve a side for floating actions. Thread actions
-   sit below the bubble, so Thread messages can use the panel's full width. */
-:root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
-  max-inline-size: min(calc(100% - 11rem), 52rem);
-}
-
 @container space-message-row (max-width: 32rem) {
-  :root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
-    max-inline-size: calc(100% - 4rem);
-  }
-
-  html[data-space-self-message-alignment="right"]
-    [data-space-self-message="true"]:not([data-thread-message])
-    [data-slot="bubble"] {
-    max-inline-size: calc(100% - 4rem);
-  }
-
   [data-message-row-id]:not([data-thread-message])
     [data-slot="message-footer-standard-actions"] {
     display: none;
-  }
-}
-
-/* Direct messages keep their existing content width. Their time lives in the
-   shared hover toolbar, which can float above a bubble when the side is full. */
-:root [data-direct-message] [data-slot="bubble"] {
-  max-inline-size: 100%;
-}
-
-html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"]:not([data-thread-message])
-  [data-direct-message]
-  [data-slot="bubble"] {
-  max-inline-size: min(68%, 52rem);
-}
-
-@container space-message-row (max-width: 32rem) {
-  html[data-space-self-message-alignment="right"]
-    [data-space-self-message="true"]:not([data-thread-message])
-    [data-direct-message]
-    [data-slot="bubble"] {
-    max-inline-size: min(88%, 52rem);
   }
 }
 
@@ -468,37 +443,6 @@ html[data-space-conversation-layout] [data-desk-space-window]
   html[data-space-conversation-layout] [data-desk-space-window]
     [data-space-conversation-content-width] {
     padding-inline: 16px;
-  }
-}
-
-@layer base {
-  .landing-display-tight {
-    letter-spacing: -0.055em !important;
-  }
-}
-
-@keyframes terminal-demo-cursor-pulse {
-  0%,
-  100% {
-    opacity: 0.38;
-    box-shadow: 0 0 0 color-mix(in oklab, var(--foreground) 0%, transparent);
-  }
-
-  50% {
-    opacity: 1;
-    box-shadow:
-      0 0 10px color-mix(in oklab, var(--foreground) 28%, transparent),
-      0 0 18px color-mix(in oklab, var(--foreground) 14%, transparent);
-  }
-}
-
-@keyframes terminal-demo-selection-sweep {
-  from {
-    background-size: 0% 100%;
-  }
-
-  to {
-    background-size: 100% 100%;
   }
 }
 
@@ -649,44 +593,6 @@ html[data-space-conversation-layout] [data-desk-space-window]
     animation: welcome-add-computer-title-breathe 2.4s ease-in-out infinite;
   }
 
-  .terminal-demo-cursor {
-    display: inline-block;
-    width: 0.72ch;
-    height: 1.02em;
-    translate: 0 0.13em;
-    background: color-mix(in oklab, var(--foreground) 90%, transparent);
-    box-shadow: 0 0 0 transparent;
-    animation: terminal-demo-cursor-pulse 1.35s ease-in-out infinite;
-  }
-
-  .terminal-demo-selection-neutral {
-    --terminal-demo-selection-color: color-mix(
-      in oklab,
-      var(--foreground) 18%,
-      transparent
-    );
-  }
-
-  .terminal-demo-selection-text {
-    display: inline;
-    padding-inline: 0.08em;
-    background-image: linear-gradient(
-      var(--terminal-demo-selection-color),
-      var(--terminal-demo-selection-color)
-    );
-    background-position: 0 100%;
-    background-repeat: no-repeat;
-    background-size: 0% 100%;
-    box-decoration-break: clone;
-    transition: color 220ms ease-out;
-    -webkit-box-decoration-break: clone;
-  }
-
-  .terminal-demo-selection-text[data-active="true"] {
-    animation: terminal-demo-selection-sweep 760ms cubic-bezier(0.16, 1, 0.3, 1)
-      forwards;
-  }
-
   .local-agent-recovery-command-highlight {
     animation: local-agent-recovery-command-highlight 1400ms
       cubic-bezier(0.2, 0, 0, 1) 1;
@@ -721,10 +627,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
       text-shadow: none;
     }
 
-    .terminal-demo-selection-text[data-active="true"] {
-      animation: none;
-      background-size: 100% 100%;
-    }
+
 
     .local-agent-recovery-command-highlight {
       border-color: color-mix(in oklab, var(--foreground) 42%, var(--border));
@@ -756,17 +659,25 @@ html[data-space-conversation-layout] [data-desk-space-window]
     }
   }
 }
-/* Reserve the rail lane before its directory loads. Appearance is restored
-   before hydration, so an off preference does not briefly move messages. */
+/* Reserve a lane only for a visible history rail. The preference is restored
+   before hydration, so hidden or unavailable rails do not move messages. */
 @media (min-width: 640px) {
+  [data-space-history-rail="true"] {
+    --space-history-rail-width: 2.25rem;
+  }
   html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
-    width: calc(100% - 2.75rem);
-    margin-inline-start: 2.75rem;
+    width: calc(100% - var(--space-history-rail-width));
+    margin-inline-start: var(--space-history-rail-width);
   }
   html[data-space-conversation-layout="centered"]:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     margin-inline: auto;
     position: relative;
-    inset-inline-start: min(1.375rem, max(0px, calc((var(--space-conversation-centered-max-width) + 2.75rem - 100%) / 2)));
+    inset-inline-start: min(calc(var(--space-history-rail-width) / 2), max(0px, calc((var(--space-conversation-centered-max-width) + var(--space-history-rail-width) - 100%) / 2)));
+  }
+}
+@media (min-width: 640px) and (pointer: fine) {
+  html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+    padding-inline-start: .25rem;
   }
 }
 .space-history-navigation {
@@ -775,7 +686,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
   inset-inline-start: .5rem;
   top: 50%;
   translate: 0 -50%;
-  width: 2.25rem;
+  width: 1.75rem;
   max-height: 60%;
 }
 .space-history-ticks { display: flex; flex-direction: column; height: 100%; }
@@ -784,7 +695,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
   padding: 0 .25rem; cursor: pointer; outline-offset: 2px;
 }
 .space-history-dash {
-  display: block; width: 1.75rem; height: 2px;
+  display: block; width: 1.25rem; height: 2px;
   background: var(--muted-foreground); opacity: .45; transform-origin: left; transform: scaleX(.25);
 }
 .space-history-tick[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
@@ -799,6 +710,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
   .space-history-preview { animation: none !important; }
 }
 @media (pointer: coarse) {
+  [data-space-history-rail="true"] { --space-history-rail-width: 3.25rem; }
   .space-history-navigation { top: 3.5rem; bottom: auto; height: auto !important; translate: none; }
   .space-history-touch-trigger { display: grid; place-items: center; width: 44px; height: 44px; }
   .space-history-ticks { display: none; }

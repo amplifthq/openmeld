@@ -442,15 +442,15 @@ For the normal GitHub production path:
    when either channel is unavailable. Use mutually exclusive
    `--version X.Y.Z` only for an already-approved explicit target. The stamp
    verifies its output; the release workflow repeats readiness before upload.
-2. Before `.github/workflows/cli-release.yml`, use the separate Scoped
-   Production Release workflow with scope `database` when the exact release SHA
-   has pending migrations. CLI Release verifies the remote D1 pending list
-   before any publication because it also deploys Core; it fails closed instead
-   of running new Core code against an older database schema. After Production
-   D1 is current, run CLI Release with `release_path=normal` and the exact
-   release commit SHA. The publish command verifies release readiness before
-   its first irreversible action, so a separate repeated verification run is
-   unnecessary.
+2. Complete pending native migrations for the exact release SHA through the
+   guarded local `db` scope in
+   [Production Database Release](production-release.md#production-database-release).
+   The CLI publisher also deploys Core; its PostgreSQL preflight verifies the
+   deployed target, native journal and retained import evidence. A D1 pending
+   list does not prove PostgreSQL readiness. Use the supported CLI release lane
+   with the exact source SHA after its database prerequisites pass. Publication
+   verifies release readiness before its first irreversible action, so a
+   separate repeated verification run is unnecessary.
 3. Require an `Apple notarization accepted` submission ID before treating the
    binary upload as valid.
 4. Close the release only after the npm version, production CLI manifest,
@@ -559,7 +559,7 @@ pnpm run release:deploy:local -- --scope cli
 - The workflow defaults to a non-publishing verify mode. Explicit release mode
   publishes the npm package and signed/notarized binary channel,
   creates the tag, and deploys Core through the guarded release command. It
-  does not touch D1, Auth, Remote Agent, Gateway, or Web. Coordinate any broader
+  does not touch the shared database, Auth, Remote Agent, Gateway, or Web. Coordinate any broader
   rollout through `.github/workflows/release-on-main.yml`.
 - Keep the default `release_path` set to `normal` for every complete release.
   The legacy `resume-after-binary-upload` and `resume-after-npm-publish` inputs
@@ -576,5 +576,38 @@ pnpm run release:deploy:local -- --scope cli
   same names with different values. This does not require Node.js or jq.
 - The dev-local setup script also defaults to binary distribution. Use
   `?dist=npm` to force the npm lane during local testing.
-- Windows setup commands remain on `?dist=npm` until Windows binary artifacts
-  exist.
+- Windows binary setup selects the public Windows preview entrypoint when the
+  signed stable channel lacks Windows artifacts. Its channel choice must remain
+  attached to the managed installation; a newer macOS stable version is not a
+  Windows update target.
+
+## Source-specific binary update projection
+
+Binary publishers include `componentPolicy` from the exact source release manifest.
+Each policy version must match its selected CLI or Service artifact; never rewrite
+a bundle hash to an executable SHA-256. Both guarded Core deployment paths compile
+the same availability mechanism. Stable snapshot reuse avoids conflicting mutable
+reads in receiver deployment. A Windows-preview 404 means channel absence; malformed
+metadata or network failure aborts compilation. Catalogue SHA-256 is logged for the
+exact define passed to startup admission and is associated with the newly admitted
+Worker version. The global projection tag proves compatibility identity only,
+not catalogue freshness.
+
+Windows preview publication is not release closeout by itself. After the preview
+manifest becomes public, a fresh guarded Core activation must compile that
+manifest. The Core stage of a CLI publication or another guarded Core release
+can already satisfy this requirement: retain its exact-source catalogue
+digest/admission evidence and verify Windows status on that Worker. Do not
+redeploy again when that proof already exists. Otherwise run the guarded Core
+release with `--redeploy`. A tag-only no-op/resume receipt or an activation before
+preview publication does not prove catalogue freshness. Deploy all strict
+Gateway/Core/Web report receivers before publishing the new CLI/Service source field.
+This code-only change uses base-aware deferred release readiness; version and
+release manifest stamping remain a separate authorized publication action.
+
+The native Windows preview builder currently builds a fresh GUI Service carrier
+at the CLI version. It rejects a retained older Service policy before compilation;
+prepare the corresponding Service release rather than relabelling the new image.
+The stable publisher supports verified separately retained Service artifacts.
+Staging/custom binary versions omit production component policy unless the caller
+supplies an exact-artifact policy; they never inherit production version identity.

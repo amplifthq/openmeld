@@ -17,7 +17,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
@@ -167,42 +167,6 @@ describe("SpaceHeader", () => {
 		expect(
 			within(titleRow as HTMLElement).queryByTestId("space-live-status")
 		).toBeNull();
-	});
-
-	it("shows loading in the header, gives connection recovery priority, and clears when idle", () => {
-		const onReconnectLiveUpdates = vi.fn();
-		const view = render(
-			createSpaceHeader({ liveState: "connecting", onReconnectLiveUpdates })
-		);
-		expect(screen.queryByTestId("space-live-status")).toBeNull();
-		view.rerender(
-			createSpaceHeader({ liveState: "connected", isLoadingMessages: true })
-		);
-		expect(screen.getByText("Loading")).toBeTruthy();
-		view.rerender(
-			createSpaceHeader({
-				liveState: "degraded",
-				isLoadingMessages: true,
-				onReconnectLiveUpdates,
-			})
-		);
-		expect(screen.getByText("Reconnecting…")).toBeTruthy();
-		expect(screen.queryByText("Loading")).toBeNull();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Reconnect live updates now" })
-		);
-		expect(onReconnectLiveUpdates).toHaveBeenCalledOnce();
-		view.rerender(
-			createSpaceHeader({ liveState: "stale", onReconnectLiveUpdates })
-		);
-		expect(screen.getByText("Syncing…")).toBeTruthy();
-		expect(
-			screen.queryByRole("button", { name: "Reconnect live updates now" })
-		).toBeNull();
-		view.rerender(
-			createSpaceHeader({ liveState: "connected", onReconnectLiveUpdates })
-		);
-		expect(screen.queryByTestId("space-live-status")).toBeNull();
 	});
 
 	it("renders space actions without the old app navigation tabs", () => {
@@ -1155,9 +1119,6 @@ describe("SpaceHeader", () => {
 function createSpaceHeader(
 	input: {
 		accessMode?: SpaceAccessMode;
-		liveState?: ComponentProps<typeof SpaceHeader>["liveState"];
-		isLoadingMessages?: boolean;
-		onReconnectLiveUpdates?: () => void;
 		currentProfileName?: string | null;
 		directMessageOwnerVisibilityLabel?: string | null;
 		onSetAccessMode?: (input: {
@@ -1200,10 +1161,8 @@ function createSpaceHeader(
 					isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
 					isDeleteSpacePending={false}
 					isLeaveSpacePending={false}
-					isLoadingMessages={input.isLoadingMessages}
 					isSpaceNamePending={false}
 					leaveSpaceErrorMessage={null}
-					liveState={input.liveState}
 					membersControl={
 						input.membersControl === undefined ? (
 							<button type="button">Members</button>
@@ -1214,7 +1173,6 @@ function createSpaceHeader(
 					notificationControl={<button type="button">Notifications</button>}
 					onDeleteSpace={input.onDeleteSpace ?? vi.fn()}
 					onLeaveSpace={input.onLeaveSpace ?? vi.fn()}
-					onReconnectLiveUpdates={input.onReconnectLiveUpdates}
 					onSetAccessMode={
 						input.onSetAccessMode ?? vi.fn(async () => undefined)
 					}

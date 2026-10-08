@@ -99,6 +99,7 @@ export type SpaceComposerProps = {
 	context: {
 		conversationKind: SpaceComposerConversationKind;
 		placement: SpaceComposerPlacement;
+		readOnly?: boolean;
 		readOnlyPlaceholder?: string;
 		targetName?: string | null;
 	};
@@ -108,7 +109,9 @@ export type SpaceComposerProps = {
 		maxHeight?: number;
 	};
 	slots?: {
+		attachmentAction?: ReactNode;
 		pendingActionSurface?: ReactNode;
+		queuedMessages?: ReactNode;
 		beforeInput?: ReactNode;
 		beforePrimaryAction?: ReactNode;
 		error?: ReactNode;
@@ -127,6 +130,17 @@ const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
 const ignoreFileRestoration = (): void => undefined;
+
+function SpaceComposerAttachmentAction(input: {
+	children: ReactNode;
+	enabled: boolean;
+	override?: ReactNode;
+}) {
+	if (input.override !== undefined) {
+		return input.override;
+	}
+	return input.enabled ? input.children : null;
+}
 
 function SpaceComposerAttachmentState({
 	input,
@@ -329,6 +343,21 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		override: input.slots?.primaryAction,
 		policy,
 	});
+	const feedbackLayout = resolveComposerFeedbackLayout(input, membersPending);
+	if (input.context.readOnly) {
+		return (
+			<div
+				className={input.presentation?.className}
+				data-slot={input.presentation?.dataSlot}
+			>
+				<div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
+					<p className="text-muted-foreground text-sm">{policy.placeholder}</p>
+					{input.slots?.primaryAction}
+				</div>
+				{input.slots?.error}
+			</div>
+		);
+	}
 
 	return (
 		<div
@@ -336,6 +365,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			data-slot={input.presentation?.dataSlot}
 		>
 			{input.slots?.pendingActionSurface}
+			{input.slots?.queuedMessages}
 			<div className="relative">
 				<SpaceComposerFileDropOverlay visible={isDraggingFiles} />
 				<PromptInput
@@ -389,9 +419,17 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						/>
 					</SpaceComposerEditorBoundary>
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
-						<div className="flex flex-1 items-center gap-0">
+						<div
+							className={cn(
+								"flex min-w-0 items-center gap-0",
+								feedbackLayout.leading
+							)}
+						>
 							{taskContext.menu}
-							{input.capabilities?.attachments !== false ? (
+							<SpaceComposerAttachmentAction
+								enabled={input.capabilities?.attachments !== false}
+								override={input.slots?.attachmentAction}
+							>
 								<SpaceComposerAddMenu
 									addFiles={addFiles}
 									disabled={uploadsDisabled}
@@ -403,13 +441,13 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									limitReached={input.availability.fileLimitReached}
 									onAddPeopleOrAgents={input.actions.onAddPeopleOrAgents}
 								/>
-							) : null}
+							</SpaceComposerAttachmentAction>
 							{!editorFailed &&
 							policy.showMentionButton &&
 							input.capabilities?.mentions !== false ? (
 								<Button
 									aria-label="Mention a member"
-									className="size-8 text-base"
+									className="text-base"
 									onClick={input.actions.onMentionButtonClick}
 									size="icon-sm"
 									type="button"
@@ -454,7 +492,12 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									</span>
 								))}
 						</div>
-						<div className="flex min-w-0 items-center justify-end gap-2">
+						<div
+							className={cn(
+								"flex min-w-0 items-center justify-end gap-2",
+								feedbackLayout.trailing
+							)}
+						>
 							{input.slots?.profileControl}
 							{input.slots?.beforePrimaryAction}
 							{deviceWaitPresentation.hint ? (
@@ -465,14 +508,16 @@ export function SpaceComposer(input: SpaceComposerProps) {
 								</TooltipHint>
 							) : null}
 							<SpaceComposerMentionOnlyAction {...input} />
+							<div className="min-w-0 break-words text-right empty:hidden">
+								<ComposerFeedback
+									error={input.slots?.error}
+									members={input.members}
+									membersPending={membersPending}
+								/>
+							</div>
 							{primaryAction}
 						</div>
 					</PromptInputActions>
-					<ComposerFeedback
-						error={input.slots?.error}
-						members={input.members}
-						membersPending={membersPending}
-					/>
 				</PromptInput>
 			</div>
 		</div>
@@ -483,30 +528,37 @@ function hasPendingComposerMembers(input: SpaceComposerProps) {
 	return Boolean(input.members && input.content.authoredMentions.length > 0);
 }
 
+function resolveComposerFeedbackLayout(
+	input: SpaceComposerProps,
+	membersPending: boolean
+) {
+	if (
+		input.slots?.error ||
+		(membersPending && input.members?.state === "error")
+	) {
+		return { leading: "shrink-0", trailing: "flex-1" };
+	}
+	return { leading: "flex-1", trailing: "" };
+}
+
 function ComposerFeedback(input: {
 	members: SpaceComposerProps["members"];
 	membersPending: boolean;
 	error: ReactNode;
 }) {
-	if (!input.membersPending) {
+	if (!input.membersPending || input.members?.state !== "error") {
 		return input.error;
 	}
 	return (
 		<output className="text-muted-foreground text-sm">
-			{input.members?.state === "error" ? (
-				<>
-					Couldn't load members.{" "}
-					<button
-						className="underline underline-offset-2"
-						onClick={input.members.onRetry}
-						type="button"
-					>
-						Retry
-					</button>
-				</>
-			) : (
-				"Loading members… You can keep typing."
-			)}
+			Couldn't load members.{" "}
+			<button
+				className="underline underline-offset-2"
+				onClick={input.members.onRetry}
+				type="button"
+			>
+				Retry
+			</button>
 		</output>
 	);
 }

@@ -3,6 +3,10 @@ import {
   createAgentProfileBindingDisplayProjection,
   resolveAgentExecutionStatus,
 } from "@openmeld/agent-runtime";
+import {
+  type PostgreSQLBinding,
+  PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { MAX_TEXT_LENGTH } from "@openmeld/protocol";
 import {
   buildRuntimeCoordinatorExecutionId,
@@ -22,6 +26,7 @@ import type {
   RuntimeTransportDispatchLifecycleSnapshot,
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import type { CoreAgentExecutionReadiness } from "../agent-execution/application/agent-execution-readiness-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed to verify dispatch admission consumes the canonical Core readiness owner.
 import * as agentExecutionReadinessService from "../agent-execution/application/agent-execution-readiness-service";
@@ -41,7 +46,7 @@ import { writeDispatchResult } from "../dispatch/application/dispatch-result-ser
 // biome-ignore lint/performance/noNamespaceImport: The Space authority RPC is independently covered with real SQL storage.
 import * as deviceWaitAccess from "../dispatch/application/wake-device-wait";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as dispatchLedgerD1 from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+import * as dispatchLedgerPostgres from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 import {
   claimDispatchAttempt,
   claimFinalReplyEmission,
@@ -57,9 +62,9 @@ import {
   writeDispatchDlq,
   writeInvalidDispatchPayloadDlq,
   writeOpenMeldDaemonOpsDecision,
-} from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+} from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as preHeadFailurePublicationOutboxRepository from "../dispatch/infrastructure/d1/pre-head-failure-publication-outbox-repository";
+import * as preHeadFailurePublicationOutboxRepository from "../dispatch/infrastructure/postgresql/pre-head-failure-publication-outbox-repository";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as runtimeCoordinatorClient from "../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
@@ -141,19 +146,6 @@ const normalizeAgentProfileIdForTest = (value: string): string => {
   }
   return `agt_${buildStableUuidFromSeed(normalized || "dispatch-agent")}`;
 };
-
-const createMockD1RunResult = () => ({
-  success: true,
-  meta: {
-    changed_db: false,
-    changes: 1,
-    duration: 0,
-    last_row_id: 0,
-    rows_read: 0,
-    rows_written: 0,
-    size_after: 0,
-  },
-});
 
 const buildAvailableCodexInterfaceJson = (nowMs: number): string => {
   const observedAt = new Date(nowMs).toISOString();
@@ -628,7 +620,7 @@ describe("handleDispatchQueueBatch", () => {
   >();
 
   const makeEnvWithBindings = (
-    db?: D1Database,
+    db?: PostgreSQLBinding,
     authRpc?: {
       resolveProfileById: (input: {
         openMeldProfileId?: string | null;
@@ -661,7 +653,7 @@ describe("handleDispatchQueueBatch", () => {
         controllerEnabled: 1,
       });
     return {
-      OPENMELD_DB: resolvedDb,
+      OPENMELD_POSTGRESQL: resolvedDb,
       OPENMELD_SPACES: {} as DurableObjectNamespace<any>,
       ...(authRpc === null
         ? {}
@@ -861,123 +853,97 @@ describe("handleDispatchQueueBatch", () => {
       runtimeAgentControllerInterfaceJson?: unknown;
     } | null
   ) =>
-    ({
-      prepare: vi.fn((sql: string) => {
-        const normalizedSql = sql.toLowerCase();
-        return {
-          bind: vi.fn((...args: unknown[]) => ({
-            first: vi.fn().mockResolvedValue(
-              resolveMockD1FirstResult({
-                args,
-                normalizedSql,
-                row,
-              })
-            ),
-            run: vi.fn().mockResolvedValue(createMockD1RunResult()),
-          })),
-        };
-      }),
-    }) as unknown as D1Database;
+    createProjectionPostgresBinding((query) => {
+      const result = resolveNativeProjectionRow({
+        args: query.values ?? [],
+        normalizedSql: query.text.toLowerCase(),
+        row,
+      });
+      return result ? [result] : [];
+    });
 
   const createOpenMeldDbWithRuntimeDeviceDisplayName = (displayName: string) =>
-    ({
-      prepare: vi.fn((sql: string) => {
-        const normalizedSql = sql.toLowerCase();
-        return {
-          bind: vi.fn((...args: unknown[]) => ({
-            first: vi.fn().mockImplementation(() => {
-              if (
-                normalizedSql.includes(
-                  "openmelddaemon_runtime_coordinator_executions"
-                )
-              ) {
-                return {
-                  agent_controller_ref: "builtin:codex",
-                  openmeld_service_runtime_id: "runtime-1",
-                  openmeld_service_runtime_id_source:
-                    "runtime_registry_authority",
-                  attempt_id: "attempt-1",
-                  binding_id: "binding-1",
-                  claim_lease_id: null,
-                  connection_generation: 1,
-                  created_at_ms: 1,
-                  daemon_session_id: "daemon-session-1",
-                  dispatch_id: "dispatch-replying-hint-computer-name",
-                  lease_epoch: 1,
-                  model_version: "openmeld.runtime_coordinator.execution.v1",
-                  runtime_coordinator_execution_id: "rce-1",
-                  source_client_message_id:
-                    "client-replying-hint-computer-name",
-                  space_id: HEX_SPACE_ID,
-                  status: "running",
-                  target_profile_id: normalizeAgentProfileIdForTest(
-                    "agt-replying-hint-computer-name"
-                  ),
-                  terminal_outcome_json: null,
-                  updated_at_ms: 1,
-                };
-              }
+    createProjectionPostgresBinding((query) => {
+      const normalizedSql = query.text.toLowerCase();
+      const args = query.values ?? [];
+      const result = (() => {
+        if (
+          normalizedSql.includes(
+            "openmelddaemon_runtime_coordinator_executions"
+          )
+        ) {
+          return {
+            agent_controller_ref: "builtin:codex",
+            openmeld_service_runtime_id: "runtime-1",
+            openmeld_service_runtime_id_source: "runtime_registry_authority",
+            attempt_id: "attempt-1",
+            binding_id: "binding-1",
+            claim_lease_id: null,
+            connection_generation: 1,
+            created_at_ms: 1,
+            daemon_session_id: "daemon-session-1",
+            dispatch_id: "dispatch-replying-hint-computer-name",
+            lease_epoch: 1,
+            model_version: "openmeld.runtime_coordinator.execution.v1",
+            runtime_coordinator_execution_id: "rce-1",
+            source_client_message_id: "client-replying-hint-computer-name",
+            space_id: HEX_SPACE_ID,
+            status: "running",
+            target_profile_id: normalizeAgentProfileIdForTest(
+              "agt-replying-hint-computer-name"
+            ),
+            terminal_outcome_json: null,
+            updated_at_ms: 1,
+          };
+        }
 
-              if (
-                normalizedSql.includes(
-                  "openmelddaemon_runtime_registry_records"
-                ) &&
-                normalizedSql.includes("openmelddaemon_owned_devices")
-              ) {
-                return {
-                  observed_display_name: "Felix's MacBook Pro",
-                  user_display_name: displayName,
-                };
-              }
-
-              return resolveMockD1FirstResult({
-                args,
-                normalizedSql,
-                row: {
-                  profileKind: "agent",
-                  profileStatus: "active",
-                  agentControllerRef: "builtin:codex",
-                  controllerEnabled: 1,
-                },
-              });
-            }),
-            run: vi.fn().mockResolvedValue(createMockD1RunResult()),
-          })),
-        };
-      }),
-    }) as unknown as D1Database;
-
-  const createOpenMeldDbWithRuntimeDisplayNameReadError = (message: string) =>
-    ({
-      prepare: vi.fn((sql: string) => {
-        const normalizedSql = sql.toLowerCase();
         if (
           normalizedSql.includes("openmelddaemon_runtime_registry_records") &&
           normalizedSql.includes("openmelddaemon_owned_devices")
         ) {
-          throw new Error(message);
+          return {
+            observed_display_name: "Felix's MacBook Pro",
+            user_display_name: displayName,
+          };
         }
-        return {
-          bind: vi.fn((...args: unknown[]) => ({
-            first: vi.fn().mockResolvedValue(
-              resolveMockD1FirstResult({
-                args,
-                normalizedSql,
-                row: {
-                  profileKind: "agent",
-                  profileStatus: "active",
-                  agentControllerRef: "builtin:codex",
-                  controllerEnabled: 1,
-                },
-              })
-            ),
-            run: vi.fn().mockResolvedValue(createMockD1RunResult()),
-          })),
-        };
-      }),
-    }) as unknown as D1Database;
 
-  const resolveMockD1FirstResult = (input: {
+        return resolveNativeProjectionRow({
+          args,
+          normalizedSql,
+          row: {
+            profileKind: "agent",
+            profileStatus: "active",
+            agentControllerRef: "builtin:codex",
+            controllerEnabled: 1,
+          },
+        });
+      })();
+      return result ? [result] : [];
+    });
+
+  const createOpenMeldDbWithRuntimeDisplayNameReadError = (message: string) =>
+    createProjectionPostgresBinding((query) => {
+      const normalizedSql = query.text.toLowerCase();
+      if (
+        normalizedSql.includes("openmelddaemon_runtime_registry_records") &&
+        normalizedSql.includes("openmelddaemon_owned_devices")
+      ) {
+        throw new Error(message);
+      }
+      const result = resolveNativeProjectionRow({
+        args: query.values ?? [],
+        normalizedSql,
+        row: {
+          profileKind: "agent",
+          profileStatus: "active",
+          agentControllerRef: "builtin:codex",
+          controllerEnabled: 1,
+        },
+      });
+      return result ? [result] : [];
+    });
+
+  const resolveNativeProjectionRow = (input: {
     args: unknown[];
     normalizedSql: string;
     row: {
@@ -1131,19 +1097,14 @@ describe("handleDispatchQueueBatch", () => {
   };
 
   const createOpenMeldDbWithPrepareError = (message: string) =>
-    ({
-      prepare: vi.fn((sql: string) => {
-        if (sql.toLowerCase().includes("openmelddaemon_forgotten_devices")) {
-          return {
-            bind: vi.fn().mockReturnValue({
-              first: vi.fn().mockResolvedValue(null),
-              run: vi.fn().mockResolvedValue(createMockD1RunResult()),
-            }),
-          };
-        }
-        throw new Error(message);
-      }),
-    }) as unknown as D1Database;
+    createProjectionPostgresBinding((query) => {
+      if (
+        query.text.toLowerCase().includes("openmelddaemon_forgotten_devices")
+      ) {
+        return [];
+      }
+      throw new Error(message);
+    });
 
   const createAuthRpcWithBindingSnapshot = (snapshot: {
     bindingState: "bound" | "missing";
@@ -2386,7 +2347,7 @@ describe("handleDispatchQueueBatch", () => {
         createCanonicalWorkstationReadiness({ targetProfileId: profileId })
       )
     );
-    vi.spyOn(dispatchLedgerD1, "claimDispatchAttempt").mockImplementation(
+    vi.spyOn(dispatchLedgerPostgres, "claimDispatchAttempt").mockImplementation(
       ({ message, attempt }) =>
         Promise.resolve(
           buildClaimedAttempt({
@@ -2395,14 +2356,16 @@ describe("handleDispatchQueueBatch", () => {
           })
         )
     );
-    vi.spyOn(dispatchLedgerD1, "claimFinalReplyEmission").mockResolvedValue(
-      "claimed"
-    );
-    vi.spyOn(dispatchLedgerD1, "claimReplyingHintEmission").mockResolvedValue(
-      "claimed"
-    );
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgres,
+      "claimFinalReplyEmission"
+    ).mockResolvedValue("claimed");
+    vi.spyOn(
+      dispatchLedgerPostgres,
+      "claimReplyingHintEmission"
+    ).mockResolvedValue("claimed");
+    vi.spyOn(
+      dispatchLedgerPostgres,
       "correlateDuplicateDispatchDeliveryAttempt"
     ).mockResolvedValue(undefined);
     vi.spyOn(
@@ -2473,34 +2436,37 @@ describe("handleDispatchQueueBatch", () => {
       return Promise.resolve();
     });
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgres,
       "markDispatchAttemptWaitingForResult"
     ).mockResolvedValue(undefined);
-    vi.spyOn(dispatchLedgerD1, "readDispatchFirstSeenAtMs").mockResolvedValue(
-      null
-    );
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgres,
+      "readDispatchFirstSeenAtMs"
+    ).mockResolvedValue(null);
+    vi.spyOn(
+      dispatchLedgerPostgres,
       "recordDispatchAttemptExecutionOwnership"
     ).mockResolvedValue(undefined);
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgres,
       "rollbackFinalReplyEmissionClaim"
     ).mockResolvedValue(undefined);
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgres,
       "rollbackReplyingHintEmissionClaim"
     ).mockResolvedValue(undefined);
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgres,
       "writeOpenMeldDaemonOpsDecision"
     ).mockResolvedValue(undefined);
-    vi.spyOn(dispatchLedgerD1, "markDispatchStatus").mockResolvedValue(
+    vi.spyOn(dispatchLedgerPostgres, "markDispatchStatus").mockResolvedValue(
       undefined
     );
-    vi.spyOn(dispatchLedgerD1, "writeDispatchDlq").mockResolvedValue(undefined);
+    vi.spyOn(dispatchLedgerPostgres, "writeDispatchDlq").mockResolvedValue(
+      undefined
+    );
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgres,
       "writeInvalidDispatchPayloadDlq"
     ).mockResolvedValue(undefined);
     vi.spyOn(rpcMethods, "rpcPostSignal").mockResolvedValue({
@@ -2729,16 +2695,19 @@ describe("handleDispatchQueueBatch", () => {
     const errorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const schemaFaultError = new Error(
-      "D1_ERROR: no such table: openMeldDaemon_dispatch_ledger: SQLITE_ERROR"
+    const schemaFaultError = Object.assign(
+      new Error(
+        'relation "openmeld.openMeldDaemon_dispatch_ledger" does not exist'
+      ),
+      { code: "42P01" }
     );
-    vi.spyOn(dispatchLedgerD1, "claimDispatchAttempt").mockRejectedValue(
+    vi.spyOn(dispatchLedgerPostgres, "claimDispatchAttempt").mockRejectedValue(
       schemaFaultError
     );
-    vi.spyOn(dispatchLedgerD1, "writeDispatchDlq").mockRejectedValue(
+    vi.spyOn(dispatchLedgerPostgres, "writeDispatchDlq").mockRejectedValue(
       schemaFaultError
     );
-    vi.spyOn(dispatchLedgerD1, "markDispatchStatus").mockRejectedValue(
+    vi.spyOn(dispatchLedgerPostgres, "markDispatchStatus").mockRejectedValue(
       schemaFaultError
     );
 
@@ -2756,7 +2725,7 @@ describe("handleDispatchQueueBatch", () => {
     errorSpy.mockRestore();
   });
 
-  it("retries messages when OPENMELD_DB binding is missing", async () => {
+  it("retries messages when OPENMELD_POSTGRESQL binding is missing", async () => {
     const infoSpy = vi
       .spyOn(console, "info")
       .mockImplementation(() => undefined);
@@ -9383,7 +9352,7 @@ describe("handleDispatchQueueBatch", () => {
     expect(message.retry).not.toHaveBeenCalled();
   });
 
-  it("hydrates controller snapshot from OPENMELD_DB before runtime execution", async () => {
+  it("hydrates controller snapshot from OPENMELD_POSTGRESQL before runtime execution", async () => {
     const infoSpy = vi
       .spyOn(console, "info")
       .mockImplementation(() => undefined);
@@ -9498,6 +9467,7 @@ describe("handleDispatchQueueBatch", () => {
             displayName: "DeepSeek V4 Flash",
             imageUnderstandingModel: expect.objectContaining({
               inputModalities: expect.arrayContaining(["image"]),
+              modelId: "openai/gpt-6-luna",
             }),
             modelId: "deepseek/deepseek-v4-flash",
             preference: {
@@ -9910,8 +9880,9 @@ describe("handleDispatchQueueBatch", () => {
       remoteAgentNativeDeliveryService,
       "submitRemoteAgentNativeDelivery"
     ).mockRejectedValue(
-      new Error(
-        "D1_ERROR: no such column: retired_deadline_failure_code at offset 412"
+      Object.assign(
+        new Error('column "retired_deadline_failure_code" does not exist'),
+        { code: "42703" }
       )
     );
     const targetProfileId = normalizeAgentProfileIdForTest(
@@ -9982,8 +9953,9 @@ describe("handleDispatchQueueBatch", () => {
       remoteAgentNativeDeliveryService,
       "submitRemoteAgentNativeDelivery"
     ).mockRejectedValue(
-      new Error(
-        "D1_ERROR: no such column: retired_deadline_failure_code at offset 412"
+      Object.assign(
+        new Error('column "retired_deadline_failure_code" does not exist'),
+        { code: "42703" }
       )
     );
     vi.mocked(rpcPostSystemNoticeSignal).mockRejectedValueOnce(
@@ -10084,6 +10056,9 @@ describe("handleDispatchQueueBatch", () => {
     );
     expect(message.ack).not.toHaveBeenCalled();
     expect(message.retry).toHaveBeenCalledTimes(1);
+    expect(markDispatchAttemptWaitingForResult).not.toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey })
+    );
   });
 
   it("emits split dispatch timing evidence for auth and delivery", async () => {
@@ -10254,7 +10229,7 @@ describe("handleDispatchQueueBatch", () => {
     });
 
     expect(authRpc.resolveProfileById).toHaveBeenCalledOnce();
-    expect(db.prepare).toHaveBeenCalled();
+    expect(PostgresDatabase.prototype.query).toHaveBeenCalled();
 
     resolveProfile({
       ok: true,
@@ -11461,38 +11436,26 @@ describe("handleDispatchQueueBatch", () => {
   });
 
   it("publishes a generic terminal Space receipt for preflight codes outside the copy allowlist", async () => {
-    const organizationLookupDb = {
-      prepare: vi.fn((sql: string) => {
-        const normalizedSql = sql.toLowerCase();
-        return {
-          bind: vi.fn((...args: unknown[]) => ({
-            first: vi.fn().mockImplementation(() => {
-              if (
-                normalizedSql.includes("space_index_spaces") &&
-                normalizedSql.includes("openmeld_profiles")
-              ) {
-                // The Space row is missing from the index projection, so the
-                // Space Organization cannot be verified.
-                return Promise.resolve(null);
-              }
-              return Promise.resolve(
-                resolveMockD1FirstResult({
-                  args,
-                  normalizedSql,
-                  row: {
-                    profileKind: "agent",
-                    profileStatus: "active",
-                    agentControllerRef: "builtin:codex",
-                    controllerEnabled: 1,
-                  },
-                })
-              );
-            }),
-            run: vi.fn().mockResolvedValue(createMockD1RunResult()),
-          })),
-        };
-      }),
-    } as unknown as D1Database;
+    const organizationLookupDb = createProjectionPostgresBinding((query) => {
+      const normalizedSql = query.text.toLowerCase();
+      if (
+        normalizedSql.includes("space_index_spaces") &&
+        normalizedSql.includes("openmeld_profiles")
+      ) {
+        return [];
+      }
+      const row = resolveNativeProjectionRow({
+        args: query.values ?? [],
+        normalizedSql,
+        row: {
+          profileKind: "agent",
+          profileStatus: "active",
+          agentControllerRef: "builtin:codex",
+          controllerEnabled: 1,
+        },
+      });
+      return row ? [row] : [];
+    });
     const message = createQueueMessage(
       createDispatchBody({
         dispatchId: "dispatch-preflight-generic-receipt-1",
@@ -11886,12 +11849,13 @@ describe("handleDispatchQueueBatch", () => {
       targetProfileId: "agt-pre-head-scheduled-redrive-1",
       visitedProfileIdsHash: "stable32:pre-head-scheduled-redrive-1",
     });
-    const recoveryDb = makeEnvWithBindings(undefined, authRpc).OPENMELD_DB;
-    const wakeEvidenceDb = {} as D1Database;
+    const recoveryDb = makeEnvWithBindings(
+      undefined,
+      authRpc
+    ).OPENMELD_POSTGRESQL;
     const env = {
       ...makeEnvWithBindings(recoveryDb, authRpc),
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send: queueSend },
-      OPENMELD_WAKE_EVIDENCE_DB: wakeEvidenceDb,
     } as unknown as CoreBindings;
     const exhaustedDelivery = createQueueMessage(body, DISPATCH_MAX_ATTEMPTS);
 
@@ -11909,7 +11873,7 @@ describe("handleDispatchQueueBatch", () => {
       preHeadFailurePublicationOutboxRepository.ensurePreHeadFailurePublicationIntent
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        db: recoveryDb,
+        db: expect.any(PostgresDatabase),
       })
     );
     const pendingIntent = preHeadFailurePublicationIntents.get(body.dispatchId);
@@ -11934,7 +11898,10 @@ describe("handleDispatchQueueBatch", () => {
 
     await expect(
       retryPendingPreHeadFailurePublications({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env,
         nowMs: Date.now() + 60_000,
       })

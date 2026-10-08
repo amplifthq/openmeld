@@ -15,12 +15,25 @@ import {
 import { Button } from "@openmeld/ui/components/button";
 import { useState } from "react";
 
-export function ProfileDetailsRecoveryActionButton(input: {
+type ProfileDetailsRecoveryActionButtonProps = {
 	compact?: boolean;
 	isPending: boolean;
 	onRecoveryAction: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	recoveryAction: ProfileDetailsRecoveryAction;
-}) {
+};
+
+export function ProfileDetailsRecoveryActionButton(
+	input: ProfileDetailsRecoveryActionButtonProps
+) {
+	return (
+		<RecoveryActionButton
+			{...input}
+			key={`${input.recoveryAction.kind}:${input.recoveryAction.expectedInterruptedTargetWakeLifecycleId ?? "unknown"}`}
+		/>
+	);
+}
+
+function RecoveryActionButton(input: ProfileDetailsRecoveryActionButtonProps) {
 	const [isSkipConfirmationOpen, setIsSkipConfirmationOpen] = useState(false);
 	const [isForkConfirmationOpen, setIsForkConfirmationOpen] = useState(false);
 	const buttonLabel = input.isPending
@@ -56,48 +69,46 @@ export function ProfileDetailsRecoveryActionButton(input: {
 				>
 					{buttonLabel}
 				</AlertDialogTrigger>
-				<AlertDialogContent>
+				<AlertDialogContent className="data-[size=default]:sm:max-w-lg">
 					<AlertDialogHeader>
 						<AlertDialogTitle>
 							Another app is using this conversation
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							OpenMeld cannot write to it while the other app has it open. It
-							can continue on a new branch, copying the conversation up to the
-							last completed reply it can verify. The other app keeps the
-							original, and the two do not merge back together. A new branch
-							copies the conversation only: files and anything the work already
-							changed outside OpenMeld stay shared.
+							Continue from the last completed reply in a separate conversation.
+							Files stay shared.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					<AlertDialogFooter>
+					<AlertDialogFooter className="flex-row items-end justify-between sm:justify-between">
 						<AlertDialogCancel disabled={input.isPending}>
 							Cancel
 						</AlertDialogCancel>
-						<AlertDialogAction
-							disabled={input.isPending}
-							onClick={() => {
-								setIsForkConfirmationOpen(false);
-								input.onRecoveryAction({
-									...recoveryAction,
-									kind: "skip_interrupted_work",
-								});
-							}}
-							type="button"
-							variant="destructive"
-						>
-							Skip work
-						</AlertDialogAction>
-						<AlertDialogAction
-							disabled={input.isPending}
-							onClick={() => {
-								setIsForkConfirmationOpen(false);
-								input.onRecoveryAction(recoveryAction);
-							}}
-							type="button"
-						>
-							Continue on a new branch
-						</AlertDialogAction>
+						<div className="flex flex-col items-end gap-2 sm:flex-row">
+							<AlertDialogAction
+								disabled={input.isPending}
+								onClick={() => {
+									setIsForkConfirmationOpen(false);
+									input.onRecoveryAction({
+										...recoveryAction,
+										kind: "skip_interrupted_work",
+									});
+								}}
+								type="button"
+								variant="destructive"
+							>
+								Skip work
+							</AlertDialogAction>
+							<AlertDialogAction
+								disabled={input.isPending}
+								onClick={() => {
+									setIsForkConfirmationOpen(false);
+									input.onRecoveryAction(recoveryAction);
+								}}
+								type="button"
+							>
+								Continue on a new branch
+							</AlertDialogAction>
+						</div>
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>

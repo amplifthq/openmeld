@@ -1,5 +1,7 @@
+import { Button } from "@openmeld/ui/components/button";
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -7,21 +9,9 @@ import {
 	type SettingsSectionDef,
 	toSettingsNavItems,
 } from "@openmeld/ui/lib/settings-contract";
-import {
-	ArrowClockwiseIcon,
-	BellIcon,
-	BuildingsIcon,
-	EnvelopeSimpleIcon,
-	type Icon,
-	MegaphoneIcon,
-	PaletteIcon,
-	RobotIcon,
-	ShieldCheckIcon,
-	UserIcon,
-	UsersIcon,
-} from "@phosphor-icons/react";
+import { ArrowsOutIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { redirect } from "@tanstack/react-router";
+import { Link, redirect } from "@tanstack/react-router";
 import { type ReactNode, Suspense, useEffect, useState } from "react";
 import {
 	AppContextualContentFrame,
@@ -51,6 +41,7 @@ import {
 	type AppSidebarPersistedStates,
 } from "#/lib/sidebar-width-cookie";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
+import { SettingsContentErrorBoundary } from "./settings-content-error-boundary";
 import { buildSettingsSections } from "./settings-sections";
 
 type SettingsOrganizationRole = "admin" | "member" | "owner";
@@ -69,18 +60,22 @@ const PERSONAL_SETTINGS_SECTION_IDS = [
 const ORGANIZATION_SETTINGS_SECTION_IDS = [
 	"general",
 	"center-agent",
+	"usage",
 	"members",
 	"invitations",
 	"security",
 ] as const;
 // A Personal Workspace has no Organization roster and no shared coordinator, so
 // its own Center Agent belongs to the Personal group and the workspace group
-// keeps only General.
+// keeps General and Usage.
 const PERSONAL_WORKSPACE_PERSONAL_SECTION_IDS = [
 	...PERSONAL_SETTINGS_SECTION_IDS,
 	"center-agent",
 ] as const;
-const PERSONAL_WORKSPACE_ORGANIZATION_SECTION_IDS = ["general"] as const;
+const PERSONAL_WORKSPACE_ORGANIZATION_SECTION_IDS = [
+	"general",
+	"usage",
+] as const;
 
 /**
  * The Web usage of the shared Settings contract — see
@@ -188,12 +183,11 @@ function SettingsPageShell(input: {
 		/>
 	);
 	const content = (
-		<Suspense
-			fallback={<SettingsContentSkeleton />}
-			key={input.activeSectionId}
-		>
-			{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
-		</Suspense>
+		<SettingsContentErrorBoundary key={input.activeSectionId}>
+			<Suspense fallback={<SettingsContentSkeleton />}>
+				{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
+			</Suspense>
+		</SettingsContentErrorBoundary>
 	);
 	if (input.presentation === "dialog") {
 		return (
@@ -201,6 +195,29 @@ function SettingsPageShell(input: {
 				<SettingsDialogContent
 					contentKey={input.activeSectionId}
 					description="Manage your account and organization preferences."
+					headerActions={
+						input.activeSection.to ? (
+							<TooltipHint content="Open settings page">
+								<Button
+									aria-label="Open settings page"
+									nativeButton={false}
+									render={
+										<Link
+											replace
+											search={({ usageScope }) =>
+												input.activeSectionId === "usage" ? { usageScope } : {}
+											}
+											to={input.activeSection.to}
+										/>
+									}
+									size="icon-sm"
+									variant="ghost"
+								>
+									<ArrowsOutIcon aria-hidden="true" />
+								</Button>
+							</TooltipHint>
+						) : undefined
+					}
 					navigation={navigation}
 					spacious
 					title="App settings"
@@ -321,33 +338,6 @@ export function SettingsInnerSidebar(input: {
 	);
 }
 
-function resolveSettingsNavIcon(sectionId: string): Icon {
-	switch (sectionId) {
-		case "account":
-			return UserIcon;
-		case "appearance":
-			return PaletteIcon;
-		case "notifications":
-			return BellIcon;
-		case "updates":
-			return ArrowClockwiseIcon;
-		case "privacy":
-			return ShieldCheckIcon;
-		case "center-agent":
-			return RobotIcon;
-		case "general":
-			return BuildingsIcon;
-		case "members":
-			return UsersIcon;
-		case "invitations":
-			return EnvelopeSimpleIcon;
-		case "security":
-			return ShieldCheckIcon;
-		default:
-			throw new Error(`Unsupported Settings sidebar item: ${sectionId}`);
-	}
-}
-
 function toContextualSettingsNavGroups(input: {
 	desktopUpdateAttention: boolean;
 	isPersonalWorkspace: boolean;
@@ -366,7 +356,6 @@ function toContextualSettingsNavGroups(input: {
 			ariaLabel: updateAttention
 				? `${item.title}, ${DESKTOP_UPDATE_ATTENTION_LABEL}`
 				: undefined,
-			icon: resolveSettingsNavIcon(item.id),
 			id: item.id,
 			label: item.title,
 			to: item.to,
@@ -385,7 +374,6 @@ function toContextualSettingsNavGroups(input: {
 						: PERSONAL_SETTINGS_SECTION_IDS
 				),
 				{
-					icon: MegaphoneIcon,
 					id: SEND_FEEDBACK_SETTINGS_ITEM_ID,
 					label: "Send feedback",
 				},

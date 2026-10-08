@@ -7,6 +7,7 @@ import {
 import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	CurrentComputerMenuStatus,
 	CurrentComputerProvider,
 	CurrentComputerToolbarLauncher,
 } from "./current-computer";
@@ -21,6 +22,11 @@ const useStartFlowStateMock = vi.hoisted(() => vi.fn());
 const statusMock = vi.hoisted(() => vi.fn());
 const displaySnapshotQueryMock = vi.hoisted(() => vi.fn());
 const queryClientMock = vi.hoisted(() => ({ setQueryData: vi.fn() }));
+const desktopPlatformMock = vi.hoisted(() => vi.fn().mockReturnValue(null));
+
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+}));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-query")>()),
@@ -94,6 +100,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		statusMock.mockReset().mockReturnValue(null);
 		displaySnapshotQueryMock.mockReset().mockReturnValue({ data: undefined });
 		queryClientMock.setQueryData.mockReset();
+		desktopPlatformMock.mockReset().mockReturnValue(null);
 		useLocalRuntimeQueriesMock.mockReset().mockReturnValue(
 			buildRuntimeQueries({
 				currentDeviceId: "device-current",
@@ -103,6 +110,42 @@ describe("CurrentComputerToolbarLauncher", () => {
 	});
 
 	afterEach(cleanup);
+
+	it.each([
+		true,
+		false,
+	])("shows the menu badge for service connected=%s", (connected) => {
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				readinessDeviceId: "device-current",
+				readinessServiceConnected: connected,
+			})
+		);
+		render(<CurrentComputerMenuStatus />);
+		expect(
+			screen.getByText(connected ? "Connected" : "Not connected")
+		).toBeTruthy();
+	});
+
+	it("does not label unresolved Computer status as disconnected", () => {
+		render(<CurrentComputerMenuStatus />);
+		expect(screen.queryByText("Not connected")).toBeNull();
+		expect(screen.queryByText("Connected")).toBeNull();
+	});
+
+	it("shows a warning dot without a badge or warning text in the menu", () => {
+		statusMock.mockReturnValue({
+			label: "Update available",
+			reason: "openmeld_tools_update",
+			showLabel: true,
+			tone: "warning",
+		});
+		render(<CurrentComputerMenuStatus />);
+		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
+		expect(screen.queryByText("Update available")).toBeNull();
+		expect(screen.queryByText("Connected")).toBeNull();
+	});
 
 	it("opens the current Computer detail directly from the far-left toolbar entry", () => {
 		render(<CurrentComputerToolbarLauncher />);
@@ -148,6 +191,20 @@ describe("CurrentComputerToolbarLauncher", () => {
 			name: "Connect this Computer",
 		});
 		expect(launcher.getAttribute("href")).toBe("/o/acme/connect?session=fresh");
+	});
+
+	it.each([
+		"device-current",
+		undefined,
+	])("opens the native connection check from Desktop regardless of browser selection: %s", (currentDeviceId) => {
+		desktopPlatformMock.mockReturnValue({});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({ currentDeviceId })
+		);
+		render(<CurrentComputerToolbarLauncher />);
+		expect(screen.getByRole("link").getAttribute("href")).toBe(
+			"/o/acme/connect"
+		);
 	});
 
 	it("does not offer setup before Computer inventory finishes loading", () => {

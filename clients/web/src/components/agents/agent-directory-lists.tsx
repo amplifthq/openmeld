@@ -16,6 +16,7 @@ import {
 	AgentList,
 	AgentListControls,
 	AgentListFilterChips,
+	type AgentListView,
 	DEFAULT_AGENT_LIST_VIEW,
 } from "./agent-list";
 import {
@@ -28,15 +29,22 @@ import type { AgentCardSelection } from "./agent-list-selection";
 import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 import type { AgentProfilesWorkspaceProps } from "./agent-profiles-workspace";
 
+const DIRECTORY_AGENT_VIEW: AgentListView = {
+	...DEFAULT_AGENT_LIST_VIEW,
+	grouping: "controller-provider",
+};
+
 export function AgentDirectoryLists({
 	input,
 }: {
 	input: AgentProfilesWorkspaceProps;
 }) {
 	const { currentOrganization } = useAppOrganization();
+	const viewPreferenceKey = (personId: string) =>
+		`openmeld.agents.presentation:${input.currentUserId}:${currentOrganization.id}:${personId}`;
 	const previewReady = useAgentSidebarPreviewReady();
 	const [search, setSearch] = useState("");
-	const [view, setView] = useState(DEFAULT_AGENT_LIST_VIEW);
+	const [view, setView] = useState<AgentListView>(DIRECTORY_AGENT_VIEW);
 	const items = useMemo(
 		() =>
 			input.profiles.map((profile) => {
@@ -149,7 +157,11 @@ export function AgentDirectoryLists({
 				</output>
 			)}
 			<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
-				<AgentListFilterChips onChange={setView} value={view} />
+				<AgentListFilterChips
+					defaults={DIRECTORY_AGENT_VIEW}
+					onChange={setView}
+					value={view}
+				/>
 				<DirectorySearch
 					label={input.person ? "Search Agents" : "Search people or Agents"}
 					onChange={setSearch}
@@ -158,6 +170,7 @@ export function AgentDirectoryLists({
 				<AgentListControls
 					items={centerItem ? [centerItem, ...items] : items}
 					onChange={setView}
+					resetValue={DIRECTORY_AGENT_VIEW}
 					value={view}
 				/>
 			</div>
@@ -178,6 +191,7 @@ export function AgentDirectoryLists({
 					}
 					renderCard={renderCard}
 					search={search}
+					viewPreferenceKey={viewPreferenceKey(input.person.id)}
 				/>
 			</div>
 		);
@@ -299,6 +313,10 @@ export function AgentDirectoryLists({
 					}
 					renderCard={renderCard}
 					search={search}
+					viewPreferenceKey={viewPreferenceKey(
+						group.member.humanProfile?.profileId ??
+							`member:${group.member.memberId}`
+					)}
 				/>
 			))}
 			{visibleGroups.length === 0 && !showCenter && (

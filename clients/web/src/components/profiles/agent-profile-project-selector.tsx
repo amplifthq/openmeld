@@ -12,6 +12,7 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
@@ -54,6 +55,7 @@ type PendingFolderMove =
 type ProjectSelectorInput = {
 	target?: PeopleComputerTarget;
 	disabled: boolean;
+	localFolderChangesBlocked?: boolean;
 	manualPath: string;
 	onConnectionReady: (connection: LocalProjectControlConnection | null) => void;
 	onManualPathChange: (path: string) => void;
@@ -124,6 +126,7 @@ export function AgentProfileProjectSelector(input: ProjectSelectorInput) {
 }
 
 function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
+	const localControlsDisabled = isLocalControlDisabled(input);
 	const controller = useProjectDiscovery({
 		target: input.target,
 		includeCandidates: false,
@@ -173,6 +176,13 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		: resolveLocalFolderPickerDeviceId(controller.computer);
 
 	useEffect(() => {
+		if (localControlsDisabled) {
+			setPendingDefaultConnection(null);
+			setPendingFolderMove(null);
+		}
+	}, [localControlsDisabled]);
+
+	useEffect(() => {
 		const connection =
 			view?.status === "ready"
 				? (view.connections.find(
@@ -192,6 +202,11 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		connection: LocalProjectControlConnection,
 		unavailableMessage: string
 	): Promise<LocalProjectControlConnection> => {
+		if (localControlsDisabled) {
+			throw new Error(
+				"Wait until this task finishes to change a folder on this computer."
+			);
+		}
 		const response = await setCurrentComputerProjectDefaultConnection({
 			target: input.target,
 			clientGeneration: controller.claimMutationGeneration(),
@@ -212,7 +227,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 	};
 
 	const selectConnection = (connection: LocalProjectControlConnection) => {
-		if (connection.status !== "available") {
+		if (localControlsDisabled || connection.status !== "available") {
 			return;
 		}
 		if (connection.isDefault) {
@@ -274,6 +289,9 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		moveConfirmationToken?: string;
 		shareConfirmationToken?: string;
 	}): Promise<void> => {
+		if (localControlsDisabled) {
+			return;
+		}
 		const candidate =
 			candidateRequest?.candidate ??
 			resolveAgentProfileProjectCandidate(
@@ -337,6 +355,9 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		moveConfirmationToken?: string,
 		shareConfirmationToken?: string
 	): Promise<void> => {
+		if (localControlsDisabled) {
+			return;
+		}
 		const path = declaredPath;
 		if (path.trim().length === 0 || !isAbsoluteProjectPath(path)) {
 			setErrorMessage("Enter the full folder path on this computer.");
@@ -352,8 +373,8 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 				declaredPath: path,
 				expectedOrganizationId: input.organizationId,
 				idempotencyKey: crypto.randomUUID(),
-				...(moveConfirmationToken ? { moveConfirmationToken } : {}),
-				...(shareConfirmationToken ? { shareConfirmationToken } : {}),
+				moveConfirmationToken,
+				shareConfirmationToken,
 				projectId: input.projectId,
 			});
 			if (response.status === "rejected") {
@@ -424,7 +445,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 			{input.projectId && input.onUseManagedWorkspace ? (
 				<Button
 					className="justify-self-start"
-					disabled={input.disabled}
+					disabled={input.disabled || input.localFolderChangesBlocked}
 					onClick={() => {
 						input.onProjectChange("");
 						input.onUseManagedWorkspace?.();
@@ -441,7 +462,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 					branch={branch}
 					confirmNonGit={confirmNonGit}
 					declaredPath={declaredPath}
-					disabled={input.disabled || pendingOperation !== null}
+					disabled={localControlsDisabled || pendingOperation !== null}
 					onConnectCandidate={connectCandidate}
 					onConnectPath={connectDeclaredPath}
 					onDeclaredPathChange={(path) => {
@@ -531,7 +552,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 			/>
 
 			<WorkspaceFallbackControls
-				disabled={input.disabled}
+				disabled={localControlsDisabled}
 				manualPath={input.manualPath}
 				onManualPathChange={input.onManualPathChange}
 				pickerDeviceId={pickerDeviceId}
@@ -558,7 +579,11 @@ function resolveFolderSource(input: {
 	if (input.workspaceFallbackMode === "advanced") {
 		return "custom";
 	}
-	return "managed";
+	return input.workspaceFallbackMode === "managed" ? "managed" : "";
+}
+
+function isLocalControlDisabled(input: ProjectSelectorInput): boolean {
+	return input.disabled || input.localFolderChangesBlocked === true;
 }
 
 const FOLDER_SOURCES = [
@@ -569,7 +594,8 @@ const FOLDER_SOURCES = [
 
 function ProjectSourceControls(input: {
 	disabled: boolean;
-	source: "project" | "custom" | "managed";
+	localFolderChangesBlocked?: boolean;
+	source: "project" | "custom" | "managed" | "";
 	organizationId: string;
 	projectId: string;
 	projects: readonly Project[];
@@ -583,8 +609,13 @@ function ProjectSourceControls(input: {
 				<WorkingFolderSelect
 					disabled={input.disabled}
 					id="working-folder-source"
-					items={FOLDER_SOURCES}
+					items={FOLDER_SOURCES.map((source) => ({
+						...source,
+						disabled:
+							input.localFolderChangesBlocked && source.value !== "project",
+					}))}
 					onChange={input.onChangeSource}
+					placeholder="Choose a folder source"
 					value={input.source}
 				/>
 			</div>
@@ -608,7 +639,9 @@ function ProjectSourceControls(input: {
 						value={input.projectId}
 					/>
 					<ProjectPickerActions
-						disabled={input.disabled}
+						disabled={
+							input.disabled || Boolean(input.localFolderChangesBlocked)
+						}
 						key={input.organizationId}
 						onProjectSelected={input.onChangeProject}
 						organizationId={input.organizationId}
@@ -935,9 +968,11 @@ function MatchingProjectFolders(input: {
 								}
 								type="radio"
 							/>
-							<span className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
-								{candidate.canonicalPath}
-							</span>
+							<ScrollArea className="min-w-0 flex-1" orientation="horizontal">
+								<span className="whitespace-nowrap">
+									{candidate.canonicalPath}
+								</span>
+							</ScrollArea>
 						</label>
 					))}
 				</div>
@@ -977,13 +1012,16 @@ function MissingProjectConnections(input: {
 		<div className="grid min-w-0 gap-1 pt-1 text-xs">
 			<p className="font-medium">Unavailable on this computer</p>
 			{missingConnections.map((connection) => (
-				<p
-					className="max-w-full overflow-x-auto whitespace-nowrap text-muted-foreground [scrollbar-width:thin]"
+				<ScrollArea
+					className="max-w-full"
 					key={connection.bindingGeneration}
+					orientation="horizontal"
 				>
-					{connection.path}
-					{connection.isDefault ? " (current default)" : ""}
-				</p>
+					<p className="whitespace-nowrap text-muted-foreground">
+						{connection.path}
+						{connection.isDefault ? " (current default)" : ""}
+					</p>
+				</ScrollArea>
 			))}
 		</div>
 	);

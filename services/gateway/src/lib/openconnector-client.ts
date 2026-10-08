@@ -1,4 +1,7 @@
-import { connectorAppCatalogProviderSchema } from "@openmeld/schemas";
+import {
+  connectorAppCatalogProviderSchema,
+  pluginConnectionHealthSchema,
+} from "@openmeld/schemas";
 import type { ConnectorAppCatalogProvider } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
 
@@ -17,6 +20,7 @@ const openConnectorErrorSchema = z.object({
 });
 
 const openConnectorConnectionSchema = z.object({
+  health: pluginConnectionHealthSchema.optional(),
   configured: z.boolean(),
   connectionName: z.string().min(1),
   service: z.string().min(1),
@@ -32,6 +36,11 @@ const openConnectorConfiguredConnectionSchema = z.object({
   configured: z.literal(true),
   connectionName: z.string().min(1),
   service: z.string().min(1),
+});
+
+const openConnectorInstallationLookupSchema = z.object({
+  accountLogin: z.string().trim().min(1),
+  installationId: z.string().regex(/^[1-9][0-9]*$/u),
 });
 
 const openConnectorProviderListSchema = z.object({
@@ -104,7 +113,10 @@ export class OpenConnectorClient {
   }
 
   async listProviders(): Promise<ConnectorAppCatalogProvider[]> {
-    const payload = await this.#request("/v1/providers", { method: "GET" });
+    const payload = await this.#request(
+      "/v1/providers?includeConnectionAuth=true",
+      { method: "GET" }
+    );
     return parseOpenConnectorPayload({
       operation: "list providers",
       payload,
@@ -146,6 +158,7 @@ export class OpenConnectorClient {
   }
 
   async completeGitHubAppInstallation(input: {
+    expectedAccountLogin?: string;
     installationId: string;
     targetConnectionName: string;
     verificationConnectionName: string;
@@ -168,6 +181,26 @@ export class OpenConnectorClient {
         502
       );
     }
+  }
+
+  async findAccessibleGitHubAppInstallation(
+    verificationConnectionName: string
+  ): Promise<{
+    accountLogin: string;
+    installationId: string;
+  }> {
+    const query = new URLSearchParams({ verificationConnectionName });
+    const payload = await this.#request(
+      `/api/providers/github/installations?${query}`,
+      {
+        method: "GET",
+      }
+    );
+    return parseOpenConnectorPayload({
+      payload,
+      schema: openConnectorInstallationLookupSchema,
+      operation: "find GitHub App installation",
+    });
   }
 
   async disconnect(input: {

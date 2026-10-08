@@ -23,6 +23,8 @@ export function getSpaceConversationHistorySignalId(
 export type SpaceConversationPosition = {
 	anchorSignalId: string;
 	offsetFromVisibleTop: number;
+	// Older records omit this and continue restoring their message anchor.
+	atBottom?: true;
 };
 
 const SPACE_CONVERSATION_POSITION_PREFIX =
@@ -63,6 +65,7 @@ export function readSpaceConversationPosition(
 			? {
 					anchorSignalId: value.anchorSignalId,
 					offsetFromVisibleTop: value.offsetFromVisibleTop,
+					...(value.atBottom === true ? { atBottom: true as const } : {}),
 				}
 			: null;
 	} catch {

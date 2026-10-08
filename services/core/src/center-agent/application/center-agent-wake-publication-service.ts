@@ -1,5 +1,7 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { activateAgentDelegationChildren } from "../../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+import { activateAgentDelegationChildren } from "../../agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
+import { recordAgentTaskTerminalOutcome } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { readCoreRpcHttpStatus } from "../../rpc/errors";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center-agent-repository";
 import {
@@ -7,17 +9,20 @@ import {
   type CenterAgentWakePublicationCommand,
   type CenterAgentWakePublicationRecord,
   claimCenterAgentWakePublication,
+  listCenterAgentWakePublicationsByDelegation,
   listDueCenterAgentWakePublications,
   markCenterAgentWakePublicationAccepted,
   markCenterAgentWakePublicationCompleted,
   markCenterAgentWakePublicationFailed,
   prepareCenterAgentWakePublicationRecord,
+  prepareCenterAgentWakePublicationRecords,
   readCenterAgentWakePublication,
   rescheduleCenterAgentWakePublication,
-} from "../infrastructure/d1/center-agent-wake-publication-repo";
+} from "../infrastructure/postgresql/center-agent-wake-publication-repo";
 import {
   CenterAgentDelegationPreparationError,
   cancelPreparedCenterAgentWakeDelegation,
+  planCenterAgentWakeDelegation,
   prepareCenterAgentWakeDelegation,
 } from "./center-agent-delegation-service";
 
@@ -26,11 +31,15 @@ const MAX_RETRY_DELAY_MS = 5 * 60_000;
 const PUBLICATION_CLAIM_LEASE_MS = 5 * 60_000;
 const PUBLICATION_ATTEMPT_TIMEOUT_MS = 30_000;
 const PUBLICATION_REDRIVE_BATCH_BUDGET_MS = 45_000;
-
 type CenterAgentWakePublicationExecution =
   | {
       attribution: CenterAgentWakePublicationCommand["attribution"];
-      signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+      signal: Extract<
+        SignalEnvelope,
+        {
+          type: "signal.text";
+        }
+      >;
       status: "accepted";
     }
   | {
@@ -38,25 +47,74 @@ type CenterAgentWakePublicationExecution =
       retryAfterSeconds: number;
       status: "pending";
     };
-
 type PublishCenterAgentWakeSignal = (
   command: CenterAgentWakePublicationCommand
 ) => Promise<SignalEnvelope>;
-
 type ResolveCenterAgentWakeSignal = (
   command: CenterAgentWakePublicationCommand
 ) => Promise<SignalEnvelope | null>;
-
 export async function prepareCenterAgentWakePublication(input: {
   command: CenterAgentWakePublicationCommand;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
 }): Promise<CenterAgentWakePublicationRecord> {
   return await prepareCenterAgentWakePublicationRecord(input);
 }
 
+export async function prepareCenterAgentWakePublicationBatch(input: {
+  commands: CenterAgentWakePublicationCommand[];
+  db: PostgresDatabase;
+  destinationNeutralContinuations?: boolean;
+  nowMs: number;
+}): Promise<void> {
+  const [publication] = await prepareCenterAgentWakePublicationRecords(input);
+  if (!publication) {
+    throw new Error("Wake delegation has no publication destinations");
+  }
+  // queued can end the parent turn immediately. Its callback must already
+  // see the subscriptions even when no Space publication has started.
+  await prepareCenterAgentWakePublicationDelegation({ ...input, publication });
+}
+
+async function prepareCenterAgentWakePublicationDelegation(input: {
+  db: PostgresDatabase;
+  destinationNeutralContinuations?: boolean;
+  nowMs: number;
+  publication: CenterAgentWakePublicationRecord;
+}): Promise<void> {
+  const { publication } = input;
+  const destinations = await readDelegationDestinations(input.db, publication);
+  const root = destinations[0];
+  if (!root) {
+    throw new Error("Wake delegation has no publication destinations");
+  }
+  await prepareCenterAgentWakeDelegation({
+    actorProfileId: root.attribution.actorProfileId,
+    childSpaceId: root.spaceId,
+    clientMessageId: root.clientMessageId,
+    completionMode: root.completionMode,
+    replyLanguageTag: root.replyLanguageTag,
+    additionalDestinations: destinations.slice(1).map((command) => ({
+      childSpaceId: command.spaceId,
+      clientMessageId: command.clientMessageId,
+      targetProfileIds: command.activationTargets,
+    })),
+    db: input.db,
+    destinationNeutralContinuations:
+      input.destinationNeutralContinuations === true,
+    ...(publication.command.fallbackAgentProfileId
+      ? { fallbackAgentProfileId: publication.command.fallbackAgentProfileId }
+      : {}),
+    nowMs: input.nowMs,
+    organizationId: publication.command.organizationId,
+    parentSubmissionId: publication.command.parentSubmissionId,
+    targetProfileIds: root.activationTargets,
+    text: publication.command.text,
+  });
+}
+
 export async function executeCenterAgentWakePublication(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   destinationNeutralContinuations?: boolean;
   nowMs: number;
   publicationId: string;
@@ -84,28 +142,15 @@ export async function executeCenterAgentWakePublication(input: {
   if (!publication) {
     return await resolveCurrentPublicationExecution(input);
   }
-
   let signalAccepted = publication.signal !== null;
   let stage: "prepare" | "publish" | "finalize" = "prepare";
   try {
-    await prepareCenterAgentWakeDelegation({
-      actorProfileId: publication.command.attribution.actorProfileId,
-      childSpaceId: publication.command.spaceId,
-      clientMessageId: publication.command.clientMessageId,
-      completionMode: publication.command.completionMode,
+    await prepareCenterAgentWakePublicationDelegation({
       db: input.db,
       destinationNeutralContinuations:
         input.destinationNeutralContinuations === true,
-      ...(publication.command.fallbackAgentProfileId
-        ? {
-            fallbackAgentProfileId: publication.command.fallbackAgentProfileId,
-          }
-        : {}),
       nowMs: input.nowMs,
-      organizationId: publication.command.organizationId,
-      parentSubmissionId: publication.command.parentSubmissionId,
-      targetProfileIds: publication.command.activationTargets,
-      text: publication.command.text,
+      publication,
     });
     let signal = publication.signal;
     if (!signal) {
@@ -144,12 +189,11 @@ export async function executeCenterAgentWakePublication(input: {
     });
   }
 }
-
 async function handlePublicationExecutionError(input: {
   claimId: string;
   error: unknown;
   input: {
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
     publishTimeoutMs?: number;
     resolveSignal: ResolveCenterAgentWakeSignal;
@@ -183,21 +227,30 @@ async function handlePublicationExecutionError(input: {
     publication: input.publication,
   });
 }
-
 async function reconcileRejectedPublication(input: {
   claimId: string;
   input: {
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
     publishTimeoutMs?: number;
     resolveSignal: ResolveCenterAgentWakeSignal;
   };
   publication: CenterAgentWakePublicationRecord;
 }): Promise<
-  | { kind: "not_found" }
-  | { execution: CenterAgentWakePublicationExecution; kind: "execution" }
+  | {
+      kind: "not_found";
+    }
+  | {
+      execution: CenterAgentWakePublicationExecution;
+      kind: "execution";
+    }
 > {
-  let reconciledSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null;
+  let reconciledSignal: Extract<
+    SignalEnvelope,
+    {
+      type: "signal.text";
+    }
+  > | null;
   try {
     reconciledSignal = await requireOptionalTextSignal(
       withPublicationAttemptDeadline(
@@ -256,20 +309,42 @@ async function reconcileRejectedPublication(input: {
     return { execution, kind: "execution" };
   }
 }
-
 async function failRejectedPublication(input: {
   claimId: string;
   error: unknown;
-  input: { db: D1Database; nowMs: number };
+  input: {
+    db: PostgresDatabase;
+    nowMs: number;
+  };
   publication: CenterAgentWakePublicationRecord;
 }): Promise<CenterAgentWakePublicationExecution> {
   try {
-    await cancelPreparedCenterAgentWakeDelegation({
-      db: input.input.db,
-      delegationId: input.publication.command.delegationId,
-      nowMs: input.input.nowMs,
-      subscriptionIds: input.publication.command.subscriptionIds,
-    });
+    if (input.publication.command.batchRootPublicationId) {
+      // The exact Space post was fenced before reaching this branch. Preserve
+      // accepted siblings and let the existing all-terminal barrier report
+      // this destination's failure alongside their results.
+      for (const child of publicationChildTasks(input.publication.command)) {
+        await recordAgentTaskTerminalOutcome({
+          db: input.input.db,
+          nowMs: input.input.nowMs,
+          task: child.task,
+          outcome: {
+            errorCode: "center_agent.wake_publication_rejected",
+            eventId: `wake-publication-rejected:${input.publication.publicationId}`,
+            occurredAtMs: input.input.nowMs,
+            publishedSignalId: null,
+            status: "publication_failed",
+          },
+        });
+      }
+    } else {
+      await cancelPreparedCenterAgentWakeDelegation({
+        db: input.input.db,
+        delegationId: input.publication.command.delegationId,
+        nowMs: input.input.nowMs,
+        subscriptionIds: input.publication.command.subscriptionIds,
+      });
+    }
     await markCenterAgentWakePublicationFailed({
       claimId: input.claimId,
       db: input.input.db,
@@ -288,11 +363,10 @@ async function failRejectedPublication(input: {
   }
   throw input.error;
 }
-
 export async function retryPendingCenterAgentWakePublications(input: {
   batchBudgetMs?: number;
   clock?: () => number;
-  db: D1Database;
+  db: PostgresDatabase;
   destinationNeutralContinuations?: boolean;
   limit?: number;
   nowMs: number;
@@ -379,9 +453,8 @@ export async function retryPendingCenterAgentWakePublications(input: {
   }
   return result;
 }
-
 async function requirePublication(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   publicationId: string;
 }): Promise<CenterAgentWakePublicationRecord> {
   const publication = await readCenterAgentWakePublication(input);
@@ -391,9 +464,63 @@ async function requirePublication(input: {
   return publication;
 }
 
+function publicationChildTasks(command: CenterAgentWakePublicationCommand) {
+  return planCenterAgentWakeDelegation({
+    childSpaceId: command.spaceId,
+    clientMessageId: command.clientMessageId,
+    targetProfileIds: command.activationTargets,
+  }).childTasks;
+}
+
+async function readDelegationDestinations(
+  db: PostgresDatabase,
+  publication: CenterAgentWakePublicationRecord
+): Promise<CenterAgentWakePublicationCommand[]> {
+  const rootId = publication.command.batchRootPublicationId;
+  if (!rootId) {
+    return [publication.command];
+  }
+  const records = await listCenterAgentWakePublicationsByDelegation({
+    db,
+    delegationId: publication.delegationId,
+  });
+  const root = records.find((record) => record.publicationId === rootId);
+  const ids = root?.command.batchPublicationIds;
+  if (!ids || ids[0] !== rootId || ids.length !== records.length) {
+    throw new Error(
+      "The complete Wake batch is unavailable; publication must wait"
+    );
+  }
+  return ids.map((id) => {
+    const command = records.find(
+      (record) => record.publicationId === id
+    )?.command;
+    if (
+      !command ||
+      command.batchRootPublicationId !== rootId ||
+      command.organizationId !== root.command.organizationId ||
+      command.parentSubmissionId !== root.command.parentSubmissionId ||
+      command.attribution.actorProfileId !==
+        root.command.attribution.actorProfileId ||
+      command.completionMode !== "resume_parent_when_all_terminal" ||
+      command.fallbackAgentProfileId !== null
+    ) {
+      throw new Error("Wake batch destinations do not match their delegation");
+    }
+    return command;
+  });
+}
+
 async function requireTextSignal(
   signalPromise: Promise<SignalEnvelope>
-): Promise<Extract<SignalEnvelope, { type: "signal.text" }>> {
+): Promise<
+  Extract<
+    SignalEnvelope,
+    {
+      type: "signal.text";
+    }
+  >
+> {
   const signal = await signalPromise;
   if (signal.type !== "signal.text") {
     throw Object.assign(
@@ -408,43 +535,61 @@ async function requireTextSignal(
   }
   return signal;
 }
-
 async function requireOptionalTextSignal(
   signalPromise: Promise<SignalEnvelope | null>
-): Promise<Extract<SignalEnvelope, { type: "signal.text" }> | null> {
+): Promise<Extract<
+  SignalEnvelope,
+  {
+    type: "signal.text";
+  }
+> | null> {
   const signal = await signalPromise;
   return signal === null
     ? null
     : await requireTextSignal(Promise.resolve(signal));
 }
-
 async function finalizeAcceptedPublication(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   publication: CenterAgentWakePublicationRecord;
-  signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+  signal: Extract<
+    SignalEnvelope,
+    {
+      type: "signal.text";
+    }
+  >;
 }): Promise<
-  Extract<CenterAgentWakePublicationExecution, { status: "accepted" }>
+  Extract<
+    CenterAgentWakePublicationExecution,
+    {
+      status: "accepted";
+    }
+  >
 > {
   await activateAgentDelegationChildren({
     db: input.db,
     delegationId: input.publication.command.delegationId,
     nowMs: input.nowMs,
+    tasks: publicationChildTasks(input.publication.command).map(
+      (child) => child.task
+    ),
   });
-  await prepareCenterAgentAuditJournalEntryIfMissingStatement({
-    action: "wake_agent_profiles_in_space",
-    actorProfileId: input.publication.command.attribution.actorProfileId,
-    attribution: input.publication.command.attribution,
-    db: input.db,
-    id: buildAuditEntryId(input.publication.publicationId),
-    nowMs: input.nowMs,
-    organizationId: input.publication.command.organizationId,
-    resource: {
-      id: input.publication.command.spaceId,
-      type: "space",
-    },
-  }).run();
+  await input.db.query(
+    prepareCenterAgentAuditJournalEntryIfMissingStatement({
+      action: "wake_agent_profiles_in_space",
+      actorProfileId: input.publication.command.attribution.actorProfileId,
+      attribution: input.publication.command.attribution,
+      db: input.db,
+      id: buildAuditEntryId(input.publication.publicationId),
+      nowMs: input.nowMs,
+      organizationId: input.publication.command.organizationId,
+      resource: {
+        id: input.publication.command.spaceId,
+        type: "space",
+      },
+    })
+  );
   await markCenterAgentWakePublicationCompleted({
     claimId: input.claimId,
     db: input.db,
@@ -457,10 +602,9 @@ async function finalizeAcceptedPublication(input: {
     status: "accepted",
   };
 }
-
 async function reschedulePublication(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   error: unknown;
   nowMs: number;
   publication: CenterAgentWakePublicationRecord;
@@ -475,10 +619,9 @@ async function reschedulePublication(input: {
     publicationId: input.publication.publicationId,
   });
 }
-
 async function rescheduleAsPending(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   error: unknown;
   nowMs: number;
   publication: CenterAgentWakePublicationRecord;
@@ -496,9 +639,8 @@ async function rescheduleAsPending(input: {
     throw error;
   }
 }
-
 async function resolveCurrentPublicationExecution(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   publicationId: string;
 }): Promise<CenterAgentWakePublicationExecution> {
@@ -513,10 +655,14 @@ async function resolveCurrentPublicationExecution(input: {
   }
   return pendingExecution(current, input.nowMs);
 }
-
 function acceptedExecution(
   publication: CenterAgentWakePublicationRecord
-): Extract<CenterAgentWakePublicationExecution, { status: "accepted" }> {
+): Extract<
+  CenterAgentWakePublicationExecution,
+  {
+    status: "accepted";
+  }
+> {
   if (!publication.signal) {
     throw new Error(
       "Accepted Center Agent Wake publication is missing its Space signal"
@@ -528,11 +674,15 @@ function acceptedExecution(
     status: "accepted",
   };
 }
-
 function pendingExecution(
   publication: CenterAgentWakePublicationRecord,
   nowMs: number
-): Extract<CenterAgentWakePublicationExecution, { status: "pending" }> {
+): Extract<
+  CenterAgentWakePublicationExecution,
+  {
+    status: "pending";
+  }
+> {
   const targetMs =
     publication.claimExpiresAtMs !== null &&
     publication.claimExpiresAtMs > nowMs
@@ -547,7 +697,6 @@ function pendingExecution(
     status: "pending",
   };
 }
-
 async function withPublicationAttemptDeadline<T>(
   promise: Promise<T>,
   timeoutMs: number
@@ -568,7 +717,6 @@ async function withPublicationAttemptDeadline<T>(
     }
   }
 }
-
 function normalizePublishTimeoutMs(timeoutMs: number | undefined): number {
   const value = timeoutMs ?? PUBLICATION_ATTEMPT_TIMEOUT_MS;
   if (!(Number.isInteger(value) && value > 0)) {
@@ -576,7 +724,6 @@ function normalizePublishTimeoutMs(timeoutMs: number | undefined): number {
   }
   return Math.min(value, PUBLICATION_CLAIM_LEASE_MS - 1000);
 }
-
 function normalizeBatchBudgetMs(batchBudgetMs: number | undefined): number {
   const value = batchBudgetMs ?? PUBLICATION_REDRIVE_BATCH_BUDGET_MS;
   if (!(Number.isInteger(value) && value > 0)) {
@@ -584,16 +731,13 @@ function normalizeBatchBudgetMs(batchBudgetMs: number | undefined): number {
   }
   return Math.min(value, 55_000);
 }
-
 class CenterAgentWakePublicationTimeoutError extends Error {
   readonly retryable = true;
-
   constructor(timeoutMs: number) {
     super(`Center Agent Wake publication timed out after ${timeoutMs} ms`);
     this.name = "CenterAgentWakePublicationTimeoutError";
   }
 }
-
 function isDefinitePublicationRejection(error: unknown): boolean {
   if (error instanceof CenterAgentDelegationPreparationError) {
     return true;
@@ -611,20 +755,16 @@ function isDefinitePublicationRejection(error: unknown): boolean {
     status !== 429
   );
 }
-
 function retryDelayMs(attemptCount: number): number {
   const exponent = Math.max(0, Math.min(8, attemptCount - 1));
   return Math.min(MAX_RETRY_DELAY_MS, BASE_RETRY_DELAY_MS * 2 ** exponent);
 }
-
 function buildAuditEntryId(publicationId: string): string {
   return `center-agent-wake:${publicationId}`;
 }
-
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
 function readBoolean(value: unknown, key: string): boolean {
   return (
     typeof value === "object" &&

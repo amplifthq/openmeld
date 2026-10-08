@@ -48,31 +48,32 @@ export function resolveSpaceInboxAgentAddressing(input: {
   );
   const explicitActivations =
     input.signal.data.meta?.threadWakeContinuation === true ? [] : activations;
-  const humanDmAgents =
-    input.directMessage && input.signal.profile.kind === "human"
-      ? [...agentIds]
-      : [];
+  const directMessageRecipients = input.directMessage
+    ? [...agentIds].filter((id) => id !== actorProfileId)
+    : [];
   const dmInitiations =
     input.signal.data.meta?.threadWakeContinuation === true
       ? []
-      : humanDmAgents;
+      : directMessageRecipients;
   return {
     agentProfileIds: [
       ...new Set([
         ...activity,
         ...activations,
         ...references,
-        ...humanDmAgents,
+        ...directMessageRecipients,
       ]),
     ].sort(),
     explicitlyAddressedAgentProfileIds: [
       ...new Set([...explicitActivations, ...references]),
     ].sort(),
-    // A Reference alone is context. A real Human-Agent DM independently
-    // establishes direct contact, without changing the message's Wake targets.
-    initiatingAgentProfileIds:
-      input.signal.profile.kind === "human"
-        ? [...new Set([...explicitActivations, ...dmInitiations])].sort()
-        : [],
+    // DM contact is independent of Wake. Owners observe both sides, including
+    // Agent-authored requests; owner activity is never a Human-directed DM.
+    initiatingAgentProfileIds: [
+      ...new Set([
+        ...(input.signal.profile.kind === "human" ? explicitActivations : []),
+        ...dmInitiations,
+      ]),
+    ].sort(),
   };
 }

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -6,10 +5,9 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { resolveInstalledClaudeCodeLaunchCandidates } from "@openmeld/adapter-claude-code";
 import { resolveInstalledCodexLaunchCandidates } from "@openmeld/adapter-codex";
-import {
-  buildCliLaunchInvocation,
-  type InstalledLaunchCandidatesFailureReason,
-  type RuntimeAgentControllerLaunchContract,
+import type {
+  InstalledLaunchCandidatesFailureReason,
+  RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
 import { resolveInstalledGrokBuildLaunchCandidates } from "@openmeld/adapter-grok-build";
 import { resolveInstalledOpenCodeLaunchCandidates } from "@openmeld/adapter-opencode";
@@ -19,6 +17,7 @@ import type {
   LocalAgentSessionProvider,
   ObservedLocalAgentSession,
 } from "@openmeld/schemas/types";
+import { createCodexJsonRpcClient } from "./codex-read-client";
 import { readRecentAgentActivityHookStatus } from "./hook-projection-store";
 import { resolveObservedAgentActivityBinding } from "./observer-adapters";
 import {
@@ -35,8 +34,6 @@ import {
 } from "./session-inventory-origin-store";
 
 const PROVIDER_PROBE_TIMEOUT_MS = 5000;
-const PROVIDER_DISCOVERY_TIMEOUT_MS = 30_000;
-const MAX_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;
 const CODEX_THREAD_SOURCE_KINDS = [
   "cli",
   "vscode",
@@ -131,32 +128,24 @@ export async function discoverCodexThreads(input: {
   if (!input.launchContract) {
     throw new Error("Codex launch contract is unavailable.");
   }
-  const pages = await listAllCodexThreads(input.launchContract);
+  const threads = await listAllCodexThreads(input.launchContract);
   const openMeldCreatedSessionKeys =
     await readOpenMeldCreatedLocalAgentSessionKeys(input);
   const projectAttributions =
     await readOpenMeldCreatedLocalAgentSessionProjectAttributions(input);
   const result: BoundObservedLocalAgentSession[] = [];
-  const identityKeys = new Set<string>();
-  for (const page of pages) {
-    for (const thread of page.data) {
-      const mapped = await mapCodexThread({
-        archived: page.archived,
-        bindings: input.bindings,
-        openMeldCreatedSessionKeys,
-        projectAttributions,
-        thread,
-      });
-      if (!mapped) {
-        continue;
-      }
-      const identityKey = `${mapped.binding.organizationId}\0${mapped.session.nativeSessionId}`;
-      if (identityKeys.has(identityKey)) {
-        throw new Error("Codex returned a duplicate native Session identity.");
-      }
-      identityKeys.add(identityKey);
-      result.push(mapped);
+  for (const { archived, thread } of threads) {
+    const mapped = await mapCodexThread({
+      archived,
+      bindings: input.bindings,
+      openMeldCreatedSessionKeys,
+      projectAttributions,
+      thread,
+    });
+    if (!mapped) {
+      continue;
     }
+    result.push(mapped);
   }
   return stableSessions(result);
 }
@@ -172,9 +161,9 @@ async function mapCodexThread(input: {
 }): Promise<BoundObservedLocalAgentSession | null> {
   const nativeSessionId = text(input.thread.id);
   const cwd = text(input.thread.cwd);
-  const lastActiveAtMs = secondsTimestamp(
-    input.thread.recencyAt ?? input.thread.updatedAt
-  );
+  // recencyAt is a provider sorting key and can precede createdAt. The
+  // thread/list contract defines updatedAt as the thread's update time.
+  const lastActiveAtMs = secondsTimestamp(input.thread.updatedAt);
   if (!(nativeSessionId && cwd && lastActiveAtMs !== null)) {
     throw new Error("Codex returned a malformed retained thread record.");
   }
@@ -218,9 +207,59 @@ type CodexThreadPage = {
   data: Record<string, unknown>[];
 };
 
+async function resolveCodexInventoryThreads(
+  pages: CodexThreadPage[],
+  client: ReturnType<typeof createCodexJsonRpcClient>
+) {
+  const threads = new Map<
+    string,
+    { archived: boolean; thread: Record<string, unknown> }
+  >();
+  const repeatedIds = new Set<string>();
+  for (const page of pages) {
+    for (const thread of page.data) {
+      const id = text(thread.id);
+      if (!id) {
+        throw new Error("Codex returned a malformed retained thread record.");
+      }
+      const prior = threads.get(id);
+      if (prior) {
+        repeatedIds.add(id);
+      }
+      threads.set(id, {
+        archived: page.archived || prior?.archived === true,
+        thread,
+      });
+    }
+  }
+  // Native filesystem reconciliation can list older copies of the same thread.
+  // Resolve ambiguity through the provider's metadata read, never merge copies
+  // or load their conversation turns. An archived observation disables resume.
+  for (const id of repeatedIds) {
+    const response = await client.request("thread/read", {
+      threadId: id,
+      includeTurns: false,
+    });
+    if (
+      !(
+        isRecord(response) &&
+        isRecord(response.thread) &&
+        response.thread.id === id
+      )
+    ) {
+      throw new Error("Codex thread/read metadata response is invalid.");
+    }
+    const entry = threads.get(id);
+    if (entry) {
+      entry.thread = response.thread;
+    }
+  }
+  return [...threads.values()];
+}
+
 async function listAllCodexThreads(
   launchContract: RuntimeAgentControllerLaunchContract
-): Promise<CodexThreadPage[]> {
+) {
   const client = createCodexJsonRpcClient(launchContract);
   try {
     await client.request("initialize", {
@@ -236,6 +275,7 @@ async function listAllCodexThreads(
           archived,
           cursor,
           limit: 100,
+          modelProviders: [],
           sortDirection: "desc",
           sortKey: "updated_at",
           sourceKinds: CODEX_THREAD_SOURCE_KINDS,
@@ -257,174 +297,10 @@ async function listAllCodexThreads(
         cursor = parseCodexNextCursor(response.nextCursor);
       } while (cursor !== null);
     }
-    return pages;
+    return await resolveCodexInventoryThreads(pages, client);
   } finally {
     await client.close();
   }
-}
-
-function createCodexJsonRpcClient(
-  launchContract: RuntimeAgentControllerLaunchContract
-) {
-  const invocation = buildCliLaunchInvocation({
-    args: ["app-server", "--listen", "stdio://"],
-    launchContract,
-  });
-  const child = spawn(invocation.bin, invocation.args, {
-    env: process.env,
-    shell: invocation.shell ?? false,
-    stdio: ["pipe", "pipe", "ignore"],
-    windowsHide: true,
-  });
-  let nextId = 1;
-  let buffer = "";
-  let closed = false;
-  const pending = new Map<
-    number,
-    {
-      reject(error: unknown): void;
-      resolve(value: unknown): void;
-      timer: NodeJS.Timeout;
-    }
-  >();
-  const rejectPending = (error: Error) => {
-    for (const request of pending.values()) {
-      clearTimeout(request.timer);
-      request.reject(error);
-    }
-    pending.clear();
-  };
-  child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => {
-    buffer = consumeCodexJsonRpcChunk({
-      buffer,
-      chunk,
-      kill: () => child.kill("SIGTERM"),
-      pending,
-      rejectPending,
-    });
-  });
-  child.on("error", (error) => rejectPending(error));
-  child.on("close", () => {
-    closed = true;
-    rejectPending(new Error("Codex app-server closed during discovery."));
-  });
-  return {
-    close: async () => {
-      if (closed) {
-        return;
-      }
-      child.kill("SIGTERM");
-      await new Promise<void>((resolveClose) => {
-        const timer = setTimeout(resolveClose, 1000);
-        child.once("close", () => {
-          clearTimeout(timer);
-          resolveClose();
-        });
-      });
-    },
-    notify: (method: string, params: unknown) => {
-      child.stdin.write(
-        `${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`
-      );
-    },
-    request: (method: string, params: unknown): Promise<unknown> => {
-      if (closed) {
-        return Promise.reject(new Error("Codex app-server is closed."));
-      }
-      const id = nextId;
-      nextId += 1;
-      return new Promise((resolveRequest, rejectRequest) => {
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          rejectRequest(new Error(`Codex ${method} timed out.`));
-        }, PROVIDER_DISCOVERY_TIMEOUT_MS);
-        pending.set(id, {
-          reject: rejectRequest,
-          resolve: resolveRequest,
-          timer,
-        });
-        child.stdin.write(
-          `${JSON.stringify({ id, jsonrpc: "2.0", method, params })}\n`
-        );
-      });
-    },
-  };
-}
-
-function consumeCodexJsonRpcChunk(input: {
-  buffer: string;
-  chunk: string;
-  kill(): void;
-  pending: Map<
-    number,
-    {
-      reject(error: unknown): void;
-      resolve(value: unknown): void;
-      timer: NodeJS.Timeout;
-    }
-  >;
-  rejectPending(error: Error): void;
-}): string {
-  let buffer = input.buffer + input.chunk;
-  if (Buffer.byteLength(buffer) > MAX_JSON_RPC_LINE_BYTES) {
-    input.rejectPending(
-      new Error("Codex app-server response exceeded its bound.")
-    );
-    input.kill();
-    return "";
-  }
-  while (true) {
-    const newline = buffer.indexOf("\n");
-    if (newline < 0) {
-      return buffer;
-    }
-    const line = buffer.slice(0, newline).trim();
-    buffer = buffer.slice(newline + 1);
-    if (!line) {
-      continue;
-    }
-    let message: unknown;
-    try {
-      message = JSON.parse(line);
-    } catch {
-      input.rejectPending(new Error("Codex app-server returned invalid JSON."));
-      input.kill();
-      return "";
-    }
-    settleCodexJsonRpcResponse(message, input.pending);
-  }
-}
-
-function settleCodexJsonRpcResponse(
-  message: unknown,
-  pending: Map<
-    number,
-    {
-      reject(error: unknown): void;
-      resolve(value: unknown): void;
-      timer: NodeJS.Timeout;
-    }
-  >
-): void {
-  if (!isRecord(message) || typeof message.id !== "number") {
-    return;
-  }
-  const request = pending.get(message.id);
-  if (!request) {
-    return;
-  }
-  pending.delete(message.id);
-  clearTimeout(request.timer);
-  if (isRecord(message.error)) {
-    request.reject(
-      new Error(
-        text(message.error.message) ?? "Codex app-server request failed."
-      )
-    );
-    return;
-  }
-  request.resolve(message.result);
 }
 
 async function discoverClaudeCode(input: {
@@ -1192,3 +1068,9 @@ function isNodeError(
     error instanceof Error && (error as NodeJS.ErrnoException).code === code
   );
 }
+
+import { spawn } from "node:child_process";
+import { buildCliLaunchInvocation } from "@openmeld/adapter-core";
+
+const PROVIDER_DISCOVERY_TIMEOUT_MS = 30_000;
+const MAX_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;

@@ -1,0 +1,12 @@
+{
+  "title": "Get started",
+  "defaultOpen": true,
+  "pages": [
+    "quickstart",
+    "downloads",
+    "connect-computer",
+    "terminal",
+    "join-team",
+    "concepts"
+  ]
+}

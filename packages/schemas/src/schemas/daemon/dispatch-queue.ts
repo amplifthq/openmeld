@@ -1,4 +1,5 @@
 import * as z from "../../lazy-zod";
+import { spaceEvidenceReferencesSchema } from "../../space-evidence";
 import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import {
   spaceMessageFileReferenceSchema,
@@ -104,6 +105,7 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  evidenceRefs: spaceEvidenceReferencesSchema.optional(),
   workHandoff: spaceWorkHandoffSchema.optional(),
   contextMessages: z
     .array(

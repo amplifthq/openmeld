@@ -1,24 +1,17 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { CENTER_AGENT_ROUTINE_LIMIT } from "@openmeld/schemas";
 import type { OrganizationUsageOverviewResponse } from "@openmeld/schemas/types";
-import { resolveRemoteAgentDailyAdmissionLimit } from "../remote-agent/application/daily-admission-policy";
 import { countRoutineRecords } from "../routines/routine-repository";
-import { readOrganizationDailyAdmissionCount } from "./organization-usage-overview-repository";
-
+import { readAiUsageAllowance } from "./ai-usage-policy";
 export async function readOrganizationUsageOverview(input: {
-  configuredDailyLimit: string | undefined;
   nowMs: number;
   organizationId: string;
-  routineDb: D1Database;
-  wakeEvidenceDb: D1Database;
+  routineDb: PostgresDatabase;
+  wakeEvidenceDb: PostgresDatabase;
 }): Promise<OrganizationUsageOverviewResponse> {
-  const now = new Date(input.nowMs);
-  const dayUtc = now.toISOString().slice(0, 10);
-  const resetsAt = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
-  ).toISOString();
-  const [usedToday, routineCounts] = await Promise.all([
-    readOrganizationDailyAdmissionCount({
-      dayUtc,
+  const [aiSpend, routineCounts] = await Promise.all([
+    readAiUsageAllowance({
+      nowMs: input.nowMs,
       db: input.wakeEvidenceDb,
       organizationId: input.organizationId,
     }),
@@ -27,15 +20,8 @@ export async function readOrganizationUsageOverview(input: {
       organizationId: input.organizationId,
     }),
   ]);
-
   return {
-    centerAgentWakes: {
-      dailyLimit: resolveRemoteAgentDailyAdmissionLimit(
-        input.configuredDailyLimit
-      ),
-      resetsAt,
-      usedToday,
-    },
+    aiSpend,
     routines: {
       count: routineCounts.total,
       limit: CENTER_AGENT_ROUTINE_LIMIT,

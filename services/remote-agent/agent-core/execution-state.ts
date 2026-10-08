@@ -1,4 +1,5 @@
 import {
+  remoteAgentWorkerAdmissionStopIntentSchema,
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerExecutionQueryResponseSchema,
   remoteAgentWorkerExecutionStateSchema,
@@ -26,6 +27,7 @@ import {
 import type { RemoteAgentTurnUsage } from "./usage";
 
 const EXECUTION_STATE_PREFIX = "openmeld:remote-agent:execution-state:";
+const ADMISSION_STOP_INTENT_PREFIX = "openmeld:remote-agent:admission-stop:";
 
 type RemoteAgentStoredExecutionState = RemoteAgentWorkerExecutionState & {
   completedText?: string;
@@ -144,11 +146,13 @@ export async function initializeRemoteAgentExecutionState(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   storage: RemoteAgentStorage;
 }): Promise<RemoteAgentWorkerExecutionState> {
+  await assertRemoteAgentAdmissionNotStopped(input);
   const existing = await readRemoteAgentStoredExecutionState({
     identity: input.identity,
     storage: input.storage,
   });
   if (existing.status === "found") {
+    await assertRemoteAgentAdmissionNotStopped(input);
     return existing.execution;
   }
   if (existing.status === "identity_mismatch") {
@@ -170,6 +174,22 @@ export async function initializeRemoteAgentExecutionState(input: {
     state
   );
   if (created) {
+    // Stop may have arrived after the first read but before this conditional
+    // insert. Keep the ordinary cancellation row for terminal reconciliation;
+    // never let the late initializer turn durable Stop into a pending admission.
+    try {
+      await assertRemoteAgentAdmissionNotStopped(input);
+    } catch (error) {
+      if (error instanceof RemoteAgentExecutionCancelledError) {
+        await requestRemoteAgentExecutionCancellation({
+          ...input,
+          nowMs: input.acceptedAtMs,
+          summaryRecoveryId: (await readRemoteAgentAdmissionStopIntent(input))
+            ?.summaryRecoveryId,
+        });
+      }
+      throw error;
+    }
     return state;
   }
   const raced = await readRemoteAgentStoredExecutionState({
@@ -181,6 +201,7 @@ export async function initializeRemoteAgentExecutionState(input: {
       "Remote Agent execution state was not readable after creation."
     );
   }
+  await assertRemoteAgentAdmissionNotStopped(input);
   return raced.execution;
 }
 
@@ -637,10 +658,19 @@ export async function requestRemoteAgentExecutionCancellation(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   reason?: string;
+  summaryRecoveryId?: string;
   storage: RemoteAgentStorage;
 }): Promise<RemoteAgentWorkerCancellationResponse> {
+  let admissionFenced = false;
   while (true) {
     const result = await readRemoteAgentStoredExecutionState(input);
+    if (result.status === "not_found" && !admissionFenced) {
+      await persistAdmissionStopIntent(input);
+      admissionFenced = true;
+      // Initialization may have raced the intent write. Reread so an existing
+      // execution still receives the ordinary cancellation transition.
+      continue;
+    }
     if (result.status !== "found") {
       return remoteAgentWorkerCancellationResponseSchema.parse(result);
     }
@@ -648,6 +678,7 @@ export async function requestRemoteAgentExecutionCancellation(input: {
       result.execution.status === "cancellation_requested" ||
       result.execution.status === "aborted"
     ) {
+      await persistAdmissionStopIntent(input);
       return remoteAgentWorkerCancellationResponseSchema.parse({
         execution: result.execution,
         status:
@@ -657,6 +688,9 @@ export async function requestRemoteAgentExecutionCancellation(input: {
       });
     }
     if (isTerminalStatus(result.execution.status)) {
+      // A completed result cannot become stopped. Retain it, while fencing the
+      // old idempotency identity before a member chooses a separate attempt.
+      await persistAdmissionStopIntent(input);
       return remoteAgentWorkerCancellationResponseSchema.parse({
         execution: result.execution,
         status: "not_stoppable",
@@ -684,6 +718,7 @@ export async function requestRemoteAgentExecutionCancellation(input: {
         storage: input.storage,
       })
     ) {
+      await persistAdmissionStopIntent(input);
       return remoteAgentWorkerCancellationResponseSchema.parse({
         execution,
         status: "cancellation_requested",
@@ -692,10 +727,51 @@ export async function requestRemoteAgentExecutionCancellation(input: {
   }
 }
 
+async function persistAdmissionStopIntent(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  nowMs: number;
+  reason?: string;
+  summaryRecoveryId?: string;
+  storage: RemoteAgentStorage;
+}): Promise<void> {
+  // The identity fence never expires or reopens. User Stop can only strengthen
+  // a recovery fence by removing its structured recovery provenance.
+  // Like execution tombstones it has no expiry that could reopen old work.
+  await input.storage.putIfAbsent(
+    buildAdmissionStopIntentKey(input.identity),
+    remoteAgentWorkerAdmissionStopIntentSchema.parse({
+      v: 1,
+      organizationId: input.identity.organizationId,
+      spaceId: input.identity.spaceId,
+      idempotencyKey: input.identity.idempotencyKey,
+      requestedAtMs: input.nowMs,
+      reason: input.reason?.trim() || null,
+      ...(input.summaryRecoveryId
+        ? { summaryRecoveryId: input.summaryRecoveryId }
+        : {}),
+    })
+  );
+  if (!input.summaryRecoveryId) {
+    const key = buildAdmissionStopIntentKey(input.identity);
+    while (true) {
+      const stored = await input.storage.get(key);
+      const current = remoteAgentWorkerAdmissionStopIntentSchema.parse(stored);
+      if (!current.summaryRecoveryId) {
+        return;
+      }
+      const { summaryRecoveryId: _recoveryId, ...userStop } = current;
+      if (await input.storage.compareAndSet(key, stored, userStop)) {
+        return;
+      }
+    }
+  }
+}
+
 export async function assertRemoteAgentExecutionCanContinue(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   storage: Pick<RemoteAgentStorage, "get">;
 }): Promise<void> {
+  await assertRemoteAgentAdmissionNotStopped(input);
   const result = await readRemoteAgentStoredExecutionState(input);
   if (result.status === "identity_mismatch") {
     throw new Error(
@@ -719,6 +795,47 @@ export async function assertRemoteAgentExecutionCanContinue(input: {
       "Remote Agent execution has already settled; no further tools may run."
     );
   }
+}
+
+function buildAdmissionStopIntentKey(
+  identity: RemoteAgentWorkerExecutionQuery
+): string {
+  return `${ADMISSION_STOP_INTENT_PREFIX}${JSON.stringify([
+    identity.organizationId,
+    identity.spaceId,
+    identity.idempotencyKey,
+  ])}`;
+}
+
+export async function assertRemoteAgentAdmissionNotStopped(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  storage: Pick<RemoteAgentStorage, "get">;
+}): Promise<void> {
+  if (await readRemoteAgentAdmissionStopIntent(input)) {
+    throw new RemoteAgentExecutionCancelledError();
+  }
+}
+
+export async function readRemoteAgentAdmissionStopIntent(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  storage: Pick<RemoteAgentStorage, "get">;
+}) {
+  const value = await input.storage.get(
+    buildAdmissionStopIntentKey(input.identity)
+  );
+  if (value === undefined) {
+    return null;
+  }
+  const intent = remoteAgentWorkerAdmissionStopIntentSchema.safeParse(value);
+  if (
+    !intent.success ||
+    intent.data.organizationId !== input.identity.organizationId ||
+    intent.data.spaceId !== input.identity.spaceId ||
+    intent.data.idempotencyKey !== input.identity.idempotencyKey
+  ) {
+    throw new Error("Remote Agent admission Stop intent has invalid identity.");
+  }
+  return intent.data;
 }
 
 function executionIdentityMatches(

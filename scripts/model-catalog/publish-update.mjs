@@ -6,8 +6,13 @@ import {
   modelCatalogSchema,
   modelCatalogUpdateEvidenceSchema,
 } from "../../packages/schemas/src/schemas/config/model-catalog.ts";
-import { digest } from "./catalog-update.mjs";
-import { renderBatchReview } from "./review.mjs";
+import { readPreviousEvidence } from "./catalog-update.mjs";
+import { batchReviewFingerprint } from "./collect-update.mjs";
+import {
+  hasNewReviewFacts,
+  modelReviewFacts,
+  renderBatchReview,
+} from "./review.mjs";
 
 function command(binary, args) {
   return execFileSync(binary, args, {
@@ -169,10 +174,17 @@ export function assertAdditionsOnly(current, catalog, evidences) {
   }
 }
 
-async function createDraft(branch, evidence, output, config, current) {
+async function createDraft(
+  branch,
+  evidence,
+  output,
+  config,
+  current,
+  previousEvidence
+) {
   await writeFile(
     resolve(output, "review.md"),
-    renderBatchReview(evidence, config, current)
+    renderBatchReview(evidence, config, current, previousEvidence)
   );
   console.log(
     command("gh", [
@@ -191,7 +203,13 @@ async function createDraft(branch, evidence, output, config, current) {
   );
 }
 
-async function recoverPushedProposal(branch, evidence, output, config) {
+async function recoverPushedProposal(
+  branch,
+  evidence,
+  output,
+  config,
+  fingerprint
+) {
   const remote = command("git", [
     "ls-remote",
     "--heads",
@@ -224,23 +242,37 @@ async function recoverPushedProposal(branch, evidence, output, config) {
       JSON.parse(command("git", ["show", `${sha}:${path}`]))
     )
   );
-  if (
-    recorded.some(
-      (item, index) =>
-        item.fingerprint !== evidence[index].fingerprint ||
-        item.controller !== evidence[index].controller
-    )
-  ) {
-    throw new Error("Existing proposal evidence differs");
-  }
+  const previousEvidence = evidencePaths.map((path) => {
+    const exists = command("git", [
+      "ls-tree",
+      "--name-only",
+      `${sha}^`,
+      "--",
+      path,
+    ]);
+    return exists
+      ? modelCatalogUpdateEvidenceSchema.parse(
+          JSON.parse(command("git", ["show", `${sha}^:${path}`]))
+        )
+      : undefined;
+  });
   const before = modelCatalogSchema.parse(
     JSON.parse(command("git", ["show", `${sha}^:release/vendor-models.json`]))
   );
   const after = modelCatalogSchema.parse(
     JSON.parse(command("git", ["show", `${sha}:release/vendor-models.json`]))
   );
+  if (
+    recorded.some(
+      (item, index) => item.controller !== evidence[index].controller
+    ) ||
+    batchReviewFingerprint(recorded, before, config, previousEvidence) !==
+      fingerprint
+  ) {
+    throw new Error("Existing proposal review facts differ");
+  }
   assertAdditionsOnly(before, after, recorded);
-  await createDraft(branch, recorded, output, config, before);
+  await createDraft(branch, recorded, output, config, before, previousEvidence);
   return true;
 }
 
@@ -256,16 +288,34 @@ export async function publishUpdate(output) {
   const catalog = modelCatalogSchema.parse(
     JSON.parse(await readFile(resolve(output, "catalog.json"), "utf8"))
   );
-  const fingerprint = digest(
-    evidence.map(({ controller, fingerprint }) => ({ controller, fingerprint }))
-  );
   const config = JSON.parse(
     await readFile("scripts/model-catalog/sources.json", "utf8")
   );
+  const current = modelCatalogSchema.parse(
+    JSON.parse(await readFile("release/vendor-models.json", "utf8"))
+  );
+  const previousEvidence = await Promise.all(
+    evidence.map((item) => readPreviousEvidence(process.cwd(), item.controller))
+  );
+  const fingerprint = batchReviewFingerprint(
+    evidence,
+    current,
+    config,
+    previousEvidence
+  );
+  const reviewChanges = evidence.map((item, index) => {
+    const previous = previousEvidence[index];
+    const since = config[item.controller]?.discoverySince;
+    return hasNewReviewFacts(
+      modelReviewFacts(item, current, since),
+      previous ? modelReviewFacts(previous, current, since) : undefined
+    );
+  });
   if (
     JSON.stringify(evidence.map((item) => item.controller)) !==
       JSON.stringify(Object.keys(config)) ||
-    result.fingerprint !== fingerprint
+    result.fingerprint !== fingerprint ||
+    result.changed !== reviewChanges.some(Boolean)
   ) {
     throw new Error("Update identity mismatch");
   }
@@ -322,13 +372,12 @@ export async function publishUpdate(output) {
   ) {
     throw new Error("Publisher must start at origin/main");
   }
-  const current = modelCatalogSchema.parse(
-    JSON.parse(await readFile("release/vendor-models.json", "utf8"))
-  );
   // Only the recorded additions may cross the write boundary. No defaults,
   // removals, existing parameters, or other controllers may change here.
   assertAdditionsOnly(current, catalog, evidence);
-  if (await recoverPushedProposal(branch, evidence, output, config)) {
+  if (
+    await recoverPushedProposal(branch, evidence, output, config, fingerprint)
+  ) {
     return;
   }
   command("git", ["checkout", "-b", branch]);
@@ -345,6 +394,14 @@ export async function publishUpdate(output) {
       "release/vendor-models.json"
     );
   }
+  command("pnpm", [
+    "exec",
+    "biome",
+    "format",
+    "--write",
+    ...evidencePaths,
+    "release/vendor-models.json",
+  ]);
   command("git", ["add", "--", ...evidencePaths, "release/vendor-models.json"]);
   command("git", [
     "-c",
@@ -356,7 +413,14 @@ export async function publishUpdate(output) {
     "chore(models): prepare local model catalog updates",
   ]);
   command("git", ["push", "origin", `HEAD:refs/heads/${branch}`]);
-  await createDraft(branch, evidence, output, config, current);
+  await createDraft(
+    branch,
+    evidence,
+    output,
+    config,
+    current,
+    previousEvidence
+  );
 }
 
 if (

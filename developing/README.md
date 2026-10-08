@@ -124,7 +124,7 @@ This directory is the durable context layer. Use these entrypoints:
 - `developing/architecture/agent-transport-contract.md`: current Agent Transport contract and main-chain ownership
 - `developing/product/`: product model, Agent Profile, Agent Profile model
   selection, Space collaboration, Organizations/Center Agent, Projects, Agent
-  Activity, Center Agent Routines, Organization Skills,
+  Activity, Routines, Files, Organization Skills,
   Feedback Loop, Opportunities, Inbox, and the progressive-disclosure
   presentation model
 - `developing/architecture/`: transport, local service, data/observability, physical DB split, and shared contract ownership
@@ -167,7 +167,7 @@ Start narrow:
 4. Read source code, schemas, and tests before trusting a document that might be stale.
 
 For Center Agent Routine or Run work, start with
-`developing/product/center-agent-routines.md`, then follow its scoped links to
+`developing/product/routines.md`, then follow its scoped links to
 the Organization, Remote Agent, data, shared-contract, Web, or CLI owner that
 matches the boundary being changed.
 

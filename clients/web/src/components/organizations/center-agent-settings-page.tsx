@@ -1,8 +1,6 @@
-import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
+"use client";
 
-("use client");
-
-import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
+import type { CenterAgentUpdateProfileBody } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -30,6 +28,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
+import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
+import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import {
 	AgentConfigurationCard,
@@ -51,15 +51,21 @@ import {
 } from "#/lib/organizations/organization-routes";
 import {
 	centerAgentDesignationQueryOptions,
+	centerAgentMemoryPolicyQueryOptions,
+	centerAgentModelQueryOptions,
 	centerAgentOperatingStateQueryOptions,
 	centerAgentQueryKeys,
 } from "#/query/organizations/center-agent";
 import {
+	organizationDirectoryQueryFilters,
 	organizationDirectoryQueryOptions,
 	organizationMemberRoleQueryOptions,
+	organizationProfileDirectoryQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
 import { organizationDocumentsQueryOptions } from "#/query/organizations/organization-documents";
+import { applySavedAgentAvatarProfile } from "#/query/profiles/agent-avatar";
+import { useAgentAvatarInvalidationScope } from "#/query/profiles/agent-avatar-context";
 import { CenterAgentAuditJournalPanel } from "./center-agent-audit-journal-panel";
 import { CenterAgentModelSection } from "./center-agent-model-section";
 import {
@@ -68,7 +74,6 @@ import {
 	resolveCenterAgentConnectionStatus,
 	resolveDesignatedCenterAgentProfile,
 } from "./center-agent-profile-presentation";
-import { CenterAgentUsageSection } from "./center-agent-usage-section";
 import { OrganizationMemoryPolicySection } from "./organization-memory-policy-section";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
@@ -82,6 +87,7 @@ export function CenterAgentSettingsPage() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const directoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
+			centerAgentOnly: true,
 			enabled: true,
 			organizationId: currentOrganization.id,
 		})
@@ -114,7 +120,6 @@ export function CenterAgentSettingsPage() {
 			agentProfiles={directoryQuery.data?.agentProfiles ?? []}
 			isDirectoryPending={directoryQuery.isPending}
 			isPersonalWorkspace={isPersonalOrganization}
-			members={directoryQuery.data?.members ?? []}
 			memoryRoleState={{
 				canManage: canManageMemory,
 				errorMessage: roleErrorMessage,
@@ -176,13 +181,13 @@ export function CenterAgentSettingsContent(input: {
 	isDirectoryPending: boolean;
 	isPersonalWorkspace: boolean;
 	memoryRoleState: CenterAgentSettingsRoleState;
-	members: readonly OrganizationDirectoryResponse["members"][number][];
 	organizationId: string;
 	organizationName: string;
 	orgSlug: string;
 	roleState: CenterAgentSettingsRoleState;
 }) {
 	const queryClient = useQueryClient();
+	const avatarInvalidationScope = useAgentAvatarInvalidationScope();
 	const navigate = useNavigate();
 	const [mutationError, setMutationError] = useState<string | null>(null);
 	const [auditOpen, setAuditOpen] = useState(false);
@@ -199,6 +204,26 @@ export function CenterAgentSettingsContent(input: {
 		(document) => document.kind === "brief"
 	);
 	const designation = designationQuery.data?.designation ?? null;
+	// Start independent settings reads before the identity section can mount.
+	// The child sections reuse these exact query keys and cached responses.
+	useQuery(
+		centerAgentModelQueryOptions({
+			enabled: designation !== null,
+			organizationId: input.organizationId,
+		})
+	);
+	useQuery(
+		centerAgentMemoryPolicyQueryOptions({
+			enabled: !input.isPersonalWorkspace,
+			organizationId: input.organizationId,
+		})
+	);
+	const auditDirectoryQuery = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: auditOpen,
+			organizationId: input.organizationId,
+		})
+	);
 	const operatingStateQuery = useQuery(
 		centerAgentOperatingStateQueryOptions({
 			enabled: designation !== null,
@@ -239,6 +264,9 @@ export function CenterAgentSettingsContent(input: {
 			}),
 			queryClient.invalidateQueries({
 				queryKey: organizationQueryKeys.directory(input.organizationId),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
 			}),
 		]);
 	};
@@ -284,10 +312,13 @@ export function CenterAgentSettingsContent(input: {
 		},
 	});
 	const updateProfileMutation = useMutation({
-		mutationFn: async (variables: { profileName: string }) =>
+		mutationFn: async (variables: {
+			profileName?: string;
+			avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
+		}) =>
 			await updateCurrentCenterAgentProfile({
 				organizationId: input.organizationId,
-				profileName: variables.profileName,
+				...variables,
 			}),
 		onError: (error) => {
 			setMutationError(resolveCenterAgentErrorMessage(error, "profile_update"));
@@ -295,10 +326,24 @@ export function CenterAgentSettingsContent(input: {
 		onMutate: () => {
 			setMutationError(null);
 		},
-		onSuccess: async (response) => {
-			queryClient.setQueryData(
-				organizationQueryKeys.directory(input.organizationId),
-				(current: OrganizationDirectoryResponse | undefined) =>
+		onSuccess: async (response, variables) => {
+			if (variables.avatarStyle) {
+				await applySavedAgentAvatarProfile(
+					queryClient,
+					response.profile,
+					avatarInvalidationScope
+				);
+			}
+			queryClient.setQueriesData<{
+				agentProfiles: Pick<
+					DirectoryAgentProfile,
+					"profileId" | "profileHandle" | "profileName" | "updatedAt"
+				>[];
+			}>(
+				organizationDirectoryQueryFilters({
+					organizationId: input.organizationId,
+				}),
+				(current) =>
 					current === undefined
 						? current
 						: {
@@ -316,7 +361,11 @@ export function CenterAgentSettingsContent(input: {
 							}
 			);
 			await invalidateCenterAgentFacts();
-			toast.success("Center Agent profile updated.");
+			toast.success(
+				variables.avatarStyle
+					? "Avatar updated."
+					: "Center Agent profile updated."
+			);
 		},
 	});
 	const dmMutation = useMutation({
@@ -348,8 +397,8 @@ export function CenterAgentSettingsContent(input: {
 				<AppPageHeader
 					description={
 						input.isPersonalWorkspace
-							? "Manage your coordinator’s identity and connection, review its usage, and see the actions it has taken."
-							: `Manage the identity and connection for ${input.organizationName}’s coordinator, review its usage, and see the actions it has taken.`
+							? "Manage your coordinator’s identity and connection, and see the actions it has taken."
+							: `Manage the identity and connection for ${input.organizationName}’s coordinator, and see the actions it has taken.`
 					}
 					eyebrow={
 						input.isPersonalWorkspace ? "Personal workspace" : "Organization"
@@ -359,13 +408,26 @@ export function CenterAgentSettingsContent(input: {
 			)}
 			{designation && designatedProfile ? (
 				<CenterAgentConnectionSection
+					canManage={input.roleState.canManage && !input.roleState.isPending}
 					disableMessage={
 						dmMutation.isPending ||
-						operatingStateQuery.data?.operatingState === "paused"
+						operatingStateQuery.isError ||
+						operatingStateQuery.data?.operatingState !== "active"
 					}
 					onMessage={() => dmMutation.mutate()}
-					operatingState={operatingStateQuery.data?.operatingState ?? "active"}
+					onSaveAvatar={async (avatarStyle) => {
+						if (avatarStyle === "automatic") {
+							throw new Error("Center Agent requires a selected avatar.");
+						}
+						await updateProfileMutation.mutateAsync({ avatarStyle });
+					}}
+					operatingState={
+						operatingStateQuery.isError
+							? null
+							: (operatingStateQuery.data?.operatingState ?? null)
+					}
 					profile={designatedProfile}
+					savingAvatar={updateProfileMutation.isPending}
 				/>
 			) : null}
 			{designation && designatedProfile ? (
@@ -465,12 +527,6 @@ export function CenterAgentSettingsContent(input: {
 					roleState={input.memoryRoleState}
 				/>
 			) : null}
-			{designationQuery.data && !designation ? (
-				<CenterAgentUsageSection
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					organizationId={input.organizationId}
-				/>
-			) : null}
 			{isCenterAgentIdentityPending({
 				designationPending: designationQuery.isPending,
 				hasDesignation: designation !== null,
@@ -513,10 +569,6 @@ export function CenterAgentSettingsContent(input: {
 			) : null}
 			{designation && designatedProfile ? (
 				<>
-					<CenterAgentUsageSection
-						isPersonalWorkspace={input.isPersonalWorkspace}
-						organizationId={input.organizationId}
-					/>
 					<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
 						<h2>
 							<button
@@ -542,9 +594,11 @@ export function CenterAgentSettingsContent(input: {
 						{auditOpen ? (
 							<CenterAgentAuditJournalPanel
 								enabled
-								members={input.members}
+								members={auditDirectoryQuery.data?.members ?? []}
 								organizationId={input.organizationId}
-								profiles={input.agentProfiles}
+								profiles={
+									auditDirectoryQuery.data?.agentProfiles ?? input.agentProfiles
+								}
 							/>
 						) : null}
 					</section>
@@ -558,7 +612,9 @@ export function CenterAgentSettingsContent(input: {
 						onPause={() => operatingStateMutation.mutate("paused")}
 						onResume={() => operatingStateMutation.mutate("active")}
 						operatingState={
-							operatingStateQuery.data?.operatingState ?? "active"
+							operatingStateQuery.isError
+								? null
+								: (operatingStateQuery.data?.operatingState ?? null)
 						}
 					/>
 					<CenterAgentOperatingStateErrorState
@@ -725,25 +781,35 @@ function resolveRemoteConnectionDescription(input: {
 }
 
 function CenterAgentConnectionSection(input: {
+	canManage: boolean;
+	onSaveAvatar: (style: AgentAvatarStyle) => Promise<void>;
+	savingAvatar: boolean;
 	disableMessage: boolean;
 	onMessage: () => void;
-	operatingState: "active" | "paused";
+	operatingState: "active" | "paused" | null;
 	profile: DirectoryAgentProfile;
 }) {
-	const status =
-		input.operatingState === "paused"
-			? "Paused"
-			: resolveCenterAgentConnectionStatus(input.profile);
+	let status:
+		| keyof typeof CENTER_AGENT_STATUS_BADGE_CLASS_NAMES
+		| "Status unavailable" = "Status unavailable";
+	if (input.operatingState === "paused") {
+		status = "Paused";
+	} else if (input.operatingState === "active") {
+		status = resolveCenterAgentConnectionStatus(input.profile);
+	}
 	return (
 		<section className="space-y-3 py-1">
 			<p className="text-muted-foreground text-xs">Center Agent settings</p>
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex min-w-0 items-start gap-4">
-					<RemoteAgentAvatar
-						data-testid={`center-agent-profile-avatar-${input.profile.profileId}`}
+					<AgentAvatarEditor
+						avatarStyle={input.profile.avatarStyle}
+						canEdit={input.canManage}
+						centerAgent
+						onSave={input.onSaveAvatar}
+						profileId={input.profile.profileId}
 						profileName={input.profile.profileName}
-						shape="circle"
-						size={64}
+						saving={input.savingAvatar}
 					/>
 					<div className="min-w-0">
 						<h1 className="truncate font-semibold text-2xl text-foreground">
@@ -753,7 +819,7 @@ function CenterAgentConnectionSection(input: {
 							@{input.profile.profileHandle}
 						</p>
 						<Badge
-							className={`mt-3 ${CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]}`}
+							className={`mt-3 ${status === "Status unavailable" ? resolveStatusToneProminentBadgeClassName("muted") : CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]}`}
 						>
 							{status}
 						</Badge>
@@ -849,10 +915,24 @@ function CenterAgentDangerSection(input: {
 	disableChange: boolean;
 	onPause: () => void;
 	onResume: () => void;
-	operatingState: "active" | "paused";
+	operatingState: "active" | "paused" | null;
 }) {
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const isPaused = input.operatingState === "paused";
+	let heading = "Operating state unavailable";
+	let description = "Check the Agent's state before changing it.";
+	let actionLabel = "Unavailable";
+	if (input.operatingState === "paused") {
+		heading = "Center Agent is paused";
+		description =
+			"It cannot start or continue tasks in OpenMeld, Slack, or connected channels until an Organization owner or admin resumes it.";
+		actionLabel = "Resume";
+	} else if (input.operatingState === "active") {
+		heading = "Pause Center Agent";
+		description =
+			"Stops every task currently interacting with the Center Agent across the organization and rejects new tasks until it is resumed.";
+		actionLabel = "Pause";
+	}
 	return (
 		<section className="overflow-hidden rounded-md border border-destructive/40 bg-destructive/5">
 			<div className="border-destructive/30 border-b px-5 py-4">
@@ -860,14 +940,8 @@ function CenterAgentDangerSection(input: {
 			</div>
 			<div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
 				<div className="min-w-0">
-					<p className="font-medium text-foreground text-sm">
-						{isPaused ? "Center Agent is paused" : "Pause Center Agent"}
-					</p>
-					<p className="mt-1 text-muted-foreground text-sm">
-						{isPaused
-							? "It cannot start or continue tasks in OpenMeld, Slack, or connected channels until an Organization owner or admin resumes it."
-							: "Stops every task currently interacting with the Center Agent across the organization and rejects new tasks until it is resumed."}
-					</p>
+					<p className="font-medium text-foreground text-sm">{heading}</p>
+					<p className="mt-1 text-muted-foreground text-sm">{description}</p>
 					{input.canChangeOperatingState ? null : (
 						<p className="mt-2 text-muted-foreground text-xs">
 							Only Organization owners and admins can pause the Center Agent.
@@ -893,7 +967,7 @@ function CenterAgentDangerSection(input: {
 						) : (
 							<PauseCircleIcon aria-hidden="true" data-icon="inline-start" />
 						)}
-						{isPaused ? "Resume" : "Pause"}
+						{actionLabel}
 					</Button>
 				) : null}
 			</div>

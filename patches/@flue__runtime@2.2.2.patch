@@ -1,0 +1,1547 @@
+diff --git a/dist/agent-coordinator-CgBv-ou1.mjs b/dist/agent-coordinator-CgBv-ou1.mjs
+index c18adb0..c0ae4c1 100644
+--- a/dist/agent-coordinator-CgBv-ou1.mjs
++++ b/dist/agent-coordinator-CgBv-ou1.mjs
+@@ -1,7 +1,9 @@
+ import { A as SubmissionAbortedError, B as classifyError, H as describeErrorChain, P as SubmissionTimeoutError, U as formatErrorForLog, Z as generateAttemptId, dt as isKeyDerivedSubmissionId, j as SubmissionConflictError, m as InvalidRequestError, n as AgentInstanceNotFoundError, pt as interceptExecution, t as AgentInstanceExistsError } from "./errors-BcRwz-UD.mjs";
+ import { S as handleAgentRequest, b as handleAgentConversationRead, et as agentStreamPath, ft as createSessionStorageKey, v as handleAgentAttachmentRead, x as assertAgentDispatchAdmissionInput, y as handleAgentConversationHead } from "./dispatch-BlxCz6iq.mjs";
+ import { r as drainGlobalEventDeliveries, t as createCoordinatorEventEmitter } from "./events-BhCLb2HD.mjs";
++import { readSubmissionTerminalProjection } from "./dispatch-BlxCz6iq.mjs";
+ import { n as createMcpConnectionCache } from "./mcp-B5fLKxuW.mjs";
++import { recordUnreadySubmissionFailure } from "./conversation-stream-store-2-jUriih.mjs";
+ import { D as SUBMISSION_HARNESS_NAME, O as SUBMISSION_SESSION_NAME, _ as submissionSyntheticRequest, a as admitInstanceContact, c as createDispatchAgentSubmissionInput, d as isInstanceContactRejection, f as materializeSubmissionAttachments, g as settleUnclaimableSubmission, h as serializeSubmissionError, l as ensureInstanceIdentity, m as reconcileInterruptedSubmission, n as SqliteConversationStreamStore, o as adoptKeyedSubmissionReplay, p as processSubmission, s as createDirectAgentSubmissionInput, u as finalizePendingSettlement, v as unreadySubmissionDeadline } from "./conversation-stream-store-2-jUriih.mjs";
+ import { n as ensureSqlAgentExecutionTables, r as ConversationRecordWriter, t as createSqlAgentExecutionStoreFromSql } from "./sql-agent-execution-store-C0vwyWZB.mjs";
+ import { n as SqliteAttachmentStore, r as ensureSqlAttachmentTable } from "./sql-attachment-store-BSCfEKhu.mjs";
+@@ -92,6 +94,9 @@ function createCloudflareAgentRuntime(options) {
+ 		onRequest(instance, request) {
+ 			return getCoordinator(instance).onRequest(request);
+ 		},
++		readSubmission(instance, submissionId) {
++			return getCoordinator(instance).readSubmission(submissionId);
++		},
+ 		onFiberRecovered(instance, ctx, inherited) {
+ 			return getCoordinator(instance).onFiberRecovered(ctx, inherited);
+ 		},
+@@ -231,7 +236,8 @@ var CloudflareAgentCoordinator = class {
+ 		if (isInternalDispatchRequest(request)) return this.admitDispatch(request);
+ 		if (isInternalInstanceInfoRequest(request)) return this.instanceInfo();
+ 		if (isAbortRequest(request, this.agentName, this.instance.name)) {
+-			const aborted = await this.abortInstance();
++			const submissionId = new URL(request.url).searchParams.get("submissionId");
++			const aborted = submissionId === null ? await this.abortInstance() : await this.abortSubmission(submissionId);
+ 			return Response.json({ aborted });
+ 		}
+ 		const method = request.method;
+@@ -279,6 +285,14 @@ var CloudflareAgentCoordinator = class {
+ 	get submissions() {
+ 		return this.prepared.submissionStore;
+ 	}
++	async readSubmission(submissionId) {
++		const submission = await this.submissions.getSubmission(submissionId);
++		if (!submission) return null;
++		if (submission.input.agent !== this.agentName || submission.input.id !== this.instance.name) throw new Error("[flue] Submission projection has mismatched conversation authority.");
++		// This is the read-side fold, not ensureConversationWriter: observation
++		// must not create a stream, acquire a producer, render, or execute work.
++		return { ...submission, ...await readSubmissionTerminalProjection(this.prepared.conversationStreamStore, agentStreamPath(this.agentName, this.instance.name), submission) };
++	}
+ 	runWithInstanceContext(callback) {
+ 		return this.options.runWithInstanceContext(this.instance, this.agentName, callback);
+ 	}
+@@ -368,7 +382,7 @@ var CloudflareAgentCoordinator = class {
+ 				const found = this.options.agents.find((record) => record.name === submission.input.agent)?.agent;
+ 				const agent = found && submission.input.agent === this.agentName && submission.input.id === this.instance.name ? found : void 0;
+ 				if (!agent) {
+-					if (Date.now() >= unreadySubmissionDeadline(submission, void 0) && await this.terminalizeUnreadySubmission(submission, /* @__PURE__ */ new Error(`[flue] Submission target agent "${submission.input.agent}" has no registered definition, so the submission could never start.`))) continue;
++					if (await this.terminalizeUnreadySubmission(submission, new Error(`[flue] Submission target agent "${submission.input.agent}" has no registered definition, so the submission could never start.`), void 0)) continue;
+ 					console.error("[flue:submission-reconciliation]", {
+ 						agentName: this.agentName,
+ 						instanceId: this.instance.name,
+@@ -390,7 +404,7 @@ var CloudflareAgentCoordinator = class {
+ 					await this.materializeSubmissionConversation(submission.input, agent);
+ 					await this.submissions.markSubmissionCanonicalReady(submission.submissionId);
+ 				} catch (error) {
+-					if (Date.now() >= unreadySubmissionDeadline(submission, agent) && await this.terminalizeUnreadySubmission(submission, error)) continue;
++					if (await this.terminalizeUnreadySubmission(submission, error, agent)) continue;
+ 					this.logSubmissionReconciliationFailure(submission, "materialize_submission", error);
+ 				}
+ 			}
+@@ -447,8 +461,8 @@ var CloudflareAgentCoordinator = class {
+ 	* (another isolate settled first, or a racing claim made the row runnable)
+ 	* falls back to the deferral logging so nothing is silently dropped.
+ 	*/
+-	async terminalizeUnreadySubmission(submission, error) {
+-		if (!await settleUnclaimableSubmission(this.submissions, submission, "failed", error, this.emitCoordinatorEvent)) return false;
++	async terminalizeUnreadySubmission(submission, error, agent) {
++		if (!await recordUnreadySubmissionFailure(this.submissions, submission, agent, error, this.emitCoordinatorEvent)) return false;
+ 		console.error("[flue:submission-reconciliation]", {
+ 			agentName: this.agentName,
+ 			instanceId: this.instance.name,
+@@ -617,6 +631,13 @@ var CloudflareAgentCoordinator = class {
+ 		this.conversationWriter = void 0;
+ 		this.conversationWriterCreation = void 0;
+ 	}
++	async abortSubmission(submissionId) {
++		const affected = await this.submissions.requestSubmissionAbort(submissionId);
++		if (!affected) return false;
++		this.activeControllers.get(submissionId)?.abort(new SubmissionAbortedError());
++		await this.armDrain();
++		return true;
++	}
+ 	async abortInstance() {
+ 		const sessionKey = createSessionStorageKey(this.agentName, this.instance.name, SUBMISSION_HARNESS_NAME, SUBMISSION_SESSION_NAME);
+ 		const affected = await this.submissions.requestSessionAbort(sessionKey);
+diff --git a/dist/agent-coordinator-aVoFZ4h5.d.mts b/dist/agent-coordinator-aVoFZ4h5.d.mts
+index 3be0564..0c3e87c 100644
+--- a/dist/agent-coordinator-aVoFZ4h5.d.mts
++++ b/dist/agent-coordinator-aVoFZ4h5.d.mts
+@@ -1,6 +1,23 @@
+ import { t as AttachmentStore } from "./attachment-store-DOXOd7OF.mjs";
+ import { C as FlueContextInternal, W as ConversationStreamStore, g as createAgentSubmissionSessionHandler, r as AgentSubmissionStore } from "./agent-execution-store-TmGF9yZ1.mjs";
+ import { o as SqlStorage } from "./observation-CCQRUQQq.mjs";
++import { n as AgentSubmission } from "./agent-execution-store-TmGF9yZ1.mjs";
++import { Z as PromptUsage } from "./types-B1PuLhZt.mjs";
++export interface AgentSubmissionProjection extends AgentSubmission {
++  /** Recorded consumption for any canonical terminal outcome; never an answer. */
++  readonly terminalMetadata?: {
++    readonly submissionId: string;
++    readonly model?: { readonly id: string; readonly provider?: string };
++    readonly usage?: PromptUsage;
++  };
++  /** Read-only exact-submission result, present only after canonical success. */
++  readonly completedOutput?: {
++    readonly submissionId: string;
++    readonly text: string;
++    readonly model?: { readonly id: string; readonly provider?: string };
++    readonly usage?: PromptUsage;
++  };
++}
+ //#region src/cloudflare/agent-coordinator.d.ts
+ declare const CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH = "/__flue/internal/dispatch";
+ declare const CLOUDFLARE_AGENT_INTERNAL_INSTANCE_INFO_PATH = "/__flue/internal/instance-info";
+@@ -56,6 +73,7 @@ interface CloudflareAgentRuntimeOptions {
+   readonly runWithInstanceContext: <T>(instance: CloudflareAgentInstance, agentName: string, callback: () => T) => T;
+ }
+ interface CloudflareAgentRuntime {
++  readSubmission(instance: CloudflareAgentInstance, submissionId: string): Promise<AgentSubmissionProjection | null>;
+   prepare(options: {
+     readonly storage: CloudflareAgentStorage;
+     readonly className: string;
+diff --git a/dist/agent-execution-store-TmGF9yZ1.d.mts b/dist/agent-execution-store-TmGF9yZ1.d.mts
+index d160d0e..b3658b3 100644
+--- a/dist/agent-execution-store-TmGF9yZ1.d.mts
++++ b/dist/agent-execution-store-TmGF9yZ1.d.mts
+@@ -1436,6 +1436,16 @@ interface AgentSubmissionStore {
+    * Idempotent while queued; returns `null` when the submission is missing or no longer queued.
+    */
+   markSubmissionCanonicalReady(submissionId: string): Promise<AgentSubmission | null>;
++  /**
++   * Optional bounded preparation seam implemented by OpenMeld's pinned SQL
++   * stores. Count a failed materialization only while the same queued,
++   * unready row still has expectedAttemptCount. A stale call cannot fail a
++   * newly ready/claimed/settled row. Exhaustion and increment are one CAS;
++   * only its winner may publish terminal observation. No wall-clock limit
++   * is imposed on a healthy execution. Other adapters retain their own
++   * existing deadline behavior when this seam is absent.
++   */
++  recordSubmissionPreparationFailure?(submissionId: string, expectedAttemptCount: number, maxAttempts: number, error: unknown, expired?: boolean): Promise<AgentSubmission | null>;
+   /**
+    * Atomic compare-and-set. Transition the submission from queued to
+    * running ONLY when it is currently queued and is the runnable head of
+diff --git a/dist/builtin-providers-CslrifWV.mjs b/dist/builtin-providers-CslrifWV.mjs
+index 15e6e65..0391266 100644
+--- a/dist/builtin-providers-CslrifWV.mjs
++++ b/dist/builtin-providers-CslrifWV.mjs
+@@ -1,5 +1,6 @@
+ import { d as abortErrorFor, p as createCallHandle, r as createCwdSandbox } from "./sandbox-CR3o1Qmd.mjs";
+ import { f as getPreparedToolAdapter } from "./result-BWvTzP0z.mjs";
++import { recordUnreadySubmissionFailure } from "./conversation-stream-store-2-jUriih.mjs";
+ import { A as SubmissionAbortedError, B as classifyError, G as normalizeLogAttributes, P as SubmissionTimeoutError, Y as createConversationIdentity, Z as generateAttemptId, at as generateOwnerId, b as RuntimeUnavailableError, dt as isKeyDerivedSubmissionId, j as SubmissionConflictError, w as SessionNotFoundError } from "./errors-BcRwz-UD.mjs";
+ import { dt as createActionScopeName, et as agentStreamPath, f as configureFlueRuntime, ft as createSessionStorageKey, g as resetFlueRuntimeForTests, h as getFlueRuntime, l as resolveAgentDurability, o as getRegisteredFlueAgents, pt as createTaskSessionName, s as registerFlueAgents, ut as assertPublicSessionName, vt as createAgentOutputChannel } from "./dispatch-BlxCz6iq.mjs";
+ import { c as resolveModel, l as setProvider, r as hasProvider } from "./providers-DnRSdXFS.mjs";
+@@ -537,6 +538,7 @@ async function initializeRootHarness(agent, config, emitEvent, delivery) {
+ 	promptContext.setAgentCatalog((durableResources?.baseline ?? initialResources.snapshot).subagents);
+ 	const agentConfig = {
+ 		...config.agentConfig,
++		modelRetry: agent.modelRetry,
+ 		systemPrompt: promptContext.recompose(definition.instructions),
+ 		instructions: definition.instructions,
+ 		definitionSkills: definition.skills,
+@@ -560,6 +562,7 @@ async function initializeRootHarness(agent, config, emitEvent, delivery) {
+ 		};
+ 	};
+ 	const resourceRuntime = {
++		projectSignal: agent.projectResourceSignal,
+ 		initial: initialResources,
+ 		...durableResources?.baseline ? { baseline: durableResources.baseline } : {},
+ 		...durableResources?.narrated ? { narrated: durableResources.narrated } : {},
+@@ -1113,8 +1116,8 @@ function createNodeAgentCoordinator(options) {
+ 	* runnable) falls back to the deferral logging so nothing is silently
+ 	* dropped.
+ 	*/
+-	async function terminalizeUnreadySubmission(submission, error) {
+-		if (!await settleUnclaimableSubmission(submissions, submission, "failed", error, coordinatorEventEmitter(submission.input))) return false;
++	async function terminalizeUnreadySubmission(submission, error, agent) {
++		if (!await recordUnreadySubmissionFailure(submissions, submission, agent, error, coordinatorEventEmitter(submission.input))) return false;
+ 		console.error("[flue:submission-reconciliation]", {
+ 			submissionId: submission.submissionId,
+ 			operation: "materialize_submission",
+@@ -1122,7 +1125,15 @@ function createNodeAgentCoordinator(options) {
+ 		}, error);
+ 		return true;
+ 	}
+-	async function reconcileUnreadySubmissions() {
++	let unreadyPassInFlight;
++	function reconcileUnreadySubmissions() {
++		// The claim loop and lease scanner can wake together. Share one local
++		// materialization pass; the store CAS still fences stale remote owners.
++		return unreadyPassInFlight ??= runUnreadyReconciliationPass().finally(() => {
++			unreadyPassInFlight = void 0;
++		});
++	}
++	async function runUnreadyReconciliationPass() {
+ 		for (const submission of await submissions.listUnreadySubmissions()) {
+ 			if (submission.abortRequestedAt !== void 0) {
+ 				await settleUnclaimableSubmission(submissions, submission, "aborted", new SubmissionAbortedError(), coordinatorEventEmitter(submission.input));
+@@ -1130,7 +1141,7 @@ function createNodeAgentCoordinator(options) {
+ 			}
+ 			const agent = agents.find((record) => record.name === submission.input.agent)?.agent;
+ 			if (!agent) {
+-				if (Date.now() >= unreadySubmissionDeadline(submission, void 0) && await terminalizeUnreadySubmission(submission, /* @__PURE__ */ new Error(`[flue] Submission target agent "${submission.input.agent}" has no registered definition, so the submission could never start.`))) continue;
++				if (await terminalizeUnreadySubmission(submission, new Error(`[flue] Submission target agent "${submission.input.agent}" has no registered definition, so the submission could never start.`), void 0)) continue;
+ 				console.error("[flue:submission-reconciliation]", {
+ 					submissionId: submission.submissionId,
+ 					operation: "materialize_submission",
+@@ -1149,7 +1160,7 @@ function createNodeAgentCoordinator(options) {
+ 				await materializeSubmissionConversation(submission.input, agent);
+ 				await submissions.markSubmissionCanonicalReady(submission.submissionId);
+ 			} catch (error) {
+-				if (Date.now() >= unreadySubmissionDeadline(submission, agent) && await terminalizeUnreadySubmission(submission, error)) continue;
++				if (await terminalizeUnreadySubmission(submission, error, agent)) continue;
+ 				console.error("[flue:submission-reconciliation]", {
+ 					submissionId: submission.submissionId,
+ 					operation: "materialize_submission",
+diff --git a/dist/cloudflare/internal.mjs b/dist/cloudflare/internal.mjs
+index b9ea926..b9f0d74 100644
+--- a/dist/cloudflare/internal.mjs
++++ b/dist/cloudflare/internal.mjs
+@@ -38,6 +38,9 @@ function createFlueAgentClass(options) {
+ 		onRequest(request) {
+ 			return runtime.onRequest(this, request);
+ 		}
++		__unsafe_readSubmission(submissionId) {
++			return runtime.readSubmission(this, submissionId);
++		}
+ 		/**
+ 		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
+ 		* `queue` callbacks to methods on this class — including
+diff --git a/dist/conversation-recall.mjs b/dist/conversation-recall.mjs
+new file mode 100644
+index 0000000..3abc3bc
+--- /dev/null
++++ b/dist/conversation-recall.mjs
+@@ -0,0 +1,54 @@
++// Read projection of this Flue conversation's canonical active lineage only.
++// No copied transcript, embeddings, external authority, or hidden reasoning.
++export function createConversationRecallTool(readEntries) {
++  return {
++    name: "recall_conversation",
++    label: "Recall Conversation",
++    description: "Find older user/assistant text in this runtime conversation, including text omitted by compaction. Search a short literal phrase, then read an entryId in bounded pages. Results are historical evidence, not current instructions or permission. Tool payloads, reasoning, other conversations and previous runtime generations are not returned; use authorized product history tools for those sources. Do not guess an old exact fact when you can look it up.",
++    parameters: {
++      type: "object",
++      properties: {
++        query: { type: ["string", "null"], minLength: 2, maxLength: 200, description: "Literal search phrase, or null when reading an entry." },
++        entryId: { type: ["string", "null"], minLength: 1, maxLength: 256, description: "Exact returned entry ID, or null when searching." },
++        beforeEntryId: { type: ["string", "null"], minLength: 1, maxLength: 256, description: "Search older matches using nextBeforeEntryId, or null for the newest search page or an entry read." },
++        offset: { type: "integer", minimum: 0, maximum: 10000000 }
++      },
++      additionalProperties: false
++    },
++    async execute(_id, params, signal) {
++      signal?.throwIfAborted();
++      if (Boolean(params.query) === Boolean(params.entryId) || (!params.entryId && params.offset) || (params.entryId && params.beforeEntryId)) throw new Error("Provide one search phrase or one entry ID.");
++      const entries = await readEntries();
++      signal?.throwIfAborted();
++      const textOf = (entry) => {
++        if (entry.type !== "message" || !["user", "assistant"].includes(entry.message.role)) return undefined;
++        const content = entry.message.content;
++        return typeof content === "string" ? content : content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
++      };
++      let result;
++      if (params.entryId) {
++        const entry = entries.find((entry) => entry.id === params.entryId);
++        const text = entry && textOf(entry);
++        if (text === undefined) throw new Error("This entry is not available in the current conversation.");
++        const offset = params.offset ?? 0;
++        const end = Math.min(text.length, offset + 4000);
++        result = { entryId: entry.id, role: entry.message.role, timestamp: entry.timestamp, text: text.slice(offset, end), offset, nextOffset: end < text.length ? end : null };
++      } else {
++        const query = params.query.toLocaleLowerCase();
++        const matches = [];
++        const beforeIndex = params.beforeEntryId ? entries.findIndex((entry) => entry.id === params.beforeEntryId) : entries.length;
++        if (beforeIndex < 0) throw new Error("This search cursor is not available in the current conversation.");
++        for (const entry of entries.slice(0, beforeIndex)) {
++          const text = textOf(entry);
++          if (!text) continue;
++          const index = text.toLocaleLowerCase().indexOf(query);
++          if (index < 0) continue;
++          const offset = Math.max(0, index - 160);
++          matches.push({ entryId: entry.id, role: entry.message.role, timestamp: entry.timestamp, offset, text: text.slice(offset, offset + 800), hasMore: text.length > offset + 800 });
++        }
++        result = { matches: matches.slice(-8), totalMatches: matches.length, nextBeforeEntryId: matches.length > 8 ? matches[matches.length - 8].entryId : null, order: "chronological; newest eight matches", scope: "current runtime conversation" };
++      }
++      return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
++    }
++  };
++}
+diff --git a/dist/conversation-stream-store-2-jUriih.mjs b/dist/conversation-stream-store-2-jUriih.mjs
+index 210bfa0..af8e901 100644
+--- a/dist/conversation-stream-store-2-jUriih.mjs
++++ b/dist/conversation-stream-store-2-jUriih.mjs
+@@ -1,4 +1,6 @@
+ import { c as encodeBase64, d as abortErrorFor, f as composeTimeoutSignal, m as raceToolWithDeadline, p as createCallHandle, r as createCwdSandbox, s as decodeBase64, u as abandonToolOnAbort } from "./sandbox-CR3o1Qmd.mjs";
++import { buildCanonicalActionEvidence, collectRecordedSubmissionMetadata, projectSubmissionRetryTextPrefix } from "./dispatch-BlxCz6iq.mjs";
++import { measureWorkingContext, workingContextBudget } from "./working-context.mjs";
+ import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-BWvTzP0z.mjs";
+ import { A as SubmissionAbortedError, B as classifyError, C as SessionBusyError, E as SkillNotRegisteredError, G as normalizeLogAttributes, I as ToolNameConflictError, M as SubmissionInterruptedError, N as SubmissionRetryExhaustedError, P as SubmissionTimeoutError, Q as generateBlockId, X as deriveKeyedSubmissionId, Y as createConversationIdentity, Z as generateAttemptId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateTaskId, d as FlueError, et as generateIncarnationId, g as OperationFailedError, it as generateOperationId, j as SubmissionConflictError, k as SubagentNotDeclaredError, l as ConversationStreamStoreError, lt as generateToolCallId, m as InvalidRequestError, n as AgentInstanceNotFoundError, nt as generateInstanceUid, pt as interceptExecution, q as serializeEventError, rt as generateInvocationId, st as generateSubmissionId, t as AgentInstanceExistsError, u as DelegationDepthExceededError, ut as generateTurnId } from "./errors-BcRwz-UD.mjs";
+ import { $ as MAX_READ_LIMIT, B as DEFAULT_COMPACTION_SETTINGS, C as DeliveredMessageSchema, Ct as prepareDocumentRequest, Dt as generateConversationEntryId, E as assertDurability, Et as encodeCanonicalId, F as getActiveConversationPathSince, G as prepareCompaction, H as compact, I as getLatestConversationCompaction, J as emptyUsage, K as shouldCompact, L as countConsecutiveRetryableModelErrors, N as aggregateConversationUsageSince, Ot as generateConversationRecordId, P as classifyConversationSubmission, R as findTrailingPartialToolBatch, St as mergeOperationAttachments, Tt as RESERVED_SIGNAL_TYPES, U as deriveCompactionDefaults, V as calculateContextTokens, W as isAssistantContextOverflow, Y as fromProviderUsage, _t as assertAppendMessage, bt as fnv1a64, ct as toolOutcomeKey, d as resolveAgentInitialDataSchema, et as agentStreamPath, ft as createSessionStorageKey, gt as renderSignalMessage, ht as createUserContextMessage, it as buildConversationContextEntries, kt as toolStepRecordId, lt as toolResultEntryId, mt as parseSessionStorageKey, nt as parseOffset, ot as getActiveConversationPath, q as addUsage, rt as buildConversationContext, tt as formatOffset, w as MAX_IMAGE_DATA_LENGTH, wt as toPublicAttachment, xt as isDocumentMimeType, yt as runResponseMetadataHooks, z as isRetryableModelError } from "./dispatch-BlxCz6iq.mjs";
+@@ -10,6 +12,7 @@ import { r as migrateFlueSqlSchema, s as createAttachmentRef } from "./format-ve
+ import { createInitialSystemMessage, getCurrentSystemPrompt, getCurrentTools, toToolDeclaration } from "@earendil-works/pi-ai";
+ import * as v from "valibot";
+ import { Agent } from "@earendil-works/pi-agent-core";
++import { createConversationRecallTool } from "./conversation-recall.mjs";
+ //#region src/agent-execution-store.ts
+ /** Default maximum total attempts before terminalization. */
+ const DURABILITY_DEFAULT_MAX_ATTEMPTS = 10;
+@@ -1044,8 +1047,8 @@ function parseProviderEndpoint(value) {
+ 		return;
+ 	}
+ }
+-function modelRetryDelayMs(attempt) {
+-	const baseDelay = TRANSIENT_MODEL_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
++function modelRetryDelayMs(attempt, policy) {
++	const baseDelay = Math.min(policy?.maxDelayMs ?? Infinity, (policy?.baseDelayMs ?? TRANSIENT_MODEL_RETRY_BASE_DELAY_MS) * 2 ** (attempt - 1));
+ 	return Math.round(baseDelay * (.75 + Math.random() * .25));
+ }
+ function sleepUntilRetry(delayMs, signal) {
+@@ -1064,6 +1067,7 @@ function sleepUntilRetry(delayMs, signal) {
+ 	});
+ }
+ var Session = class {
++  modelRecoveryAttempt = 0;
+ 	name;
+ 	conversationId;
+ 	fs;
+@@ -1137,6 +1141,8 @@ var Session = class {
+ 	conversationWriter;
+ 	attachmentStore;
+ 	canonicalAssistant;
++	// Response-scoped: a tool-only retry must not discard an unconsumed reset.
++	pendingRetryTextPrefix;
+ 	canonicalToolRequestMessageId;
+ 	/**
+ 	* The just-committed tool batch, stashed by the `turn_end` handler for the
+@@ -1557,7 +1563,7 @@ var Session = class {
+ 			content: signal.body,
+ 			attributes: signal.attributes,
+ 			timestamp: new Date(timestamp).getTime()
+-		}), timestamp));
++		}, this.resourceRuntime?.projectSignal), timestamp));
+ 		if (options?.advance === false) return;
+ 		this.advanceDelivery?.({
+ 			kind: "signal",
+@@ -1844,11 +1850,11 @@ var Session = class {
+ 		const entryId = submissionEntryId(input.kind, input.submissionId);
+ 		if (!await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
+ 			const parentId = await this.conversationWriter.getConversationLeaf(this.conversationId);
+-			await this.appendCanonical([await this.buildSubmissionInputRecord(input, parentId, { asJoinedDelivery: true })]);
++			await this.appendCanonical([await this.buildSubmissionInputRecord(input, parentId, { asJoinedDelivery: !submission.isSteering })]);
+ 			await this.steerJoinedEntry(entryId);
+ 		}
+ 		this.advanceDelivery?.(input.message);
+-		await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
++		if (!submission.isSteering) await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
+ 		await source.finalize(input.submissionId);
+ 	}
+ 	/**
+@@ -1860,7 +1866,7 @@ var Session = class {
+ 	async steerJoinedEntry(entryId) {
+ 		const conversation = await this.requireConversation();
+ 		const resolved = await this.resolveCanonicalContextAttachments(conversation);
+-		const entry = buildConversationContextEntries(conversation, { resolveAttachment: (attachment) => {
++		const entry = buildConversationContextEntries(conversation, { projectResourceSignal: this.resourceRuntime?.projectSignal, resolveAttachment: (attachment) => {
+ 			const image = resolved.get(attachment.id);
+ 			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
+ 			return image;
+@@ -1885,13 +1891,13 @@ var Session = class {
+ 			if (submission.status === "joining") {
+ 				if (await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
+ 					this.advanceDelivery?.(input.message);
+-					await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
++					if (!submission.isSteering) await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
+ 					await source.finalize(input.submissionId);
+ 				} else await source.revert(input.submissionId);
+ 				continue;
+ 			}
+ 			this.advanceDelivery?.(input.message);
+-			await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
++			if (!submission.isSteering) await this.runAgentStartHooks(signal, input.submissionId, { joined: true });
+ 		}
+ 		await this.restoreDeliveryCursor();
+ 	}
+@@ -2035,6 +2041,7 @@ var Session = class {
+ 	* adopts them instead: the wake hooks ran on the original attempt.
+ 	*/
+ 	async beginResponseOutput() {
++		this.pendingRetryTextPrefix = void 0;
+ 		this.responseMessageId = void 0;
+ 		this.responseHasCompletedStep = false;
+ 		this.responseUsage = void 0;
+@@ -2211,6 +2218,7 @@ var Session = class {
+ 				thinkingLevel: this.config.thinkingLevel ?? "medium"
+ 			},
+ 			streamFn: this.emitTurnRequestAndStream,
++			transformContext: (messages, signal) => this.prepareWorkingContext(messages, signal),
+ 			toolExecution: "parallel",
+ 			steeringMode: "all",
+ 			followUpMode: "all",
+@@ -2253,6 +2261,10 @@ var Session = class {
+ 							modelInfo,
+ 							...isResponseFirstMessage && this.responseStartMetadata ? { responseMetadata: this.responseStartMetadata } : {}
+ 						}]);
++						if (this.activeSubmissionId !== void 0) {
++							const textPrefix = projectSubmissionRetryTextPrefix(await this.requireConversation(), this.activeSubmissionId);
++							if (textPrefix !== void 0) this.pendingRetryTextPrefix = textPrefix;
++						}
+ 					}
+ 					this.emit({
+ 						type: "message_start",
+@@ -2263,6 +2275,10 @@ var Session = class {
+ 				}
+ 				case "message_update": {
+ 					const aEvent = event.assistantMessageEvent;
++					if (this.modelRecoveryAttempt > 0 && (aEvent.type === "text_delta" || aEvent.type === "thinking_delta" || aEvent.type === "toolcall_delta")) {
++						this.internalLog("info", "[flue:model-retry] Model response resumed", { modelRecovery: true, state: "recovered", attempt: this.modelRecoveryAttempt, maxRetries: this.config.modelRetry?.maxRetries ?? MAX_TRANSIENT_MODEL_RETRIES, nextRetryAtMs: 0 });
++						this.modelRecoveryAttempt = 0;
++					}
+ 					const assistant = this.canonicalAssistant;
+ 					if (assistant && aEvent.type === "text_start") {
+ 						const blockId = generateBlockId();
+@@ -2282,6 +2298,8 @@ var Session = class {
+ 					} else if (assistant && aEvent.type === "text_delta") {
+ 						const block = assistant.blocks.get(aEvent.contentIndex);
+ 						if (block?.type !== "text") throw new Error("[flue] Canonical text delta has no started block.");
++						const textPrefix = aEvent.delta.length > 0 ? this.pendingRetryTextPrefix : void 0;
++						if (textPrefix !== void 0) this.pendingRetryTextPrefix = void 0;
+ 						this.enqueueCanonical([{
+ 							...this.canonicalEnvelope("assistant_text_delta"),
+ 							type: "assistant_text_delta",
+@@ -2291,7 +2309,8 @@ var Session = class {
+ 							delta: aEvent.delta
+ 						}], () => this.emit({
+ 							type: "text_delta",
+-							text: aEvent.delta
++							text: aEvent.delta,
++							...textPrefix !== void 0 ? { textPrefix } : {}
+ 						}));
+ 					} else if (assistant && aEvent.type === "text_end") {
+ 						const block = assistant.blocks.get(aEvent.contentIndex);
+@@ -2567,9 +2586,58 @@ var Session = class {
+ 		return {
+ 			enabled: true,
+ 			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
+-			keepRecentTokens: cc.keepRecentTokens ?? defaults.keepRecentTokens
++			keepRecentTokens: cc.keepRecentTokens ?? defaults.keepRecentTokens,
++			maxSummaryTokens: cc.maxSummaryTokens,
++			recallAvailable: Boolean(cc.workingContextTokens)
+ 		};
+ 	}
++	/** The canonical owner replaces history before inference, including tool-loop turns. */
++	async prepareWorkingContext(messages, signal) {
++		const config = this.config.compaction;
++		if (!config || !config.workingContextTokens) return messages;
++		const measure = () => measureWorkingContext({
++			systemPrompt: this.agentLoop.state.systemPrompt,
++			tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
++			messages
++		});
++		if (measure() <= config.workingContextTokens) return messages;
++		if (signal?.aborted) throw abortErrorFor(signal);
++		// This is an ephemeral provider projection. Never replace canonical or
++		// loop state: expiry/revocation must not strand a persisted shortened body.
++		const reduced = await this.reduceWorkingToolResults(messages, signal);
++		if (signal?.aborted) throw abortErrorFor(signal);
++		if (measureWorkingContext({ systemPrompt: this.agentLoop.state.systemPrompt,
++			tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
++			messages: reduced }) <= config.workingContextTokens) return reduced;
++		await this.flushCanonical();
++		if (signal?.aborted) throw abortErrorFor(signal);
++		if (!await this.runCompaction("threshold")) throw new Error("[flue] Working context could not be compacted within its configured budget.");
++		if (signal?.aborted) throw abortErrorFor(signal);
++		// Pi owns its loop snapshot, Flue owns the durable projection. Update both
++		// from the committed checkpoint so a subsequent tool turn cannot restore it.
++		messages.splice(0, messages.length, ...this.agentLoop.state.messages);
++		if (measure() > config.workingContextTokens) throw new Error("[flue] Compacted working context still exceeds its configured budget.");
++		return messages;
++	}
++	async reduceWorkingToolResults(messages, signal) {
++		const config = this.config.compaction;
++		if (!config?.reduceToolResultPreviews) return messages;
++		let boundary = messages.length, tokens = 0, recentResults = 0;
++		while (boundary > 0 && (tokens < (config.keepRecentTokens ?? 8000) || recentResults < 2)) {
++			const message = messages[--boundary];
++			tokens += measureWorkingContext({ messages: [message] });
++			if (message.role === "toolResult") recentResults++;
++		}
++		const candidates = messages.slice(0, boundary).filter((message) => message.role === "toolResult" && !message.isError && message.content.length === 1 && message.content[0].type === "text");
++		if (!candidates.length) return messages;
++		const replacements = await config.reduceToolResultPreviews(structuredClone(candidates), signal);
++		return messages.map((message, index) => {
++			if (index >= boundary || !candidates.includes(message) || !replacements.has(message.toolCallId)) return message;
++			const text = replacements.get(message.toolCallId);
++			if (typeof text !== "string" || new TextEncoder().encode(text).byteLength >= new TextEncoder().encode(message.content[0].text).byteLength) throw new Error("[flue] Tool-result reduction must return smaller text.");
++			return { ...message, content: [{ type: "text", text }] };
++		});
++	}
+ 	async initializeCanonicalContext() {
+ 		await this.rebuildCanonicalContext();
+ 	}
+@@ -2595,7 +2663,7 @@ var Session = class {
+ 	}
+ 	processSubmissionInput(input, options) {
+ 		return createCallHandle(void 0, async (signal) => {
+-			await this.runOperation("prompt", signal, () => this.runPersistedSubmissionInput(input, signal, options));
++			await this.runOperation("prompt", signal, () => this.runPersistedSubmissionInput(input, signal, options), input.submissionId);
+ 		});
+ 	}
+ 	/**
+@@ -3569,7 +3637,8 @@ var Session = class {
+ 		const activateSkillTool = Object.keys(this.liveSkills).length > 0 ? createActivateSkillTool((name) => this.activateSkillForTool(name)) : void 0;
+ 		const packagedRead = Object.values(packagedSkills).some((skill) => Object.keys(skill.files).some((path) => path !== "SKILL.md")) ? createPackagedSkillReadTool(packagedSkills) : void 0;
+ 		const frameworkTools = () => [
+-			createTaskTool(runTask),
++			...this.config.compaction?.workingContextTokens ? [createConversationRecallTool(async () => getActiveConversationPath(await this.requireConversation()))] : [],
++			...Object.keys(this.liveSubagents).length > 0 ? [createTaskTool(runTask)] : [],
+ 			...activateSkillTool ? [activateSkillTool] : [],
+ 			...packagedRead ? [packagedRead] : []
+ 		];
+@@ -3772,7 +3841,7 @@ var Session = class {
+ 			}
+ 		}
+ 	}
+-	async runOperation(operation, signal, fn) {
++	async runOperation(operation, signal, fn, submissionId) {
+ 		const operationSignal = signal && this.scopeSignal ? AbortSignal.any([signal, this.scopeSignal]) : signal ?? this.scopeSignal;
+ 		return this.runExclusive(operation, async () => {
+ 			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
+@@ -3808,12 +3877,25 @@ var Session = class {
+ 				return result;
+ 			} catch (error) {
+ 				const surfaced = operationSignal?.aborted ? abortErrorFor(operationSignal) : error;
++				let recordedMetadata;
++				if (submissionId !== void 0) {
++					try {
++						recordedMetadata = collectRecordedSubmissionMetadata(await this.requireConversation(), submissionId);
++					} catch (metadataError) {
++						// Do not let an incomplete observation commit a terminal owner
++						// without known consumption. Preserve the original failure and
++						// leave delivery to canonical settlement/reconciliation.
++						this.internalLog("warn", "[flue] Failed to read recorded terminal consumption", { submissionId, error: serializeEventError(metadataError) });
++						throw surfaced;
++					}
++				}
+ 				this.emit({
+ 					type: "operation",
+ 					operationId,
+ 					operationKind: operation,
+ 					durationMs: durationSince(startedAt),
+ 					isError: true,
++					...recordedMetadata ? { result: recordedMetadata, usage: recordedMetadata.usage } : {},
+ 					error: serializeEventError(surfaced)
+ 				}, operation === "prompt" || operation === "skill" ? {
+ 					agentInput: this.activeAgentInput,
+@@ -4041,7 +4123,7 @@ var Session = class {
+ 	async rebuildCanonicalContext() {
+ 		const conversation = await this.requireConversation();
+ 		const resolved = await this.resolveCanonicalContextAttachments(conversation);
+-		const messages = buildConversationContext(conversation, { resolveAttachment: (attachment) => {
++		const messages = buildConversationContext(conversation, { projectResourceSignal: this.resourceRuntime?.projectSignal, resolveAttachment: (attachment) => {
+ 			const image = resolved.get(attachment.id);
+ 			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
+ 			return image;
+@@ -4078,6 +4160,7 @@ var Session = class {
+ 	* caller's `throwIfError` could not surface the failure.
+ 	*/
+ 	async runModelTurnWithRecovery(options) {
++		this.modelRecoveryAttempt = 0;
+ 		let start = options.start;
+ 		let assistant = options.resume?.assistant;
+ 		let turnCompleted = false;
+@@ -4088,12 +4171,16 @@ var Session = class {
+ 		};
+ 		const throwIfHalted = () => {
+ 			if (options.signal.aborted) throw abortErrorFor(options.signal);
+-			if (this.activeTimeoutAt !== void 0 && Date.now() >= this.activeTimeoutAt) throw new SubmissionTimeoutError();
++			if (this.activeTimeoutAt !== void 0 && this.activeTimeoutAt > 0 && Date.now() >= this.activeTimeoutAt) throw new SubmissionTimeoutError();
+ 		};
+ 		while (true) {
+ 			const overflow = assistant !== void 0 && isAssistantContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
+ 			const retryable = !overflow && assistant !== void 0 && isRetryableModelError(assistant);
+ 			if (turnCompleted && !overflow && !retryable) {
++				if (this.modelRecoveryAttempt > 0 && assistant && assistant.stopReason !== "error" && assistant.stopReason !== "aborted") {
++					this.internalLog("info", "[flue:model-retry] Model recovery completed", { modelRecovery: true, state: "recovered", attempt: this.modelRecoveryAttempt, maxRetries: this.config.modelRetry?.maxRetries ?? MAX_TRANSIENT_MODEL_RETRIES, nextRetryAtMs: 0 });
++				}
++				this.modelRecoveryAttempt = 0;
+ 				const settledAssistant = assistant ?? this.agentLoop.state.messages.findLast((message) => message.role === "assistant");
+ 				if (settledAssistant !== void 0) await this.checkCompaction(settledAssistant);
+ 				if (assistant?.stopReason === "error" || assistant?.stopReason === "aborted") await this.rebuildCanonicalContext();
+@@ -4145,20 +4232,24 @@ var Session = class {
+ 		}
+ 	}
+ 	async waitForTransientModelRetry(assistant, attempt) {
+-		if (attempt > MAX_TRANSIENT_MODEL_RETRIES) {
++		const maxRetries = this.config.modelRetry?.maxRetries ?? MAX_TRANSIENT_MODEL_RETRIES;
++		if (attempt > maxRetries) {
+ 			this.internalLog("warn", "[flue:model-retry] Transient model error retries exhausted", {
++				modelRecovery: true, state: "exhausted", attempt: maxRetries, maxRetries, nextRetryAtMs: 0,
+ 				attempts: attempt - 1,
+ 				error: assistant.errorMessage
+ 			});
+ 			await this.rebuildCanonicalContext();
+ 			return false;
+ 		}
+-		const delayMs = modelRetryDelayMs(attempt);
++		const delayMs = modelRetryDelayMs(attempt, this.config.modelRetry);
++		this.modelRecoveryAttempt = attempt;
+ 		await this.rebuildCanonicalContext();
+ 		this.modelRetryAbortController = new AbortController();
+ 		this.internalLog("warn", "[flue:model-retry] Retrying transient model error", {
++			modelRecovery: true, state: "waiting", nextRetryAtMs: Date.now() + delayMs,
+ 			attempt,
+-			maxRetries: MAX_TRANSIENT_MODEL_RETRIES,
++			maxRetries,
+ 			delayMs,
+ 			error: assistant.errorMessage
+ 		});
+@@ -4171,6 +4262,10 @@ var Session = class {
+ 	}
+ 	async checkCompaction(assistantMessage) {
+ 		if (assistantMessage.stopReason === "aborted" || assistantMessage.stopReason === "error") return;
++		// The preflight policy measures the assembled request. Supplier usage can
++		// include internal inference (notably Pro) and must not trigger a second
++		// summary of an already bounded working set after every response.
++		if (this.config.compaction?.workingContextTokens) return;
+ 		const model = this.agentLoop.state.model;
+ 		const settings = this.resolveCompactionSettings(model);
+ 		if (!settings.enabled) return;
+@@ -4197,16 +4292,34 @@ var Session = class {
+ 			const sessionModel = this.agentLoop.state.model;
+ 			const settings = this.resolveCompactionSettings(sessionModel);
+ 			const compactionConfig = this.config.compaction === false ? void 0 : this.config.compaction;
++			const workingBudget = compactionConfig?.workingContextTokens ? workingContextBudget({
++				systemPrompt: this.agentLoop.state.systemPrompt,
++				tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters }))
++			}, compactionConfig.workingContextTokens, compactionConfig.workingContextHeadroomTokens) : undefined;
++			const measure = () => measureWorkingContext({
++				systemPrompt: this.agentLoop.state.systemPrompt,
++				tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
++				messages: this.agentLoop.state.messages
++			});
++			const workingTokensBefore = workingBudget ? measure() : undefined;
+ 			const summarizationModel = compactionConfig?.model ? this.resolveModelForCall(compactionConfig.model) : sessionModel;
+ 			const canonicalConversation = await this.requireConversation();
+ 			const resolvedAttachments = await this.resolveCanonicalContextAttachments(canonicalConversation);
+-			const contextEntries = buildConversationContextEntries(canonicalConversation, { resolveAttachment: (attachment) => {
++			const contextEntries = buildConversationContextEntries(canonicalConversation, { projectResourceSignal: this.resourceRuntime?.projectSignal, resolveAttachment: (attachment) => {
+ 				const image = resolvedAttachments.get(attachment.id);
+ 				if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
+ 				return image;
+ 			} });
+ 			const messages = contextEntries.map((entry) => entry.message);
+ 			const latestCompaction = getLatestConversationCompaction(canonicalConversation);
++			const canonicalActionEvidence = buildCanonicalActionEvidence(canonicalConversation);
++			if (workingBudget && compactionConfig.workingContextHeadroomTokens) {
++				// Budget the complete checkpoint and fixed prompt before selecting a
++				// recent tail. Tool pairs remain indivisible at the normal cut seam.
++				const checkpointTokens = (settings.maxSummaryTokens ?? 4096) + Math.ceil(new TextEncoder().encode(canonicalActionEvidence).byteLength / 4);
++				settings.keepRecentTokens = Math.max(0, Math.min(settings.keepRecentTokens,
++					workingBudget.targetTokens - workingBudget.fixedTokens - checkpointTokens));
++			}
+ 			const preparation = prepareCompaction(messages, settings, latestCompaction ? {
+ 				summary: latestCompaction.summary,
+ 				firstKeptIndex: 1,
+@@ -4221,6 +4334,7 @@ var Session = class {
+ 				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
+ 				return false;
+ 			}
++			preparation.canonicalActionEvidence = canonicalActionEvidence;
+ 			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
+ 			const estimatedTokens = preparation.tokensBefore;
+ 			this.emit({
+@@ -4288,6 +4402,7 @@ var Session = class {
+ 				messagesAfter,
+ 				durationMs: durationSince(compactionStartMs),
+ 				isError: false,
++				...workingBudget ? { workingContext: { ...workingBudget, beforeTokens: workingTokensBefore, afterTokens: measure() } } : {},
+ 				usage: result.usage
+ 			});
+ 			terminalPending = false;
+@@ -4574,7 +4689,7 @@ var Session = class {
+ 	resolveSubmissionDurability(startedAt, timeoutAt) {
+ 		return {
+ 			maxAttempts: this.config.durability?.maxAttempts ?? 10,
+-			timeoutAt: timeoutAt ?? (startedAt ?? Date.now()) + (this.config.durability?.timeoutMs ?? 36e5)
++			timeoutAt: timeoutAt ?? (this.config.durability?.timeoutMs === 0 ? 0 : (startedAt ?? Date.now()) + (this.config.durability?.timeoutMs ?? 36e5))
+ 		};
+ 	}
+ 	async runPersistedContextInput(options) {
+@@ -4616,12 +4731,19 @@ var Session = class {
+ 					signal: options.signal
+ 				});
+ 				await this.flushResponseOutput();
+-				return { text: this.getAssistantText() };
++				// Keep the official persisted-output path and its outer void handle.
++				// Only enrich the existing result; do not emit a second completion.
++				return {
++					text: this.getAssistantText(),
++					usage: await this.collectResponseUsage(options.submissionAttempt?.submissionId),
++					model: this.agentLoop.state.model
++				};
+ 			} finally {
+ 				this.pendingSignalAppends = [];
+ 				this.agentLoop.clearSteeringQueue();
+ 				this.outputWriteQueue = Promise.resolve();
+ 				this.activeSubmissionId = void 0;
++				this.pendingRetryTextPrefix = void 0;
+ 				this.activeSubmissionAttemptId = void 0;
+ 				this.activeJoinSource = void 0;
+ 				this.activeJoinSignal = void 0;
+@@ -5018,7 +5140,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+ }
+ function createAgentSubmissionSessionHandler(agent, input, execute) {
+ 	return async (ctx) => {
+-		return execute(await openAgentSubmissionSession(ctx, agent, input));
++		// Recovery and terminal reconciliation render the same agent as live
++		// execution. Keep preparation and authority inside this shared boundary.
++		return interceptExecution({
++			type: "agent",
++			operationId: input.submissionId,
++			operationKind: "prompt"
++		}, {
++			instanceId: input.id,
++			submissionId: input.submissionId,
++			agentName: input.agent,
++			traceCarrier: input.traceCarrier
++		}, async () => execute(await openAgentSubmissionSession(ctx, agent, input)));
+ 	};
+ }
+ /**
+@@ -5039,10 +5172,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+ 	const { input } = submission;
+ 	const attempt = submissionAttemptRef(submission);
+ 	if (!attempt) return void 0;
++	// Before the input-applied stamp exists, the store carries default budgets.
++	// Read the static without rendering; never reinstate a one-hour deadline on
++	// an agent whose policy deliberately disables total wall-clock expiry.
++	if (submission.inputAppliedAt === void 0) {
++		assertDurability(agent.durability, `[agent "${input.agent}"]`);
++		submission = {
++			...submission,
++			maxAttempts: agent.durability?.maxAttempts ?? DURABILITY_DEFAULT_MAX_ATTEMPTS,
++			timeoutAt: agent.durability?.timeoutMs === 0 ? 0 : submission.timeoutAt
++		};
++	}
+ 	const ctx = createContext(input.submissionId);
+ 	let state;
+ 	try {
+-		state = await createAgentSubmissionSessionHandler(agent, input, (s) => s.inspectSubmissionInput(input))(ctx);
++		// Recovery classification is a read of canonical runtime facts. Opening
++		// an agent first can require unavailable tools/Computer resources and
++		// prevent completion, abort, and retry-budget checks from ever running.
++		state = conversationWriter
++			? await inspectPersistedSubmission(conversationWriter, input)
++			: await createAgentSubmissionSessionHandler(agent, input, (s) => s.inspectSubmissionInput(input))(ctx);
+ 	} catch (renderError) {
+ 		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
+ 			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
+@@ -5056,7 +5205,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+ 		return;
+ 	}
+ 	if (submission.abortRequestedAt !== void 0) {
+-		await settleAbortedWithContext(submissions, submission, attempt, agent, createContext(input.submissionId), conversationWriter, emitCoordinatorEvent);
++		await settleAbortedWithContext(submissions, submission, attempt, agent, createContext(input.submissionId), conversationWriter, emitCoordinatorEvent, { renderAdvisory: false });
+ 		return;
+ 	}
+ 	if (submission.attemptCount >= submission.maxAttempts) {
+@@ -5082,6 +5231,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+ 	}
+ 	await submissions.requeueSubmission(attempt);
+ }
++async function inspectPersistedSubmission(writer, input) {
++	const reduced = await writer.loadReducedState();
++	const conversation = [...reduced.conversations.values()].find((candidate) => candidate.harness === SUBMISSION_HARNESS_NAME && candidate.session === SUBMISSION_SESSION_NAME);
++	if (!conversation) return "absent";
++	const state = classifyConversationSubmission(conversation, submissionEntryId(input.kind, input.submissionId), { contextWindow: 0 });
++	if (state.kind === "absent") return "absent";
++	// A previous completed step does not complete a newer in-progress response.
++	if ([...conversation.inProgressMessages.values()].some((message) => message.submissionId === input.submissionId)) return "interrupted";
++	return state.kind === "completed" ? "completed" : "interrupted";
++}
+ /**
+ * The wall-clock deadline after which a queued submission that never became
+ * claimable (materialization permanently failing, agent definition
+@@ -5098,7 +5257,7 @@ function unreadySubmissionDeadline(submission, agent) {
+ 		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
+ 		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
+ 	} catch {}
+-	return submission.acceptedAt + timeoutMs;
++	return timeoutMs === 0 ? Number.POSITIVE_INFINITY : submission.acceptedAt + timeoutMs;
+ }
+ /**
+ * Settle a queued submission that can never be claimed — a durable abort on
+@@ -5113,6 +5272,10 @@ function unreadySubmissionDeadline(submission, agent) {
+ */
+ async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
+ 	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
++	emitUnclaimableSettlement(submission, outcome, error, emitCoordinatorEvent);
++	return true;
++}
++function emitUnclaimableSettlement(submission, outcome, error, emitCoordinatorEvent) {
+ 	const errorInfo = { errorInfo: classifyError(error) };
+ 	emitCoordinatorEvent({
+ 		type: "submission_settled",
+@@ -5126,8 +5289,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+ 		kind: submission.kind,
+ 		operation: "materialize_submission",
+ 		outcome: "terminated",
++		attemptCount: submission.attemptCount,
++		maxAttempts: submission.maxAttempts,
+ 		error: serializeSubmissionError(error)
+ 	}, errorInfo);
++}
++export async function recordUnreadySubmissionFailure(submissions, submission, agent, error, emitCoordinatorEvent) {
++	const expired = Date.now() >= unreadySubmissionDeadline(submission, agent);
++	if (!submissions.recordSubmissionPreparationFailure) {
++		return expired && await settleUnclaimableSubmission(submissions, submission, "failed", error, emitCoordinatorEvent);
++	}
++	let maxAttempts = DURABILITY_DEFAULT_MAX_ATTEMPTS;
++	try {
++		assertDurability(agent?.durability, `[agent "${submission.input.agent}"]`);
++		maxAttempts = agent?.durability?.maxAttempts ?? maxAttempts;
++	} catch {}
++	const exhausted = submission.attemptCount + 1 >= maxAttempts;
++	const terminalError = exhausted ? new SubmissionInterruptedError({
++		phase: "retry_exhausted_before_input",
++		attemptCount: submission.attemptCount + 1,
++		maxAttempts
++	}) : error;
++	const updated = await submissions.recordSubmissionPreparationFailure(submission.submissionId, submission.attemptCount, maxAttempts, terminalError, expired);
++	if (updated?.status !== "settled") return false;
++	emitUnclaimableSettlement(updated, "failed", terminalError, emitCoordinatorEvent);
+ 	return true;
+ }
+ /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
+@@ -5159,11 +5344,32 @@ async function processSubmission(opts) {
+ 		attemptCount: submission.attemptCount,
+ 		maxAttempts: submission.maxAttempts
+ 	});
++	// Explicit inputs stay under this execution's authority. The application
++	// owns their durable intake; Flue owns canonical application and recovery.
++	// Resolve inside the instrumented execution, where its resources exist.
++	let steeringSource;
++	const steeringIds = new Set();
++	const getSteeringSource = () => steeringSource ??= agent.steeringSource?.(input.submissionId);
++	const steeringRecords = async (method) => {
++		const source = getSteeringSource();
++		if (!source) return [];
++		return (await source[method]()).map((record) => {
++			if (record.input.agent !== input.agent || record.input.id !== input.id || record.targetSubmissionId !== input.submissionId || record.input.submissionId === input.submissionId) throw new Error("[flue] Steering input does not belong to the active execution.");
++			steeringIds.add(record.input.submissionId);
++			return { ...record, isSteering: true };
++		});
++	};
+ 	const joinSource = {
+-		claim: () => submissions.claimJoinableSubmissions(attempt, input.agent),
+-		finalize: (submissionId) => submissions.finalizeJoinedSubmission(attempt, submissionId),
+-		revert: (submissionId) => submissions.revertJoiningSubmission(attempt, submissionId),
+-		listUnresolved: () => submissions.listJoinedSubmissions(attempt.submissionId)
++		claim: async () => [
++			...await steeringRecords("claim"),
++			...agent.joinQueuedDeliveries === false ? [] : await submissions.claimJoinableSubmissions(attempt, input.agent)
++		],
++		finalize: (submissionId) => steeringIds.has(submissionId) ? getSteeringSource().finalize(submissionId) : submissions.finalizeJoinedSubmission(attempt, submissionId),
++		revert: (submissionId) => steeringIds.has(submissionId) ? getSteeringSource().revert(submissionId) : submissions.revertJoiningSubmission(attempt, submissionId),
++		listUnresolved: async () => [
++			...await steeringRecords("listUnresolved"),
++			...await submissions.listJoinedSubmissions(attempt.submissionId)
++		]
+ 	};
+ 	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
+ 		const handle = session.processSubmissionInput(input, {
+@@ -5193,17 +5399,7 @@ async function processSubmission(opts) {
+ 		return;
+ 	}
+ 	try {
+-		const run = () => interceptExecution({
+-			type: "agent",
+-			operationId: submission.submissionId,
+-			operationKind: "prompt"
+-		}, {
+-			instanceId: input.id,
+-			submissionId: submission.submissionId,
+-			agentName: input.agent,
+-			traceCarrier: input.traceCarrier
+-		}, execute);
+-		await run();
++		await execute();
+ 	} catch (error) {
+ 		if (opts.isShutdownAbort?.(error)) throw error;
+ 		if (opts.signal?.reason instanceof SubmissionAbortedError) {
+@@ -5223,7 +5419,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+ 	const ctx = createContext(input.submissionId);
+ 	let interruptedTools;
+ 	try {
+-		interruptedTools = await createAgentSubmissionSessionHandler(agent, input, (s) => s.recordSubmissionTerminal({
++		// The canonical settlement is the outcome, not the optional rendered
++		// advisory. A following live session repairs any interrupted tail before
++		// appending new input. Recovery must not prepare execution resources merely
++		// to record that this execution cannot run again.
++		if (!conversationWriter) interruptedTools = await createAgentSubmissionSessionHandler(agent, input, (s) => s.recordSubmissionTerminal({
+ 			submissionId: submission.submissionId,
+ 			kind: submission.kind,
+ 			reason,
+@@ -5257,10 +5457,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+ * through the two-phase outbox with `outcome: 'aborted'` — the durable
+ * terminal record a reconnecting waiter observes.
+ */
+-async function settleAbortedWithContext(submissions, submission, attempt, agent, ctx, conversationWriter, emitCoordinatorEvent) {
++async function settleAbortedWithContext(submissions, submission, attempt, agent, ctx, conversationWriter, emitCoordinatorEvent, options) {
+ 	const error = new SubmissionAbortedError();
+ 	try {
+-		await createAgentSubmissionSessionHandler(agent, submission.input, (s) => s.recordSubmissionTerminal({
++		if (options?.renderAdvisory !== false || !conversationWriter) await createAgentSubmissionSessionHandler(agent, submission.input, (s) => s.recordSubmissionTerminal({
+ 			submissionId: submission.submissionId,
+ 			kind: submission.kind,
+ 			reason: "aborted",
+diff --git a/dist/dispatch-BlxCz6iq.mjs b/dist/dispatch-BlxCz6iq.mjs
+index 94d0dc4..97e4867 100644
+--- a/dist/dispatch-BlxCz6iq.mjs
++++ b/dist/dispatch-BlxCz6iq.mjs
+@@ -1,9 +1,11 @@
+ import { $ as generateEntryId, D as StreamNotFoundError, J as toHttpResponse, K as parseJsonBody, O as StreamOffsetGoneError, V as configureErrorRendering, X as deriveKeyedSubmissionId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, f as HistoryCursorNotFoundError, ft as extractTraceCarrier, h as MethodNotAllowedError, m as InvalidRequestError, o as AttachmentNotFoundError, ot as generateRecordId, st as generateSubmissionId, y as RouteNotFoundError } from "./errors-BcRwz-UD.mjs";
+ import { n as getRuntimeModels } from "./providers-DnRSdXFS.mjs";
++import { COMPACTION_IMAGE_TOKENS } from "./working-context.mjs";
+ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
+ import { isContextOverflow } from "@earendil-works/pi-ai";
+ import * as v from "valibot";
+ import { Hono } from "hono";
++export { buildCanonicalActionEvidence, compact };
+ //#region src/conversation-records.ts
+ /**
+ * Signal types reserved as framework vocabulary: `dispatch()` admission and
+@@ -378,9 +380,14 @@ function toolResultOutput(content) {
+ function toolResultText(content) {
+ 	return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
+ }
+-function renderSignalMessage(message) {
++function renderSignalMessage(message, projectResourceSignal) {
+ 	const tagName = message.tagName ?? "signal";
+-	return `<${tagName}${[["type", message.type], ...Object.entries(message.attributes ?? {})].map(([name, value]) => ` ${escapeXmlAttribute(name ?? "")}="${escapeXmlAttribute(value ?? "")}"`).join("")}>\n${escapeXmlText(message.content)}\n</${tagName}>`;
++	// These reserved types cannot be supplied through dispatch or append.
++	// Ordinary user text, tool results, and summaries never enter this seam.
++	const content = projectResourceSignal && (message.type === "resources" || message.type === "environment")
++		? projectResourceSignal({ type: message.type, body: message.content, attributes: message.attributes })
++		: message.content;
++	return `<${tagName}${[["type", message.type], ...Object.entries(message.attributes ?? {})].map(([name, value]) => ` ${escapeXmlAttribute(name ?? "")}="${escapeXmlAttribute(value ?? "")}"`).join("")}>\n${escapeXmlText(content)}\n</${tagName}>`;
+ }
+ function escapeXmlText(value) {
+ 	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+@@ -945,7 +952,7 @@ function pathToContextEntries(path, options) {
+ 		const message = resolveMessageAttachments(entry, options);
+ 		if (message.role === "signal") {
+ 			messages.push({
+-				message: createUserContextMessage(renderSignalMessage(message), entry.timestamp),
++				message: createUserContextMessage(renderSignalMessage(message, options.projectResourceSignal), entry.timestamp),
+ 				sourceEntry: entry
+ 			});
+ 			index += 1;
+@@ -1730,6 +1737,7 @@ function estimateTokens(message) {
+ 			if (typeof content === "string") chars = content.length;
+ 			else if (Array.isArray(content)) {
+ 				for (const block of content) if (block.type === "text") chars += block.text.length;
++				else if (block.type === "image") chars += COMPACTION_IMAGE_TOKENS * 4;
+ 			}
+ 			return Math.ceil(chars / 4);
+ 		}
+@@ -1743,7 +1751,7 @@ function estimateTokens(message) {
+ 		case "toolResult": {
+ 			const { content } = message;
+ 			for (const block of content) if (block.type === "text") chars += block.text.length;
+-			else if (block.type === "image") chars += 4800;
++			else if (block.type === "image") chars += COMPACTION_IMAGE_TOKENS * 4;
+ 			return Math.ceil(chars / 4);
+ 		}
+ 	}
+@@ -1812,6 +1820,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
+ 	return `\n\n${sections.join("\n\n")}`;
+ }
+ const TOOL_RESULT_MAX_CHARS = 2e3;
++const CANONICAL_ACTION_EVIDENCE_MAX_CHARS = 24e3;
++const CANONICAL_ACTION_EVIDENCE_MAX_TOOLS = 128;
+ function truncateForSummary(text, maxChars) {
+ 	if (text.length <= maxChars) return text;
+ 	const truncatedChars = text.length - maxChars;
+@@ -1845,6 +1855,60 @@ function serializeConversation(messages) {
+ 	}
+ 	return parts.join("\n\n");
+ }
++function buildCanonicalActionEvidence(conversation) {
++	const byToolName = /* @__PURE__ */ new Map();
++	const record = (toolName, timestamp, kind) => {
++		let evidence = byToolName.get(toolName);
++		if (!evidence) {
++			evidence = {
++				calls: 0,
++				nonErrorResults: 0,
++				errorResults: 0,
++				firstAt: timestamp,
++				latestAt: timestamp
++			};
++			byToolName.set(toolName, evidence);
++		}
++		evidence[kind] += 1;
++		if (timestamp < evidence.firstAt) evidence.firstAt = timestamp;
++		if (timestamp > evidence.latestAt) evidence.latestAt = timestamp;
++	};
++	for (const entry of getActiveConversationPath(conversation)) {
++		if (entry.type !== "message") continue;
++		const timestamp = String(entry.timestamp);
++		const message = entry.message;
++		if (message.role === "assistant") {
++			for (const block of message.content) if (block.type === "toolCall" && block.name) record(block.name, timestamp, "calls");
++			continue;
++		}
++		if (message.role === "toolResult" && message.toolName) record(message.toolName, timestamp, message.isError ? "errorResults" : "nonErrorResults");
++	}
++	const ordered = [...byToolName.entries()].sort((left, right) => right[1].latestAt.localeCompare(left[1].latestAt) || left[0].localeCompare(right[0]));
++	if (ordered.length === 0) return "- (none)";
++	const visible = ordered.slice(0, CANONICAL_ACTION_EVIDENCE_MAX_TOOLS);
++	const lines = ["Scope: cumulative totals for the active conversation at this checkpoint, including calls whose original messages remain below. Those retained messages are the same events, not additional calls. Do not add their counts again or infer repeated execution from seeing both representations."];
++	let projectedChars = lines[0].length + 1;
++	let omitted = ordered.length - visible.length;
++	for (let index = 0; index < visible.length; index += 1) {
++		const [toolName, evidence] = visible[index];
++		const line = `- ${toolName}: calls=${evidence.calls}; non_error_results=${evidence.nonErrorResults}; error_results=${evidence.errorResults}; first=${evidence.firstAt}; latest=${evidence.latestAt}`;
++		if (projectedChars + line.length + 1 > CANONICAL_ACTION_EVIDENCE_MAX_CHARS) {
++			omitted += visible.length - index;
++			break;
++		}
++		lines.push(line);
++		projectedChars += line.length + 1;
++	}
++	if (omitted > 0) lines.push(`- (${omitted} older tool categories omitted from this bounded projection; canonical events remain durable.)`);
++	return lines.join("\n");
++}
++const CANONICAL_ACTION_EVIDENCE_HEADING = "## Canonical Action Evidence";
++function stripCanonicalActionEvidence(summary) {
++	if (!summary) return summary;
++	const marker = `\n\n${CANONICAL_ACTION_EVIDENCE_HEADING}\n`;
++	const markerIndex = summary.lastIndexOf(marker);
++	return (markerIndex < 0 ? summary : summary.slice(0, markerIndex)).trimEnd();
++}
+ const SUMMARIZATION_SYSTEM_PROMPT = "You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
+ const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+ 
+@@ -1857,36 +1921,45 @@ Use this EXACT format:
+ - [Any constraints, preferences, or requirements mentioned by user]
+ - [Or "(none)" if none were mentioned]
+ 
+-## Progress
+-### Done
+-- [x] [Completed tasks/changes]
++## Observed Facts
++- [Completed actions and other facts that actually occurred. Preserve time, checkpoint, target, and scope when known.]
+ 
+-### In Progress
+-- [ ] [Current work]
++## Current Status
++- [What is true now, including current work and blockers. Do not use current status to erase historical facts.]
+ 
+-### Blocked
+-- [Issues preventing progress, if any]
++## Pending Plan
++1. [Ordered future actions. A plan is not evidence that an action already happened.]
+ 
+ ## Key Decisions
+ - **[Decision]**: [Brief rationale]
+ 
+-## Next Steps
+-1. [Ordered list of what should happen next]
+-
+ ## Critical Context
+ - [Any data, examples, or references needed to continue]
+ - [Or "(none)" if not applicable]
+ 
+-Keep each section concise. Preserve exact file paths, function names, and error messages.`;
++Keep each section concise. Preserve exact file paths, function names, and error messages.
++
++Keep Observed Facts, Current Status, and Pending Plan strictly separate:
++- A later status or plan may supersede an earlier status or plan, but it must not erase an action that actually happened.
++- Preserve temporal and scope qualifiers. A statement that something has not happened after a named checkpoint must never become a claim that it has never happened.
++- Treat plans, intentions, and requested future actions as pending until later evidence says they occurred.
++- If new evidence explicitly corrects or conflicts with an observed fact, preserve the correction or conflict with its time and scope instead of silently choosing one version.
++
++The <canonical-action-evidence> block is a bounded projection rebuilt from durable conversation events. Use it to verify whether tool work historically occurred, but do not reproduce its heading; the runtime appends one authoritative evidence section mechanically.`;
+ const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
+ 
+ Update the existing structured summary with new information. RULES:
+ - PRESERVE all existing information from the previous summary
+ - ADD new progress, decisions, and context from the new messages
+-- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
+-- UPDATE "Next Steps" based on what was accomplished
++- UPDATE Current Status based on the newest evidence
++- UPDATE Pending Plan based on what was accomplished
+ - PRESERVE exact file paths, function names, and error messages
+-- If something is no longer relevant, you may remove it
++- REMOVE only superseded current status or plans. Never remove an observed fact merely because it is no longer current.
++- KEEP Observed Facts, Current Status, and Pending Plan strictly separate
++- A plan is not evidence that an action happened
++- Preserve temporal and scope qualifiers. "Not yet after checkpoint X" must never become "never happened."
++- If new evidence explicitly corrects or conflicts with an observed fact, record the correction or conflict with its time and scope instead of silently choosing one version
++- Use <canonical-action-evidence> to revalidate historical tool work, but do not reproduce its heading; the runtime appends that evidence mechanically
+ 
+ Use this EXACT format:
+ 
+@@ -1896,22 +1969,18 @@ Use this EXACT format:
+ ## Constraints & Preferences
+ - [Preserve existing, add new ones discovered]
+ 
+-## Progress
+-### Done
+-- [x] [Include previously done items AND newly completed items]
++## Observed Facts
++- [Preserve previously observed facts and add newly completed actions or other facts]
+ 
+-### In Progress
+-- [ ] [Current work - update based on progress]
++## Current Status
++- [What is true now, including current work and blockers]
+ 
+-### Blocked
+-- [Current blockers - remove if resolved]
++## Pending Plan
++1. [Future actions only; remove items once evidence shows they happened]
+ 
+ ## Key Decisions
+ - **[Decision]**: [Brief rationale] (preserve all previous, add new)
+ 
+-## Next Steps
+-1. [Update based on current state]
+-
+ ## Critical Context
+ - [Preserve important context, add new if needed]
+ 
+@@ -1924,12 +1993,18 @@ Summarize the prefix to provide context for the retained suffix:
+ [What did the user ask for in this turn?]
+ 
+ ## Early Progress
+-- [Key decisions and work done in the prefix]
++- [Observed facts: decisions and work that actually happened in the prefix]
++
++## Status at the Retained Suffix
++- [What was in progress or blocked at the boundary]
++
++## Pending Plan at the Retained Suffix
++- [Future actions only]
+ 
+ ## Context for Suffix
+ - [Information needed to understand the retained recent work]
+ 
+-Be concise. Focus on what's needed to understand the kept suffix.`;
++Be concise. Focus on what's needed to understand the kept suffix. Do not let pending work erase completed historical actions, and preserve time, checkpoint, target, and scope qualifiers.`;
+ /** Valid cut points: user or assistant messages. Never cut at toolResult. */
+ function findValidCutPoints(messages, start, end) {
+ 	const cutPoints = [];
+@@ -1958,10 +2033,10 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
+ 		const messageTokens = estimateTokens(message);
+ 		accumulatedTokens += messageTokens;
+ 		if (accumulatedTokens >= keepRecentTokens) {
+-			for (const cutPoint of cutPoints) if (cutPoint >= i) {
+-				cutIndex = cutPoint;
+-				break;
+-			}
++			// Pre-inference compaction can end on a large tool result. If there
++			// is no later message boundary, retain its issuing assistant and all
++			// paired results instead of falling back to the start of history.
++			cutIndex = cutPoints.find((cutPoint) => cutPoint >= i) ?? cutPoints.at(-1) ?? start;
+ 			break;
+ 		}
+ 	}
+@@ -2034,26 +2109,34 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+ 		observer.end(purpose, handle, void 0, error);
+ 		throw error;
+ 	}
+-	if (response.stopReason === "error") throw new Error(`${errorPrefix}: ${response.errorMessage || "Unknown error"}`);
++	if (response.stopReason !== "stop") throw new Error(`${errorPrefix}: ${response.errorMessage || `Incomplete summary (${response.stopReason})`}`);
++	const text = response.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
++	if (!text.trim()) throw new Error(`${errorPrefix}: Empty summary`);
+ 	return {
+-		text: response.content.filter((c) => c.type === "text").map((c) => c.text).join("\n"),
++		text,
+ 		usage: response.usage
+ 	};
+ }
+-async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, observer) {
+-	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), 16e3);
+-	const basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
++const WORKING_CONTEXT_SUMMARIZATION_PROMPT = `Create a concise working checkpoint for continuing the current task, incorporating the previous checkpoint if present.
++Use headings: Goal, Constraints & Preferences, Observed Facts, Current Status, Pending Plan, Key Decisions, Critical Context.
++Preserve active requirements, explicit limits on authority, unresolved work, corrections, and exact identifiers needed for the next action. Keep observed actions separate from current status and future plans. A later state must not turn "not since checkpoint X" into "never happened", nor turn a pending action into a completed one. Preserve the time and scope of corrections or conflicts.
++Do not copy the entire archive into the checkpoint. Older user and assistant messages remain in the canonical conversation and can be searched with recall_conversation. For large historical collections, retain distinctive literal search phrases or identifiers and explain what records exist, instead of enumerating every record. Keep task-critical facts directly in the checkpoint. For tool artifacts, retain the owning source reference or path and the authorized way to read it again; never imply recall_conversation returns tool payloads.
++Use <canonical-action-evidence> to check recorded tool work, but do not reproduce its heading; the runtime appends that bounded evidence section. Be brief enough to leave room for recent messages and new work.`;
++async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, maxSummaryTokens = 16e3, recallAvailable = false) {
++	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), maxSummaryTokens);
++	const basePrompt = recallAvailable ? WORKING_CONTEXT_SUMMARIZATION_PROMPT : previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
+ 	let promptText = `<conversation>\n${serializeConversation(currentMessages)}\n</conversation>\n\n`;
+-	if (previousSummary) promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
++	if (previousSummary) promptText += `<previous-summary>\n${stripCanonicalActionEvidence(previousSummary)}\n</previous-summary>\n\n`;
++	promptText += `<canonical-action-evidence>\n${canonicalActionEvidence}\n</canonical-action-evidence>\n\n`;
+ 	promptText += basePrompt;
+ 	return runSummarizationCall("compaction", promptText, maxTokens, model, signal, observer, "Summarization failed");
+ }
+-async function generateTurnPrefixSummary(messages, model, reserveTokens, signal, observer) {
+-	const maxTokens = Math.min(Math.floor(.5 * reserveTokens), 16e3);
++async function generateTurnPrefixSummary(messages, model, reserveTokens, signal, observer, maxSummaryTokens = 16e3) {
++	const maxTokens = Math.min(Math.floor(.5 * reserveTokens), maxSummaryTokens);
+ 	return runSummarizationCall("compaction_prefix", `<conversation>\n${serializeConversation(messages)}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`, maxTokens, model, signal, observer, "Turn prefix summarization failed");
+ }
+ async function compact(preparation, model, signal, observer) {
+-	const { messagesToSummarize, turnPrefixMessages, isSplitTurn, tokensBefore, previousSummary, fileOps, settings } = preparation;
++	const { messagesToSummarize, turnPrefixMessages, isSplitTurn, tokensBefore, previousSummary, canonicalActionEvidence = "- (none)", fileOps, settings } = preparation;
+ 	let summary;
+ 	let aggregateUsage;
+ 	const addCallUsage = (usage) => {
+@@ -2061,19 +2144,28 @@ async function compact(preparation, model, signal, observer) {
+ 		if (!normalized) return;
+ 		aggregateUsage = aggregateUsage ? addUsage(aggregateUsage, normalized) : normalized;
+ 	};
+-	if (isSplitTurn && turnPrefixMessages.length > 0) {
+-		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, observer) : Promise.resolve({
++	if (settings.recallAvailable) {
++		// One bounded checkpoint owns both earlier history and the current turn.
++		// A second independent prefix summary doubles maintenance and can lose
++		// the relationship between prior findings and the unfinished request.
++		const result = await generateSummary([...messagesToSummarize, ...turnPrefixMessages], model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, true);
++		addCallUsage(result.usage);
++		summary = result.text;
++	} else if (isSplitTurn && turnPrefixMessages.length > 0) {
++		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, settings.recallAvailable) : Promise.resolve({
+ 			text: "No prior history.",
+ 			usage: void 0
+-		}), generateTurnPrefixSummary(turnPrefixMessages, model, settings.reserveTokens, signal, observer)]);
++		}), generateTurnPrefixSummary(turnPrefixMessages, model, settings.reserveTokens, signal, observer, settings.maxSummaryTokens)]);
+ 		addCallUsage(historyResult.usage);
+ 		addCallUsage(turnPrefixResult.usage);
+ 		summary = `${historyResult.text}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
+ 	} else {
+-		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, observer);
++		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, settings.recallAvailable);
+ 		addCallUsage(historyResult.usage);
+ 		summary = historyResult.text;
+ 	}
++	summary = stripCanonicalActionEvidence(summary);
++	summary += `\n\n${CANONICAL_ACTION_EVIDENCE_HEADING}\n${canonicalActionEvidence}`;
+ 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
+ 	summary += formatFileOperations(readFiles, modifiedFiles);
+ 	return {
+@@ -2421,6 +2513,17 @@ function supersededAssistantErrorEntryIds(conversation) {
+ 	}
+ 	return superseded;
+ }
++export function projectSubmissionRetryTextPrefix(conversation, submissionId) {
++	const previous = getActiveConversationPath(conversation).findLast((entry) => entry.type === "message" && entry.message.role === "assistant" && entry.submissionId === submissionId);
++	if (previous?.message.stopReason !== "error") return void 0;
++	// Use the same projection as the official conversation-reset protocol,
++	// after the replacement's start record made the failed step superseded.
++	// Select this submission explicitly; never fall back to another response.
++	const response = projectConversationUi(conversation, "-1").messages.find((message) => message.role === "assistant" && message.submissionId === submissionId);
++	if (!response) throw new Error("[flue] Retried submission has no canonical response projection.");
++	const text = response.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n\n");
++	return text ? `${text}\n\n` : "";
++}
+ function projectConversationUi(conversation, streamOffset) {
+ 	const messages = [];
+ 	const byId = /* @__PURE__ */ new Map();
+@@ -3129,6 +3232,44 @@ async function readSubmissionReply(options) {
+ 	};
+ 	return replyFromSnapshot(snapshot, options.submissionId);
+ }
++export function collectRecordedSubmissionMetadata(conversation, submissionId) {
++	const steps = [...conversation.entries.values()].filter((entry) => entry.type === "message" && entry.submissionId === submissionId && entry.message.role === "assistant");
++	let usage;
++	for (const step of steps) {
++		const recorded = fromProviderUsage(step.message.usage);
++		if (recorded) usage = usage ? addUsage(usage, recorded) : recorded;
++	}
++	const lastModel = steps.findLast((step) => typeof step.message.model === "string")?.message;
++	return {
++		...lastModel ? { model: { id: lastModel.model, ...typeof lastModel.provider === "string" ? { provider: lastModel.provider } : {} } } : {},
++		...usage ? { usage } : {}
++	};
++}
++export async function readSubmissionTerminalProjection(store, path, submission) {
++	if (submission.status !== "settled") return {};
++	const state = await getConversationFoldHost(store, path).getStateAtHead();
++	const settlement = state.recordsById.get(`record_${submission.kind}-submission:${submission.submissionId}:settled`);
++	if (settlement?.type !== "submission_settled" || settlement.submissionId !== submission.submissionId) return {};
++	const conversation = state.conversations.get(settlement.conversationId);
++	if (!conversation) return {};
++	const terminalMetadata = { submissionId: submission.submissionId, ...collectRecordedSubmissionMetadata(conversation, submission.submissionId) };
++	// Consumption is independent of success. Never expose failed draft text as
++	// completed output, even when an earlier assistant step finished normally.
++	if (submission.error || settlement.outcome !== "completed" || [...conversation.inProgressMessages.values()].some((message) => message.submissionId === submission.submissionId)) return { terminalMetadata };
++	// Materialized entries retain the recorded usage after the settle barrier
++	// replaces attempt-scoped records with dedupe stubs. Never reconstruct a
++	// terminal answer from transient deltas or a different submission's reply.
++	const steps = [...conversation.entries.values()].filter((entry) => entry.type === "message" && entry.submissionId === submission.submissionId && entry.message.role === "assistant");
++	const final = steps.at(-1)?.message;
++	if (!final || final.stopReason === "error" || final.stopReason === "aborted") return { terminalMetadata };
++	return {
++		terminalMetadata,
++		completedOutput: {
++			...terminalMetadata,
++			text: final.content.filter((block) => block.type === "text").map((block) => block.text).join("\n")
++		}
++	};
++}
+ /**
+ * Extract a submission's reply from a materialized conversation snapshot.
+ * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
+@@ -3182,9 +3323,14 @@ function assertThinkingLevel(value, label) {
+ function assertCompaction(definition, label) {
+ 	if (definition === void 0 || definition === false) return;
+ 	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
+-	for (const key of Object.keys(definition)) if (key !== "reserveTokens" && key !== "keepRecentTokens" && key !== "model") throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
++	for (const key of Object.keys(definition)) if (!["reserveTokens", "keepRecentTokens", "model", "workingContextTokens", "workingContextHeadroomTokens", "maxSummaryTokens", "reduceToolResultPreviews"].includes(key)) throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
++	if (definition.reduceToolResultPreviews !== undefined && typeof definition.reduceToolResultPreviews !== "function") throw new Error(`[flue] ${label} compaction.reduceToolResultPreviews must be a function.`);
+ 	assertTokenCount(definition.reserveTokens, `${label} compaction.reserveTokens`);
+ 	assertTokenCount(definition.keepRecentTokens, `${label} compaction.keepRecentTokens`);
++	assertPositiveInteger(definition.workingContextTokens, `${label} compaction.workingContextTokens`);
++	assertTokenCount(definition.workingContextHeadroomTokens, `${label} compaction.workingContextHeadroomTokens`);
++	if (definition.workingContextHeadroomTokens !== undefined && !(definition.workingContextTokens > definition.workingContextHeadroomTokens)) throw new Error(`[flue] ${label} working-context headroom must be smaller than its limit.`);
++	assertPositiveInteger(definition.maxSummaryTokens, `${label} compaction.maxSummaryTokens`);
+ 	if (definition.model !== void 0 && typeof definition.model !== "string") throw new Error(`[flue] ${label} compaction.model must be a string.`);
+ }
+ function assertDurability(definition, label) {
+@@ -3192,7 +3338,7 @@ function assertDurability(definition, label) {
+ 	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
+ 	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
+ 	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);
+-	assertPositiveInteger(definition.timeoutMs, `${label} durability.timeoutMs`);
++	if (definition.timeoutMs !== 0) assertPositiveInteger(definition.timeoutMs, `${label} durability.timeoutMs`);
+ }
+ function assertPositiveInteger(value, label) {
+ 	if (value === void 0) return;
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index fc3312a..810628f 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -8,6 +8,7 @@ import { h as ConversationStreamChunk, i as bash, l as isDynamicModel, n as Sand
+ import { i as __flueBindAgentModule, n as AgentIdentityBinding } from "./registration-BPi7JRaO.mjs";
+ import { t as defineTool } from "./tool-DOTGgO1a.mjs";
+ import { Type } from "@earendil-works/pi-ai";
++export type { AgentSteeringInput, AgentSteeringSource } from "./types-B1PuLhZt.mjs";
+ import * as v from "valibot";
+ import { Env, Handler, Hono } from "hono";
+ import { AgentTool } from "@earendil-works/pi-agent-core";
+diff --git a/dist/internal.d.mts b/dist/internal.d.mts
+index 4ec5f1d..df0484f 100644
+--- a/dist/internal.d.mts
++++ b/dist/internal.d.mts
+@@ -6,6 +6,7 @@ import { F as toHttpResponse, P as configureErrorRendering, m as RuntimeUnavaila
+ import { r as agentStreamPath } from "./stream-offsets-sRUtb-M2.mjs";
+ import { a as runWithInstrumentationOwner, n as InstrumentationOwner, r as createInstrumentationOwner } from "./instrumentation-AVC-Q5Hv.mjs";
+ import { i as createCloudflareAgentRuntime, n as CLOUDFLARE_AGENT_INTERNAL_INSTANCE_INFO_PATH, t as CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH } from "./agent-coordinator-aVoFZ4h5.mjs";
++export type { AgentSubmissionProjection } from "./agent-coordinator-aVoFZ4h5.mjs";
+ import { a as configureFlueRuntime, c as RuntimeActivityGate, i as NodeRuntime, l as RuntimeActivityLease, n as CloudflareRuntime, r as FlueRuntime, u as createRuntimeActivityGate } from "./flue-app-NZ3KZYXC.mjs";
+ import { a as bashFactoryToSandbox, c as hasProvider, d as resetModelsForTests, f as resolveModel, g as ConversationStreamWireChunk, h as ConversationStreamChunk, m as AgentConversationSnapshot, p as setProvider, u as registerBuiltinProviderModule } from "./sandbox-BSDnM6Na.mjs";
+ import { c as resetFlueAgentRegistrationForTests, l as resolveAgentIdentity, o as getRegisteredFlueAgents, r as FlueAgentRegistration, s as registerFlueAgents, t as AGENT_IDENTITY_PATTERN, u as resolveAgentInitialDataSchema } from "./registration-BPi7JRaO.mjs";
+diff --git a/dist/sql-agent-execution-store-C0vwyWZB.mjs b/dist/sql-agent-execution-store-C0vwyWZB.mjs
+index 8d022fc..1be99af 100644
+--- a/dist/sql-agent-execution-store-C0vwyWZB.mjs
++++ b/dist/sql-agent-execution-store-C0vwyWZB.mjs
+@@ -396,6 +396,21 @@ var AgentSubmissionStoreImpl = class {
+ 				 RETURNING ${submissionColumns}`, Date.now(), submissionId).toArray()[0];
+ 		return row ? this.parseSubmission(row) : null;
+ 	}
++	async recordSubmissionPreparationFailure(submissionId, expectedAttemptCount, maxAttempts, error, expired = false) {
++		if (!Number.isInteger(expectedAttemptCount) || expectedAttemptCount < 0 || !Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error("[flue] Invalid submission preparation budget.");
++		const terminal = expired || expectedAttemptCount + 1 >= maxAttempts;
++		const row = this.sql.exec(`UPDATE flue_agent_submissions
++			 SET attempt_count = attempt_count + 1, max_attempts = ?,
++			     status = ?, settled_at = ?, error = ?
++			 WHERE submission_id = ? AND status = 'queued'
++			   AND canonical_ready_at IS NULL AND abort_requested_at IS NULL AND attempt_count = ?
++			 RETURNING ${submissionColumns}`,
++			maxAttempts, terminal ? "settled" : "queued",
++			terminal ? Date.now() : null,
++			terminal ? error instanceof Error ? error.message : String(error) : null,
++			submissionId, expectedAttemptCount).toArray()[0];
++		return row ? this.parseSubmission(row) : null;
++	}
+ 	async hasUnsettledSubmissions() {
+ 		return this.sql.exec(`SELECT 1
+ 					 FROM flue_agent_submissions
+@@ -485,6 +500,12 @@ var AgentSubmissionStoreImpl = class {
+ 				 WHERE session_key = ? AND status IN ('queued', 'running', 'joining', 'joined')
+ 				 RETURNING submission_id`, Date.now(), sessionKey).toArray().map((row) => String(row.submission_id));
+ 	}
++	async requestSubmissionAbort(submissionId) {
++		return this.sql.exec(`UPDATE flue_agent_submissions
++			SET abort_requested_at = COALESCE(abort_requested_at, ?)
++			WHERE submission_id = ? AND status IN ('queued', 'running')
++			RETURNING submission_id`, Date.now(), submissionId).toArray().length > 0;
++	}
+ 	async requeueSubmission(attempt) {
+ 		return this.sql.exec(`UPDATE flue_agent_submissions
+ 					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
+diff --git a/dist/types-B1PuLhZt.d.mts b/dist/types-B1PuLhZt.d.mts
+index 8c2299c..a579ea5 100644
+--- a/dist/types-B1PuLhZt.d.mts
++++ b/dist/types-B1PuLhZt.d.mts
+@@ -562,6 +562,16 @@ interface FlueFs {
+   }): Promise<void>;
+ }
+ interface CompactionConfig {
++  /** Optional authorized replacement text for older tool results under budget pressure.
++   * Flue protects the recent tail and retains canonical originals for summaries/replay.
++   */
++  reduceToolResultPreviews?: (results: readonly LlmToolResultMessage[], signal?: AbortSignal) => Promise<ReadonlyMap<string, string>>;
++  /** OpenMeld: estimated total working context checked before each model call. */
++  workingContextTokens?: number;
++  /** Space reserved for new work when selecting the recent tail. */
++  workingContextHeadroomTokens?: number;
++  /** OpenMeld: independent per-summary output ceiling, including reasoning. */
++  maxSummaryTokens?: number;
+   /**
+    * Token headroom to reserve in the context window. Compaction triggers
+    * when used tokens exceed `contextWindow - reserveTokens`.
+@@ -606,6 +616,7 @@ interface DurabilityConfig {
+   timeoutMs?: number;
+ }
+ interface AgentConfig {
++  modelRetry?: AgentStatics["modelRetry"];
+   /** Discovered at runtime from AGENTS.md + .agents/skills/ in the session's cwd. */
+   systemPrompt: string;
+   /** Agent instructions prepended ahead of discovered workspace context. */
+@@ -766,7 +777,47 @@ interface AgentProps {
+  * IssueTriage.durability = { maxAttempts: 5, timeoutMs: 7_200_000 };
+  * ```
+  */
++interface AgentSteeringInput {
++  targetSubmissionId: string;
++  status: "joining" | "joined";
++  input: {
++    kind: "dispatch";
++    submissionId: string;
++    agent: string;
++    id: string;
++    acceptedAt: string;
++    message: DeliveredMessageInput;
++  };
++}
++interface AgentSteeringSource {
++  claim(): Promise<AgentSteeringInput[]>;
++  listUnresolved(): Promise<AgentSteeringInput[]>;
++  finalize(inputId: string): Promise<unknown>;
++  revert(inputId: string): Promise<unknown>;
++}
++export type { AgentSteeringInput, AgentSteeringSource };
+ interface AgentStatics {
++  /** Bounded transient model recovery within the canonical submission. */
++  modelRetry?: { maxRetries: number; baseDelayMs: number; maxDelayMs: number };
++  /**
++   * Model-only presentation of trusted framework resource signals. Does not
++   * change canonical history or grant tools. Applied on live delivery, replay,
++   * and compaction before signal provenance is flattened into user messages.
++   */
++  projectResourceSignal?: (signal: {
++    type: "resources" | "environment";
++    body: string;
++    attributes?: Readonly<Record<string, string>>;
++  }) => string;
++  /** Disable absorption of independently admitted deliveries. */
++  joinQueuedDeliveries?: boolean;
++  /**
++   * Exact-execution input seam. Called inside submission instrumentation.
++   * Inputs are durably accepted and authorized by the application, never
++   * separate executions. Flue appends them to its canonical context before
++   * acknowledging application. Pending records must survive recovery.
++   */
++  steeringSource?: (submissionId: string) => AgentSteeringSource;
+   /**
+    * The agent's durable identity — keys conversation storage everywhere and
+    * the Durable Object class on Cloudflare. Defaults to the function's own
+@@ -1308,6 +1359,13 @@ type FlueEventVariant = {
+ } | {
+   type: 'text_delta';
+   text: string;
++  /**
++   * On the first text delta replacing a failed assistant step, the official
++   * canonical visible-text prefix for this submission. Replace the old
++   * accumulated text with this prefix before appending text. Empty is a real
++   * reset. Not emitted for ordinary model turns; contains no reasoning/tools.
++   */
++  textPrefix?: string;
+ } | {
+   type: 'thinking_start';
+   contentIndex?: number;
+@@ -1368,6 +1426,7 @@ type FlueEventVariant = {
+   estimatedTokens: number;
+ } | {
+   type: 'compaction';
++  workingContext?: { beforeTokens: number; afterTokens: number; fixedTokens: number; targetTokens: number; limitTokens: number };
+   messagesBefore: number;
+   messagesAfter: number;
+   durationMs: number;
+@@ -1504,4 +1563,4 @@ type AttachedAgentEvent = FlueEvent & {
+ type FlueEventInputCallback = (event: FlueEventInput, observation?: FlueObservationDetail) => void | Promise<void>;
+ type FlueEventCallback = (event: FlueEvent) => void | Promise<void>;
+ //#endregion
+-export { RegisteredSkill as $, LlmAssistantMessage as A, ModelRequest as B, FlueEventInputCallback as C, ToolStep as Ct, FlueObservation as D, McpTransport as Dt, FlueLogger as E, McpToolAnnotations as Et, LlmTool as F, PackagedSkillFile as G, ModelRequestInput as H, LlmToolCall as I, PromptModel as J, PromptDocument as K, LlmToolResultMessage as L, LlmMessage as M, LlmTextContent as N, FlueObservationDetail as O, McpUnavailableConnection as Ot, LlmThinkingContent as P, PromptUsage as Q, LlmTurnPurpose as R, FlueEventInput as S, ToolRunEnvelope as St, FlueHarness as T, McpConnectionDefinition as Tt, ModelResponse as U, ModelRequestInfo as V, PackagedSkillDirectory as W, PromptResponse as X, PromptOptions as Y, PromptResultResponse as Z, DurabilityConfig as _, ToolDefinition as _t, AgentProps as a, SessionToolFactory as at, FlueEventCallback as b, ToolOutput as bt, AttachedAgentEvent as c, ShellResult as ct, CallHandle as d, SkillOptions as dt, Sandbox as et, CompactionConfig as f, SkillReference as ft, DispatchReceipt as g, ToolContext as gt, DeliveredMessageInput as h, ThinkingLevel as ht, AgentFunction as i, SessionEnv as it, LlmImageContent as j, FlueSession as k, BashFactory as l, Skill as lt, DeliveredMessage as m, TaskOptions as mt, AgentConfig as n, SandboxToolFactory as nt, AgentRuntimeConfig as o, SessionToolFactoryOptions as ot, DeliveredAttachment as p, SubagentDefinition as pt, PromptImage as q, AgentDispatchRequest as r, SandboxToolFactoryOptions as rt, AgentStatics as s, ShellOptions as st, Agent$1 as t, SandboxFactory as tt, BashLike as u, SkillDefinition as ut, FileStat as v, ToolInput as vt, FlueFs as w, McpAuth as wt, FlueEventContext as x, ToolOutputSchema as xt, FlueEvent as y, ToolInputSchema as yt, LlmUserMessage as z };
+\ No newline at end of file
++export { RegisteredSkill as $, LlmAssistantMessage as A, ModelRequest as B, FlueEventInputCallback as C, ToolStep as Ct, FlueObservation as D, McpTransport as Dt, FlueLogger as E, McpToolAnnotations as Et, LlmTool as F, PackagedSkillFile as G, ModelRequestInput as H, LlmToolCall as I, PromptModel as J, PromptDocument as K, LlmToolResultMessage as L, LlmMessage as M, LlmTextContent as N, FlueObservationDetail as O, McpUnavailableConnection as Ot, LlmThinkingContent as P, PromptUsage as Q, LlmTurnPurpose as R, FlueEventInput as S, ToolRunEnvelope as St, FlueHarness as T, McpConnectionDefinition as Tt, ModelResponse as U, ModelRequestInfo as V, PackagedSkillDirectory as W, PromptResponse as X, PromptOptions as Y, PromptResultResponse as Z, DurabilityConfig as _, ToolDefinition as _t, AgentProps as a, SessionToolFactory as at, FlueEventCallback as b, ToolOutput as bt, AttachedAgentEvent as c, ShellResult as ct, CallHandle as d, SkillOptions as dt, Sandbox as et, CompactionConfig as f, SkillReference as ft, DispatchReceipt as g, ToolContext as gt, DeliveredMessageInput as h, ThinkingLevel as ht, AgentFunction as i, SessionEnv as it, LlmImageContent as j, FlueSession as k, BashFactory as l, Skill as lt, DeliveredMessage as m, TaskOptions as mt, AgentConfig as n, SandboxToolFactory as nt, AgentRuntimeConfig as o, SessionToolFactoryOptions as ot, DeliveredAttachment as p, SubagentDefinition as pt, PromptImage as q, AgentDispatchRequest as r, SandboxToolFactoryOptions as rt, AgentStatics as s, ShellOptions as st, Agent$1 as t, SandboxFactory as tt, BashLike as u, SkillDefinition as ut, FileStat as v, ToolInput as vt, FlueFs as w, McpAuth as wt, FlueEventContext as x, ToolOutputSchema as xt, FlueEvent as y, ToolInputSchema as yt, LlmUserMessage as z };
+diff --git a/dist/working-context.mjs b/dist/working-context.mjs
+new file mode 100644
+index 0000000..ccf43ca
+--- /dev/null
++++ b/dist/working-context.mjs
+@@ -0,0 +1,28 @@
++// Keep the native compactor's image heuristic in one place. This is an
++// economic projection, not vendor tokenization or physical image admission.
++export const COMPACTION_IMAGE_TOKENS = 1200;
++
++export function measureWorkingContext(input) {
++  let imageTokens = 0;
++  // Pi 0.87 carries system/tools declarations in messages. When the current
++  // fixed context is supplied separately, count it once instead of twice.
++  const messages = input.messages.filter((message) => message.role !== "system" || (input.systemPrompt === undefined && input.tools === undefined)).map((message) => {
++    const { role, content, toolCallId, toolName, isError } = message;
++    const visible = { role, content, toolCallId, toolName, isError };
++    if (!Array.isArray(content)) return visible;
++    return {
++      ...visible,
++      content: content.map((block) => {
++        if (block.type !== "image") return block;
++        imageTokens += COMPACTION_IMAGE_TOKENS;
++        return { type: "image", mimeType: block.mimeType };
++      })
++    };
++  });
++  return Math.ceil(new TextEncoder().encode(JSON.stringify({ ...input, messages })).byteLength / 4) + imageTokens;
++}
++
++export function workingContextBudget(input, limit, headroom = 0) {
++  const fixedTokens = measureWorkingContext({ ...input, messages: [] });
++  return { limitTokens: limit, targetTokens: limit - headroom, fixedTokens };
++}

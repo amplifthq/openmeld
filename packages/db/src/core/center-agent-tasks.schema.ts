@@ -1,16 +1,16 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   check,
   index,
-  integer,
   primaryKey,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const centerAgentTasks = sqliteTable(
+export const centerAgentTasks = applicationTable(
   "center_agent_tasks",
   {
     id: text("id").primaryKey(),
@@ -27,11 +27,13 @@ export const centerAgentTasks = sqliteTable(
     originDestinationJson: text("origin_destination_json"),
     originAttributionJson: text("origin_attribution_json"),
     status: text("status").default("queued").notNull(),
-    activeAttemptGeneration: integer("active_attempt_generation"),
-    version: integer("version").default(1).notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    finishedAtMs: integer("finished_at_ms"),
+    activeAttemptGeneration: bigint("active_attempt_generation", {
+      mode: "number",
+    }),
+    version: bigint("version", { mode: "number" }).default(1).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    finishedAtMs: bigint("finished_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("center_agent_tasks_org_requester_idempotency_unique").on(
@@ -57,11 +59,11 @@ export const centerAgentTasks = sqliteTable(
     check(
       "center_agent_tasks_origin_check",
       sql`("origin_kind" = 'open_meld' and "origin_destination_json" is null)
-        or ("origin_kind" = 'message_channel' and "origin_destination_json" is not null and json_valid("origin_destination_json"))`
+        or ("origin_kind" = 'message_channel' and "origin_destination_json" is not null and ("origin_destination_json" is json))`
     ),
     check(
       "center_agent_tasks_origin_attribution_check",
-      sql`"origin_attribution_json" is null or json_valid("origin_attribution_json")`
+      sql`"origin_attribution_json" is null or ("origin_attribution_json" is json)`
     ),
     check(
       "center_agent_tasks_active_generation_check",
@@ -99,7 +101,7 @@ export const centerAgentTasks = sqliteTable(
 // Task owns this current-read authorization projection. Inbox and other
 // consumers may join it, but they never reconstruct Task access from copied
 // source metadata or private Task rows.
-export const centerAgentTaskAuthorizedReaders = sqliteTable(
+export const centerAgentTaskAuthorizedReaders = applicationTable(
   "center_agent_task_authorized_readers",
   {
     taskId: text("task_id").notNull(),
@@ -110,7 +112,7 @@ export const centerAgentTaskAuthorizedReaders = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     accessScope: text("access_scope").default("requester_private").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.taskId, table.userId] }),
@@ -130,7 +132,7 @@ export const centerAgentTaskAuthorizedReaders = sqliteTable(
   ]
 );
 
-export const centerAgentTaskAttempts = sqliteTable(
+export const centerAgentTaskAttempts = applicationTable(
   "center_agent_task_attempts",
   {
     id: text("id").primaryKey(),
@@ -141,15 +143,15 @@ export const centerAgentTaskAttempts = sqliteTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     idempotencyKey: text("idempotency_key").notNull(),
-    generation: integer("generation").notNull(),
+    generation: bigint("generation", { mode: "number" }).notNull(),
     executionTaskKey: text("execution_task_key").notNull(),
     taskHandleJson: text("task_handle_json").notNull(),
     status: text("status").default("queued").notNull(),
     failureCode: text("failure_code"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    startedAtMs: integer("started_at_ms"),
-    finishedAtMs: integer("finished_at_ms"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
+    finishedAtMs: bigint("finished_at_ms", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("center_agent_task_attempts_task_generation_unique").on(
@@ -190,7 +192,7 @@ export const centerAgentTaskAttempts = sqliteTable(
   ]
 );
 
-export const centerAgentTaskAdmissionOutbox = sqliteTable(
+export const centerAgentTaskAdmissionOutbox = applicationTable(
   "center_agent_task_admission_outbox",
   {
     taskId: text("task_id")
@@ -199,7 +201,9 @@ export const centerAgentTaskAdmissionOutbox = sqliteTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    attemptGeneration: integer("attempt_generation").notNull(),
+    attemptGeneration: bigint("attempt_generation", {
+      mode: "number",
+    }).notNull(),
     deliveryId: text("delivery_id").notNull(),
     operationIdempotencyKey: text("operation_idempotency_key").notNull(),
     taskEventId: text("task_event_id").notNull(),
@@ -208,11 +212,13 @@ export const centerAgentTaskAdmissionOutbox = sqliteTable(
     parentKind: text("parent_kind").notNull(),
     parentId: text("parent_id").notNull(),
     state: text("state").default("pending").notNull(),
-    attemptCount: integer("attempt_count").default(0).notNull(),
-    lastAttemptAtMs: integer("last_attempt_at_ms"),
+    attemptCount: bigint("attempt_count", { mode: "number" })
+      .default(0)
+      .notNull(),
+    lastAttemptAtMs: bigint("last_attempt_at_ms", { mode: "number" }),
     lastFailureCode: text("last_failure_code"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("center_agent_task_admission_outbox_task_attempt_unique").on(
@@ -254,7 +260,7 @@ export const centerAgentTaskAdmissionOutbox = sqliteTable(
   ]
 );
 
-export const centerAgentTaskEvents = sqliteTable(
+export const centerAgentTaskEvents = applicationTable(
   "center_agent_task_events",
   {
     id: text("id").primaryKey(),
@@ -265,12 +271,12 @@ export const centerAgentTaskEvents = sqliteTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     idempotencyKey: text("idempotency_key").notNull(),
-    attemptGeneration: integer("attempt_generation"),
+    attemptGeneration: bigint("attempt_generation", { mode: "number" }),
     kind: text("kind").notNull(),
     actor: text("actor").notNull(),
     text: text("text").notNull(),
-    occurredAtMs: integer("occurred_at_ms").notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
+    occurredAtMs: bigint("occurred_at_ms", { mode: "number" }).notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("center_agent_task_events_task_idempotency_unique").on(

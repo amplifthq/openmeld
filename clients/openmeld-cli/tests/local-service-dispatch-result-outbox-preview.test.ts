@@ -60,6 +60,15 @@ vi.mock("../src/space/meta-api", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/config/resolve-openmeld-profile", () => ({
+  requireOpenMeldProfile: async () => ({
+    openMeldProfileId: "agent-profile-1",
+    profileKind: "agent",
+    ownerUserId: "owner-1",
+    profileName: "Agent",
+  }),
+}));
+
 vi.mock("../src/space/updates-api", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/space/updates-api")>();
@@ -102,7 +111,6 @@ vi.mock("../src/provider-hosts/prepare-provider-runtime", () => ({
 }));
 
 const tempDirs: string[] = [];
-const CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS = 15_000;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -136,6 +144,7 @@ function createAcceptedSettlementSocket(input: {
   ledgerPaths: LedgerPaths;
   presenter: Presenter;
   reviewFirst?: boolean;
+  beforeResult?: () => void;
 }): { send: ReturnType<typeof vi.fn> } {
   let acknowledgementQueued = false;
   return {
@@ -152,6 +161,7 @@ function createAcceptedSettlementSocket(input: {
       ) {
         return;
       }
+      input.beforeResult?.();
       acknowledgementQueued = true;
       queueMicrotask(() => {
         acknowledgeDispatchResultOutboxRecord({
@@ -706,6 +716,94 @@ describe("dispatch result outbox around preview teardown", () => {
           (event) => event.code === "daemon.run.control_registry_synced"
         ).length
       ).toBeGreaterThanOrEqual(6);
+    });
+  });
+
+  it("reports Custom config as the reason a scoped Codex task cannot start", async () => {
+    await withTempHome(async (home) => {
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
+      const workingDirectory = join(home, "custom-config-workspace");
+      mkdirSync(workingDirectory, { recursive: true });
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: workingDirectory,
+      };
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        status: "ready",
+      });
+      prepareProviderRuntimeMock.mockResolvedValue({
+        envOverrides: undefined,
+        preparationDetails: { kind: "none" },
+        runtimeContext,
+      });
+      const deliverRequest = createDeliverRequest();
+      deliverRequest.payload.transportMode = "codex-app-server";
+      deliverRequest.payload.executionContext = {
+        version: 1,
+        id: "22222222-2222-4222-8222-222222222222",
+        access: "workspace",
+        workspace: "current",
+        nativeConversationId: null,
+        runtimeWorkspaceFingerprint: null,
+        scope: {
+          organizationId: "org-1",
+          requesterProfileId: "user-profile-1",
+          spaceId: "space-1",
+          targetProfileId: "agent-profile-1",
+          threadId: null,
+        },
+      };
+      const routes = createCurrentRouteByProfileId(workingDirectory);
+      const route = routes.get("agent-profile-1");
+      if (!route) {
+        throw new Error("Expected route fixture");
+      }
+      route.transportMode = "codex-app-server";
+      route.agentControllerPermissionMode = "codex:customConfig";
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath: join(home, "computer-policy.json"),
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest,
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({
+            adapter: {
+              verifyComputerFileAccessBoundary: async () => ({
+                reasonCode: "computer.file_access.controller_unsupported",
+                supported: false,
+              }),
+            },
+          }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: routes,
+        socket,
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "execution_context.custom_config_file_access_unverified",
+        result: "failed",
+      });
+      expect(readSentTaskResultPayload(socket)).toMatchObject({
+        errorCode: "execution_context.custom_config_file_access_unverified",
+        status: "failed",
+      });
+      expect(runRuntimeTaskMock).not.toHaveBeenCalled();
     });
   });
 
@@ -1456,13 +1554,15 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("publishes a legacy CLI action while retaining carrier ownership until its runtime ends", async () => {
+  it("retains a legacy CLI proposal and carrier ownership until the native turn completes", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
+      let nativeTurnCompleted = false;
       const settlementSocket = createAcceptedSettlementSocket({
         ledgerPaths,
         presenter,
+        beforeResult: () => expect(nativeTurnCompleted).toBe(true),
       });
       const socket = settlementSocket as never;
       const currentSocketRef: CurrentDaemonSocketRef = {
@@ -1538,18 +1638,19 @@ describe("dispatch result outbox around preview teardown", () => {
         return result;
       });
       try {
-        await vi.waitFor(
-          () => {
-            expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
-              status: "success",
-              spaceActionProvenance: "cli_action",
-            });
-          },
-          { timeout: CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS }
-        );
+        await vi.waitFor(() => {
+          expect(presenter.events).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                code: "daemon.run.cli_space_action_finalized",
+              }),
+            ])
+          );
+        });
         expect(carrierReleased).toBe(false);
         expect(currentSocketRef.reasoningPreferenceListeners?.size).toBe(1);
       } finally {
+        nativeTurnCompleted = true;
         finishRuntime(createRuntimeSuccessResult());
       }
       const result = await carrierResult;
@@ -2250,6 +2351,8 @@ describe("dispatch result outbox around preview teardown", () => {
       expect(localPhases).toEqual([
         "task_started",
         "preflight_ready",
+        "bootstrap_read_completed",
+        "bootstrap_read_completed",
         "bootstrap_context_ready",
         "send_target_reference_ready",
         "runtime_context_ready",

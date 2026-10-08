@@ -73,7 +73,11 @@ const DEPENDENCY_CONTROL_PATHS = new Set([
   "pnpm-workspace.yaml",
   "turbo.json",
 ]);
-const DATABASE_PREFIXES = ["packages/db/drizzle/", "packages/db/src/"];
+const DATABASE_PREFIXES = [
+  "packages/db/drizzle/",
+  "packages/db/postgresql/migrations/",
+  "packages/db/src/",
+];
 
 const check = (id, command, reason) => ({ command, id, reason });
 
@@ -192,6 +196,21 @@ export function createFinalCandidatePlan(input) {
     skippedChecks,
     treeSha: input.treeSha,
   };
+}
+
+// These checks consume only root tooling. Any additional check keeps the full
+// workspace install, including signed Skill and release-readiness checks.
+export function resolveCandidateDependencyScope(plan) {
+  const rootChecks = new Set([
+    "diff-integrity",
+    "trusted-control-entrypoints",
+    "documentation-contracts",
+    "changelog-contract",
+  ]);
+  return plan.riskTags.includes("documentation") &&
+    plan.selectedChecks.every((item) => rootChecks.has(item.id))
+    ? "root"
+    : "workspace";
 }
 
 function selectPrimaryChecks(context, selectedChecks, skippedChecks) {

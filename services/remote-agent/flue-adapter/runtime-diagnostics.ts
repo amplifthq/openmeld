@@ -161,6 +161,9 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
         nullableRecord(context.terminalFailureFact);
       return {
         callbackAttempts: requiredNumber(context.callbackAttempts),
+        ...(context.conversationCompaction
+          ? { conversationCompaction: context.conversationCompaction }
+          : {}),
         callbackCompletedAt: nullableString(context.callbackCompletedAt),
         callbackNextAttemptAt: nullableString(context.callbackNextAttemptAt),
         callbackStatus: requiredString(context.callbackStatus),

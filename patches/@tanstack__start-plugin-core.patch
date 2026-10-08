@@ -1,0 +1,30 @@
+diff --git a/dist/esm/vite/start-compiler-plugin/plugin.js b/dist/esm/vite/start-compiler-plugin/plugin.js
+index 93f695936cc394953c52fb667043780be42bcb2c..de13aaf6940e403a08e0a35433b4971768ba72cb 100644
+--- a/dist/esm/vite/start-compiler-plugin/plugin.js
++++ b/dist/esm/vite/start-compiler-plugin/plugin.js
+@@ -120,6 +120,9 @@ function startCompilerPlugin(opts) {
+ 			buildStart() {
+ 				if (this.environment.mode === "build" || bundledDev && this.environment.name === VITE_ENVIRONMENT_NAMES.client) compilers.delete(this.environment.name);
+ 			},
++			closeBundle() {
++				if (this.environment.mode === "build") compilers.delete(this.environment.name);
++			},
+ 			watchChange(id) {
+ 				if (bundledDev && this.environment.mode === "dev") compilers.get(this.environment.name)?.invalidateModule(id);
+ 			},
+diff --git a/src/vite/start-compiler-plugin/plugin.ts b/src/vite/start-compiler-plugin/plugin.ts
+index 6814740074f04c5cc83cd6080e4b797c6b04c4cb..4d043f36b6e53f81ecdde0efc48c5746c960b42f 100644
+--- a/src/vite/start-compiler-plugin/plugin.ts
++++ b/src/vite/start-compiler-plugin/plugin.ts
+@@ -306,6 +306,11 @@ export function startCompilerPlugin(
+           compilers.delete(this.environment.name)
+         }
+       },
++      closeBundle() {
++        if (this.environment.mode === 'build') {
++          compilers.delete(this.environment.name)
++        }
++      },
+       watchChange(id) {
+         if (bundledDev && this.environment.mode === 'dev') {
+           compilers.get(this.environment.name)?.invalidateModule(id)

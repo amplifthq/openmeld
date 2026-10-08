@@ -19,7 +19,7 @@
 - Do not use this for: Center Agent identity/designation/permission semantics
   (`developing/product/organizations-and-center-agent.md` owns them),
   Routine product semantics or scheduling
-  (`developing/product/center-agent-routines.md` owns them),
+  (`developing/product/routines.md` owns them),
   Direct Message Space semantics (`developing/product/space-collaboration.md`
   owns them), presentation rules
   (`developing/product/presentation-progressive-disclosure.md`), or local
@@ -29,6 +29,14 @@
   boundaries. Implementation-surface facts must still be rechecked against the
   pinned Flue package before changing worker interfaces; method names are not
   strategic contract.
+
+## Storage and migration references
+
+Production shared relational storage is PostgreSQL. Numeric migration references
+from the original D1 rollout describe historical schema dependencies already
+absorbed into the native baseline; they are not D1 commands to run now. New
+changes use the native journal and scoped database release in the
+[PostgreSQL workflow](../engineering/postgresql.md). Receiver-first service and client compatibility requirements still apply.
 
 ## Plugin connection action boundary
 
@@ -66,6 +74,15 @@ Neither a model argument nor a personal-first automatic selector can replace it;
 existing operation replays retain the original operation identity. Generic App
 tools also accept an explicit requester/shared preference for normal requests.
 
+An operation's historical attribution is not current permission. Every provider
+attempt, including an exact replay, reauthorizes the original connection and
+its current Agent access without selecting another account. Generic App and
+dynamic GitHub replays rediscover the action effect from the trusted runtime
+catalog. A declared read keeps normal pending/retry behavior even without a
+verified write deduplication window; writes and unknown effects retain that
+window requirement. Catalog failure prevents execution rather than accepting a
+model-supplied effect. The exact connection and input signature remain frozen.
+
 Plugin binding, Computer/result access and personal Hosted tools accept both
 `accepted` and `retry_observed` native-delivery phases. A replay ACK can confirm
 work already running after an earlier ACK was lost; it is not an identity change.
@@ -73,6 +90,18 @@ The shared phase predicate grants no permission: exact submission, Organization,
 Profile, Binding, membership and source account/version checks remain mandatory.
 Submitted or terminal work is not authorized by this predicate; the separate
 read-only pre-ACK Skill preparation contract is unchanged.
+
+Native execution acknowledges its exact admitted submission to Core before
+runtime resource preparation, including Computer creation. Core persists that
+evidence through the existing conditional native-delivery ACK writer; the
+ordinary submit response records the same ACK idempotently. Preparation waits
+for this write rather than polling or authorizing a merely submitted delivery.
+The callback rejects mismatched or terminal deliveries and honors the Space
+Stop intent; Remote checks its existing cancellation fence before and after
+the callback. Admission limits remain at the original submission boundary.
+Deploy Core support before the Remote consumer. A missing callback fails closed;
+rollback Remote before removing Core support. No workstation or CLI contract
+changes are required by this internal native-runtime callback.
 
 Space verifies the original human request and the Agent reply at the actual
 message-insertion transaction, using accepted outbox content, current revision,
@@ -144,26 +173,92 @@ settles only the published public result, not a claim that private guidance arri
 This is not a new private-message exactly-once ledger; manual investigation must
 not blindly replay an uncertain provider write.
 
-### Admitted Computer audience
+### Personal cloud Computer
 
-New Computer identities include Organization, Agent, Binding, conversation,
-Space and the admitted member/Agent/Routine principal. Different audiences use
-different durable Computers, not merely different working directories. Core
-derives the scope from the accepted native delivery and rechecks enabled
-Binding, requester membership, current Space participation and source Plugin
-permissions. Workspace reads and browser operations authorize before and after
-the operation; a revoked read must not release its output. No raw provider
-credentials are introduced by this boundary.
+Each human account owns one default Computer, across Organizations, Agents and
+conversations. Core owns its stable identity in `cloud_computers`; the provider
+adapter owns its runtime address. Tool input cannot select another owner.
+A personal Remote Agent uses its persisted owner's Computer. Center uses the
+verified represented human, including a Routine's recorded human authority.
+When no human owner is established, Computer tools are unavailable; other
+conversation tools remain usable. Never select the last speaker or an admin.
 
-New admissions use the audience-v2 Computer address. Its host-only SQL metadata
-owns the imported source set for the lifetime of that Computer, independently
-of runtime Agent generations. A missing row after initialization fails closed.
-The source set is registered before imported bytes are exposed, and final
-Computer tool results carry that provenance through direct and Code Mode paths.
-Previously admitted v1 or unversioned contexts cannot acquire the new Computer
-tools. Their old name remains available only for existing cleanup; neither
-legacy shared nor unproven v1 files are copied into a new audience. Real container,
-process termination and cross-audience export acceptance remain required.
+Core still verifies the active delivery, Binding and Space participants.
+Account deletion erases the personal Computer through its runtime owner, including
+its files, processes, and private command receipts. The account admission guard
+blocks recreation after closure. Shared Space records and files already published
+to a team remain governed by their own retention rules.
+Computer tools carry owner, task and audience context. Agents use these facts
+to decide whether to use or disclose personal files. Access to a filesystem is
+not permission to publish all its contents. Files publication retains its own
+audience contract. No new per-task permission UI is introduced.
+
+Cloudflare Computer and computerd use 0.4.1 with the official
+`LegacyContainerBackend`. The current platform-scheduled container deployment
+is retained. Files persist; running processes, OS packages and browser login
+state are not promised to survive runtime recreation. Shared Organization or
+Space Computers, other providers and human desktop UI remain separate work.
+
+Center, personal Remote and optional Local Agents consume the same Computer
+operation contract. `describe` returns the official file-tool schemas and live
+browser availability. `files` invokes Cloudflare's `read`, `ls`, `find`, `grep`,
+`write`, `edit` and `delete` tools. File pagination and matching come from the
+SDK rather than a second OpenMeld implementation. The older public JSON
+read/write/edit/list actions remain compatible with installed CLI clients;
+their exact-text compare-and-write semantics are unchanged.
+
+`command` uses one launch/poll/stop/list owner for all three backends. Linux is
+the default; worker-shell runs built-in commands to completion; worker-javascript
+runs an ECMAScript module with structured input and result, durable file imports,
+Workspace-backed `node:fs/promises` and `ws:git`. All engines have direct network
+access. Shell or JavaScript handles binary files, directory operations and other
+filesystem work beyond the file tools. Linux can also work in temporary paths
+outside `/computer`. Only `/computer` is the shared persistent file tree.
+The caller can supply per-command environment, launch-time stdin and a timeout.
+The upstream API has no interactive PTY or write-to-running-stdin operation.
+There is no command or website allowlist in this Computer adapter.
+
+Worker-shell has no upstream retained process lookup or working cancellation.
+An explicit Stop reports this limitation. Task cleanup stays unfinished until
+the original call supplies an exit receipt. Use Linux or Worker JavaScript for
+long or cancellable work. The Computer preserves its
+observed terminal result with its existing command receipt so a repeated key
+does not rerun completed work. Linux and JavaScript use native retained handles;
+missing handles are explicit failures and never permission to replay a launch.
+Command replies retain the last 50,000 characters per stream and report
+`outputTruncated` when clipped. Agents can redirect large output to a file.
+The API client allows cold startup and 20-second polls. Foreground shell calls
+use their execution timeout plus a transport margin.
+`browser` runs the existing one-shot browser; `preview` inspects a local Linux
+web server through the existing private preview path. Both use the same public
+operation boundary for Local Agents. They do not create a virtual desktop or a
+persistent browser account session.
+
+Plugin account connections and execution harness context management are separate
+owners. This contract does not create a credential store or change connector
+authorization. Future human UI consumes these same capabilities and command
+observations rather than maintaining another execution state.
+
+The Computer owns command receipts and exact process IDs. A conversation stores
+only its frozen Computer target. Local CLI operations use this same operation
+owner. Independent tasks run commands concurrently in `/computer/tasks/<taskId>`.
+Stop signals only that task's exact processes. Repeated start with the same key
+does not execute twice; uncertain launch outcomes require inspection.
+Controlled file edits serialize short mutations and reject stale text. Shell
+writes do not participate in this check. Use separate files or Git worktrees
+when tasks modify the same repository. There is no whole-task Computer lock.
+
+Completed provider downloads are personal copies. Disconnect blocks new provider
+calls, not unrelated filesystem access. Live results and external publication
+still check current source authorization. The old whole-Computer source set and
+per-turn destructive projection cleanup are removed.
+
+New admissions use version 3 and `personal-computer:<computerId>`. Earlier
+audience and unversioned addresses remain solely for persisted command cleanup.
+Old files are neither silently migrated nor deleted. Acceptance must prove
+same-account continuation, different-account separation, concurrent commands,
+exact Stop, stale-edit rejection, persistence and explicit publication using
+disposable local data. Unit, Worker and real-container evidence are distinct.
 
 ### Retained large tool results
 
@@ -192,6 +287,50 @@ does.
 
 ### Private Git working copies
 
+For ordinary native Git work, use `computer_git_connection` with the explicitly
+selected requester or Organization Plugin account, then run `git clone` or
+`git fetch` through the Computer's container command engine. The tool returns a
+temporary repository URL scoped to this Computer and execution. It does not
+download files or install credentials. The Workspace proxy routes Git's HTTP
+exchanges through the existing Plugin transport, which rechecks current access
+and keeps provider credentials inside OpenConnector. Public Git and accounts
+configured independently inside the Computer need no Plugin transport.
+
+Native Git preserves upstream history and uses Git's normal transfer protocol.
+The Plugin transport supports reads; existing GitHub write actions remain the
+publication interface. A later execution requests a fresh connection before a
+fetch. The persistent repository remains on the user's Computer.
+
+Prefer reuse of a verified existing repository before cloning. The suggested
+layout is `/computer/projects/<organization-id>/<project-id>/repo` plus adjacent
+`worktrees/<task-id>` directories. This is Agent guidance, not a new Project
+registration, required path, automatic migration, or Team file permission.
+Use known IDs; missing Project context must not trigger discovery or creation
+merely for directory naming. A distinct repository-derived key is sufficient
+when no registered Project is known, with identity checked before reuse.
+Independent changes use separate worktrees and explicit base commits; Agents
+must not reset, switch or pull another task's checkout. Separate clones remain
+valid when needed. Worktrees share Git objects, not all working files or caches.
+Cleanup preserves uncommitted/unpushed work and active commands/worktrees.
+
+Computer `describe` includes an owner-sampled persistent storage projection:
+SQLite database bytes, the paid provider's 10 GB per-object limit, conservative
+growth headroom, observation time and near-limit guidance at 90 percent. This
+includes internal records and is not a file quota or Linux free-disk reading.
+Reusable database pages are not counted as growth headroom. No extra usage
+ledger, background notification scheduler, automatic deletion, or command
+admission gate is introduced. Hosted prompts and the managed Local Skill tell
+Agents to check before large writes and explain near-limit results to the user.
+Describe does not start a container or initialize execution backends. Capacity
+failures retain their cause and explain inspection/export/selected cleanup;
+they never authorize replaying a command whose receipt could not be saved.
+File operations remain available without launching a command. Cleanup must be
+followed by measurement and a small write; file deletion is not proof of storage
+reclamation by the provider.
+
+The following snapshot workflow serves bounded API-based publication. It is
+not the preferred path for a native clone and is not a full-history clone.
+
 The isolated Computer offers `github_checkout_repository` and
 `github_publish_checkout`. They compose with existing Computer edit/command
 tools and the existing Draft PR action; they are not a mandatory coding plan.
@@ -215,10 +354,18 @@ or replaced baseline refs and removed trusted releases must fail, not bypass it.
 
 Git history, LFS payloads and submodule repositories are not downloaded. Each
 manifest is limited to 30,000 entries and 8 MiB, each blob to 8 MiB, the combined
-source/baseline unique content to 256 MiB, and downloads to 32 blobs per call.
-A preparing result requires another identical call, not an invented ready
-state. Truncated provider trees fail closed. Version-2 checkout identities use
-fresh directories instead of adopting a previous baseline-free working copy.
+source/baseline unique content to 256 MiB, and each preparation request offers
+at most 256 missing blobs. The host fetches up to four blobs concurrently,
+bounds provider reads and native preparation against the Code Mode budget, and
+returns a retryable preparing result when a bounded read or preparation runs out
+of time. It reuses Computer manifests only after checking their
+stored digests against the pinned source and baseline; a missing or altered
+cache is rebuilt from GitHub. Batch diagnostics record authorization, tree and
+blob reads, Computer writes and preparation time without repository contents
+or credentials. A preparing result requires another identical call, not an
+invented ready state. Truncated provider trees fail closed. Version-2 checkout
+identities use fresh directories instead of adopting a previous baseline-free
+working copy.
 
 The Agent commits and tests with the ordinary Computer tools. Publication reads
 an exact immutable local commit, verifies the created GitHub tree, and updates
@@ -250,12 +397,10 @@ by viewers with repository access. The side branch must remain while the image
 is referenced. The operation ledger and fixed branch reconcile uncertain writes;
 the image bytes never enter the model response.
 
-Imported private repository provenance stays with the durable Computer beyond
-the 24-hour Git operation lifetime. Ordinary Computer access rechecks these
-source grants too; expiry never unlocks previously imported bytes. A revoked or
-replaced source blocks further access to that Computer. Start a fresh
-conversation for a new authorized working context; do not silently migrate the
-old bytes. Provenance is not a second permission owner: Core still authorizes.
+Downloaded repositories remain personal Computer files after provider access
+changes. Subsequent provider requests, retained live references and publication
+still use current Core authorization. A disconnected repository does not lock
+unrelated personal files or commands.
 
 The deployed connector keeps general HTTP/MCP proxy access blocked. A narrow
 OpenMeld working-copy ingress accepts only the required Git object operations
@@ -318,6 +463,12 @@ Worker replacement. An ambiguous spawn or lost container must never trigger an
 automatic replacement process. Polling is bounded and does not kill the command.
 Completion requires its exit receipt and completed file synchronization; a stop
 acknowledgement is only a request. The Computer remains shared across sessions.
+The Computer collects results without depending on the model's next poll and
+retains bounded output with its command receipt. Native log expiry must not erase
+an already collected result. An exited process with unconfirmed file sync reports
+`syncPending`; it must not be presented as completed. Infrastructure outages or
+container replacement can still prevent collection. Such uncertainty remains an
+explicit error, never an automatic replay or invented success.
 The container's `EEXEC_BUSY` is explicit evidence of a live process with an
 existing output subscriber, not a failed command. A bounded poll can report
 `running` with `outputPending: true` and an unchanged cursor in this case;
@@ -345,6 +496,11 @@ Recovery must record the failed execution even if the Worker restarted after
 the command-loss record was saved but before the failure request was stored.
 Other owned commands still require their own termination evidence; a transient
 inspection failure never becomes a confirmed loss.
+A missing-record error already delivered to the model follows the same recovery
+contract as a replaced runtime. Cleanup still confirms absence for the exact
+command, then preserves the model's subsequent response instead of introducing
+the same failure again. Errors first discovered by cleanup retain their failed
+outcome. The model must explain unresolved work rather than claim it succeeded.
 If the member already requested Stop, the durable cancellation request is
 acknowledged once exact-command absence is confirmed; reconciliation publishes
 the stopped outcome without treating the missing command as a local Service
@@ -391,6 +547,22 @@ fabricate `aborted`. Callback reconciliation remains armed while cancellation
 is pending. Deployment draining must additionally account for outstanding
 external operations and delegation receipts; a model-loop terminal fact alone
 does not prove those resources are idle.
+
+Stop also persists a native-owner intent when the execution has not yet been
+created. It fences the original idempotency identity across late submission,
+initialization, and model/tool execution without fabricating an accepted or
+aborted execution. Existing cancellation RPC responses remain unchanged:
+`not_found` is not evidence that a mixed-version receiver implements this fence.
+The read-only `readAdmissionStop` RPC returns the existing native Stop intent
+for the exact original request. Missing support or a missing receipt keeps
+controlled restart unavailable. A positive receipt does not certify that a
+previous external write or running execution has finished.
+Restart must not be offered solely because time has passed or a row is absent.
+Stopping a parent also forwards native cancellation for a pending continuation
+whose ACK is missing. It settles that continuation only after an identity-bound
+terminal cancellation, or a missing execution plus a positive native admission
+Stop receipt. Pending cancellation and mixed-version missing receipts remain
+unconfirmed; neither fabricates an ACK or declares running work finished.
 
 ## Two Runtime Families (settled 2026-07-06)
 
@@ -477,13 +649,94 @@ normal tool calls and activation recording still require an accepted delivery.
 Personal Apps use permitted Organization-shared connections and may use the
 owner's personal connection when that owner enabled personal Remote Agent
 access and is the verified requester or Routine delegate. Another member's
-Wake and an Agent-to-Agent handoff never inherit the owner's private account.
+Wake and an unrecorded Agent-to-Agent handoff never inherit the owner's private account.
 Existing connector discovery, durable operation records,
 attribution, and destructive-action confirmation remain authoritative. Actions
 requiring a represented human still require the verified current human sender;
 an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
 General Computer, research, and current-Space collaboration tools remain usable
-on Agent handoffs. Delegated human authority is a separate follow-up.
+on Agent handoffs. Recorded Center delegations use the constrained paths below.
+
+Personal Remote Agents can read one current-Space message through
+`openmeld_read_space_evidence`, including a thread reply, and page a named thread
+through `openmeld_read_space_thread`. Exact reads reuse the existing
+`sourceRef.version`; an unavailable version or recalled message fails instead
+of substituting newer text. Long text uses bounded character pages with the
+same version on each continuation. Thread evidence pages fingerprint the complete
+current ordered source set; edits, recall, additions, or a different thread
+reject the old version. Up to 10,000 messages and 8 MiB of source envelopes are
+supported; larger sources fail explicitly. A page exposes at most 20 messages
+and 4,000 Unicode characters. Truncated messages retain exact message references
+for their remaining text. `openmeld_read_space_file_evidence` similarly reads
+4,000 characters at a time from a required Files revision and reopens that
+revision through the Files owner for every page. Each call rechecks the active execution and
+current Space membership, then reads through the ordinary Space owner. These
+tools do not authorize another Space, confer delegated Plugin permission, or
+publish private excerpts.
+
+Wake `evidenceRefs` name message/thread versions and Files revisions. The existing
+Signal metadata and dispatch outbox retain this selection. The shared source-text
+renderer carries its structured JSON to Local and Remote executions. Local
+`read_evidence`, `read_thread`, and `read_file` use the same source owners and
+version semantics. References do not widen access beyond the current Space;
+selected private material for another audience requires an explicit Files copy.
+Local transport keeps the existing wire shape by rendering references into the
+source text and removing the new snapshot field before sending to older Services.
+An older reader cannot claim exact evidence support merely because it sees the
+reference. The older live-thread RPC remains available for old callers, while
+new exact-thread calls use a distinct operation that older Core rejects.
+
+The first M2 increment provides an opt-in Core read projection through
+`authorizeRemoteAgentExecutionAccess(includeDelegatedRequester=true)`. It follows
+the exact recorded Space child task to its native Center parent, verifies the
+current Center designation, active human member and matching personal-Agent owner,
+and returns identity references only. In a multi-Space delegation, the matched
+child task owns its Space; the delegation's first Space does not restrict other
+recorded children. It preserves the actual Agent execution
+audience and checks the exact selected connection through the existing permission
+owner for source reads. It cannot authorize provider writes. No permanent grant
+or new persisted delegation state is created; clients without the opt-in retain
+their existing behavior.
+
+Ordinary non-GitHub Plugin reads and writes additionally require explicit
+`pluginActions` on the existing recorded Wake publication. Core fixes each
+target Agent, original human, Organization, connection owner/scope/version,
+action effect, exact input digest, and expiry (at most 24 hours). This constraint
+is part of the immutable publication command, not a separate permission store.
+The current delegation, human membership, target ownership, and connection
+access policy are rechecked before execution and retained-result disclosure.
+The requester must own the target personal Agent; shared access and Agent
+ownership never substitute for missing authorization. A child cannot redelegate.
+
+Remote callers opt into `includePluginDelegations` to discover these constraints;
+an older Core fails closed. Local callers carry the private execution-token echo
+from their admitted dispatch context. RuntimeCoordinator validates it against
+the live authority and exact binding, dispatch, Space, source message, and target.
+The token is neither a model argument nor a public receipt. A dispatch ledger row
+alone cannot authorize a delegated Local action. Older Local clients keep their
+previous behavior and cannot use the new delegation path without this proof.
+Local and Remote retain their respective current connection policies. Generic
+delegation does not relax GitHub's separate policy or destructive confirmations.
+
+Personal Remote GitHub named read tools and `github_checkout_repository` consume
+this projection for recorded Center-to-personal-Agent Space delegations. The
+original human must currently belong to the Organization and own the target
+Agent. Each provider read and host Git transfer rechecks that chain and the exact
+explicitly selected personal or shared connection through the existing Remote
+Agent access policy. A revoked read is withheld after the provider call as well.
+The actual Agent sender and Computer audience remain unchanged; identity
+references are not cached authority. Delegated GitHub writes, including the
+dynamic action execution entry, remain unavailable in this increment.
+
+The Core receiver must deploy before the Remote caller. The opted-in response
+includes `delegatedRequesterSupported`; a missing marker or an older strict Core
+rejecting the field reports a capability gap without falling back to another
+account. Old callers keep their prior response shape. Checkout retains its
+existing exact source-tree snapshot and synthetic comparison-history contract;
+its local HEAD is not the upstream source commit. Provider credentials remain
+in the host/provider boundary, outside Computer files, command input and Git
+configuration. Local owner/Remote/native-Git tests do not certify the deployed
+Felix-to-Center-to-Opus path; staging acceptance is still required.
 
 Personal Computers are durable per Agent Profile and Space (including DMs),
 keyed by the encoded pair, because a shell can traverse its entire filesystem.
@@ -562,7 +815,7 @@ verified owner and exact Agent identity. The shared Core scheduler runs them
 through personal v4 conversations and returns results to the owner's DM or an
 eligible Space. Routine admission verifies the frozen delegated owner rather
 than requiring the Center Agent as the request author. See
-`center-agent-routines.md` for authority, lifecycle, and rollout requirements.
+`routines.md` for authority, lifecycle, and rollout requirements.
 
 Rollout is Core first, then Remote Agent: the latter now uses the additive
 `authorize` personal-tool operation before invoking shared capabilities. Old
@@ -635,6 +888,22 @@ Queued preparation failures are counted atomically on the existing runtime
 submission row; a stale failure cannot terminate a ready, claimed, cancelled,
 or already-settled submission. No additional execution ledger is introduced.
 
+Flue 2.2.2 preserves these identities and the nine retained recovery/tool
+contracts. Transient model overload, rate limits, and connection failures use
+Flue's native retry loop with five retries after the initial request. Backoff
+caps are 3, 6, 12, 24, and 30 seconds, with 75–100% jitter. Canonical error
+history keeps the retry budget across resumed execution. Successful model work
+ends that consecutive-failure budget. Permanent errors and user stops do not
+consume automatic retries; Stop interrupts a pending delay. This model budget
+is distinct from the five-attempt platform durability budget above.
+
+The same submission and stream expose bounded recovery progress to the Space:
+Reconnecting, the retry number, and the next retry time. Existing completed tool
+work remains visible. A model response clears Reconnecting; exhaustion follows
+the existing terminal failure path. The UI never schedules execution or hides a
+terminal failure. Result publication continues to use its separate durable
+completion and callback recovery contract.
+
 Recovery reads canonical completion before checking cancellation, the retry
 budget, and positive deadlines. This classification must not require preparing
 Computer, model, or tool resources. A completed result survives an exhausted
@@ -658,20 +927,26 @@ No parallel execution truth or new publication path is introduced.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
 boundary before Flue stores them in the conversation session. A returned tool
-result that exceeds that boundary becomes an explicit partial-evidence envelope,
-not an execution exception. Direct calls and Code Mode share this boundary.
+result above the 32 KiB model-presentation budget becomes an explicit
+partial-evidence envelope, not an execution exception. Direct calls and Code
+Mode's outer result share this budget. Inner Code Mode computation retains its
+128 KiB transport budget so code can select relevant fields before model display.
+Continuation pages retain their existing character budget and are not recursively
+retained merely because Unicode encoding crosses the presentation budget.
 The envelope reserves its bounded metadata budget for standard top-level
 receipt and outcome fields before other fields, irrespective of provider field
 order. It copies only complete values and exposes small Unicode-safe
 beginning/end JSON excerpts.
 `toolExecution: returned` is not a derived business-success state. The original
 outcome and any provider-side completeness fields remain authoritative.
-Omitted content is not retained in another store or shared Computer; the envelope
-therefore has no continuation. Use existing bounded reads when available, never
-repeat a write merely to recover its display. This intentionally does not promise
-full retrieval of every large result. Small results and existing segmented reads
-remain unchanged. OpenMeld must not pass the oversized provider object through
-and hope Flue compaction repairs it later.
+The existing execution-scoped retained-result store holds omitted content when
+its size, snapshot quota, and current access permit. Its continuation supports
+bounded reads and literal search for one hour, with permission revalidation.
+Failed retention is explicit and never turns a completed write into a retry.
+References are not durable memory across executions. Never repeat a write merely
+to recover its display. Small results and existing segmented reads remain
+unchanged. OpenMeld must not pass oversized provider objects through and hope
+Flue compaction repairs them later.
 File-content tools expose one bounded segment plus an explicit continuation
 offset. The Center Agent searches first, reads only the relevant segments, and
 follows the returned continuation offset when more content is actually needed.
@@ -1018,6 +1293,14 @@ the connected provider API.
    are not sent to CardKit or counted as visible progress. Slack retains its
    own publication path. The same durable card is finalized after the result;
    streaming is not a second response or an execution-completion signal.
+   The same publisher sends the first Web/Space text immediately and coalesces
+   subsequent text at 100 ms. A successful assistant `message_end` flushes its
+   buffered tail before any post-response compaction, provided the exact
+   execution is still active and has no requested safety failure. Failed or
+   aborted model messages do not trigger this flush. Prompt completion still
+   owns final execution settlement; showing text does not release the
+   conversation for another turn. Short answers must not wait for a later
+   token or for compaction to become visible.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images
@@ -1083,9 +1366,18 @@ the connected provider API.
    input to the next execution. The Flue steering source writes each input
    into its canonical conversation before acknowledging it to the intake
    projection. In a private Center Agent chat, Web binds a text-only message
-   sent during one active response to that response's dispatch. Core validates
-   the current writer against the original verified sender, then atomically
-   saves the visible message and its input outbox record. Retries retain that
+   sent during one active response to that response's dispatch and places it in
+   the same composer Queue used by Local Agents. Send now explicitly requests
+   steering; leaving it queued starts the next response after the current one.
+   Queue intake may precede creation of the native delivery record. Core
+   validates the original Human source and canonical Center Agent DM against
+   the Space outbox. Its stored target does not invent a delivery or submission
+   ID. Send now resolves the exact anchored dispatch and binds the
+   admitted submission before claiming the input; receipt reads retain that
+   saved target and cannot redirect the input to another execution.
+   Core validates the current writer against the original verified sender,
+   then atomically saves the visible message and its input outbox record when
+   delivery begins. Retries retain that
    exact execution; a late new input fails instead of starting different work.
    Files and independent chat submissions retain the ordinary admission path.
    An unconfirmed terminal input produces a visible update failure scoped to
@@ -1260,6 +1552,52 @@ Computer sandbox for this request, and does not stream it as a new Space Wake.
 Core publishes its final answer through Space's idempotent recovery-notice owner.
 If it fails, the original failure stays visible and the exact recovery attempt
 becomes unavailable. An unknown publication outcome does not authorize replay.
+
+Manual task-summary recovery reads the existing subscription and its exact native
+delivery before returning a repeat-request receipt. Cancelled or failed recovery
+is unavailable; queued, claimed, or admitted work may return `already_requested`.
+Completed recovery never queues a second summary. Readers that opt in with
+`includePublishedResult` receive its Space locator only after the final-reply
+claim and the requester's current message access are verified. Without that
+opt-in, the response retains the existing receipt shape and reports completion
+through the reason code. Terminal receipts do not end the Agent turn to wait for
+work that no longer exists.
+
+Manual task-summary recovery carries the Core-owned `summaryOnly` marker from
+the recorded recovery subscription. The runtime registers only Space context,
+Space file, retained-result reads and public progress, for both direct tools and
+Code Mode. It creates no Computer and materializes no executable Skills. This
+restricts business tool actions; normal answer publication and owner bookkeeping
+still run. A fresh summary does not resume the remaining task or replay earlier
+writes. Before offering it, Core verifies the exact failed/aborted execution,
+current requester access, readable published child results and a supporting
+receiver. Unknown execution, Stop, revoked access or an old receiver is not a
+summary-recovery candidate. Existing Flue model retries remain the only bounded
+inference retry; no outer turn replay is added.
+
+Ordinary Space and Direct Message `turn_not_completed` callbacks use deterministic
+failure facts. They explain that processing was interrupted, earlier actions may
+have taken effect, and the remaining work/final summary is unconfirmed. Child
+links require the persisted subscription/delegation, matching child author,
+successful final-reply claim and current message access. Public links stay in
+the failure's Space; cross-Space private locators are omitted. Diagnostics is a
+supplement, not the whole explanation. Raw provider detail cannot supply a guessed
+cause such as overload. The durable publication claim retains the same failure
+text for the Space reply and final stream projection; callback repeats do not
+restart inference or publish a second result.
+
+Summary recovery records its intent before fencing the failed old execution.
+A transient fence-read failure can resume the same recovery intent, without
+creating a second summary. Only exact native provenance can distinguish this
+fence from user Stop; reason text is not proof. User Stop strengthens the fence
+and still takes priority over recovery, including repeated and concurrent calls.
+
+Frozen summary requests must retain the task owner's restricted execution
+marker. An old unmarked envelope is blocked before admission or watchdog replay,
+with a diagnostic policy-mismatch error. Recovery never silently downgrades it
+to ordinary execution, rewrites it, or retries under a new identity. Retire an
+affected request through the existing Stop path; keep the guard when rolling
+back producers.
 
 Action authorization is semantic, not lexical. Conversation context may
 complete arguments only inside an action the user already authorized; it cannot
@@ -1522,17 +1860,18 @@ the task, so Core keeps the submission recoverable and replays the exact durable
 request with the same idempotency key. Member research does not advance to the
 next member until the current task reaches a confirmed terminal outcome.
 
-After runtime availability succeeds and before calling the worker, Core applies
-one Organization-wide daily admission limit to `web_dm`, `space_wake`, legacy
-`slack`, `message_channel`, `routine`, and `member_research`. The default is 200
-admitted requests per UTC day and Worker configuration may override it. The
-Core-owned counter and the native-delivery idempotency marker are committed
-atomically, so an ambiguous submit replay does not consume a second admission,
-even after UTC midnight.
-Once admitted, a downstream worker or publication failure does not refund the
-count. Rejection uses `remote_agent.daily_quota_exceeded`, explains that the
-limit resets at 00:00 UTC, and follows the entry point's existing visible
-failure path. This Core decision does not widen the worker RPC rejection enum.
+After runtime availability succeeds, Core checks the Organization's optional
+daily AI allowance on every submission surface. There is no default cap.
+The old 200-admission counter is inactive. Center Agent and Remote Agents share
+provider-reported OpenRouter costs; Local Agent consumption is informational.
+The provider fetch boundary checks again before each paid request, including
+research, image understanding, titles, and activity digests. Once recorded
+spend reaches the configured amount, new calls are rejected. Already-started
+requests may finish above the allowance: this is a spend threshold, not prepaid
+reservation or a guaranteed invoice ceiling. Unknown costs remain visible and
+are not invented as zero. Rejection retains `remote_agent.daily_quota_exceeded`
+at admission and follows the existing visible failure path with the 00:00 UTC
+reset time. No worker RPC rejection enum is widened.
 
 Member research receives only Organization-directory/document reads, Slack
 workspace directory metadata, bounded joined-channel membership/history reads,
@@ -1619,7 +1958,7 @@ contracts remain the only action authority.
 ### Routine native delivery and tool parity (updated 2026-07-17)
 
 Center Agent Routines are a user-visible product surface owned by
-`developing/product/center-agent-routines.md`. Their execution uses the Remote
+`developing/product/routines.md`. Their execution uses the Remote
 Agent native-delivery exception, not the workstation Wake lifecycle:
 
 - Core's minute Cron owns due scanning and submits one Run with the Run id as
@@ -1628,13 +1967,13 @@ Agent native-delivery exception, not the workstation Wake lifecycle:
 - A Run may freeze the `legacy` or Cloudflare `workflow` execution engine. The
   Workflow instance id is the Run id. It durably owns submission retry,
   callback-event waiting, and callback finalization for that Run without a
-  fixed total callback deadline; D1 remains product truth, and the legacy
+  fixed total callback deadline; PostgreSQL remains product truth, and the legacy
   recovery scanner must not also take over that Run.
   Callback validation and final destination publication remain the existing Core
   native-delivery contract rather than Workflow-private behavior. Core records
   Workflow creation, safe restart, blocked recovery, and callback-forwarding
   evidence against the same Run id without logging the callback payload.
-- The Routine definition and Run history stay in D1. Flue session state and
+- The Routine definition and Run history stay in PostgreSQL. Flue session state and
   Durable Object alarms do not become a second Routine registry.
 - The native delivery ledger links the delivery by `routineRunId` and freezes
   exactly one result surface: `conversationKind = "space"` with a target Space,
@@ -1661,7 +2000,7 @@ Agent native-delivery exception, not the workstation Wake lifecycle:
   including Slack channel list, member, and history reads. Explicit
   capability-owned exceptions keep Agent Task discovery or watch tools out of
   Routine turns, as owned by
-  `developing/product/center-agent-routines.md` and
+  `developing/product/routines.md` and
   `developing/product/projects.md`. The durable Routine envelope supplies the
   reauthorized delegated member used by each exposed capability's existing
   current-member, connection, attribution, audit, and Core authority checks.
@@ -1793,8 +2132,8 @@ policy. Every tool-capable primary model receives
 the same stable provider bootstrap: `codemode`, the always-direct capability
 search and describe tools, the three generic Connected App tools, and the
 bounded read-only member tools, plus the
-authorized foundational Computer tools (`read`, `write`, `edit`, `bash`, `grep`,
-`glob`, and `computer_command`). Computer operations remain directly usable in
+authorized foundational Computer tools (`computer` and `computer_command`).
+Computer operations remain directly usable in
 a fresh chat without first requiring a discovery call; the registration policy
 never adds a tool absent from the authorized turn catalog. These
 foundational reads stay direct because supported models must be able to inspect
@@ -1813,6 +2152,21 @@ schemas, dependencies, and authorization hints; they do not grant authority or
 bypass execution-time policy. Multilingual aliases and deterministic ranking
 apply only after the model explicitly searches; they never classify the raw
 user request or become a second semantic owner.
+Known capability names can be described directly without searching. Recovery
+retains at most eight recently selected names across describe calls, scoped to
+the submission; descriptions and schemas always come from the current catalog.
+This bounded selection replaces no permission or operation owner. Provided
+evidence and recovered receipts should satisfy the next action when sufficient;
+available tools are not a mandatory preflight checklist. Detailed setup inputs
+belong in the selected tool contract instead of repeated always-on recipes.
+
+Observation progress compares the full result by default. A read owner may
+project its progress value to exclude response-envelope metadata, without
+changing the evidence returned to the model. The Organization directory excludes
+its page/readiness generation timestamps and Core's projection timestamp for
+withheld, not-requested route evidence. Member activity, actual readiness
+observations, pagination and all other facts still count. Never recursively strip timestamps
+or suppress changes to business evidence across the catalog.
 The generated Code Mode catalog still contains every active direct tool,
 and every direct or inner call re-enters the same
 cancellation, authorization, confirmation, audit, usage, and result-bounding
@@ -1938,6 +2292,47 @@ context-admission contract is complete.
 
 ### Conversation compaction and runtime rollover
 
+#### Recovery and cost acceptance
+
+Center and personal Remote Agents share this harness contract. Context
+maintenance must preserve the current assignment and recoverable evidence,
+not merely reduce one request's size. Evaluate total task usage, maintenance
+cost, repeated reads, and answer quality together. Diagnostics are not another
+execution authority and must not fail productive work on elapsed time alone.
+
+Canonical action counts are cumulative at the checkpoint and include calls
+whose original messages remain in the recent tail. The model-visible evidence
+states this overlap explicitly. Seeing the summary and the same original
+messages does not prove another execution.
+
+A Computer command remains owned by its existing command receipt when model
+context is compacted. The Agent must be able to recover its exact key, inspect
+progress, read results, or request cancellation without launching the work
+again. Recovery must use the existing list/poll/stop operations and their
+current authorization. An uncertain start is inspected before any retry;
+missing model context is not evidence that no process was started.
+
+Acceptance must force compaction between starting and recovering a command,
+verify one native launch, and cover result retrieval and exact cancellation.
+It must also recover a needed tool contract and source evidence after
+compaction, while preserving current access checks. Local browser acceptance
+and deterministic runtime tests provide different evidence; neither alone
+proves real-model cost or final-answer quality.
+
+Recovery uses bounded references rather than another transcript. Calling
+`openmeld_describe_capabilities` without names restores the last selection of
+up to eight names in the current submission. Only names are retained for seven
+days; definitions come from the current authorized catalog. Repeated schema
+restoration consumes the normal tool allowance but is not classified as a
+stalled source read.
+
+Calling `openmeld_read_tool_result` without a result ID lists at most sixteen
+unexpired retained-result references for this execution. It reads the existing
+metadata, not a second index, and rechecks current execution and source access.
+The existing one-hour retention and oversized-result admission rules remain
+unchanged. This is not an archive of every tool response. Computer command
+identity and lifecycle remain owned by the existing Computer command receipts.
+
 Flue remains the sole owner of the message history, summary, and compaction
 execution inside one Remote Agent runtime conversation generation. OpenMeld
 does not maintain a second transcript or run an additional summarizer on
@@ -1945,12 +2340,72 @@ ordinary turns. Core owns only the logical-conversation-to-active-generation
 pointer. That pointer is routing metadata, not transcript, memory, execution,
 or publication truth.
 
-OpenMeld configures compaction with two explicit budgets:
+OpenMeld configures compaction with five explicit budgets:
 
 - model-specific `reserveTokens` starts compaction before the provider context
-  limit or a known higher prompt-price band; and
+  limit or a known higher prompt-price band;
 - `keepRecentTokens = 8,000` preserves the latest verbatim conversation tail
-  after older messages are summarized.
+  after older messages are summarized;
+- `workingContextTokens = 48,000`, capped by usable model capacity, checks the
+  assembled system prompt, tool definitions, and messages before every model
+  call, including tool-loop calls;
+- `workingContextHeadroomTokens = 8,000` (reduced for small models) reserves
+  room for new work when selecting the recent tail. Fixed prompt/tool cost
+  and checkpoint allowance are deducted first. Indivisible tool pairs can
+  exceed this target; the hard working-context ceiling still applies; and
+- `maxSummaryTokens = 4,096` caps each summary completion independently of the
+  physical model reserve. Reasoning tokens count toward this limit.
+
+Working-context compaction produces one checkpoint for earlier history and
+the unfinished turn together, with one summary output budget. Its observation
+reports fixed context, before/after estimates, target and ceiling. This is
+maintenance evidence, not exact vendor tokenization or proof of task progress.
+
+The working-context budget uses the shared four-bytes-per-token text estimate
+and Flue's 1,200-token image heuristic, not an exact vendor tokenizer. Base64
+image bytes are preserved for inference and excluded from text estimation;
+the separate final payload-capacity and media-admission guards remain intact.
+Flue commits its normal compaction checkpoint and
+rebuilds its active projection before inference. The original canonical entries
+remain intact. An incomplete or empty summary cannot replace that projection.
+The working checkpoint preserves active constraints, corrections, unresolved
+work and source pointers instead of repeatedly copying every historical fact.
+The summary must not describe omitted evidence as nonexistent. During a tool
+loop, the cut retains the issuing assistant message with its tool results.
+If compaction cannot fit the current request, inference fails explicitly rather
+than silently removing the current message or sending an unbounded request.
+The final provider payload still has its separate physical-capacity guard.
+With preflight enabled, provider usage does not also trigger post-response
+compaction: internal Pro inference can inflate that usage without growing the
+assembled conversation. Overflow recovery remains available.
+
+Flue's `recall_conversation` tool searches original user/assistant text in the
+same canonical active lineage, including entries omitted from the summary.
+It returns at most eight source-attributed excerpts, a cursor for older search
+matches, and bounded entry pages. It exposes neither hidden reasoning nor tool payloads, other runtime
+conversations, or previous generations. Historical content is evidence, not
+current authorization. Product-owned history, Files, and memory tools remain
+the authorized sources across generations and for external artifacts. There
+is no copied transcript, separate search database, or second summarizer.
+
+Frozen model routes use the worker's reviewed exact-model prompt-price bands
+as well as the capacity reserve. The route's model, reasoning, modalities and
+physical window stay frozen; no live metadata lookup or model substitution is
+introduced during a task. Legacy metadata-resolved routes use the same threshold
+calculation with their provider-reported bands. The reviewed policy is in
+`flue-adapter/model-context-policy.ts`; unknown model IDs retain the capacity
+reserve and never inherit a price band from their vendor or family name.
+These are economic triggers, not provider admission limits. The final payload
+guard uses the physical window with its ordinary safety reserve, so a summary
+request can read history that crossed the cheaper band. Compaction and the
+subsequent cache rebuild both count toward actual task cost.
+The trigger is not a promise to stay below a billing tier: the summary itself
+must read the older history and may enter a higher band. Flue needs a safe
+message cut point while preserving the recent tail. A single irreducible large
+current input fails the working-context admission check explicitly. Provider usage may aggregate internal work (for
+example Pro inference); it is not proof of physical prompt length. Evaluate
+actual total charges, summary overhead, cache writes/reads, and retained task
+constraints together before changing these reviewed policy values.
 
 These values are runtime policy, not another context store. The current turn
 envelope and authoritative system prompt continue to be rebuilt from their
@@ -1991,6 +2446,9 @@ For a Space turn, the Space owner resolves the exact dispatch's frozen main or
 thread placement and returns only bounded text Signals before that dispatch's
 source Signal; the generic main-timeline reader is not a continuity source for
 a thread.
+An automatic task continuation uses the original Space Wake dispatch for this
+read, even when a previous continuation delegated another task. Its native
+delivery id is not a Space dispatch.
 Routine Runs use a Run-scoped execution conversation independent of the frozen
 Space or channel where their result is published. Their standing instructions,
 turn envelope, and explicitly authorized reads supply the current Run's input;
@@ -2072,15 +2530,20 @@ probe without imposing a total execution deadline.
 
 ### Space reply streaming (shipped 2026-07-10)
 
-Space conversations may show accumulated assistant text, explicit public progress,
-and privacy-bounded tool progress before the final reply is published. Private model reasoning is never
-published to clients. Streaming is a bounded, best-effort presentation
+Space conversations may show accumulated assistant text, model-emitted reasoning,
+explicit public progress, and privacy-bounded tool progress before the final
+reply is published. Hosted reasoning uses the same authorized conversation
+audience in Direct Messages, shared Spaces, and Threads. It is not an
+Organization-wide broadcast. Streaming is a bounded, best-effort presentation
 projection; it is not a second message writer, native-delivery status, or
 final-outcome authority.
 
-- The worker uses provider reasoning deltas only as private execution-progress
-  evidence. It never sends their content to Core, Space, Web, or a Message
-  Channel. For active Space and Web direct-message deliveries, the Agent may call
+- The worker forwards provider-emitted reasoning through the existing typed
+  thinking callback after the same execution, cancellation, delivery identity,
+  and audience checks used for text. Reasoning buffers are bounded and transient;
+  they are not durable reply history or a reconstruction of hidden provider state.
+  Prompt disclosure rules apply to reasoning as well as the final answer.
+  For active Space and Web direct-message deliveries, the Agent may call
   `openmeld_report_progress` to share a short public update. The update is a
   separate transient stream kind, not provider reasoning or final reply text.
   The worker also emits accumulated text snapshots and privacy-bounded tool
@@ -2117,6 +2580,11 @@ final-outcome authority.
   outcome. Finalization closes the projection, a successful terminal points to
   the published Space signal, and late deltas are rejected. Web must replace the
   temporary text with the durable outcome even when their text differs.
+  For a stopped outcome, Space attaches the last accepted public response text
+  to the stopped system notice. Its existing terminal guard retains the bounded
+  text snapshot until publication or expiry, including when close precedes
+  publication. Only response text is retained; this does not retain thinking,
+  public-progress drafts, or tool payloads, or convert Stop into success.
 
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
@@ -2126,7 +2594,9 @@ disclosure above the streaming answer. The same placement and disclosure are
 used for Center Agent, personal Remote Agent, and Local Agent replies in main
 conversations and Threads. Public updates are milestone explanations, not
 execution heartbeats. Local Agent reasoning uses the same disclosure and
-Markdown viewport without changing its transient privacy boundary. The stream
+Markdown viewport. Hosted reasoning uses that same disclosure: open while
+streaming, collapsed when the retained local projection completes. Local Agent
+owner preferences and authorization remain unchanged. The stream
 kinds keep distinct privacy boundaries.
 Rollback removes the Remote Agent producer before Core or Web
 consumers.
@@ -2172,7 +2642,7 @@ surface adopts official features where they are free**:
     on the existing Cloudflare AI Gateway route;
   - stateless Browser Run Quick Actions for rendered Markdown, links,
     structured extraction, selector scraping, and screenshots; and
-  - the Center Agent's computer: a durable org-level workspace filesystem
+  - the Center Agent's computer: a durable admitted-audience workspace filesystem
     (`@cloudflare/computer`, SQLite in the AgentComputer Durable Object) with
     shell execution on the worker-shell backend, exposed through Flue's
     SandboxApi contract.
@@ -2204,37 +2674,27 @@ surface adopts official features where they are free**:
     does not retain browser sessions, expose Live View, or implement human
     browser takeover. Browser screenshots use the existing private Space
     attachment contract and are attached to the final Space reply.
-    The Center computer is owned by the agent identity: one durable workspace per
-    Agent Profile, keyed `agent-computer:<agentProfileId>`. Org-level
-    uniqueness follows from the Center Agent being unique per Organization; a
-    personal Agents use the conversation-scoped identity described above. The computer does not
-    mount an OpenMeld host or user workstation. Files persist across
-    conversations, Durable Object restarts, and deploys under the fixed layout
-    `/computer/{org,projects,spaces,routines,home}`. Ordinary Space turns
-    work under `/computer/spaces/<spaceId>`, and each Routine keeps one working set under
-    `/computer/routines/<routineId>` across runs. The isolation boundary is the
-    Organization, not the Space: cross-Space continuity on one computer is the
-    point, and disclosure control lives on the output side (which Space the
-    Center Agent speaks in), exactly as it already does for Organization
-    memory and Documents. Before each hosted turn starts, Remote Agent pulls a
+    The Computer belongs to the human account described above. Tasks use separate
+    working directories in the same account filesystem. Another account has a
+    separate filesystem and process namespace. The Computer does not mount a
+    user workstation. Before each hosted turn starts, Remote Agent pulls a
     versioned approved Organization Documents snapshot from Core when the
     current turn's `contextScopePlan` allows it. The trusted snapshot stays in
     turn-local memory; approved documents are no longer automatically copied
     onto shared disk. This removes the global refresh/clear race between
     concurrent sessions without leaving prior automatic snapshots accessible
-    to a turn that excludes Documents. Remote Agent retires the old reserved
-    `/computer/org/documents` projection before exposing Computer tools. This
-    migration cleanup never touches current session working copies.
+    to new turns. Explicit personal working copies remain on the owner's Computer;
+    preparing a turn never deletes previous personal files.
     A disallowed plan neither fetches the snapshot nor exposes Document checkout
     or submit tools. Authorized reads use the existing Core tools; explicit
     checkout writes one document into the current working directory. Working
-    copies are ordinary shared Computer files, not a per-member privacy
-    boundary. Working-copy submission remains bound to the current trusted
+    copies are files in the current audience's Computer; they do not grant another
+    audience access. Working-copy submission remains bound to the current trusted
     snapshot outside the Agent-writable filesystem. Center Agent edits happen in a
     working directory and return through the Core-owned draft or explicitly
     authorized direct-save contracts; Computer files never become a second
     approved-content writer.
-    The AgentComputer Durable Object identity stays fixed for the Agent Profile,
+    The AgentComputer Durable Object identity stays fixed for the admitted audience,
     but a `WorkspaceClient` is an RPC lease, not durable turn state. Remote Agent
     acquires and disposes one client for each materialization attempt and later
     Computer operation; an exec handle is disposed before its parent client on
@@ -2254,23 +2714,17 @@ surface adopts official features where they are free**:
     normal stream observer and cannot be converted into failure by this sweep.
     A Local Agent never receives an implicit mount of this private hosted
     filesystem. A Center Agent may explicitly copy at most three regular text
-    files from the current working directory into one Wake, with 32,000 bytes
+    files explicitly selected from the personal Computer into one Wake, with 32,000 bytes
     per file and 64,000 bytes total; symbolic links, private sidecars, binary
     content, and paths outside the current work fail closed. This is a one-time
     message snapshot, not filesystem access or live sync. Larger or durable
     handoffs use formal Organization Documents or another supported shared
     surface.
-    Shell execution has two backends over the same
-    files: worker-shell (default — just-bash in a Dynamic Worker reached
-    through `env.LOADER`, instant, no container, no public network, text
-    tooling only) and container (computerd in a Cloudflare Container,
-    FUSE-mounting this same workspace at `/computer` with `MOUNT_POINT`
-    pinned for same-path fidelity; full Linux userland with Node.js 24,
-    Corepack-managed pnpm, Python, git, curl, jq, and native build tools;
-    changes sync back over capnweb). The model selects the backend
-    per bash call and is prompted to prefer worker-shell. Computer SDK and
-    computerd use version 0.2.1 together. Container network access is explicitly
-    direct; worker-shell remains network-disabled. A replaced runtime reports
+    The native `computer` tool exposes the official file tools and three
+    execution backends described under Personal cloud Computer above.
+    `computer_command` uses the same command owner and defaults to Linux.
+    Computer SDK and computerd use version 0.4.1 together. All three engines
+    have direct network access. A replaced runtime reports
     `EEXEC_LOST` for an old command instead of replaying its launch. The model
     receives that loss and may inspect durable files and choose a safe next
     action. Terminal cleanup skips only commands whose definite loss was
@@ -2287,7 +2741,7 @@ surface adopts official features where they are free**:
     activation, and resource loading while workspace-written Skills remain
     invisible. The computer connects lazily: the Dynamic Worker starts only
     when a computer or Code Mode tool actually executes. Routine timing is not
-    a Tier-2 harness capability; D1 plus Core Cron owns it.
+    a Tier-2 harness capability; PostgreSQL plus Core Cron owns it.
 
 - **Tier 3 — OpenMeld product tools (Experimental, Core-backed).** The
   first shipped tool slice exposes OpenMeld org actions through Flue
@@ -2393,7 +2847,7 @@ surface adopts official features where they are free**:
   includes Routine management and the complete model-visible GitHub catalog.
   The current explicit exception hides the Agent Task discovery or watch tools
   named in
-  `developing/product/center-agent-routines.md`; the read-only Project list and
+  `developing/product/routines.md`; the read-only Project list and
   Slack channel list, member, and history reads remain inherited. Catalog
   inheritance does not bypass any capability-owned rule: current
   delegated-member authorization, connection scope, attribution,
@@ -2495,7 +2949,7 @@ surface adopts official features where they are free**:
   removal never offers a dead link to the removed Project.
 
   This is an additive private Worker RPC and shared-schema change. Deploy the
-  Core D1 migration first, then the Core and API/Web readers that understand
+  Core PostgreSQL migration first, then the Core and API/Web readers that understand
   Center Agent Project audit action set `v8`, and deploy Remote Agent last. New
   Core remains compatible with an old Remote Agent because no Project RPC is
   called. A new Remote Agent against an old Core fails closed with
@@ -2536,6 +2990,21 @@ Native Delivery. Routine turns and member research reject `requester`; they may
 use only `organization`. Remote Agent strips `githubActor` before calling OpenConnector
 because it is OpenMeld authorization input, not a provider action parameter.
 
+For requester-owned repository checkout, the AgentComputer host fetches one
+shallow Git pack through OpenConnector's repository-scoped `git-upload-pack`
+stream. The host rechecks the active Core execution and the requester's current
+member connection; OpenConnector injects that member's credential. A durable
+Computer alarm owns the transfer, streams only the pack bytes into the Computer
+filesystem, and can retry an interrupted transfer. The Computer retains its
+ordinary direct egress policy. It only runs `git index-pack` against the local
+pack file; no URL, runtime bearer, or GitHub credential enters its environment,
+Git configuration, or remote list. Before constructing the existing synthetic
+working copy, it verifies the fetched source and default-branch commit trees
+against the independently pinned checkout record. Tool calls return `preparing`
+and poll the durable operation. Organization-owned checkout retains its existing
+bounded REST transfer until an Organization-specific Git transport is authorized.
+Deploy the OpenConnector stream endpoint before enabling this Remote Agent path.
+
 Workflow dispatch is a general GitHub capability, not an OpenMeld release
 endpoint. Its provider input is only repository, workflow identifier, explicit
 branch or tag `ref`, and an optional string-to-string workflow input map. The
@@ -2559,6 +3028,35 @@ run and job reads and the exact returned run identity when known. This path does
 not add polling infrastructure, callbacks, or a release scheduler.
 
 #### OpenConnector access boundary
+
+An external write's caller `operationId` and the derived provider idempotency
+key are distinct identities. Model-visible uncertain and pending receipts retain
+the caller identity; provider transport keys must never become instructions for
+a new write. `pending` leaves the existing Core operation pending and projects
+as awaiting confirmation, not failure or completion.
+
+The pinned OpenConnector action deduplication implementation retains claims and
+completed responses for 24 hours, and deletes expired records before claiming a
+key (`action-idempotency.ts` and `d1-runtime-store.ts` at
+`31be0d205cfd3f2b0a8f9ab5e3a54558976ed500`). The reservation precedes provider
+execution. Within that original window, the Agent may retry the exact request
+once using the same caller operation ID, account and input. If that does not
+confirm the result, it should use an authorized read tool at the target. Only
+when both steps cannot establish the result should the final reply identify
+the uncertain action and its target. A new operation ID must never be used to
+repeat the uncertain write.
+
+Core computes the remaining window from its immutable original operation
+record. Remote anchors that duration at the start of its receipt request using
+its monotonic clock;
+cross-service wall-clock timestamps are not subtracted. Missing legacy window
+evidence and expired windows skip the write replay. Repeating a key after
+expiration can perform a new write, so this is not an indefinite result query.
+Known read actions retain ordinary pending/retry handling; write, destructive
+and unknown effects use the cautious receipt. Dynamic GitHub, named GitHub and
+App tools reuse the same recovery guidance, including in Code Mode. The
+awaiting-confirmation activity does not automatically resolve in this batch;
+P1 reconciliation remains outstanding.
 
 The OpenMeld OpenConnector deployment keeps administration and runtime action
 execution on separate bearer-token surfaces:
@@ -2669,20 +3167,25 @@ turns use the same discoverable App actions.
 
 The generic action path relies on the provider grant, Core authorization,
 represented-member attribution, and one durable Core-owned operation. The
-model chooses a stable operation ID and must reuse it when retrying the exact
-same action. Core binds that ID to the selected connection, service, action,
+model chooses a stable operation ID. An explicitly permitted exact retry keeps
+that ID; a pending or unknown write stops for confirmation at its target rather
+than being retried as a result query. Core binds that ID to the selected connection, service, action,
 represented member, and request signature before execution. That signature
 covers the selected connection, service, action, and input. Remote Agent sends
 the same ID to OpenConnector in the standard `Idempotency-Key` HTTP header; it
 does not invent a JSON-body field outside the official runtime API. OpenMeld's
 Core-owned operation record, rather than provider response metadata, is the
 source of truth for whether the request is a replay. If provider
-execution succeeds but Core finalization is interrupted, the next exact retry
-reads the Core operation metadata first, rebuilds and verifies the same
-signature with its frozen connection, replays OpenConnector's stored result,
-and finishes the same operation instead of creating a second provider mutation.
-The execution response contains data and metadata, but no output schema. New
-operations return the schema from the verified action catalog; an exact replay
+execution succeeds but Core finalization is interrupted, a permitted exact retry
+reads the Core operation metadata first and verifies the same signature with its
+frozen connection. OpenConnector can replay a stored result only while it retains
+that result. Its pinned HTTP runtime expires idempotency records after 24 hours;
+the same POST after expiry can perform another mutation. Neither a stable ID nor
+Core's retained pending record certifies a side-effect-free query. This batch
+does not automatically confirm uncertain writes; users must verify the target.
+The execution response may carry its execution-owned output schema. Remote
+validates that schema when present and uses the verified action catalog only
+for a legacy response without it; an exact replay
 may omit it when the current catalog is unavailable, rather than misreporting
 the recovered provider result as a failed write. Current membership, connection
 availability, and provider catalog state gate only a new claim; they cannot
@@ -2878,7 +3381,7 @@ Current hosted capability inventory:
 | OpenRouter web search and fetch               | OpenRouter server tools through the existing AI Gateway route           | Yes                           | Adds current public-web research without a new OpenMeld data store                                        | Provider requests and model context consumption              | Tool payload, citation, usage, and failure tests                                                              |
 | Browser Run rendered reads                    | Browser Run Quick Actions                                               | Yes                           | Reads JavaScript-rendered pages with a browser binding only                                               | Browser time and untrusted page content                      | Markdown, links, extraction, scraping, and browser-time tests                                                 |
 | Browser Run screenshots                       | Browser Run Quick Actions plus the existing Space attachment contract   | Yes for OpenMeld Space output | Lets the Center Agent return a real visual artifact                                                       | Image size, browser time, and private attachment lifecycle   | Browser response, R2 write, Core metadata, callback, and final publication tests                              |
-| Cloudflare Computer (Center Agent's computer) | `@cloudflare/computer` Workspace + worker-shell backend on `env.LOADER` | Yes                           | Gives the Center Agent one durable org-level filesystem and shell that persists across conversations      | Preview-stage API drift and Durable Object storage growth    | Computer naming/enablement, layout, SandboxApi adapter, native grep, observability, and localhost smoke tests |
+| Personal cloud Computer | `@cloudflare/computer` 0.4.1 Workspace, native tools and execution backends | Yes | Gives Center, Remote and optional Local Agents the user's persistent Computer | Preview-stage API drift and Durable Object storage growth | Native tool contracts, concurrent command receipts, shared files and real private Git clone smoke |
 | Computer container backend (computerd)        | `@cloudflare/computer/backends/container` + computerd FUSE image        | Yes                           | Full Linux userland (python3, git, curl, jq) over the same durable file world as worker-shell             | Container boot latency and standard-2 instance cost          | Backend routing tests plus local Docker smoke: python3 reads DO-written file, container write syncs back      |
 | Cloudflare Sandbox (removed)                  | Cloudflare Sandbox SDK plus Flue Cloudflare adapter                     | Removed                       | Fully superseded by the computer's container backend                                                      | None (class deleted via `v6_retire_sandbox`)                 | Dependency removed; no `SANDBOX` binding or `Sandbox` class remains                                           |
 | Browser Live View and retained sessions       | Browser Run Live View and CDP session APIs                              | No                            | Headless one-shot execution covers the current product need                                               | Human takeover and retained-session lifecycle                | No Live View URL, browser session state, or takeover surface exists                                           |
@@ -2937,7 +3440,7 @@ but not trigger.
    trigger semantics and is not rewritten for R1; runtime selection happens
    only at the execution-side fork after the planner has selected a target.
    A Routine Run is the separate Core-owned scheduled admission defined in
-   `developing/product/center-agent-routines.md`; it targets the designated
+   `developing/product/routines.md`; it targets the designated
    hosted Center Agent directly and must not enter or weaken workstation
    RuntimeCoordinator semantics.
    For an interactive Space Wake already selected for the hosted Binding,
@@ -2962,13 +3465,13 @@ but not trigger.
    permits only the frozen destination recorded for that Run, and never mirrors
    across surfaces or fabricates a source message. Every publication branch
    must satisfy the frozen-target invariant owned by
-   `developing/product/center-agent-routines.md`. Slack terminal publication —
+   `developing/product/routines.md`. Slack terminal publication —
    successful replies and failed-callback notices — uses a fenced, nonterminal
    ledger claim before `chat.postMessage`. Only the claim holder may publish;
    an active concurrent
    loser remains retryable. Core records the terminal delivery state and the
    published Slack timestamp only after Slack returns `ok: true` with a
-   non-empty `ts` and the same claim id wins the D1 finalize. Slack has no
+   non-empty `ts` and the same claim id wins the PostgreSQL finalize. Slack has no
    documented idempotency key for this call, so a network-ambiguous result, a
    failed fenced finalize, or an expired claim becomes `outcome_unknown` and is
    never automatically reposted. This is an explicit at-most-once tradeoff for
@@ -3031,7 +3534,23 @@ but not trigger.
    terminal projection as every other Native Delivery ending. Replaying a
    durable `published` or `outcome_unknown` watchdog result must rerun that
    projection idempotently so a crash cannot leave an observer waiting
-   forever. Historic
+   forever.
+
+   A pre-ACK admission timeout for a Space task continuation is the bounded
+   exception to immediate terminalization. Core records the attempt and next
+   retry due time in the existing Native Delivery Ledger, then replays the exact
+   frozen worker request after 15 seconds and 30 seconds, for three attempts
+   total. The delivery id, dispatch id, and worker idempotency key never change;
+   one compare-and-set claim admits each retry, while the Remote Agent's durable
+   receipt is the final duplicate-execution fence. Any ACK or accepted/running
+   evidence ends retry eligibility. After the third unacknowledged attempt,
+   Core publishes an actionable failure in the original thread, projects the
+   terminal task outcome, and creates one urgent Inbox alert linked to the
+   original child result. Ordinary Space Wakes, Routines, Slack, Message
+   Channels, deterministic admission rejection, and post-ACK execution keep
+   their existing behavior.
+
+   Historic
    `remote_agent.delivery_expired` rows are not execution truth: a matching
    late callback reopens that retired false failure, preserves the old notice as
    reconciliation evidence, and publishes the authoritative result once.
@@ -3052,7 +3571,7 @@ but not trigger.
    logs the capability gap and requeues the same probe.
    Queue retry count is not accepted-delivery liveness. Every successful probe
    enqueue or self-requeue renews the ledger's next-probe due time. Core's
-   minute scheduler scans missing or expired due times and uses one bounded D1
+   minute scheduler scans missing or expired due times and uses one bounded PostgreSQL
    compare-and-set lease before enqueueing compensation. A failed enqueue
    releases its exact lease when Core knows the preceding operation stopped. If
    the reconciliation RPC timed out, enqueue failure keeps the processing lease
@@ -3146,10 +3665,21 @@ but not trigger.
    Space Stop targets one logical Wake, including its automatic work-loop
    submissions; it must not abort unrelated queued work in the conversation.
    The Center Agent's Stop tool accepts one exact Wake selector and uses the
-   same Core and Space Stop mutation as Web. It can Stop its own authored Wake
-   only when that Wake's persisted `onBehalfOf` matches the member verified by
-   the current delivery. Other Wakes require that member's ordinary Web Stop
-   permission. Progress exposes
+   same Core and Space Stop mutation as Web. For ordinary Space delegation,
+   that Wake's persisted `onBehalfOf` must match the member verified by the
+   current delivery. The current designated Center Agent may also Stop its own
+   UUID-addressed request in its exact Agent Direct Message. Before publication,
+   that DM must still be unconverted; after conversion, the actual source must
+   have been authored by the Center before conversion. This grants no authority
+   over another author's work. Other Wakes require the verified member's ordinary
+   Web Stop permission. Delegating a UUID Stop to that member requires an existing
+   source signal, so an unknown Center request never becomes a Human-authored
+   early-Stop fence. The reserved `ca-wake:` provenance path remains unchanged.
+   Personal Remote Agent Stop and progress tools accept an optional target
+   `spaceId`, defaulting to their admitted conversation. Core requires the same
+   Organization; Space still checks access and the Agent's ordinary authority.
+   Other conversation-scoped tools remain in the admitted conversation.
+   Progress exposes
    Stop eligibility only to an authorized viewer. A requested cancellation is
    reported as requested until the execution owner confirms it stopped.
    Space records Stop in its existing dispatch outbox before contacting the
@@ -3166,6 +3696,20 @@ but not trigger.
    retry cancellation without resubmitting stopped work. A confirmed terminal
    Stop publishes a `wake_stopped` notice in the existing final-outcome slot;
    notice publication failure is repaired on redelivery without replaying work.
+   Task-continuation watchdogs and backoff retries also read the original task
+   owner's stopped outcome, including after a retry is claimed and after its
+   ACK. Once ACK clears the pending submit request, the existing immutable
+   recovery snapshot retains that association. Both admission and accepted
+   probes retry a failed Stop transfer before treating an ACK as settled.
+   They forward Stop through the existing durable probe queue instead of
+   resubmitting or publishing an admission failure. A positive native admission
+   fence can confirm withdrawal before an ACK exists; its stopped notice keeps
+   the submission identity absent. Native admission Stop intents have no time
+   expiry, so waiting longer cannot make the same late identity admissible.
+   Stop also retains that identity fence when execution has already completed
+   or failed, without changing its terminal record or retained result. Such a
+   response remains `not_stoppable`; only the separate fence receipt confirms
+   that identity cannot admit later work.
    Space's durable alarm owns every pending Hosted Stop, including legacy-NULL
    records with no native delivery yet. It retries bounded, fairly rotated
    batches and follows late native evidence without resubmitting work; a
@@ -3248,9 +3792,9 @@ Routine rollout has three different strict windows:
   still enter bounded ACK recovery during the forward window; it must not be
   mistaken for a deterministic rejection.
 
-Apply D1 migration `0025` before `0026`, `0035` before queued Slack ingress,
-`0036` before new Routine fields, and `0063` before Core can append a Routine
-continuation delivery. Deploy the Core queue consumer before the
+Complete native PostgreSQL migration acceptance before producers. The original
+D1 prerequisites (`0025`, `0026`, `0035`, `0036`, `0063`) are included in the
+native baseline; do not replay them. Deploy the Core queue consumer before the
 Gateway Slack queue producer; Gateway returns retryable non-2xx if enqueue is
 not available. These windows are independent; the W2
 consumer-first exception must not be replaced by the default Core-before-Remote
@@ -3286,15 +3830,23 @@ Core-owned hosted readiness has exactly two product states in MVP:
 
 ### Free MVP with operator containment and usage visibility
 
+Remote inference usage records distinguish Flue's `agent`, `compaction`, and
+`compaction_prefix` purposes by joining the public turn-request observation to
+its exact model interceptor within the submission. No prompt content is stored
+by that join. Compaction remains part of the public `agent` purpose aggregate,
+so existing Usage clients can read totals unchanged; the ledger retains the
+detail for operator cost analysis. Core must accept the added record purposes
+before Remote Agent emits them. No local Service or CLI contract changes.
+
 - The Remote Agent is **free** in MVP. No billing build.
 - The retired **$50/org/day circuit breaker**, `resting` state, and
   **60 Remote Agent triggers/member/hour** limit are not active product
   gates. Historical database columns and migrations remain because old rows
   are durable evidence, but Core no longer reads or writes them.
 - Operator containment remains a global runtime kill switch and an optional
-  per-organization blocklist. Both are operational controls. The separate
-  Organization daily admission limit is a uniform product guardrail with no
-  official-organization exemption.
+  per-organization blocklist. Both are operational controls. An optional
+  Organization daily AI allowance defaults to unlimited and is managed by
+  operators through `scripts/ops/ai-usage-policy.mjs`; members cannot raise it.
 - Per-turn usage is recorded by the Remote Agent worker from Flue prompt
   usage, emitted to Analytics Engine, and exposed through
   `readUsageDiagnostics`. Core does not add usage fields to the native
@@ -3310,6 +3862,22 @@ Core-owned hosted readiness has exactly two product states in MVP:
   production). The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
+- Organization-scoped OpenRouter routes retain native prompt-cache capabilities
+  even when a selected Claude model is absent from pi-ai's bundled catalog.
+  The worker also enables message-prefix markers for the exact Alibaba routes
+  documented by OpenRouter and current Model Studio support: DeepSeek V3.2,
+  Qwen Plus, Qwen3 Max, Qwen3.6 Plus/Flash, Qwen3 Coder Plus/Flash, Qwen3.7
+  Max/Plus/Flash, and Qwen3.8 Max 0902/Flash. This support is an explicit model
+  capability, not a blanket rule for the Qwen namespace; snapshot and open-weight
+  endpoints do not inherit it. Alibaba caches tools through the message prefix,
+  so the worker removes Claude-only tool markers and retains five-minute TTLs.
+  The adapter owns prefix placement and per-call cache opt-out. OpenAI, Grok,
+  DeepSeek V4, Z.AI, Moonshot, and current Gemini routes retain provider automatic
+  caching; the worker does not force optional Gemini storage or OpenAI explicit
+  cache modes. Caching does not change the selected model, reasoning, context
+  content, authorization, or same-model provider failover. Actual savings require
+  provider-reported cache reads; missing prices and estimated costs are not proof
+  of the provider's charged amount.
 
 Failure copy examples belong to Core, not the worker. Runtime policy blocks
 must explain whether the Remote Agent is disabled globally or blocked for the
@@ -3424,13 +3992,13 @@ tooling, not a user surface and not availability truth.
   cannot override OpenMeld system or tool safety rules. Draft content is never
   projected into the prompt. The knowledge section may list available approved
   document titles, but it does not inject their bodies.
-- The Remote Agent keeps the validated Organization Brief and approved document
-  titles in a 60-second, organization-keyed memory cache. Flue's materialization
-  factory has no execution context, so it never starts or awaits the Core RPC
-  during admission. The fiber-side factory returns a fresh cache hit immediately
-  or awaits one organization-keyed, deduplicated refresh before model execution.
-  A refresh failure fails explicitly instead of running with missing or stale
-  organization context.
+- Each turn reads Organization prompt context through its current Core
+  authorization. There is no organization-keyed Brief/title cache or old-body
+  fallback after a denial or refresh failure. Unavailable context is marked
+  unavailable; ordinary conversation can continue, but work requiring unread
+  rules must report the gap. Personal Remote Agents keep the Center-only prompt
+  and Computer projection disabled and discover ordinary approved documents
+  through their own admitted read identity.
 - `openmeld_read_org_documents` lists folders plus the approved document catalog
   or reads one approved body. `openmeld_draft_org_document` creates or replaces
   reviewable draft content. `openmeld_manage_org_documents` creates and renames
@@ -3438,9 +4006,11 @@ tooling, not a user surface and not availability truth.
   an owner/admin request or durable Routine instruction authorizes publication.
   The management tool has no delete action, rejects direct saves over pending
   drafts, and requires a stable operation id so exact retries do not duplicate
-  content. These tools call Core under represented-member authorization, write
-  the Center Agent audit journal, and remain available in the shared interactive
-  and Routine catalog.
+  content. Center reads and document writes use represented-member authorization.
+  Personal Remote reads use the receiving Agent's active delivery, owner/member,
+  Profile, and frozen audience checks, including Agent-source Wakes; no sender
+  human impersonation or writing authority is inherited. The tools write the
+  existing audit journal and remain in their authorized interactive/Routine catalogs.
 
 ### Center Agent memory (shipped 2026-07-10)
 
@@ -3534,7 +4104,7 @@ posture, in force from day one:
 - CLI: `openmeld center-agent` status surfaces show the remote runtime
   read-only in MVP; managing the switch from CLI is post-MVP.
 - Routine Web, CLI, and interactive Center Agent surfaces are owned by
-  `developing/product/center-agent-routines.md`; this document owns only their
+  `developing/product/routines.md`; this document owns only their
   Remote Agent execution and tool-runtime boundary.
 
 ## Expansion Path
@@ -3544,7 +4114,7 @@ organization-owned one-time or recurring work, explicit Space or durable Slack
 thread destinations, Core scheduling, and unattended Remote Agent native
 delivery with ordinary Center Agent capability inheritance. They are not a Flue-private
 scheduled-task registry. Their product contract lives in
-`developing/product/center-agent-routines.md`.
+`developing/product/routines.md`.
 
 Remaining expansion still requires its own design and ticket pass:
 
@@ -3597,7 +4167,7 @@ create parallel authorities or rework workstation RuntimeCoordinator semantics.
   OpenMeld secrets at any tier; widening the vetting bar or the tool tier
   requires Felix.
 - Routines are user-visible and must follow
-  `developing/product/center-agent-routines.md`: D1 plus Core Cron owns timing,
+  `developing/product/routines.md`: PostgreSQL plus Core Cron owns timing,
   the destination is explicit, each Run has one initial native delivery and may
   have one resumed Center Agent delivery after its own all-terminal delegated
   work, `routine_runs.native_delivery_id` owns the final result, skipped Runs
@@ -3617,3 +4187,17 @@ create parallel authorities or rework workstation RuntimeCoordinator semantics.
   optional per-org block list for emergency containment.
 - One Center Agent per org; designation semantics untouched (org doc owns
   them).
+## Authorized private session history
+
+`openmeld_read_session_history` reads bounded Codex messages from a Computer
+selected through Activity inventory. It requires an active admitted delivery
+with a verified human root, that human's Computer, current Organization
+membership, and the Computer owner's selected Project/reader grant. Routine
+turns do not expose this tool. Shared membership is not read authority.
+
+The result includes trusted root, reader, immediate delegator, and destination
+audience. Treat source messages as data, not instructions. The answering Agent
+must choose what is appropriate to disclose in the destination conversation;
+do not automatically forward private source text. The history service does not
+sync transcripts, but the consuming Agent's normal conversation retention still
+applies. Unverified multi-hop delegation is denied in v1.

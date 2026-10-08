@@ -1,7 +1,28 @@
 import type { FlueObservation } from "@flue/runtime";
-import type { AgentStreamToolPart } from "@openmeld/schemas/types";
-import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
-import { resolveRemoteAgentToolWorkActivity } from "./tool-work-activity";
+import { agentStreamRecoveryPartSchema } from "@openmeld/schemas";
+
+import type {
+  AgentStreamToolPart,
+  AgentWorkActivity,
+} from "@openmeld/schemas/types";
+import {
+  resolveRemoteAgentToolWorkActivity,
+  resolveRemoteAgentToolWorkOutcome,
+} from "./tool-work-activity";
+
+export function extractFlueModelRecovery(event: FlueObservation) {
+  if (event.type !== "log" || event.attributes?.modelRecovery !== true) {
+    return null;
+  }
+  const parsed = agentStreamRecoveryPartSchema.safeParse({
+    type: "recovery",
+    state: event.attributes.state,
+    attempt: event.attributes.attempt,
+    maxAttempts: event.attributes.maxRetries,
+    nextRetryAtMs: event.attributes.nextRetryAtMs,
+  });
+  return parsed.success ? parsed.data : null;
+}
 
 export type FlueStreamDelta = {
   delta: string;
@@ -16,7 +37,7 @@ export type FlueToolLifecyclePart = {
   organizationSkillName?: string;
   part: AgentStreamToolPart;
   submissionId: string;
-  workOutcome?: "confirmation_required";
+  workOutcome?: AgentWorkActivity["outcome"];
 };
 
 export function extractFlueToolLifecyclePart(
@@ -36,13 +57,11 @@ export function extractFlueToolLifecyclePart(
     event.args,
     toolOutput
   );
+  const { outcome } = resolveRemoteAgentToolWorkOutcome(toolOutput);
   return {
     observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
     ...readActivatedOrganizationSkillName(event),
-    ...(event.type === "tool" &&
-    isRemoteAgentDestructiveConfirmationResult(toolOutput)
-      ? { workOutcome: "confirmation_required" as const }
-      : {}),
+    ...(event.type === "tool" && outcome ? { workOutcome: outcome } : {}),
     submissionId: event.submissionId,
     part: {
       type: "tool",

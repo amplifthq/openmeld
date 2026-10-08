@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   agentActivitySessionInventoryRpcInputSchema,
   submitAgentActivitySessionReconciliationRpcInputSchema,
 } from "@openmeld/schemas";
@@ -8,7 +12,7 @@ import type {
   SubmitAgentActivitySessionReconciliationResponse,
   SubmitAgentActivitySessionReconciliationRpcInput,
 } from "@openmeld/schemas/types";
-import { agentActivityDb, type CoreBindings, projectDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveOrganizationMembershipById } from "../organizations/organization-context";
 import {
   readProjectRecord,
@@ -22,7 +26,6 @@ import {
   readAgentActivitySessionInventory,
   readConnectedComputerId,
 } from "./activity-session-inventory-repository";
-
 export async function rpcReadAgentActivitySessionInventory(
   env: CoreBindings,
   input: AgentActivitySessionInventoryRpcInput
@@ -58,7 +61,6 @@ export async function rpcReadAgentActivitySessionInventory(
     throw error;
   }
 }
-
 export async function rpcSubmitAgentActivitySessionReconciliation(
   env: CoreBindings,
   input: SubmitAgentActivitySessionReconciliationRpcInput
@@ -194,7 +196,7 @@ async function assertReconciliationRepositoryAssociated(input: {
   if (input.result === "disconnected") {
     return;
   }
-  const db = projectDb(input.env);
+  const db = getPostgresDatabase(input.env);
   const settings = db
     ? await readProjectRepositorySettingsRecord({
         db,
@@ -231,7 +233,6 @@ async function assertReconciliationRepositoryAssociated(input: {
     });
   }
 }
-
 function canReconcileProject(
   project: Awaited<ReturnType<typeof readProjectRecord>>,
   result: SubmitAgentActivitySessionReconciliationRpcInput["result"]
@@ -240,7 +241,6 @@ function canReconcileProject(
     project && (project.archivedAtMs === null || result === "disconnected")
   );
 }
-
 export function isSessionReconciliationFingerprintCompatible(input: {
   projectRepositoryFingerprints: readonly string[];
   reportedRepositoryFingerprint: string | null;
@@ -255,16 +255,14 @@ export function isSessionReconciliationFingerprintCompatible(input: {
       ))
   );
 }
-
 function isObservationTimeCurrent(observedAtMs: number, nowMs: number) {
   return (
     observedAtMs >= nowMs - 24 * 60 * 60_000 &&
     observedAtMs <= nowMs + 5 * 60_000
   );
 }
-
-function requireActivityDb(env: CoreBindings): D1Database {
-  const db = agentActivityDb(env);
+function requireActivityDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "agent_activity.store_unavailable",

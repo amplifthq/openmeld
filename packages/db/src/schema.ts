@@ -2,6 +2,14 @@ import { schema as authSchema } from "./auth/schema.ts";
 import { coreSchema } from "./core/dispatch.schema.ts";
 import { diagnosticsSchema } from "./diagnostics/schema.ts";
 
+// biome-ignore lint/performance/noBarrelFile: Drizzle owns tool metadata DDL; application consumers do not export it.
+export {
+  d1ImportCompletion,
+  migrationSchema,
+} from "./postgresql/import.schema.ts";
+// Drizzle must discover the schema owner as well as its tables.
+export { applicationSchema } from "./postgresql/schema.ts";
+
 export const schema = {
   ...authSchema,
   ...coreSchema,
@@ -9,6 +17,7 @@ export const schema = {
 } as const;
 
 export const {
+  accountDeletionRequests,
   accountSidebarPreferences,
   accounts,
   accountsRelations,
@@ -38,6 +47,9 @@ export const {
 } = authSchema;
 
 export const {
+  firstWorkExperiences,
+  aiUsageRecords,
+  organizationAiUsagePolicies,
   inboxCenterAgentReadWatermarks,
   spaceInvitations,
   organizationJoinRequests,
@@ -84,6 +96,7 @@ export const {
   routineRuns,
   connectorAccessEvents,
   pluginActionConfirmations,
+  pluginActionRequests,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
@@ -124,6 +137,7 @@ export const {
   openMeldFeedbackInboxes,
   openMeldFeedbackIssues,
   openMeldDaemonConnectedComputers,
+  cloudComputers,
   openMeldDaemonPreHeadFailurePublicationOutbox,
   openMeldDaemonOpsDecisions,
   openMeldDaemonDispatchLedger,

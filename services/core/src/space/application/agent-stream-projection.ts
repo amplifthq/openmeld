@@ -1,5 +1,6 @@
 import {
   AGENT_REPLY_FINAL_PURPOSE,
+  agentStreamRecoveryPartSchema,
   agentStreamToolPartSchema,
   isAgentWorkActivityPresentable,
   isLegacyAgentActivityWorkCompatible,
@@ -10,6 +11,8 @@ import {
   spaceMessageDetailsWorkingDetailsSchema,
 } from "@openmeld/schemas";
 import type {
+  AgentStreamPart,
+  AgentStreamRecoveryPart,
   AgentStreamToolPart,
   SignalEnvelope,
   SpaceAgentActivity,
@@ -51,7 +54,7 @@ type AgentStreamIdentity = Pick<
 >;
 
 type AgentStreamPartProjection = AgentStreamIdentity & {
-  part: AgentStreamToolPart;
+  part: AgentStreamPart;
   sequence: number;
 };
 
@@ -68,6 +71,7 @@ type StoredAgentPublicProgressDraft = AgentStreamIdentity & {
 };
 
 type AgentStreamCursor = AgentStreamIdentity & {
+  recovery?: AgentStreamRecoveryPart;
   sequence: number;
   gapDetected: boolean;
   createdAtMs: number;
@@ -80,6 +84,7 @@ type AgentStreamTerminalGuard = {
   streamId: string;
   lastSequence: number;
   expiresAtMs: number;
+  stoppedReply?: SpaceAgentStreamSnapshot;
 };
 
 type StoredAgentToolActivity = {
@@ -155,7 +160,7 @@ export type ApplyAgentStreamPartResult =
       status: "accepted";
       lastSequence: number;
       gapDetected: boolean;
-      part: AgentStreamToolPart;
+      part: AgentStreamPart;
     }
   | {
       status: "duplicate_accepted";
@@ -276,7 +281,10 @@ export async function applyAgentStreamPart(input: {
   part: AgentStreamPartProjection;
   nowMs: number;
 }): Promise<ApplyAgentStreamPartResult> {
-  const parsedPart = agentStreamToolPartSchema.parse(input.part.part);
+  const parsedPart =
+    input.part.part.type === "recovery"
+      ? agentStreamRecoveryPartSchema.parse(input.part.part)
+      : agentStreamToolPartSchema.parse(input.part.part);
   return await input.storage.transaction(async (transaction) => {
     const advanced = await advanceAgentStreamSequence({
       event: input.part,
@@ -286,12 +294,19 @@ export async function applyAgentStreamPart(input: {
     if (advanced.status !== "accepted") {
       return advanced;
     }
-    await recordAgentToolActivity({
-      nowMs: input.nowMs,
-      part: parsedPart,
-      stream: input.part,
-      transaction,
-    });
+    if (parsedPart.type === "recovery") {
+      await transaction.put(buildActiveStreamCursorKey(input.part.streamId), {
+        ...advanced.cursor,
+        recovery: parsedPart,
+      });
+    } else {
+      await recordAgentToolActivity({
+        nowMs: input.nowMs,
+        part: parsedPart,
+        stream: input.part,
+        transaction,
+      });
+    }
     return {
       status: "accepted",
       lastSequence: advanced.cursor.sequence,
@@ -335,6 +350,11 @@ export async function closeAgentStreamProjection(input: {
       streamId: input.streamId,
       lastSequence,
       expiresAtMs: input.nowMs + AGENT_STREAM_PROJECTION_RETENTION_MS,
+      stoppedReply: resolveStoppedReplySnapshot(
+        terminal,
+        snapshot,
+        storedGuard
+      ),
     };
     await transaction.put(terminalKey, terminalGuard);
     if (terminal.kind === "final_message" && storedWorkingDetails) {
@@ -395,6 +415,64 @@ export async function closeAgentStreamProjection(input: {
       terminal,
     };
   });
+}
+
+function resolveStoppedReplySnapshot(
+  terminal: SpaceAgentStreamTerminal,
+  snapshot: SpaceAgentStreamSnapshot | null,
+  guard: AgentStreamTerminalGuard | undefined
+): SpaceAgentStreamSnapshot | undefined {
+  if (terminal.kind !== "stopped") {
+    return undefined;
+  }
+  return snapshot ?? guard?.stoppedReply;
+}
+
+export async function attachStoppedReplyText(input: {
+  signal: SignalEnvelope;
+  storage: AgentStreamProjectionStorage;
+  nowMs: number;
+}): Promise<SignalEnvelope> {
+  const { signal } = input;
+  if (
+    signal.type !== "signal.system_notice" ||
+    signal.data.noticeType !== "wake_stopped"
+  ) {
+    return signal;
+  }
+  const { stoppedReplyText: _callerText, ...notice } = signal;
+  const data = notice.data;
+  const [active, guards] = await Promise.all([
+    input.storage.list<unknown>({ prefix: ACTIVE_STREAM_STORAGE_PREFIX }),
+    input.storage.list<AgentStreamTerminalGuard>({
+      prefix: TERMINAL_GUARD_STORAGE_PREFIX,
+    }),
+  ]);
+  const candidates = [
+    ...active.values(),
+    ...[...guards.values()]
+      .filter((guard) => guard.expiresAtMs > input.nowMs)
+      .map((guard) => guard.stoppedReply),
+  ].flatMap((value) => {
+    const parsed = spaceAgentStreamSnapshotSchema.safeParse(value);
+    return parsed.success &&
+      parsed.data.expiresAtMs > input.nowMs &&
+      parsed.data.spaceId === signal.spaceId &&
+      parsed.data.dispatchId === data.dispatchId &&
+      parsed.data.profileId === data.actorProfileId &&
+      (!data.replyTo || parsed.data.triggerMessageId === data.replyTo.signalId)
+      ? [parsed.data]
+      : [];
+  });
+  const snapshot = candidates.sort(
+    (left, right) => right.updatedAtMs - left.updatedAtMs
+  )[0];
+  return {
+    ...notice,
+    ...(snapshot?.textSnapshot
+      ? { stoppedReplyText: snapshot.textSnapshot }
+      : {}),
+  };
 }
 
 export async function readAgentWorkingDetailsForSignal(input: {
@@ -1334,6 +1412,7 @@ async function advanceAgentStreamSequence(input: {
   }
 
   const cursor: AgentStreamCursor = {
+    ...(currentCursor?.recovery ? { recovery: currentCursor.recovery } : {}),
     v: input.event.v,
     spaceId: input.event.spaceId,
     streamId: input.event.streamId,
@@ -1360,6 +1439,7 @@ function createCursorFromSnapshot(
   snapshot: SpaceAgentStreamSnapshot
 ): AgentStreamCursor {
   return {
+    ...(snapshot.recovery ? { recovery: snapshot.recovery } : {}),
     v: snapshot.v,
     spaceId: snapshot.spaceId,
     streamId: snapshot.streamId,
@@ -1390,6 +1470,9 @@ function parseAgentStreamCursor(value: unknown): AgentStreamCursor {
     throw new Error("Stored Agent stream cursor must be an object.");
   }
   const cursor = value as Partial<AgentStreamCursor>;
+  if (cursor.recovery !== undefined) {
+    agentStreamRecoveryPartSchema.parse(cursor.recovery);
+  }
   const stringFields = [
     cursor.spaceId,
     cursor.streamId,

@@ -1,9 +1,13 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readSpaceConversationPosition } from "#/lib/space-conversation-position";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
-import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
+import {
+	listVisibleTimelineEnvelopes,
+	mergeSpaceTimelineEnvelopes,
+} from "#/lib/spaces/timeline";
 import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import {
 	SPACE_HISTORY_SIGNAL_KINDS,
@@ -25,6 +29,10 @@ export function useSpaceHistoryNavigation(input: {
 }) {
 	const queryClient = useQueryClient();
 	const identity = `${input.spaceId}:${input.profileId}`;
+	const visibleSignals = useMemo(
+		() => listVisibleTimelineEnvelopes(input.liveEnvelopes),
+		[input.liveEnvelopes]
+	);
 	const [window, setWindow] = useState<HistoryWindow | null>(null);
 	const [liveBoundary, setLiveBoundary] = useState<{
 		identity: string;
@@ -32,25 +40,26 @@ export function useSpaceHistoryNavigation(input: {
 	} | null>(null);
 	// Keep a stable entry boundary as live messages arrive. An empty bootstrap
 	// must not pin the boundary before the persisted history has been restored.
-	if (liveBoundary?.identity !== identity && input.liveEnvelopes.length > 0) {
-		const first =
-			input.liveEnvelopes[Math.max(0, input.liveEnvelopes.length - 60)];
+	if (liveBoundary?.identity !== identity && visibleSignals.length > 0) {
+		const first = visibleSignals[Math.max(0, visibleSignals.length - 60)];
 		if (first) {
 			setLiveBoundary({ identity, signalId: first.id });
 			const saved = readSpaceConversationPosition(
 				`${input.profileId}:${buildSpaceConversationScrollRestorationId(input.spaceId)}`
 			);
-			const anchor = input.liveEnvelopes.findIndex(
+			const anchor = visibleSignals.findIndex(
 				(item) => item.id === saved?.anchorSignalId
 			);
 			if (
 				window?.identity !== identity &&
+				!saved?.atBottom &&
 				anchor >= 0 &&
-				anchor < input.liveEnvelopes.length - 60
+				anchor < visibleSignals.length - 60
 			) {
 				setWindow({
 					identity,
-					envelopes: input.liveEnvelopes.slice(
+					confirmedAtLiveTail: false,
+					envelopes: visibleSignals.slice(
 						Math.max(0, anchor - 30),
 						anchor + 31
 					),
@@ -67,24 +76,32 @@ export function useSpaceHistoryNavigation(input: {
 		liveBoundary?.identity === identity
 			? Math.max(
 					0,
-					input.liveEnvelopes.findIndex(
-						(item) => item.id === liveBoundary.signalId
-					)
+					visibleSignals.findIndex((item) => item.id === liveBoundary.signalId)
 				)
-			: Math.max(0, input.liveEnvelopes.length - 60);
+			: Math.max(0, visibleSignals.length - 60);
 	const visibleLiveEnvelopes = useMemo(
-		() => input.liveEnvelopes.slice(liveStartIndex),
-		[input.liveEnvelopes, liveStartIndex]
+		() => visibleSignals.slice(liveStartIndex),
+		[visibleSignals, liveStartIndex]
 	);
 	const [pending, setPending] = useState(false);
+	const [pendingDirection, setPendingDirection] = useState<
+		"before" | "after" | undefined
+	>();
 	const [error, setError] = useState<string | null>(null);
+	const [notice, setNotice] = useState<string | null>(null);
+	const [errorDirection, setErrorDirection] = useState<
+		"before" | "after" | undefined
+	>();
 	const flight = useRef<AbortController | null>(null);
 	const currentIdentity = useRef(identity);
 	currentIdentity.current = identity;
 	useEffect(() => {
 		currentIdentity.current = identity;
 		setPending(false);
+		setPendingDirection(undefined);
 		setError(null);
+		setNotice(null);
+		setErrorDirection(undefined);
 		return () => flight.current?.abort();
 	}, [identity]);
 	const api = useCallback(
@@ -110,18 +127,39 @@ export function useSpaceHistoryNavigation(input: {
 				? window
 				: initialHistoryWindow({
 						anchorSignalId: input.initialWindowAnchorSignalId,
-						envelopes: input.liveEnvelopes,
+						envelopes: visibleSignals,
 						identity,
 					});
 		if (!selectedWindow) {
 			return null;
 		}
 		const ids = new Set(selectedWindow.envelopes.map((item) => item.id));
+		const liveTailOverlapIndex = selectedWindow.confirmedAtLiveTail
+			? visibleLiveEnvelopes.findLastIndex((item) => ids.has(item.id))
+			: -1;
+		const newestWindowSignal = selectedWindow.envelopes.at(-1);
+		const newestLiveSignal = visibleLiveEnvelopes.at(-1);
+		const liveTailIsAhead =
+			newestWindowSignal &&
+			newestLiveSignal &&
+			(newestLiveSignal.ts > newestWindowSignal.ts ||
+				(newestLiveSignal.ts === newestWindowSignal.ts &&
+					newestLiveSignal.id > newestWindowSignal.id));
 		return {
 			...selectedWindow,
+			hasAfter:
+				selectedWindow.hasAfter ||
+				(selectedWindow.confirmedAtLiveTail &&
+					liveTailOverlapIndex < 0 &&
+					Boolean(liveTailIsAhead)),
 			envelopes: mergeSpaceTimelineEnvelopes({
 				current: selectedWindow.envelopes,
-				incoming: input.liveEnvelopes.filter((item) => ids.has(item.id)),
+				incoming: [
+					...input.liveEnvelopes.filter((item) => ids.has(item.id)),
+					...(liveTailOverlapIndex >= 0
+						? visibleLiveEnvelopes.slice(liveTailOverlapIndex + 1)
+						: []),
+				],
 			}),
 		};
 	}, [
@@ -129,13 +167,59 @@ export function useSpaceHistoryNavigation(input: {
 		window,
 		input.initialWindowAnchorSignalId,
 		input.liveEnvelopes,
+		visibleSignals,
+		visibleLiveEnvelopes,
 	]);
+	const showLatestForMissingAnchor = async (
+		signal: AbortSignal,
+		isCurrentRequest: () => boolean,
+		direction?: "before" | "after"
+	) => {
+		if (direction) {
+			setError(
+				"This message is no longer available. Open the latest messages to continue."
+			);
+			setErrorDirection(direction);
+			return false;
+		}
+		// Reauthorize the same conversation. Never search other Spaces for
+		// a historical notification's misplaced or removed message id.
+		const latest = await api().listSignalEnvelopes({
+			spaceId: input.spaceId,
+			signal,
+			query: { recent: true, limit: 60, kinds: SPACE_HISTORY_SIGNAL_KINDS },
+		});
+		if (!isCurrentRequest()) {
+			return false;
+		}
+		writeSpaceHistoryEnvelopesToCache({
+			envelopes: latest.envelopes,
+			queryClient,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+		});
+		setWindow({
+			identity,
+			envelopes: latest.envelopes,
+			confirmedAtLiveTail: true,
+			hasBefore: latest.envelopes.length >= 60,
+			hasAfter: false,
+		});
+		setNotice(
+			"This message is no longer available in this conversation. Showing the latest messages."
+		);
+		return "latest" as const;
+	};
 	const readWindow = async (
 		signalId: string,
 		direction?: "before" | "after",
 		signal?: AbortSignal
 	) => {
-		if (signal?.aborted || (direction && flight.current)) {
+		if (
+			input.accessRejected ||
+			signal?.aborted ||
+			(direction && flight.current)
+		) {
 			return false;
 		}
 		flight.current?.abort();
@@ -146,23 +230,38 @@ export function useSpaceHistoryNavigation(input: {
 		const isCurrentRequest = () =>
 			!controller.signal.aborted && currentIdentity.current === identity;
 		setPending(true);
+		setPendingDirection(direction);
 		setError(null);
+		setNotice(null);
+		setErrorDirection(undefined);
 		try {
-			const result = await api().listSignalEnvelopes({
-				spaceId: input.spaceId,
-				signal: controller.signal,
-				query: {
-					aroundSignalId: signalId,
-					beforeCount: direction === "after" ? 0 : 30,
-					afterCount: direction === "before" ? 0 : 30,
-					kinds: SPACE_HISTORY_SIGNAL_KINDS,
-				},
-			});
+			const result = await api()
+				.listSignalEnvelopes({
+					spaceId: input.spaceId,
+					signal: controller.signal,
+					query: {
+						aroundSignalId: signalId,
+						beforeCount: direction === "after" ? 0 : 30,
+						afterCount: direction === "before" ? 0 : 30,
+						kinds: SPACE_HISTORY_SIGNAL_KINDS,
+					},
+				})
+				.catch((failure: unknown) => {
+					const structured = toStructuredApiClientFailure(failure);
+					if (structured.upstreamCode !== "space.signals.anchor_not_found") {
+						throw failure;
+					}
+					return { envelopes: [] };
+				});
 			if (!isCurrentRequest()) {
 				return false;
 			}
 			if (!result.envelopes.some((item) => item.id === signalId)) {
-				throw new Error("This message is no longer available.");
+				return await showLatestForMissingAnchor(
+					controller.signal,
+					isCurrentRequest,
+					direction
+				);
 			}
 			writeSpaceHistoryEnvelopesToCache({
 				envelopes: result.envelopes,
@@ -190,6 +289,7 @@ export function useSpaceHistoryNavigation(input: {
 		} catch (failure) {
 			if (isCurrentRequest()) {
 				setError(navigationErrorMessage(failure));
+				setErrorDirection(direction);
 			}
 			return false;
 		} finally {
@@ -197,22 +297,25 @@ export function useSpaceHistoryNavigation(input: {
 			if (flight.current === controller) {
 				flight.current = null;
 				setPending(false);
+				setPendingDirection(undefined);
 			}
 		}
 	};
 	const latest = () => {
-		const first = input.liveEnvelopes.at(-60);
+		const first = visibleSignals.at(-60);
 		setLiveBoundary(first ? { identity, signalId: first.id } : null);
 		flight.current?.abort();
 		flight.current = null;
 		setWindow(null);
 		setPending(false);
+		setPendingDirection(undefined);
 		setError(null);
+		setErrorDirection(undefined);
 	};
 	const { earlierSignal, newerSignal } = continuationSignals({
 		activeWindow,
 		directoryTotal: directory.data?.total ?? 0,
-		fetchedCount: input.liveEnvelopes.length,
+		fetchedCount: visibleSignals.length,
 		liveStartIndex,
 		visibleLiveEnvelopes,
 	});
@@ -230,7 +333,8 @@ export function useSpaceHistoryNavigation(input: {
 		visibleLiveEnvelopes,
 		hasHiddenLiveHistory: liveStartIndex > 0,
 		revealCachedBefore: (envelopes = input.liveEnvelopes) => {
-			const first = envelopes[Math.max(0, liveStartIndex - 60)];
+			const signals = listVisibleTimelineEnvelopes(envelopes);
+			const first = signals[Math.max(0, liveStartIndex - 60)];
 			setLiveBoundary(first ? { identity, signalId: first.id } : null);
 		},
 		directory: directory.data,
@@ -239,7 +343,10 @@ export function useSpaceHistoryNavigation(input: {
 		retryDirectory: () => directory.refetch(),
 		activeWindow,
 		pending,
+		pendingDirection,
 		error,
+		notice,
+		errorDirection,
 		open: (signalId: string, signal?: AbortSignal) =>
 			readWindow(signalId, undefined, signal),
 		latest,
@@ -277,6 +384,10 @@ function mergeHistoryWindow(
 	return {
 		identity,
 		envelopes: merged,
+		confirmedAtLiveTail:
+			direction === "before" && current?.identity === identity
+				? current.confirmedAtLiveTail
+				: envelopes.length - anchorIndex - 1 < 30,
 		hasBefore:
 			direction === "after" && current?.identity === identity
 				? current.hasBefore
@@ -291,6 +402,7 @@ function mergeHistoryWindow(
 type HistoryWindow = {
 	identity: string;
 	envelopes: readonly SignalEnvelope[];
+	confirmedAtLiveTail: boolean;
 	hasBefore: boolean;
 	hasAfter: boolean;
 };
@@ -338,13 +450,16 @@ function initialHistoryWindow(input: {
 	return {
 		identity: input.identity,
 		envelopes: input.envelopes,
+		confirmedAtLiveTail: false,
 		hasBefore: anchorIndex >= 30,
 		hasAfter: input.envelopes.length - anchorIndex - 1 >= 30,
 	};
 }
 
 function navigationErrorMessage(failure: unknown) {
-	return failure instanceof Error
-		? failure.message
-		: "Couldn’t load this part of the conversation. Try again.";
+	const { status } = toStructuredApiClientFailure(failure);
+	if (status === 401 || status === 403) {
+		return "You don’t have access to this conversation. Return to Inbox to view your other updates.";
+	}
+	return "Couldn’t load this part of the conversation. Try again.";
 }

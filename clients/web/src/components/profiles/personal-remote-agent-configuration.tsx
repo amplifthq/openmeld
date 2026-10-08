@@ -1,5 +1,6 @@
 "use client";
 
+import { HOSTED_REMOTE_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import { BrainIcon, CheckIcon } from "@phosphor-icons/react";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
@@ -40,8 +41,9 @@ export function PersonalRemoteAgentConfiguration(input: {
 					role="img"
 				>
 					<RemoteAgentAvatar
-						animated
+						agentControllerRef={HOSTED_REMOTE_AGENT_CONTROLLER_REF}
 						animateOnHover={false}
+						modelId={modelId}
 						profileName={input.name}
 						size={64}
 					/>

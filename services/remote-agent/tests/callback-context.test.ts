@@ -1362,4 +1362,43 @@ describe("remote agent callback context", () => {
       })
     );
   });
+
+  it("publishes an actionable failure for an explicitly selected Skill that was disabled", async () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal-skill-unavailable",
+      status: "accepted" as const,
+    }));
+
+    await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        error: new Error(
+          "HTTP 403 organization_skill.release_unavailable: The selected Skill release is unavailable or disabled."
+        ),
+        message: { parts: [] },
+        requestId: ACK.requestId,
+        status: "error",
+      },
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "organization_skill.release_unavailable",
+        failureMessage:
+          "A Skill selected for this request is no longer available. Ask an Organization admin to restore it, or send a new request without that Skill.",
+        status: "failed",
+      })
+    );
+  });
 });

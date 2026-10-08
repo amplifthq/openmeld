@@ -14,6 +14,7 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidCardItem } from "@openmeld/ui/fluid/card";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import {
 	SidebarMenuActions,
@@ -27,6 +28,7 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
+import { ProfileMenuItems } from "#/components/app/profile-menu-items";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
 import {
@@ -36,6 +38,8 @@ import {
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryComputerStatusIcon } from "#/components/directory/directory-human-profile-presentation";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationPersonPath } from "#/lib/organizations/organization-routes";
 import type { useSortableSidebarItem } from "../app/sidebar-drag";
 import { SidebarRowAction as PeopleRowAction } from "../app/sidebar-row-action";
 
@@ -55,6 +59,23 @@ export function HumanProfileItem(input: {
 	presentation?: "card" | "sidebar";
 }) {
 	const { dismiss } = useAppNavigationPresentation();
+	const { currentOrganization } = useAppOrganization();
+	const menu = (
+		<ProfileMenuItems
+			disabled={input.actionsDisabled}
+			href={buildOrganizationPersonPath({
+				orgSlug: currentOrganization.slug,
+				personId: input.member.id,
+			})}
+			onChat={input.onChat}
+			onOpen={() => {
+				input.onSelect(input.member.id);
+				dismiss();
+			}}
+			onToggleStar={input.onToggleStar}
+			starred={input.starred}
+		/>
+	);
 	const activityLabel = resolveDirectoryHumanProfileActivityLabel({
 		lastActiveAt: input.member.lastActiveAt,
 		nowMs: input.activityNowMs,
@@ -159,45 +180,57 @@ export function HumanProfileItem(input: {
 	);
 	if (card) {
 		return (
-			<FluidCardItem
-				className="border border-border"
-				itemId={input.member.id}
-				role="listitem"
+			<FluidContextMenu
+				target={
+					<FluidCardItem
+						className="border border-border"
+						itemId={input.member.id}
+						role="listitem"
+					>
+						{row}
+					</FluidCardItem>
+				}
 			>
-				{row}
-			</FluidCardItem>
+				{menu}
+			</FluidContextMenu>
 		);
 	}
 	return (
-		<FluidNavMenuItem
-			className="relative"
-			index={input.index}
-			ref={input.drag?.ref}
-			style={input.drag?.style}
-			value={input.member.id}
-		>
-			{row}
-			{input.onToggleStar && (
-				<SidebarMenuActions showOnHover>
-					{input.onChat && (
-						<PeopleRowAction
-							disabled={input.actionsDisabled}
-							label={`Chat with ${input.member.name}`}
-							onClick={input.onChat}
-						>
-							<ChatCircleTextIcon />
-						</PeopleRowAction>
+		<FluidContextMenu
+			target={
+				<FluidNavMenuItem
+					className="relative"
+					index={input.index}
+					ref={input.drag?.ref}
+					style={input.drag?.style}
+					value={input.member.id}
+				>
+					{row}
+					{input.onToggleStar && (
+						<SidebarMenuActions showOnHover>
+							{input.onChat && (
+								<PeopleRowAction
+									disabled={input.actionsDisabled}
+									label={`Chat with ${input.member.name}`}
+									onClick={input.onChat}
+								>
+									<ChatCircleTextIcon />
+								</PeopleRowAction>
+							)}
+							<PeopleRowAction
+								disabled={input.actionsDisabled}
+								label={`${input.starred ? "Unstar" : "Star"} ${input.member.name}`}
+								onClick={input.onToggleStar}
+							>
+								<StarIcon weight={input.starred ? "fill" : "regular"} />
+							</PeopleRowAction>
+						</SidebarMenuActions>
 					)}
-					<PeopleRowAction
-						disabled={input.actionsDisabled}
-						label={`${input.starred ? "Unstar" : "Star"} ${input.member.name}`}
-						onClick={input.onToggleStar}
-					>
-						<StarIcon weight={input.starred ? "fill" : "regular"} />
-					</PeopleRowAction>
-				</SidebarMenuActions>
-			)}
-		</FluidNavMenuItem>
+				</FluidNavMenuItem>
+			}
+		>
+			{menu}
+		</FluidContextMenu>
 	);
 }
 

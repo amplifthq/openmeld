@@ -37,14 +37,18 @@ function useDesktopSignOutAction() {
 	};
 }
 
-export function DesktopAccountLogOutButton() {
+export function DesktopAccountLogOutButton({
+	variant = "destructive",
+}: {
+	variant?: "destructive" | "outline";
+}) {
 	const signOut = useDesktopSignOutAction();
 	return (
 		<Button
 			disabled={signOut.isPending}
 			onClick={signOut.run}
 			size="sm"
-			variant="destructive"
+			variant={variant}
 		>
 			<SignOutIcon aria-hidden="true" data-icon="inline-start" />
 			{signOut.isPending ? "Logging out…" : "Log out"}
@@ -59,7 +63,7 @@ export function DesktopAccountActions() {
 		<section className="space-y-3">
 			<h2 className="font-medium text-sm">More account settings</h2>
 			<p className="text-muted-foreground text-sm">
-				Manage sign-in and security settings in OpenMeld on the web.
+				Manage sign-in, security, and account deletion in OpenMeld on the web.
 			</p>
 			{openError && (
 				<p className="text-destructive text-sm" role="alert">

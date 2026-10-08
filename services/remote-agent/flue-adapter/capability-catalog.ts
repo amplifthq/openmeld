@@ -44,6 +44,16 @@ type CapabilityCatalogEntry = {
 const CAPABILITY_CATALOG_OVERRIDES: Readonly<
   Record<string, CapabilityCatalogEntry>
 > = {
+  github_publish_computer_file: {
+    aliases: [
+      "publish image to GitHub",
+      "upload screenshot to GitHub",
+      "publish Computer image to GitHub branch",
+      "把电脑里的图片发到 GitHub 分支",
+      "发布一张图到 GitHub 分支",
+    ],
+    namespace: "github",
+  },
   openmeld_connect_agent_profile_to_local_agent: {
     aliases: [
       "connect an Agent Profile to a local agent",
@@ -211,6 +221,8 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     aliases: [
       "install an Organization Skill",
       "install a GitHub Skill",
+      "import a repository of Skills",
+      "resume an interrupted Skill import batch",
       "安装组织技能",
       "安装 GitHub 技能",
     ],
@@ -261,6 +273,21 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
       "coding agent activity overview",
       "current coding work",
     ],
+    dependencies: ["openmeld_list_agent_activity_sessions"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_read_ai_usage: {
+    aliases: [
+      "AI token usage",
+      "model spend",
+      "Local Agent consumption",
+      "组织 AI 用量",
+      "Computer token usage",
+    ],
+    namespace: "organization",
+  },
+  openmeld_read_session_history: {
+    aliases: ["read Codex conversation", "读取本机会话历史"],
     dependencies: ["openmeld_list_agent_activity_sessions"],
     namespace: "agents_and_computers",
   },
@@ -348,6 +375,15 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
   openmeld_watch_agent_task: {
     aliases: ["watch an agent task", "wait for an agent task", "观察代理任务"],
     dependencies: ["openmeld_list_agent_tasks"],
+    namespace: "spaces_and_tasks",
+  },
+  openmeld_continue_task_summary: {
+    aliases: [
+      "continue a failed summary",
+      "summarize existing results",
+      "继续汇总",
+      "基于已有结果汇总",
+    ],
     namespace: "spaces_and_tasks",
   },
   openmeld_list_organization_members: {
