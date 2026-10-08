@@ -576,14 +576,39 @@ the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
 It selects the same profile when a diff expands a strict Remote Agent request
 shape—either with a new request version or an additive field—and changes its
 explicit shared-schema request owner, Core producer/admission owner, and Remote
-Agent Center Agent receiver together. Those three signals distinguish a
-directional request-envelope rollout from a non-directional shared-schema edit.
+Agent Center Agent receiver together. A change to the request-only
+`remote-agent-turn-envelope.ts` and Core's `application/turn-envelope.ts` also
+establishes this direction. The existing Center Agent imports and parses that
+shared strict schema, so its own source file need not change to expand its
+receiver contract.
+
+Execution input has requests and responses in one shared file. When
+`remote-agent-execution-input.ts`, Core's Space producer, and Remote's
+`flue-adapter/execution-input.ts` change together, the planner compares the
+actual request/query, shared identity, and receipt/response declarations against
+the component receipt baseline. A request-only change requires Remote before
+Core. A response-only change requires Core before Remote. An unrelated import
+does not establish either direction. Missing history or a change to both sides
+requires separate receiver stages; the shared file path alone is insufficient.
+
+Gateway's `lib/openmeld-context.ts` produces Core's strict request context.
+A changed `openMeldRequestContextSchema` declaration in `profile-identity.ts`
+therefore requires Core before Gateway. Other declarations in that file do not
+establish this dependency. The planner requires readable schema history for
+this owner pair. Optional Web/CLI time headers remain independent: the old
+Gateway can ignore them without rejecting a request.
 
 Within the selected scopes it deploys Database, Remote Agent, Auth, Core,
 Gateway, Web, then CLI. This installs strict Remote Agent RPC receivers before
 Core callers and keeps a selected CLI unpublished until every cloud receiver is
-ready. Shared schemas and Core's native-delivery service are intentionally not
-directional path signals because they carry contracts in both directions.
+ready. The dependency graph also contains Remote Agent -> CLI for a strict
+request rollout. CLI publication deploys its candidate Core release projection,
+which activates the new Core request producer. Stage admission must block that
+CLI stage while Remote is pending, even if an earlier Core receipt exists. The
+early Core stage preserves the current published CLI projection. This edge
+comes from the Core deployment in CLI publication, not from optional headers.
+Other shared schemas and Core's native-delivery service are not directional
+path signals because they carry contracts in both directions.
 
 Personal cloud Computer has the opposite capability direction: its Remote
 Agent requires Core's account Computer identity response. The planner selects
